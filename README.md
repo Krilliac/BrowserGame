@@ -22,6 +22,21 @@ multiplayer.
 
 That's it. One command, one url, laptop or phone.
 
+### Host it from anywhere (Cloudflare Tunnel)
+
+To share your game over the internet — host from your PC and connect from any device — run:
+
+```bash
+npm run host
+```
+
+This builds the client + server, serves both on one port, and opens a free
+**[trycloudflare](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)**
+tunnel (no Cloudflare account needed). Watch for the printed
+`https://<something>.trycloudflare.com` URL and open it anywhere — the WebSocket rides the same
+https origin automatically. Stop with `Ctrl+C`. If your network blocks QUIC, use
+`TUNNEL_PROTOCOL=http2 npm run host`.
+
 The world is an **open world split into instanced areas** (town → wilderness → crypt). By default
 instances scale with player load; for quick testing, `INSTANCING=single npm run dev` keeps
 everything in one instance per area. See

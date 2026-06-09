@@ -14,16 +14,27 @@ wherever you are — no separate API host to configure on mobile.
 2. Find your computer's LAN IP (e.g. `192.168.1.20`).
 3. On your phone, open `http://192.168.1.20:5173`.
 
-## Remotely (away from home)
+## Remotely (away from home) — one command
 
-Put a tunnel in front of port `5173`:
+The easiest way to host from your PC and connect from anywhere:
 
-- **Cloudflare Tunnel**: `cloudflared tunnel --url http://localhost:5173`
-- **ngrok**: `ngrok http 5173`
-- or your host/provider's port forwarding.
+```bash
+npm run host
+```
 
-Because `/ws` is same-origin and proxied, the WebSocket rides through the tunnel automatically —
-you still only open one url. Over HTTPS tunnels the client auto-selects `wss://`.
+This builds the game, serves the client **and** WebSocket on one port (default `8080`), and opens a
+free **Cloudflare quick tunnel** (`*.trycloudflare.com`) — no account, no config. Open the printed
+`https://….trycloudflare.com` URL on any device. The client connects to `/ws` on the same https
+origin, so it "just works" over the tunnel (auto-selecting `wss://`). Stop with `Ctrl+C`.
+
+- Network blocks QUIC? `TUNNEL_PROTOCOL=http2 npm run host`.
+- Just the tunnel against an already-running server: `PORT=8080 npm run tunnel`.
+
+### Other options
+
+- **Same machine, dev mode tunnel:** `cloudflared tunnel --url http://localhost:5173` (Vite),
+  or **ngrok**: `ngrok http 5173`.
+- **Port forwarding** on your router/provider also works — point it at the host port.
 
 ## Developing from a phone via Claude Code on the web
 

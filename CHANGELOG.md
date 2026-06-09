@@ -8,6 +8,10 @@ versioning once it stabilizes.
 
 ### Added
 
+- **One-command hosting (`npm run host`)** — builds + serves the game on one port and opens a free
+  Cloudflare quick tunnel (`*.trycloudflare.com`), giving a public https URL to play from anywhere.
+  `scripts/tunnel.mjs` + the `cloudflared` dev dependency; QUIC-blocked networks can set
+  `TUNNEL_PROTOCOL=http2`.
 - **Combat feedback & ambiance** — red hit-flash on damage, status tints (blue=slow, orange=burn),
   per-area atmospheric screen tint, and a respawn countdown on the death overlay.
 - **New abilities** — Heal (self, hotbar 5) and Lightning (fast projectile, hotbar 6); the hotbar
