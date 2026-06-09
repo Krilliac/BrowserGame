@@ -19,11 +19,12 @@ import type { TimedFx } from './draw.js';
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
  * plane (x, y); we project to screen with a vertical foreshorten (PITCH). Actors are LPC sprite
- * sheets animated by `facing` (with a procedural-orb fallback), drawn over ground shadows and
- * y-sorted so nearer things overlap farther ones.
+ * sheets animated by `facing`; projectiles/items/impacts use sourced sprite strips — all with a
+ * procedural fallback. Everything is y-sorted so nearer things overlap farther ones.
  */
 const PITCH = 0.64;
 const FX_DURATION = 700;
+const EXPLOSION_MS = 600;
 const WALK_FRAME_MS = 120;
 
 interface Biome {
@@ -53,9 +54,7 @@ interface Sheet {
   fw: number;
   fh: number;
   scale: number;
-  /** Sheet row for each facing direction. */
   rows: Record<Dir, number>;
-  /** Columns cycled while moving. */
   walkCols: number[];
   idleCol: number;
 }
@@ -99,6 +98,19 @@ const SHEETS: Record<string, Sheet> = {
   },
 };
 
+/** Misc single/strip textures (spell FX + item icons). */
+const MISC: Record<string, string> = {
+  fx_fireball: '/assets/ui/fx/spell_fireball.png', // 96x16 -> 6 frames
+  fx_frost: '/assets/ui/fx/spell_ice_lance.png', // 64x16 -> 4 frames
+  fx_explosion: '/assets/ui/fx/explosion-cuzco.png', // 256x256 -> 4x4 @64
+  item_gold: '/assets/ui/items/coin_gold.png', // 32x32
+  item_gem: '/assets/ui/items/gem_crystal_shard.png', // 32x32
+};
+const PROJ_STRIP: Record<string, { alias: string; frames: number }> = {
+  fireball: { alias: 'fx_fireball', frames: 6 },
+  frost: { alias: 'fx_frost', frames: 4 },
+};
+
 function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) | 0;
   h = (h ^ (h >> 13)) * 1274126177;
@@ -132,11 +144,9 @@ export interface RenderState {
 
 interface ActorView {
   container: Container;
-  shadow: Graphics;
   sprite?: Sprite;
   orb?: Graphics;
-  dyn: Graphics;
-  label?: Text;
+  dyn?: Graphics;
   sheet?: Sheet;
   topY: number;
   lastX: number;
@@ -152,10 +162,11 @@ export class PixiRenderer {
   private readonly fxLayer = new Container();
   private readonly fxGfx = new Graphics();
   private readonly fxTexts: Text[] = [];
+  private readonly explosionPool: Sprite[] = [];
   private readonly views = new Map<number, ActorView>();
   private currentArea = '';
   private readonly groundTextures = new Map<string, Texture>();
-  private readonly sheetTex = new Map<string, Texture>();
+  private readonly tex = new Map<string, Texture>(); // sheets + misc
   private readonly frameCache = new Map<string, Texture>();
 
   constructor(private readonly app: Application) {
@@ -167,18 +178,20 @@ export class PixiRenderer {
     app.stage.addChild(this.ground, this.world);
   }
 
-  /** Load sprite sheets. Falls back to procedural orbs if loading fails. */
+  /** Load sprite sheets + FX/item textures. Falls back to procedural shapes on failure. */
   async loadAssets(): Promise<void> {
+    const all = {
+      ...Object.fromEntries(Object.entries(SHEETS).map(([a, s]) => [a, s.src])),
+      ...MISC,
+    };
     try {
-      const entries = await Assets.load(
-        Object.entries(SHEETS).map(([alias, s]) => ({ alias, src: s.src })),
-      );
-      for (const alias of Object.keys(SHEETS)) {
-        const tex = (entries as Record<string, Texture>)[alias];
-        if (tex) this.sheetTex.set(alias, tex);
+      const loaded = await Assets.load(Object.entries(all).map(([alias, src]) => ({ alias, src })));
+      for (const alias of Object.keys(all)) {
+        const t = (loaded as Record<string, Texture>)[alias];
+        if (t) this.tex.set(alias, t);
       }
     } catch {
-      // leave sheetTex empty -> orb fallback
+      // leave tex empty -> procedural fallback
     }
   }
 
@@ -260,7 +273,6 @@ export class PixiRenderer {
     view.container.position.set(e.x, e.y * PITCH);
     view.container.zIndex = e.y;
 
-    // Animate sprite by facing + movement.
     if (view.sprite && view.sheet) {
       const moving = Math.hypot(e.x - view.lastX, e.y - view.lastY) > 0.25;
       const sheet = view.sheet;
@@ -268,19 +280,17 @@ export class PixiRenderer {
       const col = moving
         ? sheet.walkCols[Math.floor(performance.now() / WALK_FRAME_MS) % sheet.walkCols.length]!
         : sheet.idleCol;
-      view.sprite.texture = this.frame(sheetKey(e)!, sheet, col, row);
+      view.sprite.texture = this.frame(sheetKey(e)!, sheet.fw, sheet.fh, col, row);
     }
     view.lastX = e.x;
     view.lastY = e.y;
 
-    // Health bar.
-    const d = view.dyn;
-    d.clear();
-    if (e.maxHp > 0) {
+    if (view.dyn && e.maxHp > 0) {
       const bw = (e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS) * 2.4;
       const frac = Math.max(0, Math.min(1, e.hp / e.maxHp));
-      d.rect(-bw / 2, view.topY - 6, bw, 4).fill({ color: '#000000', alpha: 0.6 });
-      d.rect(-bw / 2, view.topY - 6, bw * frac, 4).fill({
+      view.dyn.clear();
+      view.dyn.rect(-bw / 2, view.topY - 6, bw, 4).fill({ color: '#000000', alpha: 0.6 });
+      view.dyn.rect(-bw / 2, view.topY - 6, bw * frac, 4).fill({
         color: e.kind === 'mob' ? '#cc4444' : '#4caf50',
       });
     }
@@ -291,16 +301,16 @@ export class PixiRenderer {
     const radius = e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS;
     const shadow = new Graphics();
     shadow.ellipse(0, 0, radius, radius * 0.5).fill({ color: '#000000', alpha: 0.35 });
-    if (isSelf)
+    if (isSelf) {
       shadow.ellipse(0, 0, radius + 3, radius * 0.5 + 2).stroke({ width: 2, color: '#c9a24b' });
+    }
     container.addChild(shadow);
 
     const key = sheetKey(e);
     const sheet = key ? SHEETS[key] : undefined;
-    const baseTex = key ? this.sheetTex.get(key) : undefined;
+    const baseTex = key ? this.tex.get(key) : undefined;
     const view: ActorView = {
       container,
-      shadow,
       dyn: new Graphics(),
       topY: -radius * 2.6,
       lastX: e.x,
@@ -310,7 +320,7 @@ export class PixiRenderer {
 
     if (sheet && baseTex) {
       const sprite = new Sprite(
-        this.frame(key!, sheet, sheet.idleCol, sheet.rows[dirOf(e.facing)]),
+        this.frame(key!, sheet.fw, sheet.fh, sheet.idleCol, sheet.rows[dirOf(e.facing)]),
       );
       sprite.anchor.set(0.5, 0.92);
       sprite.scale.set(sheet.scale);
@@ -319,7 +329,6 @@ export class PixiRenderer {
       view.topY = -sheet.fh * sheet.scale * 0.85;
       container.addChild(sprite);
     } else {
-      // Procedural orb fallback.
       const orb = new Graphics();
       const raise = radius * 1.2;
       const light = e.kind === 'mob' ? 44 : 56;
@@ -340,19 +349,19 @@ export class PixiRenderer {
     });
     label.anchor.set(0.5, 1);
     label.position.set(0, view.topY - 8);
-    view.label = label;
-    container.addChild(view.dyn, label);
+    container.addChild(view.dyn!, label);
     return view;
   }
 
-  private frame(alias: string, sheet: Sheet, col: number, row: number): Texture {
+  private frame(alias: string, fw: number, fh: number, col: number, row: number): Texture {
     const key = `${alias}:${col}:${row}`;
     let t = this.frameCache.get(key);
     if (!t) {
-      const base = this.sheetTex.get(alias)!;
+      const base = this.tex.get(alias);
+      if (!base) return Texture.WHITE;
       t = new Texture({
         source: base.source as TextureSource,
-        frame: new Rectangle(col * sheet.fw, row * sheet.fh, sheet.fw, sheet.fh),
+        frame: new Rectangle(col * fw, row * fh, fw, fh),
       });
       this.frameCache.set(key, t);
     }
@@ -363,55 +372,68 @@ export class PixiRenderer {
     const ability = e.abilityId ? ABILITIES[e.abilityId] : undefined;
     const color = (ability?.color ?? '#ffffff') as ColorSource;
     const radius = ability?.radius ?? 6;
+    const strip = e.abilityId ? PROJ_STRIP[e.abilityId] : undefined;
+    const hasStrip = strip ? this.tex.has(strip.alias) : false;
+
     let view = this.views.get(e.id);
     if (!view) {
       const container = new Container();
-      const base = new Graphics();
-      if (e.abilityId === 'arrow') {
-        base.moveTo(-10, 0).lineTo(10, 0).stroke({ width: 3, color });
+      view = { container, topY: 0, lastX: e.x, lastY: e.y, seen: true };
+      if (strip && hasStrip) {
+        const s = new Sprite(this.frame(strip.alias, 16, 16, 0, 0));
+        s.anchor.set(0.5);
+        s.scale.set(2.2);
+        view.sprite = s;
+        container.addChild(s);
       } else {
-        base.circle(0, 0, radius * 2).fill({ color, alpha: 0.25 });
-        base.circle(0, 0, radius).fill({ color });
+        const base = new Graphics();
+        if (e.abilityId === 'arrow') base.moveTo(-10, 0).lineTo(10, 0).stroke({ width: 3, color });
+        else {
+          base.circle(0, 0, radius * 2).fill({ color, alpha: 0.25 });
+          base.circle(0, 0, radius).fill({ color });
+        }
+        view.orb = base;
+        container.addChild(base);
       }
-      container.addChild(base);
-      view = {
-        container,
-        shadow: base,
-        orb: base,
-        dyn: base,
-        topY: 0,
-        lastX: e.x,
-        lastY: e.y,
-        seen: true,
-      };
       this.actorLayer.addChild(container);
       this.views.set(e.id, view);
     }
     view.seen = true;
     view.container.position.set(e.x, e.y * PITCH - 10);
     view.container.zIndex = e.y + 5000;
-    if (e.abilityId === 'arrow' && view.orb) view.orb.rotation = e.facing;
+    if (view.sprite && strip && hasStrip) {
+      const f = Math.floor(performance.now() / 80) % strip.frames;
+      view.sprite.texture = this.frame(strip.alias, 16, 16, f, 0);
+      view.sprite.rotation = e.facing;
+    } else if (e.abilityId === 'arrow' && view.orb) {
+      view.orb.rotation = e.facing;
+    }
   }
 
   private updateItem(e: EntityState): void {
     const color = ITEM_COLORS[e.itemId ?? ''] ?? '#cccccc';
+    const alias =
+      e.itemId === 'gold' ? 'item_gold' : e.itemId === 'rune_shard' ? 'item_gem' : undefined;
     let view = this.views.get(e.id);
     if (!view) {
       const container = new Container();
-      const base = new Graphics();
-      base.ellipse(0, 0, 8, 4).fill({ color: '#000000', alpha: 0.3 });
-      base.circle(0, -8, 9).fill({ color, alpha: 0.25 });
-      base.circle(0, -8, 4).fill({ color });
-      container.addChild(base);
-      view = {
-        container,
-        shadow: base,
-        dyn: base,
-        topY: 0,
-        lastX: e.x,
-        lastY: e.y,
-        seen: true,
-      };
+      const shadow = new Graphics();
+      shadow.ellipse(0, 0, 8, 4).fill({ color: '#000000', alpha: 0.3 });
+      container.addChild(shadow);
+      view = { container, topY: 0, lastX: e.x, lastY: e.y, seen: true };
+      if (alias && this.tex.has(alias)) {
+        const s = new Sprite(this.tex.get(alias)!);
+        s.anchor.set(0.5, 0.85);
+        s.scale.set(0.6);
+        view.sprite = s;
+        container.addChild(s);
+      } else {
+        const base = new Graphics();
+        base.circle(0, -8, 9).fill({ color, alpha: 0.25 });
+        base.circle(0, -8, 4).fill({ color });
+        view.orb = base;
+        container.addChild(base);
+      }
       this.actorLayer.addChild(container);
       this.views.set(e.id, view);
     }
@@ -424,7 +446,9 @@ export class PixiRenderer {
     const g = this.fxGfx;
     g.clear();
     const now = performance.now();
+    const hasExplosion = this.tex.has('fx_explosion');
     let ti = 0;
+    let ei = 0;
     for (const { ev, t0 } of fx) {
       const age = (now - t0) / FX_DURATION;
       if (age >= 1) continue;
@@ -449,10 +473,20 @@ export class PixiRenderer {
         const c = ev.abilityId ? ABILITIES[ev.abilityId]!.color : '#ffffff';
         g.circle(x, y - 16, 16 + age * 18).stroke({ width: 2, color: c, alpha: alpha * 0.7 });
       } else if (ev.kind === 'death') {
-        g.circle(x, y - 10, 10 + age * 40).stroke({ width: 3, color: '#ccaaaa', alpha });
+        const da = (now - t0) / EXPLOSION_MS;
+        if (hasExplosion && da < 1) {
+          const s = this.explosion(ei++);
+          s.visible = true;
+          const f = Math.min(15, Math.floor(da * 16));
+          s.texture = this.frame('fx_explosion', 64, 64, f % 4, Math.floor(f / 4));
+          s.position.set(x, y - 16);
+        } else if (!hasExplosion) {
+          g.circle(x, y - 10, 10 + age * 40).stroke({ width: 3, color: '#ccaaaa', alpha });
+        }
       }
     }
     for (let i = ti; i < this.fxTexts.length; i++) this.fxTexts[i]!.visible = false;
+    for (let i = ei; i < this.explosionPool.length; i++) this.explosionPool[i]!.visible = false;
   }
 
   private fxText(i: number): Text {
@@ -467,6 +501,18 @@ export class PixiRenderer {
       this.fxLayer.addChild(t);
     }
     return t;
+  }
+
+  private explosion(i: number): Sprite {
+    let s = this.explosionPool[i];
+    if (!s) {
+      s = new Sprite(this.frame('fx_explosion', 64, 64, 0, 0));
+      s.anchor.set(0.5);
+      s.scale.set(1.1);
+      this.explosionPool[i] = s;
+      this.fxLayer.addChild(s);
+    }
+    return s;
   }
 
   private makeProp(kind: Biome['prop'], x: number, y: number): Container {
