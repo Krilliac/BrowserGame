@@ -20,6 +20,7 @@ export interface SelfStats {
   xpNext: number;
   gold: number;
   loot: Record<string, number>;
+  respawnIn: number;
 }
 
 const MAX_CHAT_LINES = 50;
@@ -47,6 +48,7 @@ export class Net {
     xpNext: 100,
     gold: 0,
     loot: {},
+    respawnIn: 0,
   };
   selfId = 0;
   connected = false;
@@ -122,6 +124,7 @@ export class Net {
           xpNext: msg.xpNext,
           gold: msg.gold,
           loot: msg.loot,
+          respawnIn: msg.respawnIn,
         };
         break;
       case 'area_changed':

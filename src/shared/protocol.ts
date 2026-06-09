@@ -49,6 +49,8 @@ export interface EntityState {
   /** Items only: dropped item id + quantity. */
   itemId?: string;
   qty?: number;
+  /** Status bitflags for rendering tints (1 = slowed, 2 = burning). */
+  flags?: number;
 }
 
 /** Directional intent for one frame, normalized to -1..1 on each axis. */
@@ -88,6 +90,8 @@ export type ServerMessage =
       gold: number;
       /** Non-gold loot held: item id -> quantity. */
       loot: Record<string, number>;
+      /** Milliseconds until respawn while dead (0 when alive). */
+      respawnIn: number;
     }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }

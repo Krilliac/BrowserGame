@@ -470,7 +470,8 @@ export class World {
     }
     for (const m of this.mobs.values()) {
       if (m.dead) continue;
-      out.push({
+      const flags = (m.statuses.has('slow') ? 1 : 0) | (m.statuses.has('burn') ? 2 : 0);
+      const mob: EntityState = {
         id: m.id,
         x: m.x,
         y: m.y,
@@ -481,7 +482,9 @@ export class World {
         hp: Math.ceil(m.hp),
         maxHp: m.maxHp,
         level: m.level,
-      });
+      };
+      if (flags > 0) mob.flags = flags;
+      out.push(mob);
     }
     for (const proj of this.projectiles.values()) {
       out.push({
@@ -538,6 +541,7 @@ export class World {
         xpNext: number;
         gold: number;
         loot: Record<string, number>;
+        respawnIn: number;
       }
     | undefined {
     const p = this.players.get(id);
@@ -555,6 +559,7 @@ export class World {
       xpNext: progress.neededForNext,
       gold: p.gold,
       loot: Object.fromEntries(p.loot),
+      respawnIn: p.dead ? Math.max(0, Math.ceil(p.respawnAt - this.now)) : 0,
     };
   }
 

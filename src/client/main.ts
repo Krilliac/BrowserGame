@@ -272,7 +272,8 @@ function drawHud(): void {
     hud.fillStyle = '#e7d9b0';
     hud.font = 'bold 32px system-ui, sans-serif';
     hud.textAlign = 'center';
-    hud.fillText('You died — respawning…', w / 2, h / 2);
+    const secs = Math.max(0, net.you.respawnIn / 1000).toFixed(1);
+    hud.fillText(`You died — respawning in ${secs}s`, w / 2, h / 2);
   }
 }
 

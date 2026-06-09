@@ -111,6 +111,19 @@ const PROJ_STRIP: Record<string, { alias: string; frames: number }> = {
   frost: { alias: 'fx_frost', frames: 4 },
 };
 
+/** Per-area ambient screen tint for mood. */
+const ATMOSPHERE: Record<string, { color: number; alpha: number }> = {
+  town: { color: 0xffdca8, alpha: 0.05 },
+  wilderness: { color: 0x4a6a4a, alpha: 0.1 },
+  crypt: { color: 0x203050, alpha: 0.34 },
+};
+
+const FLASH_MS = 150;
+const TINT_NORMAL = 0xffffff;
+const TINT_FLASH = 0xff5555;
+const TINT_BURN = 0xffaa55;
+const TINT_SLOW = 0x88bbff;
+
 function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) | 0;
   h = (h ^ (h >> 13)) * 1274126177;
@@ -151,6 +164,8 @@ interface ActorView {
   topY: number;
   lastX: number;
   lastY: number;
+  lastHp: number;
+  flashUntil: number;
   seen: boolean;
 }
 
@@ -160,6 +175,7 @@ export class PixiRenderer {
   private readonly propLayer = new Container();
   private readonly actorLayer = new Container();
   private readonly fxLayer = new Container();
+  private readonly atmosphere = new Graphics();
   private readonly fxGfx = new Graphics();
   private readonly fxTexts: Text[] = [];
   private readonly explosionPool: Sprite[] = [];
@@ -175,7 +191,8 @@ export class PixiRenderer {
     this.propLayer.sortableChildren = true;
     this.world.addChild(this.propLayer, this.actorLayer, this.fxLayer);
     this.fxLayer.addChild(this.fxGfx);
-    app.stage.addChild(this.ground, this.world);
+    this.atmosphere.eventMode = 'none';
+    app.stage.addChild(this.ground, this.world, this.atmosphere);
   }
 
   /** Load sprite sheets + FX/item textures. Falls back to procedural shapes on failure. */
@@ -246,6 +263,10 @@ export class PixiRenderer {
     this.ground.height = sh;
     this.ground.tilePosition.set(sw / 2 - state.camX, sh / 2 - state.camY * PITCH);
 
+    const atm = ATMOSPHERE[state.areaId] ?? ATMOSPHERE.wilderness!;
+    this.atmosphere.clear();
+    this.atmosphere.rect(0, 0, sw, sh).fill({ color: atm.color, alpha: atm.alpha });
+
     for (const view of this.views.values()) view.seen = false;
     for (const e of state.entities) {
       if (e.kind === 'projectile') this.updateProjectile(e);
@@ -285,6 +306,22 @@ export class PixiRenderer {
     view.lastX = e.x;
     view.lastY = e.y;
 
+    // Hit-flash on HP drop, else status tint (burn > slow).
+    const now = performance.now();
+    if (e.hp < view.lastHp) view.flashUntil = now + FLASH_MS;
+    view.lastHp = e.hp;
+    if (view.sprite) {
+      const flags = e.flags ?? 0;
+      view.sprite.tint =
+        now < view.flashUntil
+          ? TINT_FLASH
+          : flags & 2
+            ? TINT_BURN
+            : flags & 1
+              ? TINT_SLOW
+              : TINT_NORMAL;
+    }
+
     if (view.dyn && e.maxHp > 0) {
       const bw = (e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS) * 2.4;
       const frac = Math.max(0, Math.min(1, e.hp / e.maxHp));
@@ -315,6 +352,8 @@ export class PixiRenderer {
       topY: -radius * 2.6,
       lastX: e.x,
       lastY: e.y,
+      lastHp: e.hp,
+      flashUntil: 0,
       seen: true,
     };
 
@@ -378,7 +417,7 @@ export class PixiRenderer {
     let view = this.views.get(e.id);
     if (!view) {
       const container = new Container();
-      view = { container, topY: 0, lastX: e.x, lastY: e.y, seen: true };
+      view = { container, topY: 0, lastX: e.x, lastY: e.y, lastHp: 0, flashUntil: 0, seen: true };
       if (strip && hasStrip) {
         const s = new Sprite(this.frame(strip.alias, 16, 16, 0, 0));
         s.anchor.set(0.5);
@@ -420,7 +459,7 @@ export class PixiRenderer {
       const shadow = new Graphics();
       shadow.ellipse(0, 0, 8, 4).fill({ color: '#000000', alpha: 0.3 });
       container.addChild(shadow);
-      view = { container, topY: 0, lastX: e.x, lastY: e.y, seen: true };
+      view = { container, topY: 0, lastX: e.x, lastY: e.y, lastHp: 0, flashUntil: 0, seen: true };
       if (alias && this.tex.has(alias)) {
         const s = new Sprite(this.tex.get(alias)!);
         s.anchor.set(0.5, 0.85);
