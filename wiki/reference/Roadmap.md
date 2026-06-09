@@ -39,6 +39,7 @@
 - [x] Spell-FX sprites (fireball/frost strips + explosion on death) and item-icon sprites
       (coin/gem) wired into the renderer with procedural fallbacks.
 - [x] Inventory panel — non-gold loot now sent in the `you` message and shown in a HUD "Bag".
+- [x] Minimap — circular HUD minimap with player/mobs/players/loot/portals + compass.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
 - [ ] Tilemap ground from hand-authored Tiled maps (the bundled tiles suit authored maps better
       than a single-tile fill; procedural ground kept for now).

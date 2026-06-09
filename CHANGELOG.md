@@ -8,6 +8,9 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Minimap** — a RuneScape-style circular minimap (HUD overlay) showing the player centered, nearby
+  monsters (red), players (blue), loot (gold), and the area's portals (gold markers), with a compass
+  and edge-clamping for off-screen markers.
 - **Sprite characters + sound** — wired the sourced CC0/CC-BY assets in: actors now render as
   **LPC sprite sheets** (hero, wolf, skeleton, bat) animated by `facing` with idle/walk frames and
   a procedural-orb fallback (`src/client/pixi-renderer.ts`), and a **sound manager**

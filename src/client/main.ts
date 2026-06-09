@@ -263,6 +263,7 @@ function drawHud(): void {
 
   input.hudRect = { x: panelX - 6, y: h - 108, w: panelW + 12, h: 104 };
 
+  drawMinimap(w);
   drawInventory(w);
 
   if (net.you.dead) {
@@ -279,13 +280,93 @@ function prettyItem(id: string): string {
   return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const MINIMAP_SIZE = 160;
+
+function drawMinimap(w: number): void {
+  const size = MINIMAP_SIZE;
+  const cx = w - size / 2 - 8;
+  const cy = 44 + size / 2;
+  const radius = size / 2;
+  const worldR = 900; // world units shown from edge to edge-ish
+  const scale = (radius - 6) / worldR;
+
+  const plot = (dx: number, dy: number, color: string, r: number, square: boolean): void => {
+    const dist = Math.hypot(dx, dy);
+    let mx = cx + dx * scale;
+    let my = cy + dy * scale;
+    if (dist > worldR) {
+      const a = Math.atan2(dy, dx);
+      mx = cx + Math.cos(a) * (radius - 6);
+      my = cy + Math.sin(a) * (radius - 6);
+    }
+    hud.fillStyle = color;
+    if (square) {
+      hud.fillRect(mx - r, my - r, r * 2, r * 2);
+    } else {
+      hud.beginPath();
+      hud.arc(mx, my, r, 0, Math.PI * 2);
+      hud.fill();
+    }
+  };
+
+  hud.save();
+  hud.beginPath();
+  hud.arc(cx, cy, radius, 0, Math.PI * 2);
+  hud.closePath();
+  hud.fillStyle = 'rgba(0,0,0,0.55)';
+  hud.fill();
+  hud.clip();
+
+  if (self) {
+    const area = areaOf(net.areaId);
+    if (area) {
+      for (const p of area.portals) {
+        plot(
+          p.rect.x + p.rect.w / 2 - self.x,
+          p.rect.y + p.rect.h / 2 - self.y,
+          '#e7d9b0',
+          4,
+          true,
+        );
+      }
+    }
+    for (const e of entities) {
+      if (e.id === net.selfId) continue;
+      const color =
+        e.kind === 'mob'
+          ? '#e05555'
+          : e.kind === 'player'
+            ? '#5fa8e0'
+            : e.kind === 'item'
+              ? '#f2c14e'
+              : '';
+      if (color) plot(e.x - self.x, e.y - self.y, color, 3, false);
+    }
+    hud.fillStyle = '#c9a24b';
+    hud.beginPath();
+    hud.arc(cx, cy, 3.5, 0, Math.PI * 2);
+    hud.fill();
+  }
+  hud.restore();
+
+  hud.strokeStyle = 'rgba(201,162,75,0.7)';
+  hud.lineWidth = 2;
+  hud.beginPath();
+  hud.arc(cx, cy, radius, 0, Math.PI * 2);
+  hud.stroke();
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 11px system-ui, sans-serif';
+  hud.textAlign = 'center';
+  hud.fillText('N', cx, cy - radius + 12);
+}
+
 function drawInventory(w: number): void {
   const items = Object.entries(net.you.loot).filter(([, n]) => n > 0);
   if (items.length === 0) return;
   const pw = 156;
   const ph = 24 + items.length * 16;
   const px = w - pw - 8;
-  const py = 44;
+  const py = 44 + MINIMAP_SIZE + 8;
   hud.fillStyle = 'rgba(0,0,0,0.5)';
   hud.fillRect(px, py, pw, ph);
   hud.strokeStyle = 'rgba(201,162,75,0.6)';
