@@ -14,6 +14,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Reward + combat audio (procedurally synthesized)** — the silent dopamine channel now has sound,
+  with **no audio assets** required: `src/client/sound.ts` synthesizes one-shot SFX via the Web Audio
+  API (oscillator blips/chords/arpeggios) and maps them to FX events — a punchy hit, a ringing crit,
+  a coin ka-ching on gold, a rising fanfare on level-up, a heavy boom on the Crypt Lord's slam, a
+  death thud, and a whoosh for enemy shots. Ambient area loops (bundled files) are unchanged.
 - **More enemy archetypes — chargers + AoE slam** — two new attack patterns built on the telegraph
   system. **Chargers** (new **Gloom Boar**, wilderness) close in, wind up, then **dash** through
   their target along a locked line, striking each player they pass (dodge by leaving the line). The
