@@ -153,5 +153,7 @@ export interface FxEvent {
   facing?: number;
   /** Damage amount for 'hit'. */
   value?: number;
+  /** 'hit' only: true if the strike was a critical hit (client renders it bigger). */
+  crit?: boolean;
   abilityId?: AbilityId;
 }

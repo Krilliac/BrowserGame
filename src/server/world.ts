@@ -20,7 +20,14 @@ import {
   type FxEvent,
 } from '../shared/combat.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
-import { attackRoll, defenceRoll, rollDamage, rolledHit } from './combat-formulas.js';
+import {
+  applyCrit,
+  attackRoll,
+  defenceRoll,
+  rollCrit,
+  rollDamage,
+  rolledHit,
+} from './combat-formulas.js';
 import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
@@ -463,8 +470,10 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
-          const dmg = rollAbilityDamage(player.level, mob.level, ability.damage + player.power);
-          this.damageMob(mob, dmg, abilityId, player.id);
+          const base = rollAbilityDamage(player.level, mob.level, ability.damage + player.power);
+          const crit = base > 0 && rollCrit();
+          const dmg = applyCrit(base, crit);
+          this.damageMob(mob, dmg, abilityId, player.id, crit);
           if (dmg > 0) applyStatus(mob, abilityId);
         }
       }
@@ -572,8 +581,10 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
-          const dmg = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
-          this.damageMob(mob, dmg, proj.abilityId, proj.ownerId);
+          const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
+          const crit = base > 0 && rollCrit();
+          const dmg = applyCrit(base, crit);
+          this.damageMob(mob, dmg, proj.abilityId, proj.ownerId, crit);
           if (dmg > 0) applyStatus(mob, proj.abilityId);
           consumed = true;
           break;
@@ -604,11 +615,13 @@ export class World {
     amount: number,
     abilityId: AbilityId | undefined,
     attackerId: number,
+    crit = false,
   ): void {
     if (attackerId !== 0) mob.lastAttacker = attackerId;
     mob.hp -= amount;
     const hit: FxEvent = { kind: 'hit', x: mob.x, y: mob.y, value: Math.ceil(amount) };
     if (abilityId !== undefined) hit.abilityId = abilityId;
+    if (crit) hit.crit = true;
     this.events.push(hit);
     if (mob.hp <= 0) {
       mob.dead = true;

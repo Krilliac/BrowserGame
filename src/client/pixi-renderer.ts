@@ -630,16 +630,21 @@ export class PixiRenderer {
       const alpha = 1 - age;
       if (ev.kind === 'hit' && ev.value !== undefined) {
         const t = this.fxText(ti++);
+        const crit = ev.crit === true && ev.value > 0;
         t.visible = true;
-        t.text = ev.value === 0 ? 'miss' : `${ev.value}`;
+        t.text = ev.value === 0 ? 'miss' : crit ? `${ev.value}!` : `${ev.value}`;
+        t.style.fontSize = crit ? 26 : 16;
         t.style.fill =
           ev.value === 0
             ? '#9bbbbb'
-            : ev.abilityId
-              ? (this.content.ability(ev.abilityId)?.color ?? '#ffee66')
-              : '#ffee66';
+            : crit
+              ? '#ff5a3c' // crits pop in hot orange-red
+              : ev.abilityId
+                ? (this.content.ability(ev.abilityId)?.color ?? '#ffee66')
+                : '#ffee66';
         t.alpha = alpha;
-        t.position.set(x, y - 50 - age * 26);
+        // Crits float higher and faster so they read as a bigger moment.
+        t.position.set(x, y - 50 - age * (crit ? 40 : 26));
       } else if (ev.kind === 'melee' && ev.facing !== undefined) {
         g.arc(x, y - 16, 40, ev.facing - 0.7, ev.facing + 0.7).stroke({
           width: 4,

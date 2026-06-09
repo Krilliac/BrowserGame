@@ -14,6 +14,19 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Critical hits** — every attack now has a base 15% chance to critically strike for 2× damage
+  (`rollCrit` / `applyCrit`, `src/server/combat-formulas.ts`). The authoritative server rolls the
+  crit per hit and flags the `hit` FX event (`crit`); the client renders crit numbers larger, in a
+  hot orange-red, with a trailing `!`, floating higher so they read as a bigger moment
+  (`src/client/pixi-renderer.ts`). Crit chance is designed to become an item affix.
+- **Scrollable chat log** — the chat panel is now scrollable by scrollbar and mouse wheel. The log
+  is interactive for mouse devices and whenever the chat input is focused (touch still passes drags
+  through to the movement joystick); while focused, the wheel scrolls the log even when the cursor
+  is over the game; and new messages no longer yank you to the bottom if you've scrolled up to read
+  history (`isPinnedToBottom`, `src/client/chat.ts`; wired in `src/client/main.ts` + `styles/main.css`).
+- **Right-click reserved for the game** — the browser's native context menu (copy image, etc.) is
+  suppressed everywhere except editable fields, freeing right-click for future game actions
+  (`src/client/main.ts`).
 - **Live editing for *everything*** — a generic, validated content editor turns the whole content
   DB into an in-game engine. New Developer commands `/tables`, `/cols <table>`, `/get <table> [id]`,
   and `/set <table> <id> <column> <value>` edit any whitelisted table/column (spells, items,

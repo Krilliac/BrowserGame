@@ -70,6 +70,32 @@ export function rollDamage(maxHitValue: number, rng: () => number = Math.random)
   return Math.floor(rng() * (maxHitValue + 1));
 }
 
+/** Base chance an attack critically strikes. Item affixes will add to this later. */
+export const BASE_CRIT_CHANCE = 0.15;
+
+/** Damage multiplier applied to a critical strike. */
+export const CRIT_MULTIPLIER = 2;
+
+/** Whether an attack critically strikes, given an rng and a crit chance (default base). */
+export function rollCrit(
+  rng: () => number = Math.random,
+  chance: number = BASE_CRIT_CHANCE,
+): boolean {
+  return rng() < chance;
+}
+
+/**
+ * Apply a crit multiplier to a base damage amount, rounded to a whole number. A non-crit, or a
+ * crit on 0 damage (a missed swing), passes the damage through unchanged.
+ */
+export function applyCrit(
+  damage: number,
+  crit: boolean,
+  multiplier: number = CRIT_MULTIPLIER,
+): number {
+  return crit ? Math.round(damage * multiplier) : damage;
+}
+
 /** The outcome of resolving a single attack. */
 export interface AttackResult {
   hit: boolean;
