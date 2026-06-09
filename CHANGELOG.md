@@ -14,6 +14,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Phone playability — joystick drawn + tap-to-attack** — the on-screen move joystick is now
+  actually rendered while dragging (its geometry was computed in `input.ts` but never drawn), and a
+  quick stationary tap on the world casts the selected ability toward the tapped point, with
+  tap-vs-drag detection so a move-drag never fires an attack (`src/client/main.ts`). The primary
+  platform is now playable for combat without reaching for the tiny hotbar.
 - **Reward feedback (the dopamine engine, turned on)** — loot, gold, and level-ups are no longer
   silent and effectless. New `FxEvent` kinds (`pickup`, `coin`, `levelup`) are emitted server-side on
   item pickup, gold gain / vendor sale, and level-up (`src/server/world.ts`) and rendered as a

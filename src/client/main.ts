@@ -154,6 +154,12 @@ window.addEventListener('pointerdown', (e) => {
   }
 });
 
+// Touch tap-vs-drag: a drag drives the move joystick (input.ts); a quick stationary tap on the
+// world casts the selected ability toward the tapped point. HUD/bag/slot taps are handled here.
+const TAP_MAX_MOVE = 18; // px of travel still counted as a tap, not a drag
+const TAP_MAX_MS = 260;
+let touchStart: { x: number; y: number; t: number } | null = null;
+
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
@@ -165,16 +171,33 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (slot) {
     selected = slot.ability;
     castAbility(slot.ability);
+    return;
+  }
+  // A world touch: remember it so pointerup can tell a tap (attack) from a drag (move).
+  touchStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+});
+
+gameCanvas.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'mouse' || !touchStart) return;
+  const moved = Math.hypot(e.clientX - touchStart.x, e.clientY - touchStart.y);
+  const heldMs = performance.now() - touchStart.t;
+  touchStart = null;
+  if (moved <= TAP_MAX_MOVE && heldMs <= TAP_MAX_MS) {
+    // Aim from the player (always screen-center, camera follows) toward the tapped point.
+    castAbility(selected, {
+      dx: e.clientX - window.innerWidth / 2,
+      dy: e.clientY - window.innerHeight / 2,
+    });
   }
 });
 
-function castAbility(abilityId: AbilityId): void {
+function castAbility(abilityId: AbilityId, aimOverride?: { dx: number; dy: number }): void {
   if (net.you.dead || !self) return;
   const ability = net.content.ability(abilityId);
   if (!ability) return;
   if ((cooldownEnd[abilityId] ?? 0) > performance.now()) return;
   if (net.you.mana < ability.manaCost) return;
-  const aim = computeAim();
+  const aim = aimOverride ?? computeAim();
   net.sendCast(abilityId, aim.dx, aim.dy);
   cooldownEnd[abilityId] = performance.now() + ability.cooldownMs;
 }
@@ -382,6 +405,7 @@ function drawHud(): void {
 
   drawMinimap(w);
   drawInventory(w);
+  drawJoystick();
 
   const npc = nearbyNpc();
   if (npc && !net.you.dead) {
@@ -450,6 +474,23 @@ function instStat(inst: ItemInstance): string {
 }
 
 const MINIMAP_SIZE = 160;
+
+/** Draw the touch move-joystick where the player is dragging (input.ts computes the geometry). */
+function drawJoystick(): void {
+  const j = input.joystick;
+  if (!j.active) return;
+  hud.save();
+  hud.lineWidth = 2;
+  hud.strokeStyle = 'rgba(201,162,75,0.55)';
+  hud.beginPath();
+  hud.arc(j.baseX, j.baseY, 60, 0, Math.PI * 2);
+  hud.stroke();
+  hud.fillStyle = 'rgba(201,162,75,0.45)';
+  hud.beginPath();
+  hud.arc(j.knobX, j.knobY, 22, 0, Math.PI * 2);
+  hud.fill();
+  hud.restore();
+}
 
 function drawMinimap(w: number): void {
   const size = MINIMAP_SIZE;
