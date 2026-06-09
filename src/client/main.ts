@@ -1,4 +1,5 @@
 import { Application } from 'pixi.js';
+import { isPinnedToBottom } from './chat.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -13,6 +14,7 @@ const hudCanvas = document.getElementById('hud') as HTMLCanvasElement;
 const hud = hudCanvas.getContext('2d')!;
 const statusEl = document.getElementById('status')!;
 const popEl = document.getElementById('pop')!;
+const chatEl = document.getElementById('chat')!;
 const chatLogEl = document.getElementById('chat-log')!;
 const chatInputEl = document.getElementById('chat-input') as HTMLInputElement;
 
@@ -55,6 +57,14 @@ window.addEventListener('keydown', unlockAudio, { once: true });
 
 const input = new Input();
 input.attach(gameCanvas);
+
+// Reserve right-click for the game: suppress the browser's native context menu (copy image,
+// etc.) everywhere except editable fields, so right-click paste still works in the chat box.
+window.addEventListener('contextmenu', (e) => {
+  const el = e.target as HTMLElement | null;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+  e.preventDefault();
+});
 
 // --- Client-side prediction (local player feels instant; server stays authoritative) --
 const predictor = new Predictor();
@@ -200,7 +210,26 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
   }
 });
-chatInputEl.addEventListener('focus', () => input.clearKeys());
+// Focusing chat marks it active: the log becomes interactive (scrollbar + wheel) on any device,
+// and the wheel listener below routes scrolling to it.
+chatInputEl.addEventListener('focus', () => {
+  input.clearKeys();
+  chatEl.classList.add('chat-active');
+});
+chatInputEl.addEventListener('blur', () => chatEl.classList.remove('chat-active'));
+
+// While chat is focused, the mouse wheel scrolls the log even if the cursor is over the game.
+// preventDefault stops the page/game from also reacting (needs a non-passive listener).
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (document.activeElement !== chatInputEl) return;
+    chatLogEl.scrollTop += e.deltaY;
+    e.preventDefault();
+  },
+  { passive: false },
+);
+
 chatInputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     const text = chatInputEl.value;
@@ -217,6 +246,13 @@ chatInputEl.addEventListener('keydown', (e) => {
 let renderedChatLen = 0;
 function syncChatLog(): void {
   if (net.chat.length === renderedChatLen) return;
+  // Follow the newest message only if the reader is already at the bottom; if they've scrolled
+  // up to read history, leave them there. Check before re-rendering blows the scroll position away.
+  const pinned = isPinnedToBottom(
+    chatLogEl.scrollTop,
+    chatLogEl.scrollHeight,
+    chatLogEl.clientHeight,
+  );
   chatLogEl.replaceChildren();
   for (const line of net.chat) {
     const div = document.createElement('div');
@@ -226,7 +262,7 @@ function syncChatLog(): void {
     div.append(who, document.createTextNode(line.text));
     chatLogEl.append(div);
   }
-  chatLogEl.scrollTop = chatLogEl.scrollHeight;
+  if (pinned) chatLogEl.scrollTop = chatLogEl.scrollHeight;
   renderedChatLen = net.chat.length;
 }
 
