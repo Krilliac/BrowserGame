@@ -21,6 +21,12 @@ import {
 } from '../shared/combat.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
 import { AREA_MOBS, MOB_TEMPLATES, stepMob, type MobView, type PlayerView } from './mobs.js';
+import { levelForXp, levelProgress, maxHpForLevel, xpReward } from './progression.js';
+import { rollLoot } from './loot.js';
+import { StatusSet } from './status-effects.js';
+
+const PICKUP_RADIUS = 30;
+const ITEM_TTL_MS = 30_000;
 
 export interface SpawnOptions {
   id?: number;
@@ -37,8 +43,12 @@ interface Player {
   hue: number;
   facing: number;
   hp: number;
+  maxHp: number;
   mana: number;
   level: number;
+  xp: number;
+  gold: number;
+  loot: Map<string, number>;
   input: InputState;
   cooldowns: Map<AbilityId, number>;
   dead: boolean;
@@ -61,6 +71,8 @@ interface Mob {
   attackCd: number;
   wanderAngle: number | null;
   wanderUntil: number;
+  statuses: StatusSet;
+  lastAttacker: number;
   dead: boolean;
   respawnAt: number;
 }
@@ -75,6 +87,16 @@ interface Projectile {
   ttl: number;
   damage: number;
   radius: number;
+  ownerId: number;
+}
+
+interface GroundItem {
+  id: number;
+  itemId: string;
+  qty: number;
+  x: number;
+  y: number;
+  ttl: number;
 }
 
 /**
@@ -91,6 +113,7 @@ export class World {
   private readonly players = new Map<number, Player>();
   private readonly mobs = new Map<number, Mob>();
   private readonly projectiles = new Map<number, Projectile>();
+  private readonly items = new Map<number, GroundItem>();
   private events: FxEvent[] = [];
 
   constructor(
@@ -130,6 +153,8 @@ export class World {
           attackCd: 0,
           wanderAngle: null,
           wanderUntil: 0,
+          statuses: new StatusSet(),
+          lastAttacker: 0,
           dead: false,
           respawnAt: 0,
         });
@@ -148,8 +173,12 @@ export class World {
       hue: opts.hue ?? (id * 47) % 360,
       facing: 0,
       hp: PLAYER_MAX_HP,
+      maxHp: PLAYER_MAX_HP,
       mana: PLAYER_MAX_MANA,
       level: 1,
+      xp: 0,
+      gold: 0,
+      loot: new Map(),
       input: { up: false, down: false, left: false, right: false },
       cooldowns: new Map(),
       dead: false,
@@ -191,7 +220,8 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
-          this.damageMob(mob, ability.damage, abilityId);
+          this.damageMob(mob, ability.damage, abilityId, player.id);
+          applyStatus(mob, abilityId);
         }
       }
     } else {
@@ -206,6 +236,7 @@ export class World {
         ttl: ability.projectileTtlMs ?? 1200,
         damage: ability.damage,
         radius: ability.radius,
+        ownerId: player.id,
       });
     }
   }
@@ -216,6 +247,7 @@ export class World {
     this.tickPlayers(dt);
     this.tickMobs(dt);
     this.tickProjectiles(dt);
+    this.tickItems(dt);
   }
 
   private tickPlayers(dt: number): void {
@@ -225,7 +257,7 @@ export class World {
         continue;
       }
       player.mana = Math.min(PLAYER_MAX_MANA, player.mana + MANA_REGEN_PER_SEC * dt);
-      player.hp = Math.min(PLAYER_MAX_HP, player.hp + HP_REGEN_PER_SEC * dt);
+      player.hp = Math.min(player.maxHp, player.hp + HP_REGEN_PER_SEC * dt);
       for (const [ability, remaining] of player.cooldowns) {
         const next = remaining - dt * 1000;
         if (next <= 0) player.cooldowns.delete(ability);
@@ -256,6 +288,12 @@ export class World {
       }
       if (mob.attackCd > 0) mob.attackCd -= dt * 1000;
 
+      // Status effects: burn deals DoT (attributed to the last attacker), slow scales movement.
+      const burn = mob.statuses.tick(dt * 1000).burnDamage;
+      if (burn > 0) this.damageMob(mob, burn, undefined, mob.lastAttacker);
+      if (mob.dead) continue;
+      const slow = mob.statuses.slowFactor();
+
       const template = MOB_TEMPLATES[mob.templateId]!;
       const view: MobView = { x: mob.x, y: mob.y, template, attackReady: mob.attackCd <= 0 };
       const intent = stepMob(view, views);
@@ -269,11 +307,11 @@ export class World {
           this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.facing });
         }
       } else if (intent.vx !== 0 || intent.vy !== 0) {
-        mob.x = clamp(mob.x + intent.vx * dt, 0, this.width);
-        mob.y = clamp(mob.y + intent.vy * dt, 0, this.height);
+        mob.x = clamp(mob.x + intent.vx * slow * dt, 0, this.width);
+        mob.y = clamp(mob.y + intent.vy * slow * dt, 0, this.height);
         if (intent.facing !== null) mob.facing = intent.facing;
       } else {
-        this.wander(mob, dt, template.speed);
+        this.wander(mob, dt, template.speed * slow);
       }
     }
   }
@@ -288,7 +326,8 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
-          this.damageMob(mob, proj.damage, proj.abilityId);
+          this.damageMob(mob, proj.damage, proj.abilityId, proj.ownerId);
+          applyStatus(mob, proj.abilityId);
           consumed = true;
           break;
         }
@@ -313,13 +352,64 @@ export class World {
     mob.facing = mob.wanderAngle;
   }
 
-  private damageMob(mob: Mob, amount: number, abilityId: AbilityId): void {
+  private damageMob(
+    mob: Mob,
+    amount: number,
+    abilityId: AbilityId | undefined,
+    attackerId: number,
+  ): void {
+    if (attackerId !== 0) mob.lastAttacker = attackerId;
     mob.hp -= amount;
-    this.events.push({ kind: 'hit', x: mob.x, y: mob.y, value: amount, abilityId });
+    const hit: FxEvent = { kind: 'hit', x: mob.x, y: mob.y, value: Math.ceil(amount) };
+    if (abilityId !== undefined) hit.abilityId = abilityId;
+    this.events.push(hit);
     if (mob.hp <= 0) {
       mob.dead = true;
       mob.respawnAt = this.now + MOB_RESPAWN_MS;
       this.events.push({ kind: 'death', x: mob.x, y: mob.y });
+      this.onMobKilled(mob);
+    }
+  }
+
+  /** Award XP to the killer and drop loot on the ground. */
+  private onMobKilled(mob: Mob): void {
+    const killer = this.players.get(mob.lastAttacker);
+    if (killer) {
+      killer.xp += xpReward(mob.level);
+      killer.level = levelForXp(killer.xp);
+      killer.maxHp = maxHpForLevel(killer.level);
+    }
+    for (const stack of rollLoot(mob.templateId)) {
+      const id = this.allocId();
+      this.items.set(id, {
+        id,
+        itemId: stack.item,
+        qty: stack.qty,
+        x: mob.x + (Math.random() - 0.5) * 30,
+        y: mob.y + (Math.random() - 0.5) * 30,
+        ttl: ITEM_TTL_MS,
+      });
+    }
+  }
+
+  /** Decay dropped items and let nearby players pick them up. */
+  private tickItems(dt: number): void {
+    for (const item of this.items.values()) {
+      item.ttl -= dt * 1000;
+      if (item.ttl <= 0) {
+        this.items.delete(item.id);
+        continue;
+      }
+      for (const player of this.players.values()) {
+        if (player.dead) continue;
+        if (Math.hypot(player.x - item.x, player.y - item.y) <= PICKUP_RADIUS) {
+          if (item.itemId === 'gold') player.gold += item.qty;
+          else player.loot.set(item.itemId, (player.loot.get(item.itemId) ?? 0) + item.qty);
+          this.events.push({ kind: 'cast', x: item.x, y: item.y });
+          this.items.delete(item.id);
+          break;
+        }
+      }
     }
   }
 
@@ -336,7 +426,7 @@ export class World {
 
   private respawnPlayer(player: Player): void {
     player.dead = false;
-    player.hp = PLAYER_MAX_HP;
+    player.hp = player.maxHp;
     player.mana = PLAYER_MAX_MANA;
     player.x = this.spawnPoint.x;
     player.y = this.spawnPoint.y;
@@ -369,7 +459,7 @@ export class World {
         kind: 'player',
         facing: p.facing,
         hp: Math.ceil(p.hp),
-        maxHp: PLAYER_MAX_HP,
+        maxHp: p.maxHp,
         level: p.level,
       });
     }
@@ -403,6 +493,22 @@ export class World {
         abilityId: proj.abilityId,
       });
     }
+    for (const item of this.items.values()) {
+      out.push({
+        id: item.id,
+        x: item.x,
+        y: item.y,
+        name: '',
+        hue: 0,
+        kind: 'item',
+        facing: 0,
+        hp: 0,
+        maxHp: 0,
+        level: 0,
+        itemId: item.itemId,
+        qty: item.qty,
+      });
+    }
     return out;
   }
 
@@ -414,17 +520,34 @@ export class World {
   }
 
   /** Personal stats for the 'you' message (kept off the shared snapshot). */
-  playerStats(
-    id: number,
-  ): { hp: number; maxHp: number; mana: number; maxMana: number; dead: boolean } | undefined {
+  playerStats(id: number):
+    | {
+        hp: number;
+        maxHp: number;
+        mana: number;
+        maxMana: number;
+        dead: boolean;
+        level: number;
+        xp: number;
+        xpInto: number;
+        xpNext: number;
+        gold: number;
+      }
+    | undefined {
     const p = this.players.get(id);
     if (!p) return undefined;
+    const progress = levelProgress(p.xp);
     return {
       hp: Math.ceil(p.hp),
-      maxHp: PLAYER_MAX_HP,
+      maxHp: p.maxHp,
       mana: Math.floor(p.mana),
       maxMana: PLAYER_MAX_MANA,
       dead: p.dead,
+      level: p.level,
+      xp: p.xp,
+      xpInto: progress.intoLevel,
+      xpNext: progress.neededForNext,
+      gold: p.gold,
     };
   }
 
@@ -441,6 +564,12 @@ export class World {
   nameOf(id: number): string | undefined {
     return this.players.get(id)?.name;
   }
+}
+
+/** Map an ability's on-hit effect onto a monster: Frostbolt slows, Fireball burns. */
+function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
+  if (abilityId === 'frost') mob.statuses.apply('slow', 1500, 0.4);
+  else if (abilityId === 'fireball') mob.statuses.apply('burn', 2000, 8);
 }
 
 function moveVector(input: InputState): { dx: number; dy: number } {

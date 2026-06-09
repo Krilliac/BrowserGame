@@ -7,7 +7,7 @@
  * a frostbolt) with RuneScape-ish roaming, respawning monsters to fight.
  */
 
-export type EntityKind = 'player' | 'mob' | 'projectile';
+export type EntityKind = 'player' | 'mob' | 'projectile' | 'item';
 
 export type AbilityId = 'slash' | 'fireball' | 'arrow' | 'frost';
 

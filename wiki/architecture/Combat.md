@@ -48,10 +48,24 @@ RuneScape-flavored: roaming, respawning creatures defined by templates (Gloom Wo
 Skeleton, Cave Bat) placed per area (`AREA_MOBS`). Town is a safe zone. The AI step is a pure,
 unit-tested function; the World owns mob state, wandering, and respawns.
 
+## Progression, loot & status effects
+
+These three systems were built in parallel by sub-agents (each a pure, tested module — see
+`CLAUDE_PARALLEL.md`) and integrated into the authoritative `World`:
+
+- **Progression** (`src/server/progression.ts`) — XP curve, level-from-XP, and per-level HP
+  scaling. Killing a monster awards `xpReward(mobLevel)` to the killer; leveling raises max HP.
+  The client shows level, an XP bar, and current gold in the HUD.
+- **Loot** (`src/server/loot.ts`) — per-monster loot tables rolled with an injectable RNG. Drops
+  appear as ground items (`kind: 'item'`) that bob, despawn after 30s, and are auto-picked-up when
+  a player steps within range (gold tallies into the HUD).
+- **Status effects** (`src/server/status-effects.ts`) — timed `slow` and `burn`. Frostbolt slows a
+  monster's movement; Fireball applies burn damage-over-time (attributed to the last attacker).
+
 ## What's next
 
-- XP / leveling and loot drops on kill (the next SparkGameMMO blueprint systems).
-- More abilities + cooldown/resource variety; status effects (frost slow).
+- Inventory UI for non-gold loot (pelts, bones, rune shards already accumulate server-side).
+- More abilities, level-up effects, and status visuals on monsters.
 - Sprite art to replace the primitive shapes (the renderer is isolated in `draw.ts`).
 
 ## See also

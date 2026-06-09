@@ -177,6 +177,38 @@ export function drawProjectile(
   ctx.fill();
 }
 
+const ITEM_COLORS: Record<string, string> = {
+  gold: '#f2c14e',
+  wolf_pelt: '#9c7a4d',
+  bone: '#e8e2d0',
+  bat_wing: '#7a5a8a',
+  rune_shard: '#5fb0e0',
+};
+
+export function drawItem(
+  ctx: CanvasRenderingContext2D,
+  e: EntityState,
+  sx: number,
+  sy: number,
+  now: number,
+): void {
+  const color = ITEM_COLORS[e.itemId ?? ''] ?? '#cccccc';
+  const bob = Math.sin(now / 300 + sx * 0.05) * 2;
+  // Glow.
+  const grad = ctx.createRadialGradient(sx, sy + bob, 0, sx, sy + bob, 12);
+  grad.addColorStop(0, color);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(sx, sy + bob, 12, 0, Math.PI * 2);
+  ctx.fill();
+  // Core.
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(sx, sy + bob, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 /** A transient effect with the time it was received, for fading. */
 export interface TimedFx {
   ev: FxEvent;

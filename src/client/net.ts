@@ -14,6 +14,11 @@ export interface SelfStats {
   mana: number;
   maxMana: number;
   dead: boolean;
+  level: number;
+  xp: number;
+  xpInto: number;
+  xpNext: number;
+  gold: number;
 }
 
 const MAX_CHAT_LINES = 50;
@@ -29,7 +34,18 @@ export class Net {
   readonly snapshots = new SnapshotBuffer();
   readonly chat: ChatLine[] = [];
   readonly fx: TimedFx[] = [];
-  you: SelfStats = { hp: 100, maxHp: 100, mana: 100, maxMana: 100, dead: false };
+  you: SelfStats = {
+    hp: 100,
+    maxHp: 100,
+    mana: 100,
+    maxMana: 100,
+    dead: false,
+    level: 1,
+    xp: 0,
+    xpInto: 0,
+    xpNext: 100,
+    gold: 0,
+  };
   selfId = 0;
   connected = false;
   tickRate = 20;
@@ -98,6 +114,11 @@ export class Net {
           mana: msg.mana,
           maxMana: msg.maxMana,
           dead: msg.dead,
+          level: msg.level,
+          xp: msg.xp,
+          xpInto: msg.xpInto,
+          xpNext: msg.xpNext,
+          gold: msg.gold,
         };
         break;
       case 'area_changed':

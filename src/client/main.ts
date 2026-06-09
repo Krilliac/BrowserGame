@@ -3,7 +3,7 @@ import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
 import { areaOf } from '../shared/areas.js';
 import { ABILITIES, ABILITY_ORDER, type AbilityId } from '../shared/combat.js';
-import { drawCharacter, drawFx, drawProjectile, drawWorld } from './draw.js';
+import { drawCharacter, drawFx, drawItem, drawProjectile, drawWorld } from './draw.js';
 import type { EntityState } from '../shared/protocol.js';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -171,8 +171,12 @@ function render(): void {
   drawPortals(camX, camY);
 
   for (const e of entities) {
-    if (e.kind === 'projectile') continue;
-    drawCharacter(ctx, e, e.id === net.selfId, e.x - camX, e.y - camY);
+    if (e.kind === 'item') drawItem(ctx, e, e.x - camX, e.y - camY, now);
+  }
+  for (const e of entities) {
+    if (e.kind === 'player' || e.kind === 'mob') {
+      drawCharacter(ctx, e, e.id === net.selfId, e.x - camX, e.y - camY);
+    }
   }
   for (const e of entities) {
     if (e.kind === 'projectile') drawProjectile(ctx, e, e.x - camX, e.y - camY);
@@ -214,9 +218,28 @@ function drawHud(w: number, h: number): void {
   const slotsY = h - 60;
   const now = performance.now();
 
-  // Resource bars above the hotbar.
-  drawBar(panelX, h - 90, panelW, 10, net.you.hp / net.you.maxHp, '#b33', `HP ${net.you.hp}`);
-  drawBar(panelX, h - 76, panelW, 8, net.you.mana / net.you.maxMana, '#36c', `MP ${net.you.mana}`);
+  // Level + gold line.
+  ctx.font = 'bold 12px system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#e7d9b0';
+  ctx.fillText(`Lv ${net.you.level}`, panelX, h - 98);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#f2c14e';
+  ctx.fillText(`${net.you.gold} gold`, panelX + panelW, h - 98);
+  ctx.textAlign = 'left';
+
+  // Resource + XP bars above the hotbar.
+  drawBar(panelX, h - 92, panelW, 9, net.you.hp / net.you.maxHp, '#b33', `HP ${net.you.hp}`);
+  drawBar(panelX, h - 81, panelW, 7, net.you.mana / net.you.maxMana, '#36c', `MP ${net.you.mana}`);
+  drawBar(
+    panelX,
+    h - 72,
+    panelW,
+    4,
+    net.you.xpNext > 0 ? net.you.xpInto / net.you.xpNext : 0,
+    '#8ac34a',
+    '',
+  );
 
   slotRects.length = 0;
   ABILITY_ORDER.forEach((id, i) => {
@@ -252,7 +275,7 @@ function drawHud(w: number, h: number): void {
     ctx.fillText(ability.name, x + slot / 2, slotsY + slot - 5);
   });
 
-  input.hudRect = { x: panelX - 6, y: h - 96, w: panelW + 12, h: 92 };
+  input.hudRect = { x: panelX - 6, y: h - 108, w: panelW + 12, h: 104 };
 
   if (net.you.dead) {
     ctx.fillStyle = 'rgba(0,0,0,0.55)';

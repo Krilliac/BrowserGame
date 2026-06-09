@@ -29,8 +29,10 @@
 - [x] Player & monster rendering — top-down characters, facing, health bars, levels.
 - [x] Abilities & weapon/spell rendering — melee + fireball/arrow/frost projectiles + effects.
 - [x] Monsters with aggro/chase/melee AI, death + respawn; Diablo-style HUD.
-- [ ] XP / leveling and loot drops on kill.
-- [ ] Status effects (frost slow), more abilities, ability resources/variety.
+- [x] XP / leveling (HP scaling) and loot drops + pickup on kill (built via parallel sub-agents).
+- [x] Status effects — Frostbolt slow, Fireball burn.
+- [ ] Inventory UI for non-gold loot (already accumulates server-side).
+- [ ] More abilities, level-up effects, monster status visuals.
 - [ ] Replace primitive shapes with sprite art (renderer isolated in `src/client/draw.ts`).
 
 ## Later (systems — reimplement from the SparkGameMMO blueprint)

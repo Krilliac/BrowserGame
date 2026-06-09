@@ -8,6 +8,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Progression, loot & status effects** — built in parallel by sub-agents as pure, tested modules
+  (`src/server/progression.ts`, `loot.ts`, `status-effects.ts`) and integrated into the world:
+  XP/leveling with HP scaling, monster loot tables → ground items with auto-pickup (gold in HUD),
+  and Frostbolt slow / Fireball burn. Adds an XP bar, level, and gold to the HUD.
+- **Parallel-agent workflow** ported from DuetOS (`CLAUDE_PARALLEL.md`, `tools/parallel/*`,
+  `PARALLEL_WORK.md`) — coordinator file, claim/release/status scripts, and conflict detection.
 - **Game world, characters & combat** — tiled biome rendering with deterministic props
   (`src/client/draw.ts`), top-down characters with facing/health/level, projectile + melee
   effects, and a Diablo-style HP/MP + ability hotbar HUD.

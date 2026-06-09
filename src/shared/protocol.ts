@@ -46,6 +46,9 @@ export interface EntityState {
   level: number;
   /** Projectiles only: which ability spawned it, so the client picks the right sprite. */
   abilityId?: AbilityId;
+  /** Items only: dropped item id + quantity. */
+  itemId?: string;
+  qty?: number;
 }
 
 /** Directional intent for one frame, normalized to -1..1 on each axis. */
@@ -71,7 +74,19 @@ export type ServerMessage =
   | { t: 'welcome'; id: number; tickRate: number; areaId: string; instanceId: string }
   | { t: 'snapshot'; tick: number; entities: EntityState[]; fx: FxEvent[] }
   /** Personal stats for the receiving player (kept off the shared snapshot). */
-  | { t: 'you'; hp: number; maxHp: number; mana: number; maxMana: number; dead: boolean }
+  | {
+      t: 'you';
+      hp: number;
+      maxHp: number;
+      mana: number;
+      maxMana: number;
+      dead: boolean;
+      level: number;
+      xp: number;
+      xpInto: number;
+      xpNext: number;
+      gold: number;
+    }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
   | { t: 'chat'; from: string; text: string }
