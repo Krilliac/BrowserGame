@@ -15,6 +15,7 @@ import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import type { EntityState } from '../shared/protocol.js';
 import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
+import { Atmosphere } from './atmosphere.js';
 
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
@@ -122,12 +123,13 @@ const PROJ_STRIP: Record<string, { alias: string; frames: number }> = {
   lightning: { alias: 'fx_arcane', frames: 6 },
 };
 
-/** Per-area ambient screen tint for mood. */
-const ATMOSPHERE: Record<string, { color: number; alpha: number }> = {
-  town: { color: 0xffdca8, alpha: 0.05 },
-  wilderness: { color: 0x4a6a4a, alpha: 0.1 },
-  crypt: { color: 0x203050, alpha: 0.34 },
-};
+// Screen-shake decay rate (per second, exponential) and the kick a death impact gives.
+const SHAKE_DECAY = 9;
+const SHAKE_ON_DEATH = 7;
+// Area-change fade-from-black duration (seconds).
+const FADE_SECONDS = 0.45;
+// Projectiles fly above the ground plane; their shadow stays on it for a 3D read.
+const PROJECTILE_HEIGHT = 18;
 
 const FLASH_MS = 150;
 const TINT_NORMAL = 0xffffff;
@@ -187,12 +189,17 @@ export class PixiRenderer {
   private readonly propLayer = new Container();
   private readonly actorLayer = new Container();
   private readonly fxLayer = new Container();
-  private readonly atmosphere = new Graphics();
+  private readonly atmosphere = new Atmosphere();
+  private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
   private readonly fxTexts: Text[] = [];
   private readonly explosionPool: Sprite[] = [];
   private readonly views = new Map<number, ActorView>();
   private currentArea = '';
+  private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
+  private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
+  private fadeAlpha = 0; // area-change fade-from-black, eases 1 -> 0 on arrival
+  private lastFrameAt = performance.now();
   private readonly groundTextures = new Map<string, Texture>();
   private readonly tex = new Map<string, Texture>(); // sheets + misc
   private readonly frameCache = new Map<string, Texture>();
@@ -206,8 +213,16 @@ export class PixiRenderer {
     this.propLayer.sortableChildren = true;
     this.world.addChild(this.propLayer, this.actorLayer, this.fxLayer);
     this.fxLayer.addChild(this.fxGfx);
-    this.atmosphere.eventMode = 'none';
-    app.stage.addChild(this.ground, this.world, this.atmosphere);
+    this.fade.eventMode = 'none';
+    // Draw order: ground, world, ambient motes, screen wash (day/night + vignette), then the
+    // area-change fade on very top so it covers everything during a transition.
+    app.stage.addChild(
+      this.ground,
+      this.world,
+      this.atmosphere.particleLayer,
+      this.atmosphere.screen,
+      this.fade,
+    );
   }
 
   /** Load sprite sheets + FX/item textures. Falls back to procedural shapes on failure. */
@@ -232,6 +247,8 @@ export class PixiRenderer {
     const area = this.content.area(areaId);
     if (!area) return; // content packet not loaded yet — retry next frame
     this.currentArea = areaId;
+    this.atmosphere.setArea(areaId);
+    this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
     const biome = BIOMES[areaId] ?? BIOMES.wilderness!;
     this.ground.texture = this.groundTexture(areaId, biome);
 
@@ -271,16 +288,33 @@ export class PixiRenderer {
   update(state: RenderState): void {
     this.setArea(state.areaId);
 
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - this.lastFrameAt) / 1000);
+    this.lastFrameAt = now;
+
     const sw = this.app.screen.width;
     const sh = this.app.screen.height;
-    this.world.position.set(sw / 2 - state.camX, sh / 2 - state.camY * PITCH);
+
+    // Screen shake: a decaying random offset added to the camera, kicked by death impacts.
+    this.kickShake(state.fx);
+    this.shakeMag *= Math.exp(-dt * SHAKE_DECAY);
+    const shX = this.shakeMag > 0.05 ? (Math.random() * 2 - 1) * this.shakeMag : 0;
+    const shY = this.shakeMag > 0.05 ? (Math.random() * 2 - 1) * this.shakeMag : 0;
+
+    const originX = sw / 2 - state.camX + shX;
+    const originY = sh / 2 - state.camY * PITCH + shY;
+    this.world.position.set(originX, originY);
     this.ground.width = sw;
     this.ground.height = sh;
-    this.ground.tilePosition.set(sw / 2 - state.camX, sh / 2 - state.camY * PITCH);
+    this.ground.tilePosition.set(originX, originY);
 
-    const atm = ATMOSPHERE[state.areaId] ?? ATMOSPHERE.wilderness!;
-    this.atmosphere.clear();
-    this.atmosphere.rect(0, 0, sw, sh).fill({ color: atm.color, alpha: atm.alpha });
+    this.atmosphere.update(now, sw, sh);
+
+    // Area-change fade-from-black, eased toward 0.
+    this.fadeAlpha = Math.max(0, this.fadeAlpha - dt / FADE_SECONDS);
+    this.fade.clear();
+    if (this.fadeAlpha > 0.001)
+      this.fade.rect(0, 0, sw, sh).fill({ color: 0x000000, alpha: this.fadeAlpha });
 
     for (const view of this.views.values()) view.seen = false;
     for (const e of state.entities) {
@@ -298,6 +332,17 @@ export class PixiRenderer {
     this.updateFx(state.fx);
   }
 
+  /** Trigger a shake impulse for any death FX we haven't seen yet (newer than lastDeathT0). */
+  private kickShake(fx: TimedFx[]): void {
+    let newest = this.lastDeathT0;
+    for (const { ev, t0 } of fx) {
+      if (ev.kind !== 'death' || t0 <= this.lastDeathT0) continue;
+      this.shakeMag = Math.max(this.shakeMag, SHAKE_ON_DEATH);
+      if (t0 > newest) newest = t0;
+    }
+    this.lastDeathT0 = newest;
+  }
+
   private updateActor(e: EntityState, isSelf: boolean): void {
     let view = this.views.get(e.id);
     if (!view) {
@@ -313,10 +358,17 @@ export class PixiRenderer {
       const moving = Math.hypot(e.x - view.lastX, e.y - view.lastY) > 0.25;
       const sheet = view.sheet;
       const row = sheet.rows[dirOf(e.facing)];
+      const t = performance.now();
       const col = moving
-        ? sheet.walkCols[Math.floor(performance.now() / WALK_FRAME_MS) % sheet.walkCols.length]!
+        ? sheet.walkCols[Math.floor(t / WALK_FRAME_MS) % sheet.walkCols.length]!
         : sheet.idleCol;
       view.sprite.texture = this.frame(sheetKey(e)!, sheet.fw, sheet.fh, col, row);
+      // A small vertical bob — a quick footstep lift while moving, a slow breath while idle —
+      // staggered per entity so a crowd doesn't pulse in lockstep. Sells the billboards as alive.
+      const phase = e.id * 1.7;
+      view.sprite.y = moving
+        ? -Math.abs(Math.sin(t / 110 + phase)) * 2.5
+        : Math.sin(t / 420 + phase) * 1.2;
     }
     view.lastX = e.x;
     view.lastY = e.y;
@@ -435,10 +487,15 @@ export class PixiRenderer {
     if (!view) {
       const container = new Container();
       view = { container, topY: 0, lastX: e.x, lastY: e.y, lastHp: 0, flashUntil: 0, seen: true };
+      // Ground shadow on the plane; the projectile itself rides above it (a 2.5D height cue).
+      const shadow = new Graphics();
+      shadow.ellipse(0, 0, radius * 1.3, radius * 0.6).fill({ color: '#000000', alpha: 0.28 });
+      container.addChild(shadow);
       if (strip && hasStrip) {
         const s = new Sprite(this.frame(strip.alias, 16, 16, 0, 0));
         s.anchor.set(0.5);
         s.scale.set(2.2);
+        s.y = -PROJECTILE_HEIGHT;
         view.sprite = s;
         container.addChild(s);
       } else {
@@ -448,6 +505,7 @@ export class PixiRenderer {
           base.circle(0, 0, radius * 2).fill({ color, alpha: 0.25 });
           base.circle(0, 0, radius).fill({ color });
         }
+        base.y = -PROJECTILE_HEIGHT;
         view.orb = base;
         container.addChild(base);
       }
@@ -455,7 +513,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH - 10);
+    view.container.position.set(e.x, e.y * PITCH);
     view.container.zIndex = e.y + 5000;
     if (view.sprite && strip && hasStrip) {
       const f = Math.floor(performance.now() / 80) % strip.frames;

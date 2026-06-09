@@ -20,7 +20,7 @@
 - [x] Snapshot interpolation on the client (smooth movement between ticks).
 - [x] Touch controls (virtual joystick) for true phone play.
 - [x] Message rate limiting + payload size caps (see Threat Model "known gaps").
-- [ ] Smooth the visual on area change (brief fade) and add a minimap of the current area.
+- [x] Smooth the visual on area change (brief fade-from-black + area title card) and a minimap.
 - [ ] Cross-process area servers — host instances in separate workers/processes behind a gateway.
 
 ## Combat & world (built)
@@ -41,6 +41,10 @@
 - [x] Inventory panel — non-gold loot now sent in the `you` message and shown in a HUD "Bag".
 - [x] Minimap — circular HUD minimap with player/mobs/players/loot/portals + compass.
 - [x] Combat feedback (hit-flash, status tints), per-area atmosphere tint, respawn countdown.
+- [x] **2.5D depth & atmosphere pass** (`src/client/atmosphere.ts` + renderer) — a shared-clock
+      day/night cycle, a per-biome drifting ambient-particle field (pollen / fireflies / crypt
+      dust), an edge vignette, screen-shake on death impacts, an area-change fade-from-black with
+      a title card, idle/walk bob on actors, and elevated projectiles that cast ground shadows.
 - [x] Abilities: Heal + Lightning (6-slot hotbar); Crypt Lord boss in the crypt.
 - [x] Town vendor (Merchant NPC) — press E to sell loot for gold (`vendor.ts`, sub-agent module).
 - [x] Equipment & stats — weapon (+power) / armor (+max HP) drops, click-to-equip, HUD panel.

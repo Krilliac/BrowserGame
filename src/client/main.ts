@@ -96,6 +96,13 @@ const bagRects: {
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
 
+// Area title card — a brief "now entering" banner shown when the area changes (pairs with the
+// renderer's fade-from-black to sell crossing into a new place).
+const BANNER_MS = 2200;
+let bannerArea = '';
+let bannerName = '';
+let bannerUntil = 0;
+
 window.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') {
     hasMouse = true;
@@ -239,6 +246,15 @@ app.ticker.add(() => {
     camY = predictor.y;
   }
 
+  if (net.areaId && net.areaId !== bannerArea) {
+    const a = net.content.area(net.areaId);
+    if (a) {
+      bannerArea = net.areaId;
+      bannerName = a.name;
+      bannerUntil = now + BANNER_MS;
+    }
+  }
+
   renderer.update({ areaId: net.areaId, entities, selfId: net.selfId, fx: net.fx, camX, camY });
   sound.setArea(net.areaId);
   sound.fromFx(net.fx);
@@ -336,6 +352,8 @@ function drawHud(): void {
     hud.fillText(text, w / 2, h - 134);
   }
 
+  drawAreaBanner(w, h);
+
   if (net.you.dead) {
     hud.fillStyle = 'rgba(0,0,0,0.55)';
     hud.fillRect(0, 0, w, h);
@@ -345,6 +363,31 @@ function drawHud(): void {
     const secs = Math.max(0, net.you.respawnIn / 1000).toFixed(1);
     hud.fillText(`You died — respawning in ${secs}s`, w / 2, h / 2);
   }
+}
+
+function drawAreaBanner(w: number, h: number): void {
+  const now = performance.now();
+  const left = bannerUntil - now;
+  if (left <= 0 || !bannerName) return;
+  // Ease in over the first 400ms, hold, ease out over the last 700ms.
+  const elapsed = BANNER_MS - left;
+  const alpha = Math.min(1, Math.min(elapsed / 400, left / 700));
+  const y = h * 0.22;
+
+  hud.save();
+  hud.globalAlpha = alpha;
+  hud.textAlign = 'center';
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 34px system-ui, sans-serif';
+  hud.fillText(bannerName, w / 2, y);
+  const tw = hud.measureText(bannerName).width;
+  hud.strokeStyle = 'rgba(201,162,75,0.8)';
+  hud.lineWidth = 1.5;
+  hud.beginPath();
+  hud.moveTo(w / 2 - tw / 2 - 10, y + 10);
+  hud.lineTo(w / 2 + tw / 2 + 10, y + 10);
+  hud.stroke();
+  hud.restore();
 }
 
 function prettyItem(id: string): string {

@@ -14,6 +14,19 @@ versioning once it stabilizes.
 
 ### Added
 
+- **2.5D depth & atmosphere pass** — a batch of rendering work to strengthen the tilted top-down
+  look (`src/client/atmosphere.ts`, `src/client/pixi-renderer.ts`, HUD in `main.ts`):
+  - **Day/night cycle** — a slow sky wash (dawn→day→dusk→night) over outdoor areas, keyed to the
+    wall clock so it's a shared world time across players (not reset per page load); crypts stay
+    their own indoor gloom.
+  - **Ambient particle field** — drifting per-biome motes (warm town pollen, flickering wilderness
+    fireflies, falling crypt dust) for atmosphere and depth.
+  - **Edge vignette** that frames the scene and draws the eye to the center.
+  - **Screen-shake** kicked by death impacts, and an **area-change fade-from-black** paired with a
+    brief **area title card** ("now entering") when you cross a portal.
+  - **Idle/walk bob** on actor billboards (a footstep lift while moving, a slow breath while idle)
+    and **elevated projectiles** that fly above the ground while casting a shadow on it — both
+    reinforce the 2.5D read.
 - **Quests wired into gameplay** — accept quests with `/accept <id>` (see `/quests`); kills of the
   target monster progress them, and completion grants gold + XP with a `System` notice. Quest defs
   live in the content DB (`quests` table). Per-player notice queue also drives level-up messages.
