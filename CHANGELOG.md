@@ -14,6 +14,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **"Loot = your build" — the multishot affix** — gear can now roll a build-defining **`+projectile`**
+  affix that makes your projectile abilities fire extra bolts in a fan (1, or 2 at Epic/Legendary).
+  Your *kit* now changes with your *gear*, not just your stats — the first taste of the loot-as-build
+  twist. Aggregated into `player.multishot` on equip and applied in the cast path
+  (`src/server/world.ts`); rolls/labels in `src/shared/items.ts` (bounded, never rarity-scaled into
+  absurdity); shows in the bag like any affix.
 - **Reward + combat audio (procedurally synthesized)** — the silent dopamine channel now has sound,
   with **no audio assets** required: `src/client/sound.ts` synthesizes one-shot SFX via the Web Audio
   API (oscillator blips/chords/arpeggios) and maps them to FX events — a punchy hit, a ringing crit,

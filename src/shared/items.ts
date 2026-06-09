@@ -72,19 +72,23 @@ export interface BaseItem {
   hp?: number | null;
 }
 
-/** Rollable bonus stats ("affixes") layered on top of a piece of gear's base stats. */
-export type AffixStat = 'power' | 'hp' | 'crit';
+/**
+ * Rollable bonus stats ("affixes") layered on top of a piece of gear's base stats. Most are scalar
+ * bonuses, but `multishot` is *build-defining*: it adds extra projectiles to your projectile
+ * abilities — gear that changes how your kit plays, the first taste of "loot = your build".
+ */
+export type AffixStat = 'power' | 'hp' | 'crit' | 'multishot';
 
-/** One rolled affix. `value` is flat for power/hp and percentage-points for crit (5 = +5%). */
+/** One rolled affix. `value` is flat for power/hp, percentage-points for crit, extra shots for multishot. */
 export interface Affix {
   stat: AffixStat;
   value: number;
 }
 
-const AFFIX_STATS: AffixStat[] = ['power', 'hp', 'crit'];
+const AFFIX_STATS: AffixStat[] = ['power', 'hp', 'crit', 'multishot'];
 
-/** Pre-rarity-scaling base value ranges per affix stat. */
-const AFFIX_RANGES: Record<AffixStat, { min: number; max: number }> = {
+/** Pre-rarity-scaling base value ranges for the scalar affix stats (multishot is handled specially). */
+const AFFIX_RANGES: Record<'power' | 'hp' | 'crit', { min: number; max: number }> = {
   power: { min: 2, max: 6 },
   hp: { min: 8, max: 22 },
   crit: { min: 2, max: 6 },
@@ -104,16 +108,22 @@ export function rollAffixes(rarity: Rarity, rng: () => number = Math.random): Af
   const out: Affix[] = [];
   for (let i = 0; i < n && pool.length > 0; i++) {
     const stat = pool.splice(Math.floor(rng() * pool.length), 1)[0]!;
-    const r = AFFIX_RANGES[stat];
-    const base = r.min + rng() * (r.max - r.min);
-    out.push({ stat, value: Math.max(1, Math.round(base * mult)) });
+    if (stat === 'multishot') {
+      // A bounded, build-defining roll — never mult-scaled into absurdity.
+      out.push({ stat, value: rarity === 'epic' || rarity === 'legendary' ? 2 : 1 });
+    } else {
+      const r = AFFIX_RANGES[stat];
+      const base = r.min + rng() * (r.max - r.min);
+      out.push({ stat, value: Math.max(1, Math.round(base * mult)) });
+    }
   }
   return out;
 }
 
-/** Human-readable affix line, e.g. "+5% crit" or "+12 hp". */
+/** Human-readable affix line, e.g. "+5% crit", "+12 hp", or "+1 projectile". */
 export function affixLabel(a: Affix): string {
   if (a.stat === 'crit') return `+${a.value}% crit`;
+  if (a.stat === 'multishot') return `+${a.value} projectile${a.value > 1 ? 's' : ''}`;
   return `+${a.value} ${a.stat}`;
 }
 

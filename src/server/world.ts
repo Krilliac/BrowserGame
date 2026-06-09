@@ -75,6 +75,8 @@ interface Player {
   power: number;
   /** Crit chance in [0,1]: base plus the sum of equipped +crit affixes. */
   critChance: number;
+  /** Extra projectiles per projectile cast, from equipped +multishot affixes. */
+  multishot: number;
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
@@ -322,16 +324,19 @@ export class World {
     let power = player.equipment.weapon?.power ?? 0;
     let bonusHp = player.equipment.armor?.hp ?? 0;
     let crit = BASE_CRIT_CHANCE;
+    let multishot = 0;
     for (const inst of [player.equipment.weapon, player.equipment.armor]) {
       if (!inst) continue;
       for (const a of inst.affixes ?? []) {
         if (a.stat === 'power') power += a.value;
         else if (a.stat === 'hp') bonusHp += a.value;
         else if (a.stat === 'crit') crit += a.value / 100;
+        else if (a.stat === 'multishot') multishot += a.value;
       }
     }
     player.power = power;
     player.critChance = crit;
+    player.multishot = multishot;
     player.maxHp = maxHpForLevel(player.level) + bonusHp;
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
@@ -451,6 +456,7 @@ export class World {
       equipment: { weapon: null, armor: null },
       power: 0,
       critChance: BASE_CRIT_CHANCE,
+      multishot: 0,
       god: false,
       quests: new Map(),
       questsDone: new Set(),
@@ -549,22 +555,29 @@ export class World {
         }
       }
     } else {
-      const pid = this.allocId();
-      this.projectiles.set(pid, {
-        id: pid,
-        abilityId,
-        x: player.x,
-        y: player.y,
-        vx: Math.cos(facing) * (ability.projectileSpeed ?? 300),
-        vy: Math.sin(facing) * (ability.projectileSpeed ?? 300),
-        ttl: ability.projectileTtlMs ?? 1200,
-        damage: ability.damage + player.power,
-        radius: ability.radius,
-        ownerId: player.id,
-        ownerLevel: player.level,
-        critChance: player.critChance,
-        hostile: false,
-      });
+      // Multishot affixes add extra projectiles, fanned around the aim — gear shapes the kit.
+      const speed = ability.projectileSpeed ?? 300;
+      const count = 1 + player.multishot;
+      const spread = 0.18; // radians between adjacent shots
+      for (let i = 0; i < count; i++) {
+        const a = facing + (i - (count - 1) / 2) * spread;
+        const pid = this.allocId();
+        this.projectiles.set(pid, {
+          id: pid,
+          abilityId,
+          x: player.x,
+          y: player.y,
+          vx: Math.cos(a) * speed,
+          vy: Math.sin(a) * speed,
+          ttl: ability.projectileTtlMs ?? 1200,
+          damage: ability.damage + player.power,
+          radius: ability.radius,
+          ownerId: player.id,
+          ownerLevel: player.level,
+          critChance: player.critChance,
+          hostile: false,
+        });
+      }
     }
   }
 

@@ -167,5 +167,17 @@ describe('affixes', () => {
     expect(affixLabel({ stat: 'crit', value: 5 })).toBe('+5% crit');
     expect(affixLabel({ stat: 'power', value: 4 })).toBe('+4 power');
     expect(affixLabel({ stat: 'hp', value: 12 })).toBe('+12 hp');
+    expect(affixLabel({ stat: 'multishot', value: 1 })).toBe('+1 projectile');
+    expect(affixLabel({ stat: 'multishot', value: 2 })).toBe('+2 projectiles');
+  });
+
+  it('keeps multishot bounded regardless of rarity (never mult-scaled)', () => {
+    // Force the first affix pick to be multishot (rng=0 selects pool index 0... 'power').
+    // Scan a roll until a multishot turns up and assert its value is small.
+    for (const rarity of ['magic', 'rare', 'epic', 'legendary'] as const) {
+      const affixes = rollAffixes(rarity, () => 0.999); // bias picks toward the end of the pool
+      const ms = affixes.find((a) => a.stat === 'multishot');
+      if (ms) expect(ms.value).toBeLessThanOrEqual(2);
+    }
   });
 });
