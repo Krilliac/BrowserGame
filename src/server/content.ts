@@ -230,6 +230,12 @@ export function getContent(): Content {
   return activeContent!;
 }
 
+/** The live database handle (for dynamic data like accounts). Initializes lazily if needed. */
+export function getDb(): GameDatabase {
+  if (!activeDb) initGameDb(process.env.GAME_DB);
+  return activeDb!;
+}
+
 // --- row types ------------------------------------------------------------------------
 interface AreaRow {
   id: string;

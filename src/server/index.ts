@@ -15,7 +15,9 @@ import {
   type ServerMessage,
 } from '../shared/protocol.js';
 import { isAbilityId } from '../shared/combat.js';
-import { initGameDb } from './content.js';
+import { initGameDb, getDb } from './content.js';
+import { isCommand, runCommand } from './commands.js';
+import { verifyLogin, setAccess } from './accounts.js';
 import { SpatialGrid } from './spatial.js';
 
 // Load all game content from SQLite (the source of truth). Defaults to ./game.db; the file is
@@ -47,8 +49,8 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const clientDir = join(here, '..', 'client'); // dist/client after build
 
 const manager = new InstanceManager(INSTANCING);
-/** Per-player connection state. instanceId is mutated when the player crosses a portal. */
-const players = new Map<number, { socket: WebSocket; instanceId: string }>();
+/** Per-player connection state. instanceId is mutated on portal crossings; accessLevel via /login. */
+const players = new Map<number, { socket: WebSocket; instanceId: string; accessLevel: number }>();
 
 // --- HTTP: health check + static hosting of the built client in production -----------
 const http = createServer(async (req, res) => {
@@ -115,7 +117,7 @@ wss.on('connection', (socket) => {
         if (entityId !== 0) return; // already joined
         const placement = manager.join(msg.name);
         entityId = placement.entityId;
-        players.set(entityId, { socket, instanceId: placement.instanceId });
+        players.set(entityId, { socket, instanceId: placement.instanceId, accessLevel: 0 });
         send(socket, {
           t: 'welcome',
           id: entityId,
@@ -151,8 +153,32 @@ wss.on('connection', (socket) => {
         const p = players.get(entityId);
         if (!p || !chatBucket.tryRemove()) return;
         const text = sanitizeChat(msg.text);
-        const from = manager.get(p.instanceId)?.world.nameOf(entityId);
-        if (text && from) broadcastToInstance(p.instanceId, { t: 'chat', from, text });
+        const instance = manager.get(p.instanceId);
+        if (!text || !instance) return;
+        const world = instance.world;
+        const from = world.nameOf(entityId) ?? 'Player';
+
+        if (isCommand(text)) {
+          runCommand(text, {
+            accessLevel: p.accessLevel,
+            args: [],
+            playerId: entityId,
+            areaId: instance.areaId,
+            world,
+            reply: (t) => send(p.socket, { t: 'chat', from: 'System', text: t }),
+            broadcast: (t) =>
+              broadcastToInstance(p.instanceId, { t: 'chat', from: 'System', text: t }),
+            name: () => from,
+            login: (u, pw) => verifyLogin(getDb(), u, pw),
+            setAccessLevel: (lvl) => {
+              p.accessLevel = lvl;
+            },
+            listPlayers: () => world.playerNames(),
+            setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),
+          });
+        } else {
+          broadcastToInstance(p.instanceId, { t: 'chat', from, text });
+        }
         break;
       }
       case 'admin': {

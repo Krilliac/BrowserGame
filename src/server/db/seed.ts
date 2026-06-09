@@ -5,6 +5,7 @@ import { EQUIPMENT } from '../../shared/equipment.js';
 import { MOB_TEMPLATES, AREA_MOBS } from '../mobs.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
+import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 
 /** Display names + colors for the non-equipment loot materials (and gold). */
 const MATERIALS: Record<string, { name: string; color: string }> = {
@@ -26,18 +27,31 @@ const GEAR_DROPS: Record<string, { chance: number; items: string[] }> = {
 /** Seed the database from the built-in content if it is empty. Idempotent. Parametrized. */
 export function seed(db: Database): void {
   const count = db.prepare('SELECT COUNT(*) AS n FROM areas').get() as { n: number };
-  if (count.n > 0) return;
+  if (count.n === 0) {
+    const tx = db.transaction(() => {
+      seedAreas(db);
+      seedAbilities(db);
+      seedItems(db);
+      seedMobs(db);
+      seedLoot(db);
+      seedNpcs(db);
+      seedQuests(db);
+    });
+    tx();
+  }
+  seedAccounts(db); // separate so existing content DBs still get the default account
+}
 
-  const tx = db.transaction(() => {
-    seedAreas(db);
-    seedAbilities(db);
-    seedItems(db);
-    seedMobs(db);
-    seedLoot(db);
-    seedNpcs(db);
-    seedQuests(db);
-  });
-  tx();
+/** Seed a default developer account if none exists. Password from DEV_PASSWORD (default insecure). */
+function seedAccounts(db: Database): void {
+  if (accountCount(db) > 0) return;
+  const password = process.env.DEV_PASSWORD ?? 'changeme';
+  if (password === 'changeme') {
+    console.warn(
+      '[accounts] seeding dev account with default password — set DEV_PASSWORD to secure it.',
+    );
+  }
+  createAccount(db, 'dev', password, AccessLevel.Developer);
 }
 
 function seedAreas(db: Database): void {

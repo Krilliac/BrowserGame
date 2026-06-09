@@ -111,4 +111,15 @@ CREATE TABLE IF NOT EXISTS quests (
   reward_gold   INTEGER NOT NULL DEFAULT 0,
   reward_xp     INTEGER NOT NULL DEFAULT 0
 );
+
+-- Accounts: username -> access level (Player 0 .. Developer 4), with a salted password hash.
+-- Used to gate GM/admin/dev chat commands. Players are guests (level 0) until they /login.
+CREATE TABLE IF NOT EXISTS accounts (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  username      TEXT UNIQUE NOT NULL,
+  access_level  INTEGER NOT NULL DEFAULT 0,
+  password_hash TEXT,
+  salt          TEXT,
+  created_at    TEXT
+);
 `;

@@ -20,8 +20,8 @@ import {
 } from '../shared/combat.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
 import { attackRoll, defenceRoll, rollDamage, rolledHit } from './combat-formulas.js';
-import { stepMob, type MobView, type PlayerView } from './mobs.js';
-import { levelForXp, levelProgress, maxHpForLevel, xpReward } from './progression.js';
+import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
+import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { getContent } from './content.js';
 
@@ -52,6 +52,7 @@ interface Player {
   loot: Map<string, number>;
   equipment: { weapon: string | null; armor: string | null };
   power: number;
+  god: boolean;
   input: InputState;
   cooldowns: Map<AbilityId, number>;
   dead: boolean;
@@ -149,32 +150,38 @@ export class World {
       const template = content.mobTemplate(spawn.templateId);
       if (!template) continue;
       for (let i = 0; i < spawn.count; i++) {
-        const id = this.allocId();
-        const x = 80 + Math.random() * (this.width - 160);
-        const y = 80 + Math.random() * (this.height - 160);
-        this.mobs.set(id, {
-          id,
-          templateId: template.id,
-          name: template.name,
-          x,
-          y,
-          homeX: x,
-          homeY: y,
-          hue: template.hue,
-          facing: 0,
-          hp: template.hp,
-          maxHp: template.hp,
-          level: template.level,
-          attackCd: 0,
-          wanderAngle: null,
-          wanderUntil: 0,
-          statuses: new StatusSet(),
-          lastAttacker: 0,
-          dead: false,
-          respawnAt: 0,
-        });
+        this.createMob(
+          template,
+          80 + Math.random() * (this.width - 160),
+          80 + Math.random() * (this.height - 160),
+        );
       }
     }
+  }
+
+  private createMob(template: MobTemplate, x: number, y: number): void {
+    const id = this.allocId();
+    this.mobs.set(id, {
+      id,
+      templateId: template.id,
+      name: template.name,
+      x,
+      y,
+      homeX: x,
+      homeY: y,
+      hue: template.hue,
+      facing: 0,
+      hp: template.hp,
+      maxHp: template.hp,
+      level: template.level,
+      attackCd: 0,
+      wanderAngle: null,
+      wanderUntil: 0,
+      statuses: new StatusSet(),
+      lastAttacker: 0,
+      dead: false,
+      respawnAt: 0,
+    });
   }
 
   /** Place static NPCs for the area (from the content DB). Called once after construction. */
@@ -234,6 +241,84 @@ export class World {
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
 
+  // --- GM / chat-command support (gated by access level in commands.ts) ----------------
+
+  teleport(id: number, x: number, y: number): void {
+    const p = this.players.get(id);
+    if (!p) return;
+    p.x = clamp(x, 0, this.width);
+    p.y = clamp(y, 0, this.height);
+  }
+
+  healFull(id: number): void {
+    const p = this.players.get(id);
+    if (!p) return;
+    p.hp = p.maxHp;
+    p.mana = PLAYER_MAX_MANA;
+  }
+
+  /** Spawn a monster near the player. Returns false for an unknown template. */
+  spawnMobAt(playerId: number, templateId: string): boolean {
+    const p = this.players.get(playerId);
+    if (!p) return false;
+    const template = getContent().mobTemplate(templateId);
+    if (!template) return false;
+    this.createMob(template, p.x + (Math.random() - 0.5) * 60, p.y + (Math.random() - 0.5) * 60);
+    return true;
+  }
+
+  /** Add an item to a player's bag. Returns false for an unknown item id. */
+  giveItem(id: number, itemId: string, qty: number): boolean {
+    const p = this.players.get(id);
+    if (!p || !getContent().item(itemId)) return false;
+    p.loot.set(itemId, (p.loot.get(itemId) ?? 0) + Math.max(1, qty));
+    return true;
+  }
+
+  setLevel(id: number, level: number): void {
+    const p = this.players.get(id);
+    if (!p) return;
+    p.xp = xpForLevel(Math.max(1, level));
+    p.level = levelForXp(p.xp);
+    this.recomputeStats(p);
+  }
+
+  addXp(id: number, amount: number): void {
+    const p = this.players.get(id);
+    if (!p) return;
+    p.xp = Math.max(0, p.xp + amount);
+    p.level = levelForXp(p.xp);
+    this.recomputeStats(p);
+  }
+
+  toggleGod(id: number): boolean {
+    const p = this.players.get(id);
+    if (!p) return false;
+    p.god = !p.god;
+    return p.god;
+  }
+
+  killAllMobs(): number {
+    let n = 0;
+    for (const mob of this.mobs.values()) {
+      if (mob.dead) continue;
+      mob.dead = true;
+      mob.respawnAt = this.now + MOB_RESPAWN_MS;
+      this.events.push({ kind: 'death', x: mob.x, y: mob.y });
+      n++;
+    }
+    return n;
+  }
+
+  playerPos(id: number): { x: number; y: number } | undefined {
+    const p = this.players.get(id);
+    return p ? { x: p.x, y: p.y } : undefined;
+  }
+
+  playerNames(): string[] {
+    return [...this.players.values()].map((p) => p.name);
+  }
+
   /** Create a player. Pass an explicit id to keep identity stable across area transfers. */
   spawn(name: string, opts: SpawnOptions = {}): number {
     const id = opts.id ?? this.allocId();
@@ -253,6 +338,7 @@ export class World {
       loot: new Map(),
       equipment: { weapon: null, armor: null },
       power: 0,
+      god: false,
       input: { up: false, down: false, left: false, right: false },
       cooldowns: new Map(),
       dead: false,
@@ -495,6 +581,7 @@ export class World {
   }
 
   private damagePlayer(player: Player, amount: number): void {
+    if (player.god) return;
     player.hp -= amount;
     this.events.push({ kind: 'hit', x: player.x, y: player.y, value: amount });
     if (player.hp <= 0) {

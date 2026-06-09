@@ -8,6 +8,13 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Accounts, access levels & chat commands** — slash-commands in chat gated by account access
+  level (Player→Moderator→GameMaster→Admin→Developer). `accounts` table with scrypt-hashed
+  passwords (`src/server/accounts.ts`); authenticate in-game with `/login`. A command registry
+  (`src/server/commands.ts`) provides player commands (`/help /who /where /roll /me`) and
+  GM/admin/dev commands (`/tp /heal /spawn /give /setlevel /addxp /godmode /killall /announce
+  /setaccess`), all server-authoritative. Seeds a `dev` account (`DEV_PASSWORD`). See
+  `wiki/architecture/Commands-And-Access.md`. Research: `wiki/research/{chat-and-commands,state-sync}.md`.
 - **Client mirrors the content DB** — the server sends a `content` packet (areas, spells, items)
   on connect; the client (`src/client/content-store.ts`) drives the hotbar, portals/minimap, and
   item display from it instead of bundled constants. New spells/areas/items added via SQL now show
