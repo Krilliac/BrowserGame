@@ -8,7 +8,7 @@ describe('InstanceManager', () => {
     const p = mgr.join('Alice');
     expect(p.areaId).toBe('town');
     expect(mgr.instanceCount).toBe(1);
-    expect(mgr.entityIdsIn(p.instanceId)).toContain(p.entityId);
+    expect(mgr.playerIdsIn(p.instanceId)).toContain(p.entityId);
   });
 
   it('packs players into one instance until the area cap, then spins up another', () => {

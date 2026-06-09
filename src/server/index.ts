@@ -13,6 +13,7 @@ import {
   encode,
   type ServerMessage,
 } from '../shared/protocol.js';
+import { isAbilityId } from '../shared/combat.js';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const TICK_RATE = Number(process.env.TICK_RATE ?? DEFAULT_TICK_RATE);
@@ -105,6 +106,13 @@ wss.on('connection', (socket) => {
         if (p) manager.get(p.instanceId)?.world.setInput(entityId, msg.input);
         break;
       }
+      case 'cast': {
+        const p = players.get(entityId);
+        if (p && isAbilityId(msg.ability)) {
+          manager.get(p.instanceId)?.world.cast(entityId, msg.ability, msg.dx, msg.dy);
+        }
+        break;
+      }
       case 'chat': {
         const p = players.get(entityId);
         if (!p || !chatBucket.tryRemove()) return;
@@ -145,7 +153,7 @@ function send(socket: WebSocket, msg: ServerMessage): void {
 /** Send a message to every player currently in the given instance (area-scoped). */
 function broadcastToInstance(instanceId: string, msg: ServerMessage): void {
   const payload = encode(msg);
-  for (const id of manager.entityIdsIn(instanceId)) {
+  for (const id of manager.playerIdsIn(instanceId)) {
     const socket = players.get(id)?.socket;
     if (socket && socket.readyState === socket.OPEN) socket.send(payload);
   }
@@ -168,10 +176,20 @@ setInterval(() => {
 
   // Each player only sees their own instance — that is what makes the world instanced.
   for (const instance of manager.list()) {
-    const snapshot = encode({ t: 'snapshot', tick, entities: instance.world.snapshot() });
-    for (const id of manager.entityIdsIn(instance.id)) {
+    const world = instance.world;
+    const snapshot = encode({
+      t: 'snapshot',
+      tick,
+      entities: world.snapshot(),
+      fx: world.drainEvents(),
+    });
+    for (const id of manager.playerIdsIn(instance.id)) {
       const socket = players.get(id)?.socket;
-      if (socket && socket.readyState === socket.OPEN) socket.send(snapshot);
+      if (!socket || socket.readyState !== socket.OPEN) continue;
+      socket.send(snapshot);
+      // Personal stats (hp/mana/dead) are kept off the shared snapshot.
+      const stats = world.playerStats(id);
+      if (stats) send(socket, { t: 'you', ...stats });
     }
   }
 }, 1000 / TICK_RATE);

@@ -23,6 +23,16 @@
 - [ ] Smooth the visual on area change (brief fade) and add a minimap of the current area.
 - [ ] Cross-process area servers — host instances in separate workers/processes behind a gateway.
 
+## Combat & world (built)
+
+- [x] World rendering — tiled biomes + deterministic props per area.
+- [x] Player & monster rendering — top-down characters, facing, health bars, levels.
+- [x] Abilities & weapon/spell rendering — melee + fireball/arrow/frost projectiles + effects.
+- [x] Monsters with aggro/chase/melee AI, death + respawn; Diablo-style HUD.
+- [ ] XP / leveling and loot drops on kill.
+- [ ] Status effects (frost slow), more abilities, ability resources/variety.
+- [ ] Replace primitive shapes with sprite art (renderer isolated in `src/client/draw.ts`).
+
 ## Later (systems — reimplement from the SparkGameMMO blueprint)
 
 - [ ] Inventory + loot tables (server-authoritative).

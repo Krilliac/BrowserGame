@@ -10,6 +10,7 @@
 
 - [Overview](architecture/Overview.md)
 - [Areas & Instances](architecture/Areas-And-Instances.md)
+- [Combat, Monsters & Rendering](architecture/Combat.md)
 - [Wire Protocol](architecture/Protocol.md)
 - [Authoritative Simulation](architecture/Simulation.md)
 

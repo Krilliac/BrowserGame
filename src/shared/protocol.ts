@@ -8,6 +8,8 @@
  * gets to assert its own position.
  */
 
+import type { AbilityId, EntityKind, FxEvent } from './combat.js';
+
 /** Simulation tick rate in Hz. Overridable via the TICK_RATE env var on the server. */
 export const DEFAULT_TICK_RATE = 20;
 
@@ -34,6 +36,16 @@ export interface EntityState {
   name: string;
   /** Cosmetic hue 0..360 so players are visually distinguishable. */
   hue: number;
+  kind: EntityKind;
+  /** Facing direction in radians (for character orientation / projectile travel). */
+  facing: number;
+  /** Current / max health. Projectiles report 0/0. */
+  hp: number;
+  maxHp: number;
+  /** Character level (players and mobs). */
+  level: number;
+  /** Projectiles only: which ability spawned it, so the client picks the right sprite. */
+  abilityId?: AbilityId;
 }
 
 /** Directional intent for one frame, normalized to -1..1 on each axis. */
@@ -48,6 +60,8 @@ export interface InputState {
 export type ClientMessage =
   | { t: 'join'; name: string }
   | { t: 'input'; input: InputState }
+  /** Cast an ability aimed in direction (dx, dy); the server normalizes and validates. */
+  | { t: 'cast'; ability: AbilityId; dx: number; dy: number }
   | { t: 'chat'; text: string }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string };
@@ -55,7 +69,9 @@ export type ClientMessage =
 /** Messages the server sends to clients. */
 export type ServerMessage =
   | { t: 'welcome'; id: number; tickRate: number; areaId: string; instanceId: string }
-  | { t: 'snapshot'; tick: number; entities: EntityState[] }
+  | { t: 'snapshot'; tick: number; entities: EntityState[]; fx: FxEvent[] }
+  /** Personal stats for the receiving player (kept off the shared snapshot). */
+  | { t: 'you'; hp: number; maxHp: number; mana: number; maxMana: number; dead: boolean }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
   | { t: 'chat'; from: string; text: string }

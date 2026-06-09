@@ -1,12 +1,23 @@
 import { SnapshotBuffer } from './interp.js';
+import type { TimedFx } from './draw.js';
 import { decodeServer, encode, type InputState, type ServerMessage } from '../shared/protocol.js';
+import type { AbilityId } from '../shared/combat.js';
 
 export interface ChatLine {
   from: string;
   text: string;
 }
 
+export interface SelfStats {
+  hp: number;
+  maxHp: number;
+  mana: number;
+  maxMana: number;
+  dead: boolean;
+}
+
 const MAX_CHAT_LINES = 50;
+const MAX_FX = 150;
 
 /**
  * Thin WebSocket client. Connects to the same origin's /ws (Vite proxies this to the
@@ -17,6 +28,8 @@ export class Net {
   private ws: WebSocket | null = null;
   readonly snapshots = new SnapshotBuffer();
   readonly chat: ChatLine[] = [];
+  readonly fx: TimedFx[] = [];
+  you: SelfStats = { hp: 100, maxHp: 100, mana: 100, maxMana: 100, dead: false };
   selfId = 0;
   connected = false;
   tickRate = 20;
@@ -55,6 +68,10 @@ export class Net {
     this.send({ t: 'chat', text });
   }
 
+  sendCast(ability: AbilityId, dx: number, dy: number): void {
+    this.send({ t: 'cast', ability, dx, dy });
+  }
+
   private send(msg: Parameters<typeof encode>[0]): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(msg));
   }
@@ -67,13 +84,27 @@ export class Net {
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
         break;
-      case 'snapshot':
-        this.snapshots.push(msg.entities, performance.now());
+      case 'snapshot': {
+        const now = performance.now();
+        this.snapshots.push(msg.entities, now);
+        for (const ev of msg.fx) this.fx.push({ ev, t0: now });
+        if (this.fx.length > MAX_FX) this.fx.splice(0, this.fx.length - MAX_FX);
+        break;
+      }
+      case 'you':
+        this.you = {
+          hp: msg.hp,
+          maxHp: msg.maxHp,
+          mana: msg.mana,
+          maxMana: msg.maxMana,
+          dead: msg.dead,
+        };
         break;
       case 'area_changed':
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
         this.snapshots.clear(); // forget the old area's entities immediately
+        this.fx.length = 0;
         break;
       case 'chat':
         this.chat.push({ from: msg.from, text: msg.text });

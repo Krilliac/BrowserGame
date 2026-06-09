@@ -3,7 +3,18 @@ import { SnapshotBuffer, interpolate } from './interp.js';
 import type { EntityState } from '../shared/protocol.js';
 
 function entity(id: number, x: number, y: number): EntityState {
-  return { id, x, y, name: `e${id}`, hue: 0 };
+  return {
+    id,
+    x,
+    y,
+    name: `e${id}`,
+    hue: 0,
+    kind: 'player',
+    facing: 0,
+    hp: 100,
+    maxHp: 100,
+    level: 1,
+  };
 }
 
 describe('interpolate', () => {

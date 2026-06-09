@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Game world, characters & combat** — tiled biome rendering with deterministic props
+  (`src/client/draw.ts`), top-down characters with facing/health/level, projectile + melee
+  effects, and a Diablo-style HP/MP + ability hotbar HUD.
+- **Abilities** (`src/shared/combat.ts`) — Slash (melee), Fireball, Arrow, Frostbolt; cast with
+  1–4 / click (desktop) or hotbar tap aimed at the nearest monster (touch). Server-authoritative
+  validation of cooldown/mana/range; projectiles simulated server-side.
+- **Monsters** (`src/server/mobs.ts`) — roaming, respawning Gloom Wolves / Crypt Skeletons /
+  Cave Bats with aggro → chase → melee AI (pure, unit-tested). Town is a safe zone.
+- **Death & respawn**, HP/mana with regen, and per-player `you` stats + per-tick `fx` effects.
 - **Open world, instanced** — areas (`src/shared/areas.ts`: town / wilderness / crypt) each served
   by one or more instances. The server packs players up to an area's cap and spins up new instances
   on demand (`src/server/instance-manager.ts`), or collapses to one instance per area with

@@ -47,8 +47,7 @@ export class InstanceManager {
     const area = areaOf(areaId);
     if (!area) throw new Error(`unknown area: ${areaId}`);
     const instance = this.pickInstance(area);
-    const entityId = this.nextEntityId++;
-    instance.world.spawn(name, { id: entityId });
+    const entityId = instance.world.spawn(name); // world uses the shared id allocator
     return { instanceId: instance.id, entityId, areaId: area.id };
   }
 
@@ -73,10 +72,9 @@ export class InstanceManager {
     return this.instances.get(instanceId);
   }
 
-  /** Entity ids currently in an instance — used to scope snapshots and chat to one instance. */
-  entityIdsIn(instanceId: string): number[] {
-    const instance = this.instances.get(instanceId);
-    return instance ? instance.world.snapshot().map((e) => e.id) : [];
+  /** Player ids currently in an instance — used to scope snapshots and chat to one instance. */
+  playerIdsIn(instanceId: string): number[] {
+    return this.instances.get(instanceId)?.world.playerIds() ?? [];
   }
 
   get instanceCount(): number {
@@ -102,11 +100,9 @@ export class InstanceManager {
 
   private spawnInstance(area: AreaDef): Instance {
     const id = `${area.id}#${++this.instanceSeq}`;
-    const instance: Instance = {
-      id,
-      areaId: area.id,
-      world: new World(area.width, area.height, area.spawn),
-    };
+    const world = new World(area.width, area.height, area.spawn, () => this.nextEntityId++);
+    world.populateMobs(area.id);
+    const instance: Instance = { id, areaId: area.id, world };
     this.instances.set(id, instance);
     return instance;
   }

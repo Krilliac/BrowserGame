@@ -34,6 +34,8 @@ export class Input {
     dy: 0,
   };
   private pointerId: number | null = null;
+  /** Screen rect of the bottom HUD; pointerdowns here drive UI, not the joystick. */
+  hudRect: { x: number; y: number; w: number; h: number } | null = null;
 
   attach(canvas: HTMLCanvasElement): void {
     window.addEventListener('keydown', (e) => {
@@ -43,6 +45,8 @@ export class Input {
     window.addEventListener('blur', () => this.clearKeys());
 
     canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return; // desktop uses keyboard + click-to-cast
+      if (this.inHud(e.clientX, e.clientY)) return; // let the HUD handle this tap
       this.pointerId = e.pointerId;
       this.joystick.active = true;
       this.joystick.baseX = e.clientX;
@@ -68,6 +72,11 @@ export class Input {
   /** Forget held keys — call when focus moves to a text field. */
   clearKeys(): void {
     this.down.clear();
+  }
+
+  private inHud(x: number, y: number): boolean {
+    const r = this.hudRect;
+    return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
   }
 
   sample(): InputState {
