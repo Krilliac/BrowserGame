@@ -47,8 +47,9 @@ renderers. Prioritized, codebase-mapped takeaways (full detail + sources in the 
 - [~] **Integer gameplay-tick** — intentionally deferred: per the RuneScape research we keep
       real-time cadence (we're an action game; float drift is negligible at our tick rate).
       Revisit only if we add turn-based RuneScape-style skills. (runescape research)
-- [ ] **PixiJS v8 renderer** (MIT, WebGL/WebGPU) behind a `Renderer` interface, migrating
-      `src/client/draw.ts` layer-by-layer with Canvas2D as fallback. **(next up)** (rendering research)
+- [x] **PixiJS v8 renderer** — migrated to a tilted top-down 2.5D look (textured ground,
+      depth-sorted billboards + shadows, portal pads, FX); HUD is a Canvas2D overlay
+      (`src/client/pixi-renderer.ts`). Verified via the screenshot harness. (rendering research)
 
 **P1 — depth & fidelity**
 

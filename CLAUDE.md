@@ -7,7 +7,8 @@ StarCraft II, Diablo II/III, and RuneScape — an original game themed around th
 **not** a clone of any one of them.
 
 - **Language:** TypeScript end-to-end (server + client + shared protocol).
-- **Client:** Vite + Canvas2D today (renderer is abstracted so PixiJS/WebGL can drop in later).
+- **Client:** Vite + **PixiJS v8** (WebGL) — a tilted top-down 2.5D renderer
+  (`src/client/pixi-renderer.ts`); the HUD is a Canvas2D overlay.
 - **Server:** Node + `ws`, an **authoritative** fixed-timestep simulation.
 - **Shared:** one `src/shared` protocol used by both sides — single source of truth for the wire.
 - **Primary workflow goal:** dead-simple setup. `npm install && npm run dev`, open one url —
@@ -109,7 +110,8 @@ and `src/server/instance-manager.ts`.
 
 ## Open design decisions (still to settle)
 
-- **Renderer:** Canvas2D now; PixiJS/WebGL when art density demands it.
+- **Sprite art:** the renderer draws procedural shapes; drop in CC0/LPC sprite atlases next
+  (see `wiki/research/rendering-and-assets.md`).
 - **Cross-instance social features:** chat is currently per-instance (area-scoped); global/party/
   whisper channels and a friends list are future work.
 

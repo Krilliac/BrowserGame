@@ -8,6 +8,10 @@ versioning once it stabilizes.
 
 ### Added
 
+- **PixiJS 2.5D renderer** — migrated the client from Canvas2D to **PixiJS v8 (WebGL)** with a
+  tilted top-down (RuneScape-pitch) look: textured ground, depth-sorted billboarded actors with
+  ground shadows, glowing portal pads, projectiles/items/FX, and a Canvas2D HUD overlay
+  (`src/client/pixi-renderer.ts`). Verified via the headless screenshot harness.
 - **Interest management, combat depth & richer loot** — research-driven P0/P1 adoptions, built as
   pure modules in parallel by sub-agents and integrated:
   - **Interest management** (`src/server/spatial.ts`) — a spatial hash grid; each player now

@@ -1,24 +1,37 @@
+import { Application } from 'pixi.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
+import { PixiRenderer } from './pixi-renderer.js';
 import { areaOf } from '../shared/areas.js';
 import { ABILITIES, ABILITY_ORDER, type AbilityId } from '../shared/combat.js';
-import { drawCharacter, drawFx, drawItem, drawProjectile, drawWorld } from './draw.js';
 import type { EntityState } from '../shared/protocol.js';
 
-const canvas = document.getElementById('game') as HTMLCanvasElement;
-const ctx = canvas.getContext('2d')!;
+const gameCanvas = document.getElementById('game') as HTMLCanvasElement;
+const hudCanvas = document.getElementById('hud') as HTMLCanvasElement;
+const hud = hudCanvas.getContext('2d')!;
 const statusEl = document.getElementById('status')!;
 const popEl = document.getElementById('pop')!;
 const chatLogEl = document.getElementById('chat-log')!;
 const chatInputEl = document.getElementById('chat-input') as HTMLInputElement;
 
-function resize(): void {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+function resizeHud(): void {
+  hudCanvas.width = window.innerWidth;
+  hudCanvas.height = window.innerHeight;
 }
-window.addEventListener('resize', resize);
-resize();
+window.addEventListener('resize', resizeHud);
+resizeHud();
+
+// --- PixiJS app + renderer (tilted top-down 2.5D) -------------------------------------
+const app = new Application();
+await app.init({
+  canvas: gameCanvas,
+  resizeTo: window,
+  antialias: true,
+  background: '#0e0f13',
+  preference: 'webgl',
+});
+const renderer = new PixiRenderer(app);
 
 const name =
   window.localStorage.getItem('bg.name') ??
@@ -32,7 +45,7 @@ const net = new Net(name);
 net.connect();
 
 const input = new Input();
-input.attach(canvas);
+input.attach(gameCanvas);
 setInterval(() => net.sendInput(input.sample()), 1000 / 30);
 
 // --- Combat input ---------------------------------------------------------------------
@@ -63,20 +76,18 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Desktop: left-click casts the selected ability toward the cursor.
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
     selected = slot.ability;
     castAbility(slot.ability);
-  } else if (e.target === canvas) {
+  } else if (e.target === gameCanvas) {
     castAbility(selected);
   }
 });
 
-// Touch: tapping an ability slot casts it (aimed at the nearest monster).
-canvas.addEventListener('pointerdown', (e) => {
+gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
@@ -90,7 +101,6 @@ function castAbility(abilityId: AbilityId): void {
   const ability = ABILITIES[abilityId];
   if ((cooldownEnd[abilityId] ?? 0) > performance.now()) return;
   if (net.you.mana < ability.manaCost) return;
-
   const aim = computeAim();
   net.sendCast(abilityId, aim.dx, aim.dy);
   cooldownEnd[abilityId] = performance.now() + ability.cooldownMs;
@@ -98,7 +108,7 @@ function castAbility(abilityId: AbilityId): void {
 
 function computeAim(): { dx: number; dy: number } {
   if (!self) return { dx: 1, dy: 0 };
-  if (hasMouse) return { dx: mouseX - canvas.width / 2, dy: mouseY - canvas.height / 2 };
+  if (hasMouse) return { dx: mouseX - window.innerWidth / 2, dy: mouseY - window.innerHeight / 2 };
   const mob = nearestMob();
   if (mob) return { dx: mob.x - self.x, dy: mob.y - self.y };
   return { dx: Math.cos(self.facing), dy: Math.sin(self.facing) };
@@ -157,59 +167,28 @@ function syncChatLog(): void {
   renderedChatLen = net.chat.length;
 }
 
-// --- Render loop ----------------------------------------------------------------------
-function render(): void {
-  const { width: w, height: h } = canvas;
+// --- Frame loop: drive the Pixi scene + the HUD overlay -------------------------------
+app.ticker.add(() => {
   const now = performance.now();
-
   entities = net.snapshots.sample(now - INTERP_DELAY_MS);
   self = entities.find((e) => e.id === net.selfId);
-  const camX = (self ? self.x : 0) - w / 2;
-  const camY = (self ? self.y : 0) - h / 2;
+  const camX = self ? self.x : 0;
+  const camY = self ? self.y : 0;
 
-  drawWorld(ctx, net.areaId, camX, camY, w, h);
-  drawPortals(camX, camY);
-
-  for (const e of entities) {
-    if (e.kind === 'item') drawItem(ctx, e, e.x - camX, e.y - camY, now);
-  }
-  for (const e of entities) {
-    if (e.kind === 'player' || e.kind === 'mob') {
-      drawCharacter(ctx, e, e.id === net.selfId, e.x - camX, e.y - camY);
-    }
-  }
-  for (const e of entities) {
-    if (e.kind === 'projectile') drawProjectile(ctx, e, e.x - camX, e.y - camY);
-  }
-  drawFx(ctx, net.fx, camX, camY, now);
-  drawHud(w, h);
+  renderer.update({ areaId: net.areaId, entities, selfId: net.selfId, fx: net.fx, camX, camY });
+  drawHud();
 
   const area = areaOf(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
   popEl.textContent = `${area?.name ?? net.areaId} · players: ${entities.filter((e) => e.kind === 'player').length}`;
   syncChatLog();
-  requestAnimationFrame(render);
-}
+});
 
-function drawPortals(camX: number, camY: number): void {
-  const area = areaOf(net.areaId);
-  if (!area) return;
-  for (const portal of area.portals) {
-    const sx = portal.rect.x - camX;
-    const sy = portal.rect.y - camY;
-    ctx.fillStyle = 'rgba(201,162,75,0.18)';
-    ctx.strokeStyle = 'rgba(201,162,75,0.8)';
-    ctx.lineWidth = 2;
-    ctx.fillRect(sx, sy, portal.rect.w, portal.rect.h);
-    ctx.strokeRect(sx, sy, portal.rect.w, portal.rect.h);
-    ctx.fillStyle = '#e7d9b0';
-    ctx.font = '12px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(portal.label, sx + portal.rect.w / 2, sy - 6);
-  }
-}
+function drawHud(): void {
+  const w = hudCanvas.width;
+  const h = hudCanvas.height;
+  hud.clearRect(0, 0, w, h);
 
-function drawHud(w: number, h: number): void {
   const slot = 48;
   const gap = 10;
   const count = ABILITY_ORDER.length;
@@ -218,17 +197,15 @@ function drawHud(w: number, h: number): void {
   const slotsY = h - 60;
   const now = performance.now();
 
-  // Level + gold line.
-  ctx.font = 'bold 12px system-ui, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#e7d9b0';
-  ctx.fillText(`Lv ${net.you.level}`, panelX, h - 98);
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#f2c14e';
-  ctx.fillText(`${net.you.gold} gold`, panelX + panelW, h - 98);
-  ctx.textAlign = 'left';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillStyle = '#e7d9b0';
+  hud.fillText(`Lv ${net.you.level}`, panelX, h - 98);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#f2c14e';
+  hud.fillText(`${net.you.gold} gold`, panelX + panelW, h - 98);
+  hud.textAlign = 'left';
 
-  // Resource + XP bars above the hotbar.
   drawBar(panelX, h - 92, panelW, 9, net.you.hp / net.you.maxHp, '#b33', `HP ${net.you.hp}`);
   drawBar(panelX, h - 81, panelW, 7, net.you.mana / net.you.maxMana, '#36c', `MP ${net.you.mana}`);
   drawBar(
@@ -247,43 +224,42 @@ function drawHud(w: number, h: number): void {
     const ability = ABILITIES[id];
     slotRects.push({ ability: id, x, y: slotsY, w: slot, h: slot });
 
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(x, slotsY, slot, slot);
-    ctx.fillStyle = ability.color;
-    ctx.globalAlpha = net.you.mana < ability.manaCost ? 0.3 : 0.85;
-    ctx.fillRect(x + 4, slotsY + 4, slot - 8, slot - 8);
-    ctx.globalAlpha = 1;
+    hud.fillStyle = 'rgba(0,0,0,0.55)';
+    hud.fillRect(x, slotsY, slot, slot);
+    hud.globalAlpha = net.you.mana < ability.manaCost ? 0.3 : 0.85;
+    hud.fillStyle = ability.color;
+    hud.fillRect(x + 4, slotsY + 4, slot - 8, slot - 8);
+    hud.globalAlpha = 1;
 
-    // Cooldown sweep (client-predicted).
     const remaining = (cooldownEnd[id] ?? 0) - now;
     if (remaining > 0) {
       const frac = Math.min(1, remaining / ability.cooldownMs);
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(x, slotsY + slot * (1 - frac), slot, slot * frac);
+      hud.fillStyle = 'rgba(0,0,0,0.6)';
+      hud.fillRect(x, slotsY + slot * (1 - frac), slot, slot * frac);
     }
 
-    ctx.strokeStyle = selected === id ? '#c9a24b' : 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = selected === id ? 3 : 1;
-    ctx.strokeRect(x, slotsY, slot, slot);
+    hud.strokeStyle = selected === id ? '#c9a24b' : 'rgba(255,255,255,0.25)';
+    hud.lineWidth = selected === id ? 3 : 1;
+    hud.strokeRect(x, slotsY, slot, slot);
 
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 12px system-ui, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText(ability.key, x + 4, slotsY + 14);
-    ctx.textAlign = 'center';
-    ctx.font = '10px system-ui, sans-serif';
-    ctx.fillText(ability.name, x + slot / 2, slotsY + slot - 5);
+    hud.fillStyle = '#fff';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.textAlign = 'left';
+    hud.fillText(ability.key, x + 4, slotsY + 14);
+    hud.textAlign = 'center';
+    hud.font = '10px system-ui, sans-serif';
+    hud.fillText(ability.name, x + slot / 2, slotsY + slot - 5);
   });
 
   input.hudRect = { x: panelX - 6, y: h - 108, w: panelW + 12, h: 104 };
 
   if (net.you.dead) {
-    ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#e7d9b0';
-    ctx.font = 'bold 32px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('You died — respawning…', w / 2, h / 2);
+    hud.fillStyle = 'rgba(0,0,0,0.55)';
+    hud.fillRect(0, 0, w, h);
+    hud.fillStyle = '#e7d9b0';
+    hud.font = 'bold 32px system-ui, sans-serif';
+    hud.textAlign = 'center';
+    hud.fillText('You died — respawning…', w / 2, h / 2);
   }
 }
 
@@ -296,14 +272,14 @@ function drawBar(
   color: string,
   label: string,
 ): void {
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(x, y, width, height);
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, width * Math.max(0, Math.min(1, frac)), height);
-  ctx.fillStyle = '#fff';
-  ctx.font = '9px system-ui, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(label, x + 4, y + height - 1);
+  hud.fillStyle = 'rgba(0,0,0,0.6)';
+  hud.fillRect(x, y, width, height);
+  hud.fillStyle = color;
+  hud.fillRect(x, y, width * Math.max(0, Math.min(1, frac)), height);
+  hud.fillStyle = '#fff';
+  hud.font = '9px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText(label, x + 4, y + height - 1);
 }
 
 function inRect(
@@ -313,5 +289,3 @@ function inRect(
 ): boolean {
   return px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
 }
-
-requestAnimationFrame(render);

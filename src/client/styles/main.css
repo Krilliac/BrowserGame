@@ -19,14 +19,27 @@ body {
   font-family: system-ui, sans-serif;
 }
 
-#game {
-  display: block;
+#game,
+#hud {
+  position: fixed;
+  inset: 0;
   width: 100vw;
   height: 100vh;
-  touch-action: none;
+  display: block;
 }
 
+#game {
+  touch-action: none;
+  z-index: 1;
+}
+
+/* HUD overlay canvas sits above the game; clicks pass through to the game/handlers. */
 #hud {
+  z-index: 5;
+  pointer-events: none;
+}
+
+#topbar {
   position: fixed;
   top: 8px;
   left: 8px;
