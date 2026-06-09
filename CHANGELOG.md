@@ -8,6 +8,13 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Sprite characters + sound** — wired the sourced CC0/CC-BY assets in: actors now render as
+  **LPC sprite sheets** (hero, wolf, skeleton, bat) animated by `facing` with idle/walk frames and
+  a procedural-orb fallback (`src/client/pixi-renderer.ts`), and a **sound manager**
+  (`src/client/sound.ts`) plays spell-cast SFX off `fx` events and a per-area ambient loop.
+- **Bundled game assets** (`public/assets/`) sourced by parallel web agents — terrain tiles,
+  character/monster sprites, UI atlas + item icons + spell-FX strips, and audio; with a
+  consolidated `public/assets/CREDITS.md` (CC0-first; CC-BY/CC-BY-SA attributions recorded).
 - **PixiJS 2.5D renderer** — migrated the client from Canvas2D to **PixiJS v8 (WebGL)** with a
   tilted top-down (RuneScape-pitch) look: textured ground, depth-sorted billboarded actors with
   ground shadows, glowing portal pads, projectiles/items/FX, and a Canvas2D HUD overlay

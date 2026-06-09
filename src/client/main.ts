@@ -3,6 +3,7 @@ import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
 import { PixiRenderer } from './pixi-renderer.js';
+import { Sound } from './sound.js';
 import { areaOf } from '../shared/areas.js';
 import { ABILITIES, ABILITY_ORDER, type AbilityId } from '../shared/combat.js';
 import type { EntityState } from '../shared/protocol.js';
@@ -32,6 +33,13 @@ await app.init({
   preference: 'webgl',
 });
 const renderer = new PixiRenderer(app);
+await renderer.loadAssets();
+
+const sound = new Sound();
+sound.load();
+const unlockAudio = (): void => sound.unlock();
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+window.addEventListener('keydown', unlockAudio, { once: true });
 
 const name =
   window.localStorage.getItem('bg.name') ??
@@ -176,6 +184,8 @@ app.ticker.add(() => {
   const camY = self ? self.y : 0;
 
   renderer.update({ areaId: net.areaId, entities, selfId: net.selfId, fx: net.fx, camX, camY });
+  sound.setArea(net.areaId);
+  sound.fromFx(net.fx);
   drawHud();
 
   const area = areaOf(net.areaId);

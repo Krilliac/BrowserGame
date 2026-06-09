@@ -31,9 +31,14 @@
 - [x] Monsters with aggro/chase/melee AI, death + respawn; Diablo-style HUD.
 - [x] XP / leveling (HP scaling) and loot drops + pickup on kill (built via parallel sub-agents).
 - [x] Status effects — Frostbolt slow, Fireball burn.
+- [x] **Sprite art + audio** — LPC character/monster sprites with facing-driven animation, plus a
+      sound manager (cast SFX + per-area ambient). Assets bundled in `public/assets/` (CC0-first).
+- [ ] Use the remaining sourced art: **tilemap ground** from the Kenney/OGA tiles, **item-icon
+      sprites** (coins/gems) and **spell-FX sprite strips** (fireball/arrow/frost/explosion) to
+      replace the procedural projectile/item/FX graphics.
+- [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
 - [ ] Inventory UI for non-gold loot (already accumulates server-side).
 - [ ] More abilities, level-up effects, monster status visuals.
-- [ ] Replace primitive shapes with sprite art (renderer isolated in `src/client/draw.ts`).
 
 ## Research-driven adoptions (from `wiki/research/`)
 

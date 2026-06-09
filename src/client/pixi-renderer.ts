@@ -1,11 +1,15 @@
 import {
+  Assets,
   Container,
   Graphics,
+  Rectangle,
+  Sprite,
   Text,
   Texture,
   TilingSprite,
   type Application,
   type ColorSource,
+  type TextureSource,
 } from 'pixi.js';
 import { ABILITIES, MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import { areaOf } from '../shared/areas.js';
@@ -13,13 +17,14 @@ import type { EntityState } from '../shared/protocol.js';
 import type { TimedFx } from './draw.js';
 
 /**
- * PixiJS renderer for a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a
- * flat plane (x, y); we project to screen with a vertical foreshorten (PITCH) and lift each
- * actor above its ground-contact shadow so it reads with depth. Actors are y-sorted so nearer
- * (lower) things overlap farther ones — the core 2.5D trick.
+ * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
+ * plane (x, y); we project to screen with a vertical foreshorten (PITCH). Actors are LPC sprite
+ * sheets animated by `facing` (with a procedural-orb fallback), drawn over ground shadows and
+ * y-sorted so nearer things overlap farther ones.
  */
-const PITCH = 0.64; // ground foreshortening (~50deg camera pitch)
+const PITCH = 0.64;
 const FX_DURATION = 700;
+const WALK_FRAME_MS = 120;
 
 interface Biome {
   base: string;
@@ -41,11 +46,79 @@ const ITEM_COLORS: Record<string, string> = {
   rune_shard: '#5fb0e0',
 };
 
+type Dir = 'E' | 'S' | 'W' | 'N';
+
+interface Sheet {
+  src: string;
+  fw: number;
+  fh: number;
+  scale: number;
+  /** Sheet row for each facing direction. */
+  rows: Record<Dir, number>;
+  /** Columns cycled while moving. */
+  walkCols: number[];
+  idleCol: number;
+}
+
+const SHEETS: Record<string, Sheet> = {
+  hero: {
+    src: '/assets/sprites/hero_walk_lpc.png',
+    fw: 64,
+    fh: 64,
+    scale: 0.7,
+    rows: { N: 8, W: 9, S: 10, E: 11 },
+    walkCols: [1, 2, 3, 4, 5, 6, 7, 8],
+    idleCol: 0,
+  },
+  skeleton: {
+    src: '/assets/sprites/skeleton_lpc.png',
+    fw: 64,
+    fh: 64,
+    scale: 0.7,
+    rows: { N: 8, W: 9, S: 10, E: 11 },
+    walkCols: [1, 2, 3, 4, 5, 6, 7, 8],
+    idleCol: 0,
+  },
+  wolf: {
+    src: '/assets/sprites/wolf_lpc.png',
+    fw: 64,
+    fh: 64,
+    scale: 0.75,
+    rows: { N: 0, W: 1, S: 2, E: 3 },
+    walkCols: [0, 1, 2, 3, 4, 5, 6, 7, 8],
+    idleCol: 0,
+  },
+  bat: {
+    src: '/assets/sprites/bat.png',
+    fw: 32,
+    fh: 32,
+    scale: 1.5,
+    rows: { S: 0, W: 1, E: 2, N: 3 },
+    walkCols: [0, 1, 2, 3],
+    idleCol: 0,
+  },
+};
+
 function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) | 0;
   h = (h ^ (h >> 13)) * 1274126177;
   h = h ^ (h >> 16);
   return ((h >>> 0) % 1000) / 1000;
+}
+
+function dirOf(facing: number): Dir {
+  const q = ((Math.round(facing / (Math.PI / 2)) % 4) + 4) % 4;
+  return (['E', 'S', 'W', 'N'] as const)[q]!;
+}
+
+function sheetKey(e: EntityState): string | undefined {
+  if (e.kind === 'player') return 'hero';
+  if (e.kind === 'mob') {
+    if (e.name.includes('Wolf')) return 'wolf';
+    if (e.name.includes('Skeleton')) return 'skeleton';
+    if (e.name.includes('Bat')) return 'bat';
+  }
+  return undefined;
 }
 
 export interface RenderState {
@@ -59,9 +132,15 @@ export interface RenderState {
 
 interface ActorView {
   container: Container;
-  base: Graphics;
+  shadow: Graphics;
+  sprite?: Sprite;
+  orb?: Graphics;
   dyn: Graphics;
-  isActor: boolean;
+  label?: Text;
+  sheet?: Sheet;
+  topY: number;
+  lastX: number;
+  lastY: number;
   seen: boolean;
 }
 
@@ -76,6 +155,8 @@ export class PixiRenderer {
   private readonly views = new Map<number, ActorView>();
   private currentArea = '';
   private readonly groundTextures = new Map<string, Texture>();
+  private readonly sheetTex = new Map<string, Texture>();
+  private readonly frameCache = new Map<string, Texture>();
 
   constructor(private readonly app: Application) {
     this.ground = new TilingSprite({ texture: Texture.WHITE, width: 100, height: 100 });
@@ -86,7 +167,21 @@ export class PixiRenderer {
     app.stage.addChild(this.ground, this.world);
   }
 
-  /** Build ground + static props + portals for an area (once per area change). */
+  /** Load sprite sheets. Falls back to procedural orbs if loading fails. */
+  async loadAssets(): Promise<void> {
+    try {
+      const entries = await Assets.load(
+        Object.entries(SHEETS).map(([alias, s]) => ({ alias, src: s.src })),
+      );
+      for (const alias of Object.keys(SHEETS)) {
+        const tex = (entries as Record<string, Texture>)[alias];
+        if (tex) this.sheetTex.set(alias, tex);
+      }
+    } catch {
+      // leave sheetTex empty -> orb fallback
+    }
+  }
+
   setArea(areaId: string): void {
     if (areaId === this.currentArea) return;
     this.currentArea = areaId;
@@ -106,7 +201,7 @@ export class PixiRenderer {
         .fill({ color: '#c9a24b', alpha: 0.22 })
         .stroke({ width: 2, color: '#e7d9b0' });
       pad.position.set(cx, cy * PITCH);
-      pad.zIndex = -100000; // portals lie on the ground, behind all actors
+      pad.zIndex = -100000;
       const label = new Text({
         text: portal.label,
         style: { fontFamily: 'system-ui', fontSize: 13, fill: '#e7d9b0' },
@@ -128,19 +223,15 @@ export class PixiRenderer {
     }
   }
 
-  /** Per-frame update from the latest interpolated snapshot. */
   update(state: RenderState): void {
     this.setArea(state.areaId);
 
     const sw = this.app.screen.width;
     const sh = this.app.screen.height;
-    const cx = sw / 2;
-    const cy = sh / 2;
-
-    this.world.position.set(cx - state.camX, cy - state.camY * PITCH);
+    this.world.position.set(sw / 2 - state.camX, sh / 2 - state.camY * PITCH);
     this.ground.width = sw;
     this.ground.height = sh;
-    this.ground.tilePosition.set(cx - state.camX, cy - state.camY * PITCH);
+    this.ground.tilePosition.set(sw / 2 - state.camX, sh / 2 - state.camY * PITCH);
 
     for (const view of this.views.values()) view.seen = false;
     for (const e of state.entities) {
@@ -159,11 +250,9 @@ export class PixiRenderer {
   }
 
   private updateActor(e: EntityState, isSelf: boolean): void {
-    const radius = e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS;
-    const raise = radius * 1.2;
     let view = this.views.get(e.id);
     if (!view) {
-      view = this.makeActor(e, isSelf, radius, raise);
+      view = this.makeActor(e, isSelf);
       this.actorLayer.addChild(view.container);
       this.views.set(e.id, view);
     }
@@ -171,39 +260,76 @@ export class PixiRenderer {
     view.container.position.set(e.x, e.y * PITCH);
     view.container.zIndex = e.y;
 
+    // Animate sprite by facing + movement.
+    if (view.sprite && view.sheet) {
+      const moving = Math.hypot(e.x - view.lastX, e.y - view.lastY) > 0.25;
+      const sheet = view.sheet;
+      const row = sheet.rows[dirOf(e.facing)];
+      const col = moving
+        ? sheet.walkCols[Math.floor(performance.now() / WALK_FRAME_MS) % sheet.walkCols.length]!
+        : sheet.idleCol;
+      view.sprite.texture = this.frame(sheetKey(e)!, sheet, col, row);
+    }
+    view.lastX = e.x;
+    view.lastY = e.y;
+
+    // Health bar.
     const d = view.dyn;
     d.clear();
-    const fx = Math.cos(e.facing);
-    const fy = Math.sin(e.facing) * PITCH;
-    d.moveTo(fx * radius * 0.6, -raise + fy * radius * 0.6)
-      .lineTo(fx * (radius + 14), -raise + fy * (radius + 14))
-      .stroke({ width: 4, color: e.kind === 'mob' ? '#ccaaaa' : '#d9c87a' });
     if (e.maxHp > 0) {
-      const bw = radius * 2.2;
+      const bw = (e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS) * 2.4;
       const frac = Math.max(0, Math.min(1, e.hp / e.maxHp));
-      d.rect(-bw / 2, -raise - radius - 8, bw, 4).fill({ color: '#000000', alpha: 0.6 });
-      d.rect(-bw / 2, -raise - radius - 8, bw * frac, 4).fill({
+      d.rect(-bw / 2, view.topY - 6, bw, 4).fill({ color: '#000000', alpha: 0.6 });
+      d.rect(-bw / 2, view.topY - 6, bw * frac, 4).fill({
         color: e.kind === 'mob' ? '#cc4444' : '#4caf50',
       });
     }
   }
 
-  private makeActor(e: EntityState, isSelf: boolean, radius: number, raise: number): ActorView {
+  private makeActor(e: EntityState, isSelf: boolean): ActorView {
     const container = new Container();
-    const base = new Graphics();
-    base.ellipse(0, 0, radius, radius * 0.5).fill({ color: '#000000', alpha: 0.35 });
-    const light = e.kind === 'mob' ? 44 : 56;
-    base.circle(0, -raise, radius).fill({ color: `hsl(${e.hue} 60% ${light}%)` });
-    base
-      .circle(-radius * 0.3, -raise - radius * 0.3, radius * 0.45)
-      .fill({ color: `hsl(${e.hue} 60% ${light + 14}%)` });
-    base.circle(0, -raise, radius).stroke({
-      width: isSelf ? 3 : 2,
-      color: isSelf ? '#c9a24b' : '#000000',
-      alpha: isSelf ? 1 : 0.55,
-    });
+    const radius = e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS;
+    const shadow = new Graphics();
+    shadow.ellipse(0, 0, radius, radius * 0.5).fill({ color: '#000000', alpha: 0.35 });
+    if (isSelf)
+      shadow.ellipse(0, 0, radius + 3, radius * 0.5 + 2).stroke({ width: 2, color: '#c9a24b' });
+    container.addChild(shadow);
 
-    const dyn = new Graphics();
+    const key = sheetKey(e);
+    const sheet = key ? SHEETS[key] : undefined;
+    const baseTex = key ? this.sheetTex.get(key) : undefined;
+    const view: ActorView = {
+      container,
+      shadow,
+      dyn: new Graphics(),
+      topY: -radius * 2.6,
+      lastX: e.x,
+      lastY: e.y,
+      seen: true,
+    };
+
+    if (sheet && baseTex) {
+      const sprite = new Sprite(
+        this.frame(key!, sheet, sheet.idleCol, sheet.rows[dirOf(e.facing)]),
+      );
+      sprite.anchor.set(0.5, 0.92);
+      sprite.scale.set(sheet.scale);
+      view.sprite = sprite;
+      view.sheet = sheet;
+      view.topY = -sheet.fh * sheet.scale * 0.85;
+      container.addChild(sprite);
+    } else {
+      // Procedural orb fallback.
+      const orb = new Graphics();
+      const raise = radius * 1.2;
+      const light = e.kind === 'mob' ? 44 : 56;
+      orb.circle(0, -raise, radius).fill({ color: `hsl(${e.hue} 60% ${light}%)` });
+      orb.circle(0, -raise, radius).stroke({ width: 2, color: '#000000', alpha: 0.5 });
+      view.orb = orb;
+      view.topY = -raise - radius;
+      container.addChild(orb);
+    }
+
     const label = new Text({
       text: `${e.name}${e.level ? ` · L${e.level}` : ''}`,
       style: {
@@ -213,9 +339,24 @@ export class PixiRenderer {
       },
     });
     label.anchor.set(0.5, 1);
-    label.position.set(0, -raise - radius - 12);
-    container.addChild(base, dyn, label);
-    return { container, base, dyn, isActor: true, seen: true };
+    label.position.set(0, view.topY - 8);
+    view.label = label;
+    container.addChild(view.dyn, label);
+    return view;
+  }
+
+  private frame(alias: string, sheet: Sheet, col: number, row: number): Texture {
+    const key = `${alias}:${col}:${row}`;
+    let t = this.frameCache.get(key);
+    if (!t) {
+      const base = this.sheetTex.get(alias)!;
+      t = new Texture({
+        source: base.source as TextureSource,
+        frame: new Rectangle(col * sheet.fw, row * sheet.fh, sheet.fw, sheet.fh),
+      });
+      this.frameCache.set(key, t);
+    }
+    return t;
   }
 
   private updateProjectile(e: EntityState): void {
@@ -233,14 +374,23 @@ export class PixiRenderer {
         base.circle(0, 0, radius).fill({ color });
       }
       container.addChild(base);
-      view = { container, base, dyn: base, isActor: false, seen: true };
+      view = {
+        container,
+        shadow: base,
+        orb: base,
+        dyn: base,
+        topY: 0,
+        lastX: e.x,
+        lastY: e.y,
+        seen: true,
+      };
       this.actorLayer.addChild(container);
       this.views.set(e.id, view);
     }
     view.seen = true;
     view.container.position.set(e.x, e.y * PITCH - 10);
     view.container.zIndex = e.y + 5000;
-    if (e.abilityId === 'arrow') view.base.rotation = e.facing;
+    if (e.abilityId === 'arrow' && view.orb) view.orb.rotation = e.facing;
   }
 
   private updateItem(e: EntityState): void {
@@ -253,7 +403,15 @@ export class PixiRenderer {
       base.circle(0, -8, 9).fill({ color, alpha: 0.25 });
       base.circle(0, -8, 4).fill({ color });
       container.addChild(base);
-      view = { container, base, dyn: base, isActor: false, seen: true };
+      view = {
+        container,
+        shadow: base,
+        dyn: base,
+        topY: 0,
+        lastX: e.x,
+        lastY: e.y,
+        seen: true,
+      };
       this.actorLayer.addChild(container);
       this.views.set(e.id, view);
     }
@@ -280,7 +438,7 @@ export class PixiRenderer {
         t.style.fill =
           ev.value === 0 ? '#9bbbbb' : ev.abilityId ? ABILITIES[ev.abilityId]!.color : '#ffee66';
         t.alpha = alpha;
-        t.position.set(x, y - 40 - age * 26);
+        t.position.set(x, y - 50 - age * 26);
       } else if (ev.kind === 'melee' && ev.facing !== undefined) {
         g.arc(x, y - 16, 40, ev.facing - 0.7, ev.facing + 0.7).stroke({
           width: 4,
