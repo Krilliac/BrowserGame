@@ -10,6 +10,10 @@ StarCraft II, Diablo II/III, and RuneScape — an original game themed around th
 - **Client:** Vite + **PixiJS v8** (WebGL) — a tilted top-down 2.5D renderer
   (`src/client/pixi-renderer.ts`); the HUD is a Canvas2D overlay.
 - **Server:** Node + `ws`, an **authoritative** fixed-timestep simulation.
+- **Content:** all game data (areas, spells, items, monsters, NPCs, loot, quests) lives in a
+  **SQLite** database loaded at startup via parametrized queries (`src/server/content.ts`,
+  `src/server/db/`). Edit `game.db` with SQL to change the game — see
+  [`wiki/architecture/Content-Database.md`](wiki/architecture/Content-Database.md).
 - **Shared:** one `src/shared` protocol used by both sides — single source of truth for the wire.
 - **Primary workflow goal:** dead-simple setup. `npm install && npm run dev`, open one url —
   works the same on a laptop or a **phone**.

@@ -8,6 +8,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **SQLite content database** — game content (areas, spells, items, monsters, area spawns, loot
+  tables, NPCs, quests) now lives in SQLite and is loaded at startup via parametrized queries
+  (`src/server/db/`, `src/server/content.ts`). Seeded from the built-in content on first run; the
+  simulation reads only from the DB, so editing `game.db` with SQL changes the game (add a monster,
+  rebalance a spell, move an NPC). `GAME_DB` sets the path. See `wiki/architecture/Content-Database.md`.
 - **Equipment & stats** — weapons (+attack power) and armor (+max HP) drop from monsters
   (`src/shared/equipment.ts`), shown as colored ground glints. Click an equippable bag item to
   equip it; the HUD shows an Equipped panel (weapon/armor/power). Weapon power adds to every hit;

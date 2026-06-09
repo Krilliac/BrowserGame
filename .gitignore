@@ -32,3 +32,6 @@ coverage/
 
 # Never commit raw asset archives (extract them instead)
 public/assets/**/*.zip
+game.db
+game.db-shm
+game.db-wal

@@ -8,7 +8,6 @@ import {
   type InputState,
 } from '../shared/protocol.js';
 import {
-  ABILITIES,
   HP_REGEN_PER_SEC,
   MANA_REGEN_PER_SEC,
   MOB_RADIUS,
@@ -21,12 +20,10 @@ import {
 } from '../shared/combat.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
 import { attackRoll, defenceRoll, rollDamage, rolledHit } from './combat-formulas.js';
-import { AREA_MOBS, MOB_TEMPLATES, stepMob, type MobView, type PlayerView } from './mobs.js';
+import { stepMob, type MobView, type PlayerView } from './mobs.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpReward } from './progression.js';
-import { rollLoot } from './loot.js';
 import { StatusSet } from './status-effects.js';
-import { sellAll } from './vendor.js';
-import { equipDef, isEquip, rollEquipDrop } from '../shared/equipment.js';
+import { getContent } from './content.js';
 
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
@@ -147,8 +144,9 @@ export class World {
 
   /** Populate the area's monsters. Called once by the instance manager after construction. */
   populateMobs(areaId: string): void {
-    for (const spawn of AREA_MOBS[areaId] ?? []) {
-      const template = MOB_TEMPLATES[spawn.templateId];
+    const content = getContent();
+    for (const spawn of content.areaMobs(areaId)) {
+      const template = content.mobTemplate(spawn.templateId);
       if (!template) continue;
       for (let i = 0; i < spawn.count; i++) {
         const id = this.allocId();
@@ -179,24 +177,31 @@ export class World {
     }
   }
 
-  /** Place static NPCs for the area (the town vendor). Called once after construction. */
+  /** Place static NPCs for the area (from the content DB). Called once after construction. */
   populateNpcs(areaId: string): void {
-    if (areaId !== 'town') return;
-    const id = this.allocId();
-    this.npcs.set(id, { id, name: 'Merchant', x: 660, y: 560, hue: 45, kind: 'vendor' });
+    for (const npc of getContent().npcs(areaId)) {
+      const id = this.allocId();
+      this.npcs.set(id, { id, name: npc.name, x: npc.x, y: npc.y, hue: npc.hue, kind: 'vendor' });
+    }
   }
 
   /** Interact with the nearest in-range NPC: the vendor buys the player's loot for gold. */
   interact(id: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
+    const content = getContent();
     for (const npc of this.npcs.values()) {
       if (Math.hypot(player.x - npc.x, player.y - npc.y) > INTERACT_RANGE) continue;
       if (npc.kind !== 'vendor') continue;
-      const result = sellAll(Object.fromEntries(player.loot));
-      if (result.gold <= 0) return;
-      player.gold += result.gold;
-      for (const item of Object.keys(result.sold)) player.loot.delete(item);
+      let gold = 0;
+      for (const [item, qty] of player.loot) {
+        const value = content.sellValue(item);
+        if (value <= 0 || qty <= 0) continue;
+        gold += value * qty;
+        player.loot.delete(item);
+      }
+      if (gold <= 0) return;
+      player.gold += gold;
       this.events.push({ kind: 'cast', x: player.x, y: player.y });
       return;
     }
@@ -205,8 +210,9 @@ export class World {
   /** Equip an item from the player's bag, returning any displaced gear to the bag. */
   equip(id: number, itemId: string): void {
     const player = this.players.get(id);
-    if (!player || !isEquip(itemId) || (player.loot.get(itemId) ?? 0) < 1) return;
-    const def = equipDef(itemId)!;
+    if (!player || (player.loot.get(itemId) ?? 0) < 1) return;
+    const def = getContent().item(itemId);
+    if (!def || def.kind !== 'equip' || (def.slot !== 'weapon' && def.slot !== 'armor')) return;
 
     const remaining = (player.loot.get(itemId) ?? 0) - 1;
     if (remaining <= 0) player.loot.delete(itemId);
@@ -220,10 +226,11 @@ export class World {
 
   /** Derive power + max HP from level and equipped gear. */
   private recomputeStats(player: Player): void {
+    const content = getContent();
     const weapon = player.equipment.weapon;
     const armor = player.equipment.armor;
-    player.power = weapon ? (equipDef(weapon)?.power ?? 0) : 0;
-    player.maxHp = maxHpForLevel(player.level) + (armor ? (equipDef(armor)?.hp ?? 0) : 0);
+    player.power = weapon ? (content.item(weapon)?.power ?? 0) : 0;
+    player.maxHp = maxHpForLevel(player.level) + (armor ? (content.item(armor)?.hp ?? 0) : 0);
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
 
@@ -273,7 +280,8 @@ export class World {
   cast(id: number, abilityId: AbilityId, dx: number, dy: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
-    const ability = ABILITIES[abilityId];
+    const ability = getContent().ability(abilityId);
+    if (!ability) return;
     if ((player.cooldowns.get(abilityId) ?? 0) > 0 || player.mana < ability.manaCost) return;
 
     const facing = aimAngle(dx, dy, player.facing);
@@ -365,7 +373,7 @@ export class World {
       if (mob.dead) continue;
       const slow = mob.statuses.slowFactor();
 
-      const template = MOB_TEMPLATES[mob.templateId]!;
+      const template = getContent().mobTemplate(mob.templateId)!;
       const view: MobView = { x: mob.x, y: mob.y, template, attackReady: mob.attackCd <= 0 };
       const intent = stepMob(view, views);
 
@@ -451,13 +459,8 @@ export class World {
       killer.level = levelForXp(killer.xp);
       this.recomputeStats(killer);
     }
-    const drops: { item: string; qty: number }[] = rollLoot(mob.templateId).map((s) => ({
-      item: s.item,
-      qty: s.qty,
-    }));
-    const gear = rollEquipDrop(mob.level);
-    if (gear) drops.push({ item: gear, qty: 1 });
-    for (const stack of drops) {
+    // Loot (materials + gear) comes from the DB-backed content drop tables.
+    for (const stack of getContent().rollLoot(mob.templateId)) {
       const id = this.allocId();
       this.items.set(id, {
         id,
@@ -512,7 +515,7 @@ export class World {
   }
 
   private respawnMob(mob: Mob): void {
-    const template = MOB_TEMPLATES[mob.templateId]!;
+    const template = getContent().mobTemplate(mob.templateId)!;
     mob.dead = false;
     mob.hp = template.hp;
     mob.x = mob.homeX;

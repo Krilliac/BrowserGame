@@ -1,5 +1,6 @@
 import { World } from './world.js';
-import { areaOf, pointInRect, START_AREA, type AreaDef } from '../shared/areas.js';
+import { pointInRect, START_AREA, type AreaDef } from '../shared/areas.js';
+import { getContent } from './content.js';
 
 /** One running area instance — conceptually its own "area server", here in-process. */
 export interface Instance {
@@ -44,7 +45,7 @@ export class InstanceManager {
 
   /** Place a new player into an area (the start area by default). */
   join(name: string, areaId: string = START_AREA): Placement {
-    const area = areaOf(areaId);
+    const area = getContent().area(areaId);
     if (!area) throw new Error(`unknown area: ${areaId}`);
     const instance = this.pickInstance(area);
     const entityId = instance.world.spawn(name); // world uses the shared id allocator
@@ -112,14 +113,14 @@ export class InstanceManager {
     const events: TransferEvent[] = [];
     // Snapshot the instance list so instances created mid-loop aren't scanned this tick.
     for (const instance of [...this.instances.values()]) {
-      const area = areaOf(instance.areaId);
+      const area = getContent().area(instance.areaId);
       if (!area || area.portals.length === 0) continue;
 
       for (const entity of instance.world.snapshot()) {
         const portal = area.portals.find((p) => pointInRect(entity.x, entity.y, p.rect));
         if (!portal) continue;
 
-        const target = areaOf(portal.toArea);
+        const target = getContent().area(portal.toArea);
         if (!target) continue;
         const dest = this.pickInstance(target);
 

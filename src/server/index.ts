@@ -15,7 +15,15 @@ import {
   type ServerMessage,
 } from '../shared/protocol.js';
 import { isAbilityId } from '../shared/combat.js';
+import { initGameDb } from './content.js';
 import { SpatialGrid } from './spatial.js';
+
+// Load all game content from SQLite (the source of truth). Defaults to ./game.db; the file is
+// created and seeded from the built-in content on first run. Edit it with any SQLite tool.
+const content = initGameDb(process.env.GAME_DB ?? 'game.db');
+console.log(
+  `[browsergame] content loaded: ${content.areas().length} areas, ${content.abilityOrder().length} abilities`,
+);
 
 // Area-of-interest half-extents: each player is sent only entities within this box around them,
 // generously larger than any viewport so nothing pops in at the screen edge.
