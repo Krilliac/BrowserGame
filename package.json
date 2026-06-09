@@ -17,6 +17,7 @@
     "start": "node dist/server/index.js",
     "tunnel": "node scripts/tunnel.mjs",
     "host": "npm run build && concurrently -k -n server,tunnel -c green,cyan \"node dist/server/index.js\" \"node scripts/tunnel.mjs\"",
+    "host:named": "npm run build && concurrently -k -n server,tunnel -c green,cyan \"node dist/server/index.js\" \"node scripts/named-tunnel.mjs\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

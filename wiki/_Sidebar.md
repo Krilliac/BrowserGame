@@ -5,6 +5,7 @@
 - [Home](Home.md)
 - [Getting Started](getting-started/Getting-Started.md)
 - [Running From Your Phone](getting-started/Running-From-Phone.md)
+- [Hosting (stable URL)](getting-started/Hosting.md)
 
 ### Architecture
 
