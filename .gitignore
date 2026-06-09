@@ -29,3 +29,6 @@ coverage/
 
 # Vite cache
 .vite/
+
+# Never commit raw asset archives (extract them instead)
+public/assets/**/*.zip
