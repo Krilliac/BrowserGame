@@ -92,6 +92,10 @@ export class Net {
     this.send({ t: 'cast', ability, dx, dy });
   }
 
+  sendInteract(): void {
+    this.send({ t: 'interact' });
+  }
+
   private send(msg: Parameters<typeof encode>[0]): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(msg));
   }

@@ -120,6 +120,11 @@ wss.on('connection', (socket) => {
         }
         break;
       }
+      case 'interact': {
+        const p = players.get(entityId);
+        if (p) manager.get(p.instanceId)?.world.interact(entityId);
+        break;
+      }
       case 'chat': {
         const p = players.get(entityId);
         if (!p || !chatBucket.tryRemove()) return;

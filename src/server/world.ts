@@ -25,9 +25,11 @@ import { AREA_MOBS, MOB_TEMPLATES, stepMob, type MobView, type PlayerView } from
 import { levelForXp, levelProgress, maxHpForLevel, xpReward } from './progression.js';
 import { rollLoot } from './loot.js';
 import { StatusSet } from './status-effects.js';
+import { sellAll } from './vendor.js';
 
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
+const INTERACT_RANGE = 70;
 
 export interface SpawnOptions {
   id?: number;
@@ -101,6 +103,15 @@ interface GroundItem {
   ttl: number;
 }
 
+interface Npc {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+  hue: number;
+  kind: 'vendor';
+}
+
 /**
  * The authoritative simulation for ONE area instance: players, monsters, projectiles, and
  * combat. Pure of any networking/timers so it is fully testable and could run in its own
@@ -116,6 +127,7 @@ export class World {
   private readonly mobs = new Map<number, Mob>();
   private readonly projectiles = new Map<number, Projectile>();
   private readonly items = new Map<number, GroundItem>();
+  private readonly npcs = new Map<number, Npc>();
   private events: FxEvent[] = [];
 
   constructor(
@@ -161,6 +173,29 @@ export class World {
           respawnAt: 0,
         });
       }
+    }
+  }
+
+  /** Place static NPCs for the area (the town vendor). Called once after construction. */
+  populateNpcs(areaId: string): void {
+    if (areaId !== 'town') return;
+    const id = this.allocId();
+    this.npcs.set(id, { id, name: 'Merchant', x: 660, y: 560, hue: 45, kind: 'vendor' });
+  }
+
+  /** Interact with the nearest in-range NPC: the vendor buys the player's loot for gold. */
+  interact(id: number): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    for (const npc of this.npcs.values()) {
+      if (Math.hypot(player.x - npc.x, player.y - npc.y) > INTERACT_RANGE) continue;
+      if (npc.kind !== 'vendor') continue;
+      const result = sellAll(Object.fromEntries(player.loot));
+      if (result.gold <= 0) return;
+      player.gold += result.gold;
+      for (const item of Object.keys(result.sold)) player.loot.delete(item);
+      this.events.push({ kind: 'cast', x: player.x, y: player.y });
+      return;
     }
   }
 
@@ -517,6 +552,20 @@ export class World {
         level: 0,
         itemId: item.itemId,
         qty: item.qty,
+      });
+    }
+    for (const npc of this.npcs.values()) {
+      out.push({
+        id: npc.id,
+        x: npc.x,
+        y: npc.y,
+        name: npc.name,
+        hue: npc.hue,
+        kind: 'npc',
+        facing: Math.PI / 2,
+        hp: 0,
+        maxHp: 0,
+        level: 0,
       });
     }
     return out;

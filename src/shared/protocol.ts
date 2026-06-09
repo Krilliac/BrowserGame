@@ -68,6 +68,8 @@ export type ClientMessage =
   /** Cast an ability aimed in direction (dx, dy); the server normalizes and validates. */
   | { t: 'cast'; ability: AbilityId; dx: number; dy: number }
   | { t: 'chat'; text: string }
+  /** Interact with a nearby NPC (e.g. sell loot to the town vendor). */
+  | { t: 'interact' }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string };
 

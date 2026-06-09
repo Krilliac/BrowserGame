@@ -148,7 +148,7 @@ function dirOf(facing: number): Dir {
 }
 
 function sheetKey(e: EntityState): string | undefined {
-  if (e.kind === 'player') return 'hero';
+  if (e.kind === 'player' || e.kind === 'npc') return 'hero';
   if (e.kind === 'mob') {
     if (e.name.includes('Lord')) return 'boss';
     if (e.name.includes('Wolf')) return 'wolf';
@@ -325,13 +325,15 @@ export class PixiRenderer {
     if (view.sprite) {
       const flags = e.flags ?? 0;
       view.sprite.tint =
-        now < view.flashUntil
-          ? TINT_FLASH
-          : flags & 2
-            ? TINT_BURN
-            : flags & 1
-              ? TINT_SLOW
-              : TINT_NORMAL;
+        e.kind === 'npc'
+          ? 0xffd97a
+          : now < view.flashUntil
+            ? TINT_FLASH
+            : flags & 2
+              ? TINT_BURN
+              : flags & 1
+                ? TINT_SLOW
+                : TINT_NORMAL;
     }
 
     if (view.dyn && e.maxHp > 0) {

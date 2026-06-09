@@ -102,6 +102,7 @@ export class InstanceManager {
     const id = `${area.id}#${++this.instanceSeq}`;
     const world = new World(area.width, area.height, area.spawn, () => this.nextEntityId++);
     world.populateMobs(area.id);
+    world.populateNpcs(area.id);
     const instance: Instance = { id, areaId: area.id, world };
     this.instances.set(id, instance);
     return instance;

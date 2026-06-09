@@ -81,8 +81,15 @@ window.addEventListener('keydown', (e) => {
   if (ability) {
     selected = ability;
     castAbility(ability);
+  } else if (e.key.toLowerCase() === 'e') {
+    net.sendInteract(); // server validates NPC proximity
   }
 });
+
+function nearbyNpc(): EntityState | undefined {
+  if (!self) return undefined;
+  return entities.find((e) => e.kind === 'npc' && Math.hypot(e.x - self!.x, e.y - self!.y) < 70);
+}
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
@@ -265,6 +272,18 @@ function drawHud(): void {
 
   drawMinimap(w);
   drawInventory(w);
+
+  const npc = nearbyNpc();
+  if (npc && !net.you.dead) {
+    const text = `Press E — sell loot to ${npc.name}`;
+    hud.font = '14px system-ui, sans-serif';
+    hud.textAlign = 'center';
+    const tw = hud.measureText(text).width;
+    hud.fillStyle = 'rgba(0,0,0,0.6)';
+    hud.fillRect(w / 2 - tw / 2 - 12, h - 152, tw + 24, 26);
+    hud.fillStyle = '#e7d9b0';
+    hud.fillText(text, w / 2, h - 134);
+  }
 
   if (net.you.dead) {
     hud.fillStyle = 'rgba(0,0,0,0.55)';

@@ -8,6 +8,13 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Combat feedback & ambiance** — red hit-flash on damage, status tints (blue=slow, orange=burn),
+  per-area atmospheric screen tint, and a respawn countdown on the death overlay.
+- **New abilities** — Heal (self, hotbar 5) and Lightning (fast projectile, hotbar 6); the hotbar
+  now holds 6 slots.
+- **Crypt Lord boss** — a 400 HP, level-10 boss spawns in the Shadow Crypt (larger sprite).
+- **Town vendor & economy** — a Merchant NPC in Aldermere; stand near and press **E** to sell loot
+  for gold (`src/server/vendor.ts` pricing, built as a pure tested module by a sub-agent).
 - **Minimap** — a RuneScape-style circular minimap (HUD overlay) showing the player centered, nearby
   monsters (red), players (blue), loot (gold), and the area's portals (gold markers), with a compass
   and edge-clamping for off-screen markers.

@@ -40,6 +40,11 @@
       (coin/gem) wired into the renderer with procedural fallbacks.
 - [x] Inventory panel — non-gold loot now sent in the `you` message and shown in a HUD "Bag".
 - [x] Minimap — circular HUD minimap with player/mobs/players/loot/portals + compass.
+- [x] Combat feedback (hit-flash, status tints), per-area atmosphere tint, respawn countdown.
+- [x] Abilities: Heal + Lightning (6-slot hotbar); Crypt Lord boss in the crypt.
+- [x] Town vendor (Merchant NPC) — press E to sell loot for gold (`vendor.ts`, sub-agent module).
+- [ ] Equipment/stats from gear; shop to *buy* items; banking.
+- [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
 - [ ] Tilemap ground from hand-authored Tiled maps (the bundled tiles suit authored maps better
       than a single-tile fill; procedural ground kept for now).
