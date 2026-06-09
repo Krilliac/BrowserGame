@@ -24,6 +24,12 @@
 - [Dev Environment](tooling/Dev-Environment.md)
 - [Automation & CI](tooling/Automation.md)
 
+### Research
+
+- [RuneScape Mechanics](research/runescape-mechanics.md)
+- [Multiplayer Netcode](research/multiplayer-netcode.md)
+- [Rendering & Assets](research/rendering-and-assets.md)
+
 ### Reference
 
 - [Roadmap](reference/Roadmap.md)
