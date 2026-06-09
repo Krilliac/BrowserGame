@@ -76,6 +76,11 @@ export class World {
   get population(): number {
     return this.entities.size;
   }
+
+  /** The sanitized display name of an entity, if it exists. */
+  nameOf(id: number): string | undefined {
+    return this.entities.get(id)?.name;
+  }
 }
 
 function sanitizeName(name: string): string {

@@ -4,8 +4,11 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { World } from './world.js';
+import { sanitizeChat } from './chat.js';
+import { TokenBucket } from './rate-limit.js';
 import {
   DEFAULT_TICK_RATE,
+  MAX_MESSAGE_BYTES,
   WORLD_HEIGHT,
   WORLD_WIDTH,
   decodeClient,
@@ -59,12 +62,18 @@ function contentType(path: string): string {
 }
 
 // --- WebSocket: the live game connection ----------------------------------------------
-const wss = new WebSocketServer({ server: http, path: '/ws' });
+// maxPayload caps frame size so a single client can't send a giant message (DoS guard).
+const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MESSAGE_BYTES });
 
 wss.on('connection', (socket) => {
   let id = 0;
+  // Per-connection rate limits. Every client is untrusted: a single socket must not be
+  // able to flood the simulation or chat. Generous for input, tight for chat.
+  const messageBucket = new TokenBucket(80, 80); // overall msgs/sec
+  const chatBucket = new TokenBucket(5, 1); // burst 5, then 1/sec
 
   socket.on('message', (raw) => {
+    if (!messageBucket.tryRemove()) return; // rate-limited: silently drop
     const msg = decodeClient(raw.toString());
     if (!msg) return;
 
@@ -83,6 +92,13 @@ wss.on('connection', (socket) => {
       }
       case 'input': {
         if (id !== 0) world.setInput(id, msg.input);
+        break;
+      }
+      case 'chat': {
+        if (id === 0 || !chatBucket.tryRemove()) return;
+        const text = sanitizeChat(msg.text);
+        const from = world.nameOf(id);
+        if (text && from) broadcast({ t: 'chat', from, text });
         break;
       }
       case 'admin': {
@@ -111,6 +127,13 @@ wss.on('connection', (socket) => {
 
 function send(socket: WebSocket, msg: ServerMessage): void {
   if (socket.readyState === socket.OPEN) socket.send(encode(msg));
+}
+
+function broadcast(msg: ServerMessage): void {
+  const payload = encode(msg);
+  for (const socket of sockets.values()) {
+    if (socket.readyState === socket.OPEN) socket.send(payload);
+  }
 }
 
 // --- Fixed-timestep authoritative loop ------------------------------------------------

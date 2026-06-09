@@ -18,6 +18,9 @@
 | Diagonal speed exploit | Movement vector normalized | `World.tick` |
 | Spoofed entity ids | Input for unknown ids ignored | `World.setInput` |
 | Unauthorized privileged actions | Admin commands token-gated; isolated path | `src/server/index.ts` |
+| Message flooding (DoS) | Per-connection token-bucket rate limits (messages + chat) | `src/server/rate-limit.ts` |
+| Oversized frames (DoS) | WebSocket `maxPayload` cap (`MAX_MESSAGE_BYTES`) | `src/server/index.ts` |
+| Chat injection (newlines/control chars) | `sanitizeChat` strips control chars, trims, length-caps | `src/server/chat.ts` |
 | Vulnerable dependencies | Dependabot + CodeQL in CI | `.github/` |
 
 ## The review question
@@ -31,7 +34,6 @@ subsystem-isolation review signal, adapted.)
 
 ## Known gaps (foundation stage)
 
-- No rate limiting on messages yet (add before public exposure).
 - No authentication of player identity yet (names are cosmetic).
 - `ENGINE_ADMIN_TOKEN` is a single shared secret — fine for dev, replace with real auth for the
   privileged engine mode before shipping.

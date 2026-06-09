@@ -18,6 +18,13 @@ export const PLAYER_SPEED = 180;
 export const WORLD_WIDTH = 2000;
 export const WORLD_HEIGHT = 2000;
 
+/** Hard caps the server enforces on untrusted client input. */
+export const MAX_CHAT_LENGTH = 200;
+export const MAX_NAME_LENGTH = 16;
+
+/** Largest accepted WebSocket frame (bytes). Anything bigger is dropped/closed. */
+export const MAX_MESSAGE_BYTES = 4096;
+
 /** A single networked entity's replicated state. */
 export interface EntityState {
   id: number;
@@ -41,6 +48,7 @@ export interface InputState {
 export type ClientMessage =
   | { t: 'join'; name: string }
   | { t: 'input'; input: InputState }
+  | { t: 'chat'; text: string }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string };
 
@@ -48,6 +56,7 @@ export type ClientMessage =
 export type ServerMessage =
   | { t: 'welcome'; id: number; tickRate: number; world: { w: number; h: number } }
   | { t: 'snapshot'; tick: number; entities: EntityState[] }
+  | { t: 'chat'; from: string; text: string }
   | { t: 'admin_result'; ok: boolean; message: string };
 
 export function encode(msg: ClientMessage | ServerMessage): string {

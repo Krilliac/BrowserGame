@@ -8,6 +8,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Client snapshot interpolation** (`src/client/interp.ts`) — smooth movement between 20Hz ticks
+  by rendering a short delay in the past and lerping between bracketing snapshots.
+- **Touch controls** — a drag-anywhere virtual joystick (`src/client/input.ts`) merged with
+  keyboard input, for real phone play.
+- **In-game chat** — first gameplay system: shared `chat` protocol messages, server-side
+  sanitization (`src/server/chat.ts`), and a chat panel UI.
+- **Server hardening** — per-connection token-bucket rate limiting (`src/server/rate-limit.ts`)
+  for messages and chat, plus a WebSocket `maxPayload` cap.
 - Initial TypeScript foundation: server-authoritative simulation (`src/server`), browser client
   (`src/client`), and a shared wire protocol (`src/shared`).
 - Working multiplayer vertical slice: join, move (WASD/arrows), and see other players move in

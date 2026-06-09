@@ -17,14 +17,14 @@
 
 - [ ] **Decide world structure** — match-based vs. area/instanced vs. persistent open world.
       This unblocks the netcode and persistence direction. (See `CLAUDE.md` → open decisions.)
-- [ ] Snapshot interpolation on the client (smooth movement between ticks).
-- [ ] Touch controls (virtual joystick) for true phone play.
-- [ ] Message rate limiting + payload size caps (see Threat Model "known gaps").
+- [x] Snapshot interpolation on the client (smooth movement between ticks).
+- [x] Touch controls (virtual joystick) for true phone play.
+- [x] Message rate limiting + payload size caps (see Threat Model "known gaps").
 
 ## Later (systems — reimplement from the SparkGameMMO blueprint)
 
 - [ ] Inventory + loot tables (server-authoritative).
-- [ ] Chat (area/party/whisper channels).
+- [x] Chat — basic global channel (sanitized + rate-limited). Next: area/party/whisper channels.
 - [ ] Party / grouping.
 - [ ] Character persistence (pick a store).
 - [ ] Privileged engine mode: command registry + operator auth + UI panel.

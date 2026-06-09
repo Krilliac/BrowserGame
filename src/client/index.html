@@ -15,7 +15,17 @@
       <span id="pop"></span>
     </div>
     <canvas id="game"></canvas>
-    <p id="hint">Move with WASD / arrow keys. Drag (touch) coming later.</p>
+    <div id="chat">
+      <div id="chat-log" aria-live="polite"></div>
+      <input
+        id="chat-input"
+        type="text"
+        autocomplete="off"
+        maxlength="200"
+        placeholder="Press Enter to chat…"
+      />
+    </div>
+    <p id="hint">Move: WASD / arrows, or drag anywhere (touch). Enter to chat.</p>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

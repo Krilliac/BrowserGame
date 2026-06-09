@@ -1,16 +1,12 @@
-import {
-  decodeServer,
-  encode,
-  type EntityState,
-  type InputState,
-  type ServerMessage,
-} from '../shared/protocol.js';
+import { SnapshotBuffer } from './interp.js';
+import { decodeServer, encode, type InputState, type ServerMessage } from '../shared/protocol.js';
 
-export interface NetState {
-  selfId: number;
-  entities: EntityState[];
-  connected: boolean;
+export interface ChatLine {
+  from: string;
+  text: string;
 }
+
+const MAX_CHAT_LINES = 50;
 
 /**
  * Thin WebSocket client. Connects to the same origin's /ws (Vite proxies this to the
@@ -19,7 +15,11 @@ export interface NetState {
  */
 export class Net {
   private ws: WebSocket | null = null;
-  readonly state: NetState = { selfId: 0, entities: [], connected: false };
+  readonly snapshots = new SnapshotBuffer();
+  readonly chat: ChatLine[] = [];
+  selfId = 0;
+  connected = false;
+  tickRate = 20;
 
   constructor(private readonly name: string) {}
 
@@ -29,7 +29,7 @@ export class Net {
     this.ws = ws;
 
     ws.addEventListener('open', () => {
-      this.state.connected = true;
+      this.connected = true;
       ws.send(encode({ t: 'join', name: this.name }));
     });
 
@@ -39,25 +39,36 @@ export class Net {
     });
 
     ws.addEventListener('close', () => {
-      this.state.connected = false;
+      this.connected = false;
       // Naive auto-reconnect — good enough for a dev foundation.
       setTimeout(() => this.connect(), 1000);
     });
   }
 
   sendInput(input: InputState): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(encode({ t: 'input', input }));
-    }
+    this.send({ t: 'input', input });
+  }
+
+  sendChat(text: string): void {
+    this.send({ t: 'chat', text });
+  }
+
+  private send(msg: Parameters<typeof encode>[0]): void {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(msg));
   }
 
   private handle(msg: ServerMessage): void {
     switch (msg.t) {
       case 'welcome':
-        this.state.selfId = msg.id;
+        this.selfId = msg.id;
+        this.tickRate = msg.tickRate;
         break;
       case 'snapshot':
-        this.state.entities = msg.entities;
+        this.snapshots.push(msg.entities, performance.now());
+        break;
+      case 'chat':
+        this.chat.push({ from: msg.from, text: msg.text });
+        if (this.chat.length > MAX_CHAT_LINES) this.chat.shift();
         break;
       case 'admin_result':
         console.log('[admin]', msg.ok, msg.message);
