@@ -47,7 +47,9 @@
 - [x] Accounts + access levels + chat commands (player/GM/admin/dev); `/login` auth.
 - [x] Client-side prediction + reconciliation (instant local movement; `predictor.ts`).
 - [ ] **Delta snapshots** (per-client field diffs; design in `wiki/research/state-sync.md`).
-- [ ] More chat channels (global/party/guild/whisper) + moderation (/mute /kick); quests wired in.
+- [x] Quests wired into gameplay (/accept, kill-tracking, rewards + notices); area-transfer
+      persistence fix (character keeps progression across portals).
+- [ ] More chat channels (global/party/guild/whisper) + moderation (/mute /kick /ignore).
 - [ ] Shop to *buy* gear; banking; gear rarity/affixes; parties/guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.

@@ -54,11 +54,30 @@ interface Player {
   equipment: { weapon: string | null; armor: string | null };
   power: number;
   god: boolean;
+  quests: Map<string, number>; // questId -> kill progress
+  questsDone: Set<string>;
   input: InputState;
   lastSeq: number;
   cooldowns: Map<AbilityId, number>;
   dead: boolean;
   respawnAt: number;
+}
+
+/** Serializable player state, carried across area instances on a portal crossing. */
+export interface PlayerSave {
+  name: string;
+  hue: number;
+  hp: number;
+  mana: number;
+  level: number;
+  xp: number;
+  gold: number;
+  loot: [string, number][];
+  weapon: string | null;
+  armor: string | null;
+  god: boolean;
+  quests: [string, number][];
+  questsDone: string[];
 }
 
 interface Mob {
@@ -132,6 +151,7 @@ export class World {
   private readonly items = new Map<number, GroundItem>();
   private readonly npcs = new Map<number, Npc>();
   private events: FxEvent[] = [];
+  private notices: { playerId: number; text: string }[] = [];
 
   constructor(
     private readonly width: number = WORLD_WIDTH,
@@ -341,6 +361,8 @@ export class World {
       equipment: { weapon: null, armor: null },
       power: 0,
       god: false,
+      quests: new Map(),
+      questsDone: new Set(),
       input: { up: false, down: false, left: false, right: false },
       lastSeq: 0,
       cooldowns: new Map(),
@@ -348,6 +370,45 @@ export class World {
       respawnAt: 0,
     });
     return id;
+  }
+
+  /** Snapshot a player's persistent state to carry across an area transfer. */
+  exportPlayer(id: number): PlayerSave | undefined {
+    const p = this.players.get(id);
+    if (!p) return undefined;
+    return {
+      name: p.name,
+      hue: p.hue,
+      hp: p.hp,
+      mana: p.mana,
+      level: p.level,
+      xp: p.xp,
+      gold: p.gold,
+      loot: [...p.loot],
+      weapon: p.equipment.weapon,
+      armor: p.equipment.armor,
+      god: p.god,
+      quests: [...p.quests],
+      questsDone: [...p.questsDone],
+    };
+  }
+
+  /** Restore a player (with stable id) from a save, at the given position. */
+  importPlayer(id: number, save: PlayerSave, x: number, y: number): void {
+    this.spawn(save.name, { id, x, y, hue: save.hue });
+    const p = this.players.get(id);
+    if (!p) return;
+    p.level = save.level;
+    p.xp = save.xp;
+    p.gold = save.gold;
+    p.loot = new Map(save.loot);
+    p.equipment = { weapon: save.weapon, armor: save.armor };
+    p.god = save.god;
+    p.quests = new Map(save.quests);
+    p.questsDone = new Set(save.questsDone);
+    this.recomputeStats(p);
+    p.hp = Math.min(save.hp, p.maxHp);
+    p.mana = save.mana;
   }
 
   remove(id: number): void {
@@ -546,8 +607,11 @@ export class World {
     const killer = this.players.get(mob.lastAttacker);
     if (killer) {
       killer.xp += xpReward(mob.level);
-      killer.level = levelForXp(killer.xp);
+      const newLevel = levelForXp(killer.xp);
+      if (newLevel > killer.level) this.notify(killer.id, `You reached level ${newLevel}!`);
+      killer.level = newLevel;
       this.recomputeStats(killer);
+      this.progressQuests(killer, mob.templateId);
     }
     // Loot (materials + gear) comes from the DB-backed content drop tables.
     for (const stack of getContent().rollLoot(mob.templateId)) {
@@ -560,6 +624,69 @@ export class World {
         y: mob.y + (Math.random() - 0.5) * 30,
         ttl: ITEM_TTL_MS,
       });
+    }
+  }
+
+  // --- quests + per-player notices -----------------------------------------------------
+
+  private notify(playerId: number, text: string): void {
+    this.notices.push({ playerId, text });
+  }
+
+  /** Drain per-player system notices (quest completions, level-ups) for the host to deliver. */
+  drainNotices(): { playerId: number; text: string }[] {
+    const drained = this.notices;
+    this.notices = [];
+    return drained;
+  }
+
+  /** Accept a quest from the content DB. Returns a status message. */
+  acceptQuest(playerId: number, questId: string): string {
+    const player = this.players.get(playerId);
+    if (!player) return 'no such player';
+    const quest = getContent().quest(questId);
+    if (!quest) return `No such quest: ${questId}`;
+    if (player.questsDone.has(questId)) return `Already completed: ${quest.name}`;
+    if (player.quests.has(questId)) return `Already on quest: ${quest.name}`;
+    player.quests.set(questId, 0);
+    return `Quest accepted: ${quest.name} — ${quest.description}`;
+  }
+
+  /** Human-readable quest log lines (available + in-progress + done). */
+  questLog(playerId: number): string[] {
+    const player = this.players.get(playerId);
+    if (!player) return [];
+    return getContent()
+      .quests()
+      .map((q) => {
+        if (player.questsDone.has(q.id)) return `✓ ${q.name} (done)`;
+        if (player.quests.has(q.id)) {
+          return `▸ ${q.name}: ${player.quests.get(q.id)}/${q.targetCount} — ${q.description}`;
+        }
+        return `· ${q.name} [${q.id}] — /accept ${q.id}`;
+      });
+  }
+
+  private progressQuests(player: Player, mobTemplateId: string): void {
+    const content = getContent();
+    for (const [questId, kills] of player.quests) {
+      const quest = content.quest(questId);
+      if (!quest || quest.targetMob !== mobTemplateId) continue;
+      const next = kills + 1;
+      if (next >= quest.targetCount) {
+        player.quests.delete(questId);
+        player.questsDone.add(questId);
+        player.gold += quest.rewardGold;
+        player.xp += quest.rewardXp;
+        player.level = levelForXp(player.xp);
+        this.recomputeStats(player);
+        this.notify(
+          player.id,
+          `Quest complete: ${quest.name}! +${quest.rewardGold}g +${quest.rewardXp}xp`,
+        );
+      } else {
+        player.quests.set(questId, next);
+      }
     }
   }
 

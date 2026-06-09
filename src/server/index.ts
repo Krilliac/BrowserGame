@@ -253,6 +253,14 @@ setInterval(() => {
       const stats = world.playerStats(id);
       if (stats) send(socket, { t: 'you', ...stats });
     }
+
+    // Deliver per-player system notices (quest completions, level-ups) as System chat.
+    for (const notice of world.drainNotices()) {
+      const socket = players.get(notice.playerId)?.socket;
+      if (socket && socket.readyState === socket.OPEN) {
+        send(socket, { t: 'chat', from: 'System', text: notice.text });
+      }
+    }
   }
 }, 1000 / TICK_RATE);
 

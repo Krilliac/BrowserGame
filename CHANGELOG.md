@@ -6,8 +6,17 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Character no longer resets when crossing a portal** — area transfers now carry the player's full
+  persistent state (level, XP, HP/mana, gold, loot, equipment, quests) between instances
+  (`World.exportPlayer`/`importPlayer`); previously crossing a portal wiped progression.
+
 ### Added
 
+- **Quests wired into gameplay** — accept quests with `/accept <id>` (see `/quests`); kills of the
+  target monster progress them, and completion grants gold + XP with a `System` notice. Quest defs
+  live in the content DB (`quests` table). Per-player notice queue also drives level-up messages.
 - **Client-side prediction + reconciliation** — the local player now simulates input immediately
   (`src/client/predictor.ts`) instead of being rendered ~100ms in the past, so your own movement
   feels instant. Inputs carry a sequence number; the server acks it with the authoritative position

@@ -52,6 +52,7 @@ export interface Content {
   areaMobs(areaId: string): { templateId: string; count: number }[];
   npcs(areaId: string): NpcDef[];
   quests(): QuestDef[];
+  quest(id: string): QuestDef | undefined;
   rollLoot(mobTemplateId: string, rng?: () => number): { item: string; qty: number }[];
 }
 
@@ -198,6 +199,7 @@ export function loadContent(db: GameDatabase): Content {
     areaMobs: (areaId) => areaMobs.get(areaId) ?? [],
     npcs: (areaId) => npcs.get(areaId) ?? [],
     quests: () => quests,
+    quest: (id) => quests.find((q) => q.id === id),
     rollLoot: (mobId, rng = Math.random) => {
       const g = loot.get(mobId);
       if (!g) return [];

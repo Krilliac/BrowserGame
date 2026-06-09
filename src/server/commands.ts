@@ -104,6 +104,28 @@ const COMMAND_LIST: Command[] = [
       ctx.reply(`Logged in as ${user} — ${accessName(level)} access.`);
     },
   },
+  {
+    name: 'quests',
+    minLevel: AccessLevel.Player,
+    usage: '/quests',
+    help: 'Show your quest log.',
+    run: (ctx) => {
+      const lines = ctx.world.questLog(ctx.playerId);
+      if (lines.length === 0) ctx.reply('No quests available.');
+      for (const line of lines) ctx.reply(line);
+    },
+  },
+  {
+    name: 'accept',
+    minLevel: AccessLevel.Player,
+    usage: '/accept <questId>',
+    help: 'Accept a quest (see /quests).',
+    run: (ctx) => {
+      const questId = ctx.args[0];
+      if (!questId) return ctx.reply('Usage: /accept <questId>');
+      ctx.reply(ctx.world.acceptQuest(ctx.playerId, questId));
+    },
+  },
 
   // --- Game Master ----------------------------------------------------------------------
   {

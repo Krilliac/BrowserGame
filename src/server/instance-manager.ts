@@ -124,14 +124,19 @@ export class InstanceManager {
         if (!target) continue;
         const dest = this.pickInstance(target);
 
+        // Carry the player's full persistent state (xp, gold, loot, gear, quests) across.
+        const save = instance.world.exportPlayer(entity.id);
         instance.world.remove(entity.id);
-        // Preserve identity (id) and appearance (hue) across the transfer.
-        dest.world.spawn(entity.name, {
-          id: entity.id,
-          x: portal.toSpawn.x,
-          y: portal.toSpawn.y,
-          hue: entity.hue,
-        });
+        if (save) {
+          dest.world.importPlayer(entity.id, save, portal.toSpawn.x, portal.toSpawn.y);
+        } else {
+          dest.world.spawn(entity.name, {
+            id: entity.id,
+            x: portal.toSpawn.x,
+            y: portal.toSpawn.y,
+            hue: entity.hue,
+          });
+        }
         events.push({
           entityId: entity.id,
           fromInstanceId: instance.id,
