@@ -14,6 +14,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Gear affixes (Diablo-style itemization)** — gear above Common now rolls bonus **affixes**
+  (`+power`, `+hp`, `+crit%`) on top of its base stats — 1 for Magic up to 3 for Legendary, scaled
+  by rarity, distinct stats per item (`rollAffixes`, `affixLabel` in `src/shared/items.ts`, tested).
+  Equipping aggregates affixes into the player's power, max HP, and **crit chance** — so a `+crit%`
+  drop literally raises how often you crit, on both melee and projectiles (wiring the crit-chance
+  parameter left in `rollCrit`). Crit chance rides the `you` packet and shows in the Equipped panel
+  (`+N pow · X% crit`); the bag lists each item's affixes; the vendor pays more for affixed gear; and
+  affixes persist with the save. Forward step toward the "loot = your build" twist.
 - **Enemy variety — ranged attackers + attack telegraphs** — monsters now have combat archetypes
   (`behavior: melee | ranged`) and a wind-up before every strike. **Ranged** mobs (new **Gloom
   Sprite** in the wilderness, **Hooded Cultist** in the crypt) kite to keep their distance and fire

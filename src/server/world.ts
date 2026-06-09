@@ -24,6 +24,7 @@ import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
 import {
   applyCrit,
   attackRoll,
+  BASE_CRIT_CHANCE,
   defenceRoll,
   rollCrit,
   rollDamage,
@@ -71,6 +72,8 @@ interface Player {
   gear: ItemInstance[];
   equipment: { weapon: ItemInstance | null; armor: ItemInstance | null };
   power: number;
+  /** Crit chance in [0,1]: base plus the sum of equipped +crit affixes. */
+  critChance: number;
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
@@ -138,6 +141,8 @@ interface Projectile {
   radius: number;
   ownerId: number;
   ownerLevel: number;
+  /** Owner's crit chance at fire time (player projectiles); 0 for mob projectiles. */
+  critChance: number;
   /** True for an enemy (mob) projectile — it damages players instead of mobs. */
   hostile: boolean;
 }
@@ -301,10 +306,22 @@ export class World {
     this.recomputeStats(player);
   }
 
-  /** Derive power + max HP from level and the equipped instances' rolled stats. */
+  /** Derive power, max HP, and crit chance from level, equipped base stats, and affixes. */
   private recomputeStats(player: Player): void {
-    player.power = player.equipment.weapon?.power ?? 0;
-    player.maxHp = maxHpForLevel(player.level) + (player.equipment.armor?.hp ?? 0);
+    let power = player.equipment.weapon?.power ?? 0;
+    let bonusHp = player.equipment.armor?.hp ?? 0;
+    let crit = BASE_CRIT_CHANCE;
+    for (const inst of [player.equipment.weapon, player.equipment.armor]) {
+      if (!inst) continue;
+      for (const a of inst.affixes) {
+        if (a.stat === 'power') power += a.value;
+        else if (a.stat === 'hp') bonusHp += a.value;
+        else if (a.stat === 'crit') crit += a.value / 100;
+      }
+    }
+    player.power = power;
+    player.critChance = crit;
+    player.maxHp = maxHpForLevel(player.level) + bonusHp;
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
 
@@ -422,6 +439,7 @@ export class World {
       gear: [],
       equipment: { weapon: null, armor: null },
       power: 0,
+      critChance: BASE_CRIT_CHANCE,
       god: false,
       quests: new Map(),
       questsDone: new Set(),
@@ -513,7 +531,7 @@ export class World {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
           const base = rollAbilityDamage(player.level, mob.level, ability.damage + player.power);
-          const crit = base > 0 && rollCrit();
+          const crit = base > 0 && rollCrit(Math.random, player.critChance);
           const dmg = applyCrit(base, crit);
           this.damageMob(mob, dmg, abilityId, player.id, crit);
           if (dmg > 0) applyStatus(mob, abilityId);
@@ -533,6 +551,7 @@ export class World {
         radius: ability.radius,
         ownerId: player.id,
         ownerLevel: player.level,
+        critChance: player.critChance,
         hostile: false,
       });
     }
@@ -662,6 +681,7 @@ export class World {
         radius: 8,
         ownerId: 0,
         ownerLevel: template.level,
+        critChance: 0,
         hostile: true,
       });
       this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
@@ -697,7 +717,7 @@ export class World {
           if (mob.dead) continue;
           if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
             const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
-            const crit = base > 0 && rollCrit();
+            const crit = base > 0 && rollCrit(Math.random, proj.critChance);
             const dmg = applyCrit(base, crit);
             this.damageMob(mob, dmg, proj.abilityId, proj.ownerId, crit);
             if (dmg > 0) applyStatus(mob, proj.abilityId);
@@ -1030,6 +1050,7 @@ export class World {
         gear: ItemInstance[];
         respawnIn: number;
         power: number;
+        critChance: number;
         weapon: ItemInstance | null;
         armor: ItemInstance | null;
         x: number;
@@ -1055,6 +1076,7 @@ export class World {
       gear: p.gear,
       respawnIn: p.dead ? Math.max(0, Math.ceil(p.respawnAt - this.now)) : 0,
       power: p.power,
+      critChance: p.critChance,
       weapon: p.equipment.weapon,
       armor: p.equipment.armor,
       x: p.x,

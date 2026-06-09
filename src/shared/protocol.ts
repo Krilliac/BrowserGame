@@ -129,6 +129,8 @@ export type ServerMessage =
       respawnIn: number;
       /** Attack power from the equipped weapon (added to every hit). */
       power: number;
+      /** Crit chance in [0,1] (base + equipped +crit affixes). */
+      critChance: number;
       /** Equipped gear instances (null when the slot is empty). */
       weapon: ItemInstance | null;
       armor: ItemInstance | null;

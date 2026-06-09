@@ -1,6 +1,6 @@
 import { Application } from 'pixi.js';
 import { isPinnedToBottom } from './chat.js';
-import { instanceName, RARITY, type ItemInstance } from '../shared/items.js';
+import { affixLabel, instanceName, RARITY, type ItemInstance } from '../shared/items.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -466,11 +466,13 @@ function instLabel(inst: ItemInstance): string {
   return instanceName(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
 }
 
-/** Short stat line for a gear instance (weapons show power, armor shows hp). */
+/** Short stat line for a gear instance: base stat then any rolled affixes. */
 function instStat(inst: ItemInstance): string {
-  if (inst.power > 0) return `+${inst.power} pow`;
-  if (inst.hp > 0) return `+${inst.hp} hp`;
-  return '';
+  const parts: string[] = [];
+  if (inst.power > 0) parts.push(`+${inst.power} pow`);
+  if (inst.hp > 0) parts.push(`+${inst.hp} hp`);
+  for (const a of inst.affixes) parts.push(affixLabel(a));
+  return parts.join(' · ');
 }
 
 const MINIMAP_SIZE = 160;
@@ -588,7 +590,11 @@ function drawInventory(w: number): void {
   hud.fillText('Equipped', px + 8, py + 15);
   hud.textAlign = 'right';
   hud.fillStyle = '#f2c14e';
-  hud.fillText(`+${net.you.power} pow`, px + pw - 8, py + 15);
+  hud.fillText(
+    `+${net.you.power} pow · ${Math.round(net.you.critChance * 100)}% crit`,
+    px + pw - 8,
+    py + 15,
+  );
   hud.font = '11px system-ui, sans-serif';
   hud.textAlign = 'left';
   const drawSlot = (label: string, inst: ItemInstance | null, ty: number): void => {

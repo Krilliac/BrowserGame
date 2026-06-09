@@ -72,6 +72,51 @@ export interface BaseItem {
   hp?: number | null;
 }
 
+/** Rollable bonus stats ("affixes") layered on top of a piece of gear's base stats. */
+export type AffixStat = 'power' | 'hp' | 'crit';
+
+/** One rolled affix. `value` is flat for power/hp and percentage-points for crit (5 = +5%). */
+export interface Affix {
+  stat: AffixStat;
+  value: number;
+}
+
+const AFFIX_STATS: AffixStat[] = ['power', 'hp', 'crit'];
+
+/** Pre-rarity-scaling base value ranges per affix stat. */
+const AFFIX_RANGES: Record<AffixStat, { min: number; max: number }> = {
+  power: { min: 2, max: 6 },
+  hp: { min: 8, max: 22 },
+  crit: { min: 2, max: 6 },
+};
+
+/** How many affixes a rarity rolls (common gear has none — rarity is the dopamine gate). */
+export function affixCount(rarity: Rarity): number {
+  return { common: 0, magic: 1, rare: 2, epic: 2, legendary: 3 }[rarity];
+}
+
+/** Roll an item's affixes: `affixCount(rarity)` distinct stats, each value scaled by rarity. */
+export function rollAffixes(rarity: Rarity, rng: () => number = Math.random): Affix[] {
+  const n = affixCount(rarity);
+  if (n <= 0) return [];
+  const pool = [...AFFIX_STATS];
+  const mult = RARITY[rarity].statMult;
+  const out: Affix[] = [];
+  for (let i = 0; i < n && pool.length > 0; i++) {
+    const stat = pool.splice(Math.floor(rng() * pool.length), 1)[0]!;
+    const r = AFFIX_RANGES[stat];
+    const base = r.min + rng() * (r.max - r.min);
+    out.push({ stat, value: Math.max(1, Math.round(base * mult)) });
+  }
+  return out;
+}
+
+/** Human-readable affix line, e.g. "+5% crit" or "+12 hp". */
+export function affixLabel(a: Affix): string {
+  if (a.stat === 'crit') return `+${a.value}% crit`;
+  return `+${a.value} ${a.stat}`;
+}
+
 /** A concrete, rolled piece of gear a player can hold or equip. `uid` is unique within a world. */
 export interface ItemInstance {
   uid: number;
@@ -81,6 +126,8 @@ export interface ItemInstance {
   power: number;
   /** Rolled bonus max HP (0 for weapons). */
   hp: number;
+  /** Rolled bonus affixes (empty for common gear). */
+  affixes: Affix[];
 }
 
 /** Roll a fresh instance of a base item: a rarity, then its stat(s). Deterministic given `rng`. */
@@ -96,6 +143,7 @@ export function rollItemInstance(
     rarity,
     power: rollStat(base.power ?? 0, rarity, rng),
     hp: rollStat(base.hp ?? 0, rarity, rng),
+    affixes: rollAffixes(rarity, rng),
   };
 }
 
@@ -104,7 +152,11 @@ export function instanceName(inst: ItemInstance, baseName: string): string {
   return inst.rarity === 'common' ? baseName : `${RARITY[inst.rarity].name} ${baseName}`;
 }
 
-/** Vendor gold paid for a gear instance — scales with its rolled stats and rarity. */
+/** Vendor gold paid for a gear instance — scales with its rolled stats, affixes, and rarity. */
 export function gearSellValue(inst: ItemInstance): number {
-  return Math.max(1, Math.round((inst.power + inst.hp) * 0.6 * RARITY[inst.rarity].statMult));
+  const affixWorth = inst.affixes.reduce((s, a) => s + a.value, 0);
+  return Math.max(
+    1,
+    Math.round((inst.power + inst.hp + affixWorth) * 0.6 * RARITY[inst.rarity].statMult),
+  );
 }

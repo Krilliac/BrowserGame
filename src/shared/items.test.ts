@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  affixCount,
+  affixLabel,
   gearSellValue,
   instanceName,
   RARITY,
   RARITY_ORDER,
+  rollAffixes,
   rollItemInstance,
   rollRarity,
   rollStat,
@@ -100,13 +103,13 @@ describe('instanceName', () => {
   it('omits the prefix for common and prefixes otherwise', () => {
     expect(
       instanceName(
-        { uid: 1, baseId: 'iron_sword', rarity: 'common', power: 13, hp: 0 },
+        { uid: 1, baseId: 'iron_sword', rarity: 'common', power: 13, hp: 0, affixes: [] },
         'Iron Sword',
       ),
     ).toBe('Iron Sword');
     expect(
       instanceName(
-        { uid: 1, baseId: 'iron_sword', rarity: 'rare', power: 20, hp: 0 },
+        { uid: 1, baseId: 'iron_sword', rarity: 'rare', power: 20, hp: 0, affixes: [] },
         'Iron Sword',
       ),
     ).toBe('Rare Iron Sword');
@@ -115,15 +118,54 @@ describe('instanceName', () => {
 
 describe('gearSellValue', () => {
   it('is positive and grows with stats and rarity', () => {
-    const lo = gearSellValue({ uid: 1, baseId: 'iron_sword', rarity: 'common', power: 10, hp: 0 });
+    const lo = gearSellValue({
+      uid: 1,
+      baseId: 'iron_sword',
+      rarity: 'common',
+      power: 10,
+      hp: 0,
+      affixes: [],
+    });
     const hi = gearSellValue({
       uid: 2,
       baseId: 'iron_sword',
       rarity: 'legendary',
       power: 30,
       hp: 0,
+      affixes: [],
     });
     expect(lo).toBeGreaterThan(0);
     expect(hi).toBeGreaterThan(lo);
+  });
+});
+
+describe('affixes', () => {
+  it('affix count rises with rarity and is 0 for common', () => {
+    expect(affixCount('common')).toBe(0);
+    expect(affixCount('magic')).toBe(1);
+    expect(affixCount('legendary')).toBeGreaterThanOrEqual(affixCount('rare'));
+  });
+
+  it('rolls the right number of distinct-stat affixes for a rarity', () => {
+    const affixes = rollAffixes('rare', seqRng([0, 0.5, 0.5, 0.5]));
+    expect(affixes).toHaveLength(affixCount('rare'));
+    const stats = affixes.map((a) => a.stat);
+    expect(new Set(stats).size).toBe(stats.length); // no duplicate stats
+    for (const a of affixes) expect(a.value).toBeGreaterThanOrEqual(1);
+  });
+
+  it('common rolls no affixes', () => {
+    expect(rollAffixes('common', () => 0.5)).toEqual([]);
+  });
+
+  it('an instance above common carries affixes', () => {
+    const inst = rollItemInstance(1, SWORD, seqRng([0.999999, 0.5])); // legendary
+    expect(inst.affixes.length).toBeGreaterThan(0);
+  });
+
+  it('labels affixes readably', () => {
+    expect(affixLabel({ stat: 'crit', value: 5 })).toBe('+5% crit');
+    expect(affixLabel({ stat: 'power', value: 4 })).toBe('+4 power');
+    expect(affixLabel({ stat: 'hp', value: 12 })).toBe('+12 hp');
   });
 });

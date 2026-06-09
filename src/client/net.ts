@@ -25,6 +25,7 @@ export interface SelfStats {
   gear: ItemInstance[];
   respawnIn: number;
   power: number;
+  critChance: number;
   weapon: ItemInstance | null;
   armor: ItemInstance | null;
   x: number;
@@ -61,6 +62,7 @@ export class Net {
     gear: [],
     respawnIn: 0,
     power: 0,
+    critChance: 0.15,
     weapon: null,
     armor: null,
     x: 0,
@@ -166,6 +168,7 @@ export class Net {
           gear: msg.gear,
           respawnIn: msg.respawnIn,
           power: msg.power,
+          critChance: msg.critChance,
           weapon: msg.weapon,
           armor: msg.armor,
           x: msg.x,
