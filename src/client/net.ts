@@ -86,7 +86,11 @@ export class Net {
 
     ws.addEventListener('open', () => {
       this.connected = true;
-      ws.send(encode({ t: 'join', name: this.name }));
+      // Present our saved character token (if any) so the server reloads our progress.
+      const token = window.localStorage.getItem('bg.token') ?? undefined;
+      ws.send(
+        encode(token ? { t: 'join', name: this.name, token } : { t: 'join', name: this.name }),
+      );
     });
 
     ws.addEventListener('message', (ev) => {
@@ -136,6 +140,8 @@ export class Net {
         this.tickRate = msg.tickRate;
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
+        // Persist our character token so a reload/reconnect restores this character.
+        window.localStorage.setItem('bg.token', msg.token);
         break;
       case 'snapshot': {
         const now = performance.now();

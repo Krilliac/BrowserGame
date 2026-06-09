@@ -1,4 +1,4 @@
-import { World } from './world.js';
+import { World, type PlayerSave } from './world.js';
 import { pointInRect, START_AREA, type AreaDef } from '../shared/areas.js';
 import { getContent } from './content.js';
 
@@ -43,12 +43,16 @@ export class InstanceManager {
 
   constructor(private readonly mode: InstancingMode = 'auto') {}
 
-  /** Place a new player into an area (the start area by default). */
-  join(name: string, areaId: string = START_AREA): Placement {
+  /**
+   * Place a new player into an area (the start area by default). If a `save` is given (a returning
+   * player), their persistent state is restored at the area's spawn point.
+   */
+  join(name: string, areaId: string = START_AREA, save?: PlayerSave): Placement {
     const area = getContent().area(areaId);
     if (!area) throw new Error(`unknown area: ${areaId}`);
     const instance = this.pickInstance(area);
     const entityId = instance.world.spawn(name); // world uses the shared id allocator
+    if (save) instance.world.importPlayer(entityId, save, area.spawn.x, area.spawn.y);
     return { instanceId: instance.id, entityId, areaId: area.id };
   }
 

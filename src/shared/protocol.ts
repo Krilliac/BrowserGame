@@ -79,7 +79,7 @@ export interface InputState {
 
 /** Messages the client sends to the server. */
 export type ClientMessage =
-  | { t: 'join'; name: string }
+  | { t: 'join'; name: string; token?: string }
   /** Movement intent with a client sequence number (for prediction/reconciliation). */
   | { t: 'input'; input: InputState; seq: number }
   /** Cast an ability aimed in direction (dx, dy); the server normalizes and validates. */
@@ -96,7 +96,15 @@ export type ClientMessage =
 export type ServerMessage =
   /** Game content from the server's SQLite DB, sent once on connect (areas, spells, items). */
   | { t: 'content'; areas: AreaDef[]; abilities: Ability[]; items: ItemInfo[] }
-  | { t: 'welcome'; id: number; tickRate: number; areaId: string; instanceId: string }
+  | {
+      t: 'welcome';
+      id: number;
+      tickRate: number;
+      areaId: string;
+      instanceId: string;
+      /** Opaque save token for this client to persist and present on reconnect. */
+      token: string;
+    }
   | { t: 'snapshot'; tick: number; entities: EntityState[]; fx: FxEvent[] }
   /** Personal stats for the receiving player (kept off the shared snapshot). */
   | {

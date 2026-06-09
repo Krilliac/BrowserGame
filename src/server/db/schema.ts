@@ -149,4 +149,14 @@ CREATE TABLE IF NOT EXISTS accounts (
   salt          TEXT,
   created_at    TEXT
 );
+
+-- Persistent character saves keyed by an opaque per-client token (stored in the browser). Lets a
+-- returning guest reload their character across disconnects and server restarts. The full
+-- PlayerSave is stored as JSON in the data column; the server is the sole writer.
+CREATE TABLE IF NOT EXISTS player_saves (
+  token      TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  data       TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `;

@@ -18,6 +18,7 @@ import { isAbilityId } from '../shared/combat.js';
 import { initGameDb, getDb, getContent, reloadContent } from './content.js';
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess } from './accounts.js';
+import { isValidToken, loadSave, newPlayerToken, storeSave } from './player-store.js';
 import { SpatialGrid } from './spatial.js';
 import { THEME_KEYS, coerceThemeValue } from '../shared/theme.js';
 import { listTables, listColumns, listRows, getRow, editContent } from './content-edit.js';
@@ -87,7 +88,10 @@ const clientDir = join(here, '..', 'client'); // dist/client after build
 
 const manager = new InstanceManager(INSTANCING);
 /** Per-player connection state. instanceId is mutated on portal crossings; accessLevel via /login. */
-const players = new Map<number, { socket: WebSocket; instanceId: string; accessLevel: number }>();
+const players = new Map<
+  number,
+  { socket: WebSocket; instanceId: string; accessLevel: number; token: string }
+>();
 
 // --- HTTP: health check + static hosting of the built client in production -----------
 const http = createServer(async (req, res) => {
@@ -152,15 +156,26 @@ wss.on('connection', (socket) => {
     switch (msg.t) {
       case 'join': {
         if (entityId !== 0) return; // already joined
-        const placement = manager.join(msg.name);
+        // Returning guests present an opaque token; load their save if we recognize it, else mint
+        // a fresh token. The token is validated before it ever touches the DB (bound param anyway).
+        const presented = isValidToken(msg.token) ? msg.token : undefined;
+        const token = presented ?? newPlayerToken();
+        const save = presented ? (loadSave(getDb(), presented) ?? undefined) : undefined;
+        const placement = manager.join(save?.name ?? msg.name, undefined, save);
         entityId = placement.entityId;
-        players.set(entityId, { socket, instanceId: placement.instanceId, accessLevel: 0 });
+        players.set(entityId, {
+          socket,
+          instanceId: placement.instanceId,
+          accessLevel: 0,
+          token,
+        });
         send(socket, {
           t: 'welcome',
           id: entityId,
           tickRate: TICK_RATE,
           areaId: placement.areaId,
           instanceId: placement.instanceId,
+          token,
         });
         break;
       }
@@ -261,6 +276,9 @@ wss.on('connection', (socket) => {
   socket.on('close', () => {
     const p = players.get(entityId);
     if (p) {
+      // Persist the character so this guest can reload it on reconnect.
+      const save = manager.get(p.instanceId)?.world.exportPlayer(entityId);
+      if (save) storeSave(getDb(), p.token, save);
       manager.remove(p.instanceId, entityId);
       players.delete(entityId);
     }
@@ -324,6 +342,16 @@ setInterval(() => {
     }
   }
 }, 1000 / TICK_RATE);
+
+// Periodic autosave: persist every connected character so progress survives a server crash, not
+// just a clean disconnect. Cheap (a handful of upserts) and infrequent.
+setInterval(() => {
+  const db = getDb();
+  for (const [id, p] of players) {
+    const save = manager.get(p.instanceId)?.world.exportPlayer(id);
+    if (save) storeSave(db, p.token, save);
+  }
+}, 20_000);
 
 http.listen(PORT, () => {
   console.log(`[browsergame] world server on :${PORT} @ ${TICK_RATE}Hz · instancing=${INSTANCING}`);

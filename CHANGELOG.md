@@ -14,6 +14,13 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Character persistence (survives disconnect + restart)** — characters are now saved to SQLite,
+  closing the #1 retention hole (state was RAM-only). New guests are issued an opaque token (stored
+  in the browser as `bg.token`) and presented on reconnect; the server reloads the saved character
+  via the existing `exportPlayer`/`importPlayer` plumbing. New `player_saves` table; store +
+  token validation in `src/server/player-store.ts` (round-trip tested); the server persists on
+  disconnect and on a 20s autosave for crash safety (`src/server/index.ts`). The `join` message
+  carries the token and `welcome` returns it (`src/shared/protocol.ts`).
 - **Phone playability — joystick drawn + tap-to-attack** — the on-screen move joystick is now
   actually rendered while dragging (its geometry was computed in `input.ts` but never drawn), and a
   quick stationary tap on the world casts the selected ability toward the tapped point, with
