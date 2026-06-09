@@ -313,7 +313,7 @@ export class World {
     let crit = BASE_CRIT_CHANCE;
     for (const inst of [player.equipment.weapon, player.equipment.armor]) {
       if (!inst) continue;
-      for (const a of inst.affixes) {
+      for (const a of inst.affixes ?? []) {
         if (a.stat === 'power') power += a.value;
         else if (a.stat === 'hp') bonusHp += a.value;
         else if (a.stat === 'crit') crit += a.value / 100;

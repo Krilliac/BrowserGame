@@ -63,4 +63,35 @@ describe('player save store', () => {
     expect(loadSave(db, token)?.level).toBe(12);
     expect(loadSave(db, token)?.name).toBe('Hero2');
   });
+
+  it('tolerates a pre-affix save by defaulting affixes to []', () => {
+    const db = openDatabase(':memory:');
+    const token = newPlayerToken();
+    // A save written before gear affixes existed: instances have no `affixes` field.
+    const legacy = {
+      name: 'Old',
+      hue: 0,
+      hp: 50,
+      mana: 30,
+      level: 3,
+      xp: 100,
+      gold: 5,
+      loot: [],
+      gear: [{ uid: 1, baseId: 'iron_sword', rarity: 'rare', power: 18, hp: 0 }],
+      weapon: { uid: 2, baseId: 'iron_sword', rarity: 'common', power: 13, hp: 0 },
+      armor: null,
+      god: false,
+      quests: [],
+      questsDone: [],
+    };
+    db.prepare('INSERT INTO player_saves (token,name,data,updated_at) VALUES (?,?,?,?)').run(
+      token,
+      'Old',
+      JSON.stringify(legacy),
+      '2020-01-01',
+    );
+    const loaded = loadSave(db, token)!;
+    expect(loaded.weapon?.affixes).toEqual([]);
+    expect(loaded.gear[0]?.affixes).toEqual([]);
+  });
 });
