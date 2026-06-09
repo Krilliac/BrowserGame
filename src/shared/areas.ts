@@ -6,6 +6,8 @@
  * without a round-trip.
  */
 
+import type { AreaTheme } from './theme.js';
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -39,6 +41,8 @@ export interface AreaDef {
   /** Soft cap: in 'auto' instancing, a new instance is spun up once all are at this many players. */
   playerCap: number;
   portals: Portal[];
+  /** Data-driven environment look, loaded from the area_theme DB table (DEFAULT_THEME if absent). */
+  theme?: AreaTheme;
 }
 
 export const START_AREA = 'town';
@@ -102,6 +106,65 @@ export const AREAS: Record<string, AreaDef> = {
         label: '↑ Escape to Gloomwood',
       },
     ],
+  },
+};
+
+/**
+ * Default environment themes per area — the look these areas shipped with, used to seed the
+ * `area_theme` DB table. After seeding, the DB is the source of truth: edit it (SQL or /settheme)
+ * to re-skin live. Areas without an entry fall back to DEFAULT_THEME.
+ */
+export const AREA_THEMES: Record<string, AreaTheme> = {
+  town: {
+    groundBase: '#2f3b29',
+    groundSpeck: '#3a4a32',
+    prop: 'tree',
+    propDensity: 0.05,
+    atmoColor: '#ffdca8',
+    atmoAlpha: 0.05,
+    outdoor: true,
+    particleColor: '#fff0c0',
+    particleCount: 36,
+    particleRise: -10,
+    particleFlicker: false,
+    weather: 'none',
+    weatherIntensity: 0.5,
+    fogColor: '#cfd6e0',
+    lightAmbient: 1,
+  },
+  wilderness: {
+    groundBase: '#1f2a1c',
+    groundSpeck: '#27331f',
+    prop: 'tree',
+    propDensity: 0.1,
+    atmoColor: '#4a6a4a',
+    atmoAlpha: 0.1,
+    outdoor: true,
+    particleColor: '#bfff8a',
+    particleCount: 40,
+    particleRise: -6,
+    particleFlicker: true,
+    weather: 'none',
+    weatherIntensity: 0.5,
+    fogColor: '#8a93a0',
+    lightAmbient: 0.95,
+  },
+  crypt: {
+    groundBase: '#16161c',
+    groundSpeck: '#20202a',
+    prop: 'grave',
+    propDensity: 0.08,
+    atmoColor: '#203050',
+    atmoAlpha: 0.34,
+    outdoor: false,
+    particleColor: '#8c93a8',
+    particleCount: 44,
+    particleRise: 14,
+    particleFlicker: false,
+    weather: 'fog',
+    weatherIntensity: 0.35,
+    fogColor: '#2a3346',
+    lightAmbient: 0.5,
   },
 };
 

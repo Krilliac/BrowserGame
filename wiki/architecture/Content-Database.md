@@ -11,6 +11,7 @@ queries) into in-memory structures the simulation reads. Tables (`src/server/db/
 | Table | Holds |
 |---|---|
 | `areas`, `portals` | The world's zones, sizes, spawns, caps, and the portals between them |
+| `area_theme` | Each area's **environment look** — ground, props, mood tint, particles, weather, lighting |
 | `abilities` | Spells / abilities (damage, range, cooldown, mana, kind, projectile stats) |
 | `items` | Equipment (slot/power/hp), loot materials (sell value), and currency |
 | `mob_templates` | Monster stats (hp, level, speed, aggro/attack range, damage) |
@@ -52,18 +53,44 @@ INSERT INTO area_mobs (area_id, template_id, count) VALUES ('crypt','dragon',1);
 -- Change a vendor price, move an NPC, add a quest…
 UPDATE items SET sell_value = 400 WHERE id = 'rune_shard';
 UPDATE npcs SET x = 800, y = 600 WHERE name = 'Merchant';
+
+-- Re-skin an area's environment (see area_theme below)
+UPDATE area_theme SET ground_base = '#2a1830', weather = 'snow' WHERE area_id = 'town';
 ```
 
 All of these take effect on the next server start — no code change. (Gameplay numbers are
 server-authoritative, so they apply immediately to combat/loot/spawns.)
+
+## Environment themes — the *look* is data too (`area_theme`)
+
+Each area has one `area_theme` row driving its entire appearance — the client renders ground
+colors, scattered props, mood tint, ambient particles, weather (rain/snow/fog), and lighting
+**entirely from these columns**. Column names match the keys in `src/shared/theme.ts`:
+
+| Column(s) | Effect |
+|---|---|
+| `ground_base`, `ground_speck` | tiled ground fill + speckle colors |
+| `prop`, `prop_density` | scattered props (`tree`/`grave`/`rock`/`none`) and how dense |
+| `atmo_color`, `atmo_alpha` | base mood tint over the whole screen |
+| `outdoor` | `1` = the day/night cycle applies; `0` = indoor gloom (crypts) |
+| `particle_color`, `particle_count`, `particle_rise`, `particle_flicker` | drifting ambient motes |
+| `weather`, `weather_intensity`, `fog_color` | weather overlay |
+| `light_ambient` | baseline light `0..1`; lower = murkier and torch/portal glow reads stronger |
+
+This is **live-editable without a restart**: the `/settheme <area> <key> <value>` Developer command
+(see [Commands & Access](Commands-And-Access.md)) validates + clamps the value, upserts the column,
+and re-broadcasts the `content` packet so every connected client re-skins in place. After a direct
+`sqlite3` edit, `/reloadcontent` does the same. Values are always validated server-side
+(`coerceThemeValue`) — the client never asserts theme state.
 
 ## Client mirrors the database too
 
 On connect the server sends a **`content` packet** (areas, abilities, items) built from the DB.
 The client stores it (`src/client/content-store.ts`) and reads everything from it — the hotbar,
 portals/minimap, item names/colors, and equip checks. So a brand-new spell added via SQL shows up
-in the hotbar, and a new area renders, **with no client code change**. The client keeps only pure
-*presentation* config locally (sprite-sheet frame layouts, biome/atmosphere colors, physics radii).
+in the hotbar, and a new area renders, **with no client code change**. Even the area's *look* now
+comes from the DB (`area_theme`, above), so re-skinning is data-driven and live. The client keeps
+only pure *presentation* config locally (sprite-sheet frame layouts, physics radii).
 
 The one thing not yet hot-reloaded is **sprite art for a brand-new monster type** added purely via
 SQL — it falls back to a procedural shape until a sheet is registered for it. Everything else

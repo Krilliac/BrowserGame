@@ -1,5 +1,6 @@
 import type { Database } from 'better-sqlite3';
-import { AREAS } from '../../shared/areas.js';
+import { AREAS, AREA_THEMES } from '../../shared/areas.js';
+import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
 import { EQUIPMENT } from '../../shared/equipment.js';
 import { MOB_TEMPLATES, AREA_MOBS } from '../mobs.js';
@@ -61,6 +62,13 @@ function seedAreas(db: Database): void {
   const portal = db.prepare(
     'INSERT INTO portals (area_id,rect_x,rect_y,rect_w,rect_h,to_area,to_spawn_x,to_spawn_y,label) VALUES (?,?,?,?,?,?,?,?,?)',
   );
+  const theme = db.prepare(
+    `INSERT INTO area_theme
+       (area_id,ground_base,ground_speck,prop,prop_density,atmo_color,atmo_alpha,outdoor,
+        particle_color,particle_count,particle_rise,particle_flicker,weather,weather_intensity,
+        fog_color,light_ambient)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
   for (const a of Object.values(AREAS)) {
     area.run(a.id, a.name, a.width, a.height, a.spawn.x, a.spawn.y, a.playerCap);
     for (const p of a.portals) {
@@ -76,6 +84,25 @@ function seedAreas(db: Database): void {
         p.label,
       );
     }
+    const t = AREA_THEMES[a.id] ?? DEFAULT_THEME;
+    theme.run(
+      a.id,
+      t.groundBase,
+      t.groundSpeck,
+      t.prop,
+      t.propDensity,
+      t.atmoColor,
+      t.atmoAlpha,
+      t.outdoor ? 1 : 0,
+      t.particleColor,
+      t.particleCount,
+      t.particleRise,
+      t.particleFlicker ? 1 : 0,
+      t.weather,
+      t.weatherIntensity,
+      t.fogColor,
+      t.lightAmbient,
+    );
   }
 }
 

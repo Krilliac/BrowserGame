@@ -45,6 +45,11 @@
       day/night cycle, a per-biome drifting ambient-particle field (pollen / fireflies / crypt
       dust), an edge vignette, screen-shake on death impacts, an area-change fade-from-black with
       a title card, idle/walk bob on actors, and elevated projectiles that cast ground shadows.
+- [x] **SQL-driven, live-editable environment themes** — each area's look (ground, props, mood
+      tint, particles, weather, lighting) lives in the `area_theme` DB table, flows through the
+      `content` packet, and is hot-edited via `/settheme` (re-skins every client, no reconnect) or
+      a direct SQL edit + `/reloadcontent`. New client modules: `weather.ts` (rain/snow/fog) and
+      `lighting.ts` (additive torch/portal glow). Design: `wiki/research/environment-theming.md`.
 - [x] Abilities: Heal + Lightning (6-slot hotbar); Crypt Lord boss in the crypt.
 - [x] Town vendor (Merchant NPC) — press E to sell loot for gold (`vendor.ts`, sub-agent module).
 - [x] Equipment & stats — weapon (+power) / armor (+max HP) drops, click-to-equip, HUD panel.

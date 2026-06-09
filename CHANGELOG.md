@@ -14,6 +14,18 @@ versioning once it stabilizes.
 
 ### Added
 
+- **SQL-driven environment theming (live, from anywhere)** — every area's *look* now lives in the
+  content DB (`area_theme` table) and is sent to the client in the `content` packet: ground colors,
+  scattered props, mood tint, ambient particles, weather, and lighting. Editing it re-skins the
+  world — and it's **live-editable at runtime**: `/settheme <area> <key> <value>` (Developer)
+  validates + clamps the value (`src/shared/theme.ts`), upserts the DB column, and re-broadcasts to
+  every connected client, which re-skins in place with no reconnect. `/reloadcontent` does the same
+  after a direct `sqlite3` edit; `/theme` and `/themekeys` inspect the keys. Two new client visual
+  modules consume the theme — **weather** (`src/client/weather.ts`: rain / snow / fog overlays) and
+  **dynamic lighting** (`src/client/lighting.ts`: additive torch/portal glow that strengthens at
+  night and in low-ambient areas). The renderer + atmosphere are now fully theme-driven. Design:
+  `wiki/research/environment-theming.md`; docs: `wiki/architecture/Content-Database.md`,
+  `Commands-And-Access.md`.
 - **2.5D depth & atmosphere pass** — a batch of rendering work to strengthen the tilted top-down
   look (`src/client/atmosphere.ts`, `src/client/pixi-renderer.ts`, HUD in `main.ts`):
   - **Day/night cycle** — a slow sky wash (dawn→day→dusk→night) over outdoor areas, keyed to the

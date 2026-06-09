@@ -33,6 +33,10 @@ function makeCtx(
     },
     listPlayers: () => world.playerNames(),
     setAccessFor: () => true,
+    areaIds: () => ['town'],
+    areaTheme: () => undefined,
+    setTheme: () => 'ok',
+    reloadContent: () => 'ok',
   };
   return { ctx, cap };
 }

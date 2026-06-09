@@ -1,4 +1,5 @@
 import { AccessLevel, accessName } from './accounts.js';
+import { THEME_KEYS, type AreaTheme } from '../shared/theme.js';
 import type { World } from './world.js';
 
 /**
@@ -20,6 +21,11 @@ export interface CommandContext {
   setAccessLevel: (level: number) => void;
   listPlayers: () => string[];
   setAccessFor: (username: string, level: number) => boolean;
+  // Live environment theming (Developer): edit the area_theme DB and re-skin all clients.
+  areaIds: () => string[];
+  areaTheme: (areaId: string) => AreaTheme | undefined;
+  setTheme: (areaId: string, key: string, value: string) => string;
+  reloadContent: () => string;
 }
 
 interface Command {
@@ -251,6 +257,54 @@ const COMMAND_LIST: Command[] = [
           : `No such account: ${user}`,
       );
     },
+  },
+
+  // --- Developer (live environment theming) ---------------------------------------------
+  {
+    name: 'themekeys',
+    minLevel: AccessLevel.Developer,
+    usage: '/themekeys',
+    help: 'List the editable environment-theme keys.',
+    run: (ctx) => {
+      ctx.reply(`Areas: ${ctx.areaIds().join(', ')}`);
+      ctx.reply(`Theme keys: ${Object.keys(THEME_KEYS).join(', ')}`);
+    },
+  },
+  {
+    name: 'theme',
+    minLevel: AccessLevel.Developer,
+    usage: '/theme [area]',
+    help: "Show an area's environment theme (defaults to your area).",
+    run: (ctx) => {
+      const area = ctx.args[0] ?? ctx.areaId;
+      const t = ctx.areaTheme(area);
+      if (!t) return ctx.reply(`No such area: ${area}`);
+      const pairs = Object.entries(THEME_KEYS).map(
+        ([key, spec]) => `${key}=${String(t[spec.field])}`,
+      );
+      ctx.reply(`Theme[${area}]: ${pairs.join('  ')}`);
+    },
+  },
+  {
+    name: 'settheme',
+    minLevel: AccessLevel.Developer,
+    usage: '/settheme <area> <key> <value>',
+    help: 'Live-edit an environment theme value — re-skins every connected client.',
+    run: (ctx) => {
+      const [area, key] = ctx.args;
+      const value = ctx.args.slice(2).join(' ');
+      if (!area || !key || value === '') {
+        return ctx.reply('Usage: /settheme <area> <key> <value>  (see /themekeys)');
+      }
+      ctx.reply(ctx.setTheme(area, key, value));
+    },
+  },
+  {
+    name: 'reloadcontent',
+    minLevel: AccessLevel.Developer,
+    usage: '/reloadcontent',
+    help: 'Reload content from the DB and re-skin all clients (after direct SQL edits).',
+    run: (ctx) => ctx.reply(ctx.reloadContent()),
   },
 ];
 

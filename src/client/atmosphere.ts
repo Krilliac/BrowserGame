@@ -1,11 +1,13 @@
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 
 /**
  * Screen-space ambiance that reinforces the 2.5D mood: a slow day/night cycle (outdoor areas
  * only), a drifting ambient particle field (pollen / fireflies / crypt dust), and an edge
  * vignette to frame the scene. All of it lives above the world but below the HUD, and is kept
  * out of the renderer proper so each stays a focused unit. The renderer owns one Atmosphere,
- * adds its display objects to the stage, and drives it once per frame.
+ * adds its display objects to the stage, and drives it once per frame. Everything visual here is
+ * driven by the area's AreaTheme (from the content DB), so edits re-skin the mood live.
  */
 
 // One full dawn→day→dusk→night loop. Long enough to feel like a living world, short enough to
@@ -14,37 +16,9 @@ const DAY_MS = 180_000;
 const MAX_NIGHT_ALPHA = 0.45;
 const NIGHT_COLOR = 0x0a1430;
 const WARM_COLOR = 0xffae5c;
-
-interface AreaMood {
-  /** Base tint always applied (area "character"), independent of time of day. */
-  baseColor: number;
-  baseAlpha: number;
-  /** Outdoor areas get the day/night cycle; indoor ones (crypts) stay their own gloom. */
-  outdoor: boolean;
-  particle: { color: number; count: number; rise: number; flicker: boolean };
-}
-
-const MOODS: Record<string, AreaMood> = {
-  town: {
-    baseColor: 0xffdca8,
-    baseAlpha: 0.05,
-    outdoor: true,
-    particle: { color: 0xfff0c0, count: 36, rise: -10, flicker: false },
-  },
-  wilderness: {
-    baseColor: 0x4a6a4a,
-    baseAlpha: 0.1,
-    outdoor: true,
-    particle: { color: 0xbfff8a, count: 40, rise: -6, flicker: true },
-  },
-  crypt: {
-    baseColor: 0x203050,
-    baseAlpha: 0.34,
-    outdoor: false,
-    particle: { color: 0x8c93a8, count: 44, rise: 14, flicker: false },
-  },
-};
-const DEFAULT_MOOD = MOODS.wilderness!;
+// Indoor areas don't run the day/night cycle, but light sources should still read — treat them as
+// perpetually dusk-dark for the lighting module.
+const INDOOR_NIGHT = 0.65;
 
 interface Mote {
   x: number;
@@ -66,7 +40,7 @@ export class Atmosphere {
   private readonly dot: Texture;
   private readonly sprites: Sprite[] = [];
   private readonly motes: Mote[] = [];
-  private mood: AreaMood = DEFAULT_MOOD;
+  private theme: AreaTheme = DEFAULT_THEME;
   private lastNow = performance.now();
   private w = 0;
   private h = 0;
@@ -79,9 +53,14 @@ export class Atmosphere {
     this.screen.addChild(this.tint, this.vignette);
   }
 
-  setArea(areaId: string): void {
-    this.mood = MOODS[areaId] ?? DEFAULT_MOOD;
-    this.reseed(this.mood.particle.count);
+  setArea(theme: AreaTheme): void {
+    this.theme = theme;
+    this.reseed(theme.particleCount);
+  }
+
+  /** Time-of-day darkness in [0,1] (1 = full night) — drives the lighting module's glow strength. */
+  nightFactor(): number {
+    return this.theme.outdoor ? 1 - this.daylight() : INDOOR_NIGHT;
   }
 
   private reseed(count: number): void {
@@ -100,7 +79,7 @@ export class Atmosphere {
   }
 
   private spawnMote(w: number, h: number, anywhere: boolean): Mote {
-    const rise = this.mood.particle.rise;
+    const rise = this.theme.particleRise;
     return {
       x: Math.random() * w,
       // New motes enter from the trailing edge (bottom if rising, top if falling).
@@ -139,8 +118,8 @@ export class Atmosphere {
   private drawOverlay(w: number, h: number): void {
     const g = this.tint;
     g.clear();
-    g.rect(0, 0, w, h).fill({ color: this.mood.baseColor, alpha: this.mood.baseAlpha });
-    if (this.mood.outdoor) {
+    g.rect(0, 0, w, h).fill({ color: this.theme.atmoColor, alpha: this.theme.atmoAlpha });
+    if (this.theme.outdoor) {
       const day = this.daylight();
       const night = (1 - day) * MAX_NIGHT_ALPHA;
       if (night > 0.01) g.rect(0, 0, w, h).fill({ color: NIGHT_COLOR, alpha: night });
@@ -151,8 +130,8 @@ export class Atmosphere {
   }
 
   private stepMotes(dt: number, now: number, w: number, h: number): void {
-    const flicker = this.mood.particle.flicker;
-    const tint = this.mood.particle.color;
+    const flicker = this.theme.particleFlicker;
+    const tint = this.theme.particleColor;
     for (let i = 0; i < this.motes.length; i++) {
       const m = this.motes[i]!;
       m.x += m.vx * dt;

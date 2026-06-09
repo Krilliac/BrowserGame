@@ -1,6 +1,7 @@
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
 import type { AreaDef } from '../shared/areas.js';
+import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
 import type { MobTemplate } from './mobs.js';
 
@@ -64,6 +65,12 @@ interface LootGroup {
 }
 
 export function loadContent(db: GameDatabase): Content {
+  // Per-area environment themes (the data-driven look) — DEFAULT_THEME fills any area without a row.
+  const themes = new Map<string, AreaTheme>();
+  for (const r of db.prepare('SELECT * FROM area_theme').all() as AreaThemeRow[]) {
+    themes.set(r.area_id, rowToTheme(r));
+  }
+
   const areas = new Map<string, AreaDef>();
   for (const a of db.prepare('SELECT * FROM areas').all() as AreaRow[]) {
     const portals = (
@@ -82,6 +89,7 @@ export function loadContent(db: GameDatabase): Content {
       spawn: { x: a.spawn_x, y: a.spawn_y },
       playerCap: a.player_cap,
       portals,
+      theme: themes.get(a.id) ?? DEFAULT_THEME,
     });
   }
 
@@ -232,10 +240,41 @@ export function getContent(): Content {
   return activeContent!;
 }
 
+/**
+ * Re-read all content from the live database and swap it in. Called after a runtime edit (e.g. the
+ * /settheme command or a direct SQL change) so the next content broadcast reflects the new data.
+ */
+export function reloadContent(): Content {
+  if (!activeDb) return getContent();
+  activeContent = loadContent(activeDb);
+  return activeContent;
+}
+
 /** The live database handle (for dynamic data like accounts). Initializes lazily if needed. */
 export function getDb(): GameDatabase {
   if (!activeDb) initGameDb(process.env.GAME_DB);
   return activeDb!;
+}
+
+/** Map a raw area_theme row (snake_case columns, 0/1 booleans) to the wire AreaTheme. */
+function rowToTheme(r: AreaThemeRow): AreaTheme {
+  return {
+    groundBase: r.ground_base,
+    groundSpeck: r.ground_speck,
+    prop: r.prop as AreaTheme['prop'],
+    propDensity: r.prop_density,
+    atmoColor: r.atmo_color,
+    atmoAlpha: r.atmo_alpha,
+    outdoor: r.outdoor !== 0,
+    particleColor: r.particle_color,
+    particleCount: r.particle_count,
+    particleRise: r.particle_rise,
+    particleFlicker: r.particle_flicker !== 0,
+    weather: r.weather as AreaTheme['weather'],
+    weatherIntensity: r.weather_intensity,
+    fogColor: r.fog_color,
+    lightAmbient: r.light_ambient,
+  };
 }
 
 // --- row types ------------------------------------------------------------------------
@@ -247,6 +286,24 @@ interface AreaRow {
   spawn_x: number;
   spawn_y: number;
   player_cap: number;
+}
+interface AreaThemeRow {
+  area_id: string;
+  ground_base: string;
+  ground_speck: string;
+  prop: string;
+  prop_density: number;
+  atmo_color: string;
+  atmo_alpha: number;
+  outdoor: number;
+  particle_color: string;
+  particle_count: number;
+  particle_rise: number;
+  particle_flicker: number;
+  weather: string;
+  weather_intensity: number;
+  fog_color: string;
+  light_ambient: number;
 }
 interface PortalRow {
   rect_x: number;

@@ -42,9 +42,31 @@ Chat messages starting with `/` are parsed as commands (`src/server/commands.ts`
 | `/killall` | GameMaster | clear area monsters |
 | `/announce <text>` | Admin | server message to the area |
 | `/setaccess <user> <0-4>` | Admin | set an account's level |
+| `/themekeys` | Developer | list areas + editable theme keys |
+| `/theme [area]` | Developer | show an area's environment theme |
+| `/settheme <area> <key> <value>` | Developer | **live-edit** an area's look (re-skins all clients) |
+| `/reloadcontent` | Developer | reload content from the DB (after direct SQL edits) |
 
 Mob/item ids come from the content DB (e.g. `/spawn crypt_lord`, `/give iron_sword`) — so
 SQL-added content is immediately usable by commands.
+
+### Live environment theming (`/settheme`)
+
+The world's *look* is data-driven (see [Content Database](Content-Database.md) → `area_theme`).
+`/settheme` is the in-game engine for it: a Developer edits one theme value and **every connected
+client re-skins in place, no reconnect**. Example session:
+
+```
+/login dev <password>
+/settheme town weather snow
+/settheme town ground_base #3a2630
+/settheme town light_ambient 0.25
+```
+
+The value is validated + clamped server-side (`coerceThemeValue` in `src/shared/theme.ts`), the
+single whitelisted column is upserted in `area_theme`, then content is reloaded and the `content`
+packet is re-broadcast. `/reloadcontent` does the same after you edit `game.db` directly with the
+`sqlite3` CLI — so the world can be re-themed from anywhere, live. See `/themekeys` for the keys.
 
 ## Design
 

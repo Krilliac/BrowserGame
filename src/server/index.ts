@@ -15,10 +15,11 @@ import {
   type ServerMessage,
 } from '../shared/protocol.js';
 import { isAbilityId } from '../shared/combat.js';
-import { initGameDb, getDb } from './content.js';
+import { initGameDb, getDb, getContent, reloadContent } from './content.js';
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess } from './accounts.js';
 import { SpatialGrid } from './spatial.js';
+import { THEME_KEYS, coerceThemeValue } from '../shared/theme.js';
 
 // Load all game content from SQLite (the source of truth). Defaults to ./game.db; the file is
 // created and seeded from the built-in content on first run. Edit it with any SQLite tool.
@@ -26,14 +27,45 @@ const content = initGameDb(process.env.GAME_DB ?? 'game.db');
 console.log(
   `[browsergame] content loaded: ${content.areas().length} areas, ${content.abilityOrder().length} abilities`,
 );
-// Pre-encode the content packet once — it's the same for every client and sent on connect, so
-// the client mirrors the database (new areas/spells/items added via SQL render with no code change).
-const contentMessage = encode({
-  t: 'content',
-  areas: content.areas(),
-  abilities: content.abilityList(),
-  items: content.items(),
-});
+// Pre-encode the content packet — it's the same for every client and sent on connect, so the
+// client mirrors the database (new areas/spells/items added via SQL render with no code change).
+// Rebuilt and re-broadcast on a live content edit (theme changes, /reloadcontent), so the world
+// re-skins everywhere without a reconnect.
+let contentMessage = encodeContent();
+function encodeContent(): string {
+  const c = getContent();
+  return encode({ t: 'content', areas: c.areas(), abilities: c.abilityList(), items: c.items() });
+}
+
+/** Re-read content from the DB, re-encode the packet, and push it to every connected client. */
+function rebroadcastContent(): number {
+  const c = reloadContent();
+  contentMessage = encodeContent();
+  for (const { socket } of players.values()) {
+    if (socket.readyState === socket.OPEN) socket.send(contentMessage);
+  }
+  return c.areas().length;
+}
+
+/**
+ * Live-edit one environment-theme value: validate + clamp at the boundary (never trust the input),
+ * upsert the single whitelisted column in area_theme, then reload + re-broadcast so every client
+ * re-skins. The key is checked against THEME_KEYS, so interpolating it as a column name is safe.
+ */
+function applyThemeEdit(area: string, key: string, raw: string): string {
+  if (!(key in THEME_KEYS)) return `Unknown theme key: ${key}. Try /themekeys.`;
+  const value = coerceThemeValue(key, raw);
+  if (value === null) return `Invalid value for ${key}: "${raw}".`;
+  const db = getDb();
+  if (!db.prepare('SELECT 1 FROM areas WHERE id = ?').get(area)) return `No such area: ${area}`;
+  const stored = typeof value === 'boolean' ? (value ? 1 : 0) : value;
+  db.prepare(
+    `INSERT INTO area_theme (area_id, ${key}) VALUES (?, ?)
+       ON CONFLICT(area_id) DO UPDATE SET ${key} = excluded.${key}`,
+  ).run(area, stored);
+  rebroadcastContent();
+  return `Set ${area}.${key} = ${raw} — re-skinned all clients.`;
+}
 
 // Area-of-interest half-extents: each player is sent only entities within this box around them,
 // generously larger than any viewport so nothing pops in at the screen edge.
@@ -175,6 +207,14 @@ wss.on('connection', (socket) => {
             },
             listPlayers: () => world.playerNames(),
             setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),
+            areaIds: () =>
+              getContent()
+                .areas()
+                .map((a) => a.id),
+            areaTheme: (areaId) => getContent().area(areaId)?.theme,
+            setTheme: (areaId, key, value) => applyThemeEdit(areaId, key, value),
+            reloadContent: () =>
+              `Reloaded content from DB — re-skinned ${rebroadcastContent()} areas.`,
           });
         } else {
           broadcastToInstance(p.instanceId, { t: 'chat', from, text });

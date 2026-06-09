@@ -28,6 +28,29 @@ CREATE TABLE IF NOT EXISTS portals (
   label       TEXT NOT NULL
 );
 
+-- Per-area environment THEME: the data-driven *look* of an area. The client renders ground,
+-- props, mood tint, ambient particles, weather, and lighting entirely from these rows, so editing
+-- them (via SQL or the /settheme dev command) re-skins the world live. Colors are CSS hex strings.
+-- Column names match the keys in src/shared/theme.ts (THEME_KEYS).
+CREATE TABLE IF NOT EXISTS area_theme (
+  area_id           TEXT PRIMARY KEY REFERENCES areas(id),
+  ground_base       TEXT NOT NULL DEFAULT '#1f2a1c',
+  ground_speck      TEXT NOT NULL DEFAULT '#27331f',
+  prop              TEXT NOT NULL DEFAULT 'tree',     -- 'tree' | 'grave' | 'rock' | 'none'
+  prop_density      REAL NOT NULL DEFAULT 0.08,
+  atmo_color        TEXT NOT NULL DEFAULT '#4a6a4a',
+  atmo_alpha        REAL NOT NULL DEFAULT 0.1,
+  outdoor           INTEGER NOT NULL DEFAULT 1,       -- 1 = day/night cycle applies
+  particle_color    TEXT NOT NULL DEFAULT '#bfff8a',
+  particle_count    INTEGER NOT NULL DEFAULT 40,
+  particle_rise     REAL NOT NULL DEFAULT -6,         -- px/s vertical drift (negative rises)
+  particle_flicker  INTEGER NOT NULL DEFAULT 1,
+  weather           TEXT NOT NULL DEFAULT 'none',     -- 'none' | 'rain' | 'snow' | 'fog'
+  weather_intensity REAL NOT NULL DEFAULT 0.5,
+  fog_color         TEXT NOT NULL DEFAULT '#8a93a0',
+  light_ambient     REAL NOT NULL DEFAULT 1           -- 0..1 baseline ambient light
+);
+
 -- Spells / abilities.
 CREATE TABLE IF NOT EXISTS abilities (
   id                 TEXT PRIMARY KEY,

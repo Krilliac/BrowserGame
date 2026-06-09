@@ -16,6 +16,9 @@ import type { EntityState } from '../shared/protocol.js';
 import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
+import { Weather } from './weather.js';
+import { Lighting, type LightSource } from './lighting.js';
+import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
@@ -28,17 +31,9 @@ const FX_DURATION = 700;
 const EXPLOSION_MS = 600;
 const WALK_FRAME_MS = 120;
 
-interface Biome {
-  base: string;
-  speck: string;
-  prop: 'tree' | 'grave' | 'rock';
-  density: number;
-}
-const BIOMES: Record<string, Biome> = {
-  town: { base: '#2f3b29', speck: '#3a4a32', prop: 'tree', density: 0.05 },
-  wilderness: { base: '#1f2a1c', speck: '#27331f', prop: 'tree', density: 0.1 },
-  crypt: { base: '#16161c', speck: '#20202a', prop: 'grave', density: 0.08 },
-};
+// Light sources for the lighting overlay: the local player carries a warm torch, and portals glow.
+const PLAYER_LIGHT = { radius: 190, color: 0xffd9a0 };
+const PORTAL_LIGHT = { radius: 130, color: 0xc9a24b };
 
 const ITEM_COLORS: Record<string, string> = {
   gold: '#f2c14e',
@@ -190,12 +185,16 @@ export class PixiRenderer {
   private readonly actorLayer = new Container();
   private readonly fxLayer = new Container();
   private readonly atmosphere = new Atmosphere();
+  private readonly weather = new Weather();
+  private readonly lighting = new Lighting();
   private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
   private readonly fxTexts: Text[] = [];
   private readonly explosionPool: Sprite[] = [];
   private readonly views = new Map<number, ActorView>();
   private currentArea = '';
+  private currentTheme: AreaTheme = DEFAULT_THEME;
+  private portalCenters: { x: number; y: number }[] = []; // world-space, for portal glow lights
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private fadeAlpha = 0; // area-change fade-from-black, eases 1 -> 0 on arrival
@@ -214,13 +213,16 @@ export class PixiRenderer {
     this.world.addChild(this.propLayer, this.actorLayer, this.fxLayer);
     this.fxLayer.addChild(this.fxGfx);
     this.fade.eventMode = 'none';
-    // Draw order: ground, world, ambient motes, screen wash (day/night + vignette), then the
-    // area-change fade on very top so it covers everything during a transition.
+    // Draw order (back→front): ground, world, ambient motes, weather, the screen wash (day/night +
+    // mood tint + vignette darkening), then additive LIGHTS on top so torch/portal glow punches
+    // through the darkness, and finally the area-change fade covering everything mid-transition.
     app.stage.addChild(
       this.ground,
       this.world,
       this.atmosphere.particleLayer,
+      this.weather.layer,
       this.atmosphere.screen,
+      this.lighting.layer,
       this.fade,
     );
   }
@@ -242,21 +244,33 @@ export class PixiRenderer {
     }
   }
 
+  /**
+   * Force the next update() to re-run setArea even though the area id is unchanged — used when a
+   * fresh content packet arrives (a live theme edit or hot reload) so the world re-skins in place.
+   */
+  invalidateArea(): void {
+    this.currentArea = '';
+  }
+
   setArea(areaId: string): void {
     if (areaId === this.currentArea) return;
     const area = this.content.area(areaId);
     if (!area) return; // content packet not loaded yet — retry next frame
     this.currentArea = areaId;
-    this.atmosphere.setArea(areaId);
+    const theme = area.theme ?? DEFAULT_THEME;
+    this.currentTheme = theme;
+    this.atmosphere.setArea(theme);
+    this.weather.setWeather(theme.weather, theme.weatherIntensity, theme.fogColor);
     this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
-    const biome = BIOMES[areaId] ?? BIOMES.wilderness!;
-    this.ground.texture = this.groundTexture(areaId, biome);
+    this.ground.texture = this.groundTexture(theme.groundBase, theme.groundSpeck);
 
     for (const child of this.propLayer.removeChildren()) child.destroy();
 
+    this.portalCenters = [];
     for (const portal of area.portals) {
       const cx = portal.rect.x + portal.rect.w / 2;
       const cy = portal.rect.y + portal.rect.h / 2;
+      this.portalCenters.push({ x: cx, y: cy });
       const pad = new Graphics();
       pad
         .ellipse(0, 0, portal.rect.w, portal.rect.h * PITCH)
@@ -274,13 +288,16 @@ export class PixiRenderer {
       this.propLayer.addChild(pad, label);
     }
 
-    const cell = 110;
-    for (let gx = 0; gx * cell < area.width; gx++) {
-      for (let gy = 0; gy * cell < area.height; gy++) {
-        if (hash2(gx * 7 + 1, gy * 13 + 3) >= biome.density) continue;
-        const px = gx * cell + hash2(gx, gy * 3) * cell;
-        const py = gy * cell + hash2(gx * 5, gy) * cell;
-        this.propLayer.addChild(this.makeProp(biome.prop, px, py));
+    if (theme.prop !== 'none' && theme.propDensity > 0) {
+      const prop = theme.prop;
+      const cell = 110;
+      for (let gx = 0; gx * cell < area.width; gx++) {
+        for (let gy = 0; gy * cell < area.height; gy++) {
+          if (hash2(gx * 7 + 1, gy * 13 + 3) >= theme.propDensity) continue;
+          const px = gx * cell + hash2(gx, gy * 3) * cell;
+          const py = gy * cell + hash2(gx * 5, gy) * cell;
+          this.propLayer.addChild(this.makeProp(prop, px, py));
+        }
       }
     }
   }
@@ -309,6 +326,28 @@ export class PixiRenderer {
     this.ground.tilePosition.set(originX, originY);
 
     this.atmosphere.update(now, sw, sh);
+    this.weather.update(now, sw, sh);
+
+    // Dynamic lights (additive): the local player carries a torch at screen center; portals glow.
+    // Strength scales with night + the area's ambient-light theme, so they matter after dark.
+    const lights: LightSource[] = [
+      { x: sw / 2 + shX, y: sh / 2 + shY, radius: PLAYER_LIGHT.radius, color: PLAYER_LIGHT.color },
+    ];
+    for (const p of this.portalCenters) {
+      lights.push({
+        x: p.x + originX,
+        y: p.y * PITCH + originY,
+        radius: PORTAL_LIGHT.radius,
+        color: PORTAL_LIGHT.color,
+      });
+    }
+    this.lighting.update(
+      lights,
+      sw,
+      sh,
+      this.atmosphere.nightFactor(),
+      this.currentTheme.lightAmbient,
+    );
 
     // Area-change fade-from-black, eased toward 0.
     this.fadeAlpha = Math.max(0, this.fadeAlpha - dt / FADE_SECONDS);
@@ -636,7 +675,7 @@ export class PixiRenderer {
     return s;
   }
 
-  private makeProp(kind: Biome['prop'], x: number, y: number): Container {
+  private makeProp(kind: Exclude<PropKind, 'none'>, x: number, y: number): Container {
     const c = new Container();
     c.position.set(x, y * PITCH);
     c.zIndex = y;
@@ -656,17 +695,19 @@ export class PixiRenderer {
     return c;
   }
 
-  private groundTexture(areaId: string, biome: Biome): Texture {
-    const cached = this.groundTextures.get(areaId);
+  /** Build (and cache) a tiled ground texture from the theme's base + speckle colors. */
+  private groundTexture(base: string, speck: string): Texture {
+    const key = `${base}|${speck}`;
+    const cached = this.groundTextures.get(key);
     if (cached) return cached;
     const size = 128;
     const cv = document.createElement('canvas');
     cv.width = size;
     cv.height = size;
     const ctx = cv.getContext('2d')!;
-    ctx.fillStyle = biome.base;
+    ctx.fillStyle = base;
     ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = biome.speck;
+    ctx.fillStyle = speck;
     for (let i = 0; i < 220; i++) {
       ctx.fillRect(
         Math.random() * size,
@@ -676,7 +717,7 @@ export class PixiRenderer {
       );
     }
     const tex = Texture.from(cv);
-    this.groundTextures.set(areaId, tex);
+    this.groundTextures.set(key, tex);
     return tex;
   }
 }

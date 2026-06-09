@@ -102,6 +102,7 @@ const BANNER_MS = 2200;
 let bannerArea = '';
 let bannerName = '';
 let bannerUntil = 0;
+let lastContentRev = 0;
 
 window.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') {
@@ -253,6 +254,12 @@ app.ticker.add(() => {
       bannerName = a.name;
       bannerUntil = now + BANNER_MS;
     }
+  }
+
+  // A new content packet (live theme edit or hot reload) — re-skin the current area in place.
+  if (net.contentRev !== lastContentRev) {
+    renderer.invalidateArea();
+    lastContentRev = net.contentRev;
   }
 
   renderer.update({ areaId: net.areaId, entities, selfId: net.selfId, fx: net.fx, camX, camY });

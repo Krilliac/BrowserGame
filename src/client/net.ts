@@ -66,6 +66,8 @@ export class Net {
   };
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
   authRev = 0;
+  /** Bumped whenever a content packet arrives — drives a live re-skin (theme edits, hot reload). */
+  contentRev = 0;
   selfId = 0;
   connected = false;
   tickRate = 20;
@@ -124,6 +126,7 @@ export class Net {
     switch (msg.t) {
       case 'content':
         this.content.load(msg.areas, msg.abilities, msg.items);
+        this.contentRev++;
         break;
       case 'welcome':
         this.selfId = msg.id;
