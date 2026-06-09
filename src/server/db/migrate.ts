@@ -29,12 +29,22 @@ const AREA_THEME_COLUMNS: Record<string, string> = {
   sprite_tint: "TEXT NOT NULL DEFAULT '#ffffff'",
 };
 
+/** Monster archetype columns added for enemy variety (ranged attackers + attack telegraphs). */
+const MOB_TEMPLATE_COLUMNS: Record<string, string> = {
+  behavior: "TEXT NOT NULL DEFAULT 'melee'",
+  telegraph_ms: 'INTEGER NOT NULL DEFAULT 0',
+  projectile_speed: 'REAL',
+  kite_range: 'REAL',
+};
+
 export function migrate(db: Database): void {
-  // The area_theme table may not exist yet on a brand-new DB — SCHEMA creates it; skip if absent.
-  const hasTable = db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'area_theme'")
-    .get();
-  if (hasTable) ensureColumns(db, 'area_theme', AREA_THEME_COLUMNS);
+  // Tables may not exist yet on a brand-new DB — SCHEMA creates them; skip a table if absent.
+  if (hasTable(db, 'area_theme')) ensureColumns(db, 'area_theme', AREA_THEME_COLUMNS);
+  if (hasTable(db, 'mob_templates')) ensureColumns(db, 'mob_templates', MOB_TEMPLATE_COLUMNS);
+}
+
+function hasTable(db: Database, name: string): boolean {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
 }
 
 /** Add any missing columns to a table. Table/column names are constants here (never user input). */

@@ -131,7 +131,7 @@ export function loadContent(db: GameDatabase): Content {
 
   const mobTemplates = new Map<string, MobTemplate>();
   for (const r of db.prepare('SELECT * FROM mob_templates').all() as MobRow[]) {
-    mobTemplates.set(r.id, {
+    const template: MobTemplate = {
       id: r.id,
       name: r.name,
       hp: r.hp,
@@ -142,7 +142,12 @@ export function loadContent(db: GameDatabase): Content {
       attackRange: r.attack_range,
       damage: r.damage,
       attackCooldownMs: r.attack_cooldown_ms,
-    });
+      behavior: r.behavior === 'ranged' ? 'ranged' : 'melee',
+      telegraphMs: r.telegraph_ms,
+    };
+    if (r.projectile_speed !== null) template.projectileSpeed = r.projectile_speed;
+    if (r.kite_range !== null) template.kiteRange = r.kite_range;
+    mobTemplates.set(r.id, template);
   }
 
   const areaMobs = new Map<string, { templateId: string; count: number }[]>();
@@ -359,6 +364,10 @@ interface MobRow {
   attack_range: number;
   damage: number;
   attack_cooldown_ms: number;
+  behavior: string;
+  telegraph_ms: number;
+  projectile_speed: number | null;
+  kite_range: number | null;
 }
 interface AreaMobRow {
   area_id: string;

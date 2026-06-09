@@ -15,6 +15,7 @@ import {
   MOB_RESPAWN_MS,
   PLAYER_MAX_HP,
   PLAYER_MAX_MANA,
+  PLAYER_RADIUS,
   PLAYER_RESPAWN_MS,
   type AbilityId,
   type FxEvent,
@@ -118,6 +119,11 @@ interface Mob {
   lastAttacker: number;
   dead: boolean;
   respawnAt: number;
+  /** Attack wind-up: sim time (ms) the telegraphed strike lands at (0 = not winding up). */
+  telegraphUntil: number;
+  /** Aim locked when the wind-up started (so a moving player can dodge out of it). */
+  telegraphFacing: number;
+  telegraphTargetId: number;
 }
 
 interface Projectile {
@@ -132,6 +138,8 @@ interface Projectile {
   radius: number;
   ownerId: number;
   ownerLevel: number;
+  /** True for an enemy (mob) projectile — it damages players instead of mobs. */
+  hostile: boolean;
 }
 
 interface GroundItem {
@@ -236,6 +244,9 @@ export class World {
       lastAttacker: 0,
       dead: false,
       respawnAt: 0,
+      telegraphUntil: 0,
+      telegraphFacing: 0,
+      telegraphTargetId: 0,
     });
   }
 
@@ -522,6 +533,7 @@ export class World {
         radius: ability.radius,
         ownerId: player.id,
         ownerLevel: player.level,
+        hostile: false,
       });
     }
   }
@@ -581,16 +593,43 @@ export class World {
       const slow = mob.statuses.slowFactor();
 
       const template = getContent().mobTemplate(mob.templateId)!;
+
+      // Attack wind-up: a telegraphed mob is rooted, facing its locked aim. The strike lands when
+      // the wind-up elapses — moving out of the way during it is how a player dodges.
+      if (mob.telegraphUntil > 0) {
+        mob.facing = mob.telegraphFacing;
+        if (this.now >= mob.telegraphUntil) {
+          mob.telegraphUntil = 0;
+          this.executeMobAttack(mob, template);
+          mob.attackCd = template.attackCooldownMs;
+        }
+        continue;
+      }
+
       const view: MobView = { x: mob.x, y: mob.y, template, attackReady: mob.attackCd <= 0 };
       const intent = stepMob(view, views, this.aggroScale); // weather may dampen aggro range
 
       if (intent.attackTargetId !== null) {
         const target = this.players.get(intent.attackTargetId);
         if (target && !target.dead) {
-          this.damagePlayer(target, template.damage);
-          mob.attackCd = template.attackCooldownMs;
           mob.facing = intent.facing ?? mob.facing;
-          this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.facing });
+          mob.telegraphFacing = mob.facing;
+          mob.telegraphTargetId = target.id;
+          if (template.telegraphMs > 0) {
+            // Begin the wind-up; show the tell so the player can react.
+            mob.telegraphUntil = this.now + template.telegraphMs;
+            this.events.push({
+              kind: 'telegraph',
+              x: mob.x,
+              y: mob.y,
+              facing: mob.facing,
+              value: template.telegraphMs,
+              behavior: template.behavior,
+            });
+          } else {
+            this.executeMobAttack(mob, template);
+            mob.attackCd = template.attackCooldownMs;
+          }
         }
       } else if (intent.vx !== 0 || intent.vy !== 0) {
         mob.x = clamp(mob.x + intent.vx * slow * dt, 0, this.width);
@@ -602,6 +641,40 @@ export class World {
     }
   }
 
+  /**
+   * Resolve a mob's attack at the moment its wind-up completes. Melee strikes the locked target if
+   * it is still in reach (so dodging out of range whiffs it); ranged fires a hostile projectile
+   * along the locked aim (so side-stepping the line dodges it).
+   */
+  private executeMobAttack(mob: Mob, template: MobTemplate): void {
+    if (template.behavior === 'ranged') {
+      const speed = template.projectileSpeed ?? 280;
+      const pid = this.allocId();
+      this.projectiles.set(pid, {
+        id: pid,
+        abilityId: 'arrow', // sprite hint only; the client tints hostile projectiles separately
+        x: mob.x,
+        y: mob.y,
+        vx: Math.cos(mob.telegraphFacing) * speed,
+        vy: Math.sin(mob.telegraphFacing) * speed,
+        ttl: 2400,
+        damage: template.damage,
+        radius: 8,
+        ownerId: 0,
+        ownerLevel: template.level,
+        hostile: true,
+      });
+      this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
+      return;
+    }
+    const target = this.players.get(mob.telegraphTargetId);
+    const reach = template.attackRange + PLAYER_RADIUS;
+    if (target && !target.dead && Math.hypot(target.x - mob.x, target.y - mob.y) <= reach) {
+      this.damagePlayer(target, template.damage);
+    }
+    this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
+  }
+
   private tickProjectiles(dt: number): void {
     for (const proj of this.projectiles.values()) {
       proj.x += proj.vx * dt;
@@ -609,16 +682,28 @@ export class World {
       proj.ttl -= dt * 1000;
 
       let consumed = false;
-      for (const mob of this.mobs.values()) {
-        if (mob.dead) continue;
-        if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
-          const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
-          const crit = base > 0 && rollCrit();
-          const dmg = applyCrit(base, crit);
-          this.damageMob(mob, dmg, proj.abilityId, proj.ownerId, crit);
-          if (dmg > 0) applyStatus(mob, proj.abilityId);
-          consumed = true;
-          break;
+      if (proj.hostile) {
+        // Enemy projectile: hits the first living, non-godmode player it overlaps.
+        for (const player of this.players.values()) {
+          if (player.dead) continue;
+          if (circlesOverlap(proj.x, proj.y, proj.radius, player.x, player.y, PLAYER_RADIUS)) {
+            this.damagePlayer(player, proj.damage);
+            consumed = true;
+            break;
+          }
+        }
+      } else {
+        for (const mob of this.mobs.values()) {
+          if (mob.dead) continue;
+          if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
+            const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
+            const crit = base > 0 && rollCrit();
+            const dmg = applyCrit(base, crit);
+            this.damageMob(mob, dmg, proj.abilityId, proj.ownerId, crit);
+            if (dmg > 0) applyStatus(mob, proj.abilityId);
+            consumed = true;
+            break;
+          }
         }
       }
       if (consumed || proj.ttl <= 0 || this.outOfBounds(proj.x, proj.y)) {
@@ -870,7 +955,7 @@ export class World {
       out.push(mob);
     }
     for (const proj of this.projectiles.values()) {
-      out.push({
+      const e: EntityState = {
         id: proj.id,
         x: proj.x,
         y: proj.y,
@@ -882,7 +967,9 @@ export class World {
         maxHp: 0,
         level: 0,
         abilityId: proj.abilityId,
-      });
+      };
+      if (proj.hostile) e.hostile = true;
+      out.push(e);
     }
     for (const item of this.items.values()) {
       const e: EntityState = {

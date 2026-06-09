@@ -537,7 +537,8 @@ export class PixiRenderer {
 
   private updateProjectile(e: EntityState): void {
     const ability = e.abilityId ? this.content.ability(e.abilityId) : undefined;
-    const color = (ability?.color ?? '#ffffff') as ColorSource;
+    // Enemy projectiles read as a menacing red regardless of the sprite hint they were given.
+    const color = (e.hostile ? '#ff4d4d' : (ability?.color ?? '#ffffff')) as ColorSource;
     const radius = ability?.radius ?? 6;
     const strip = e.abilityId ? PROJ_STRIP[e.abilityId] : undefined;
     const hasStrip = strip ? this.tex.has(strip.alias) : false;
@@ -674,6 +675,23 @@ export class PixiRenderer {
         // A small expanding sparkle in the item's rarity color (white for materials).
         const c = ev.rarity ? (RARITY[ev.rarity as Rarity]?.color ?? '#dfe7f0') : '#dfe7f0';
         g.circle(x, y - 14, 4 + age * 16).stroke({ width: 2, color: c, alpha });
+      } else if (ev.kind === 'telegraph' && ev.facing !== undefined) {
+        // Attack wind-up: a red warning that builds as the strike nears, so the player can react.
+        const tage = Math.min(1, (now - t0) / (ev.value ?? FX_DURATION));
+        const warn = 0.25 + 0.55 * tage;
+        if (ev.behavior === 'ranged') {
+          // An aimed line to side-step out of.
+          const len = 60 + 220 * tage;
+          g.moveTo(x, y - 16)
+            .lineTo(x + Math.cos(ev.facing) * len, y - 16 + Math.sin(ev.facing) * len)
+            .stroke({ width: 2 + 2 * tage, color: '#ff4d4d', alpha: warn });
+        } else {
+          // A strike wedge in front of the mob to step out of.
+          g.moveTo(x, y - 16)
+            .arc(x, y - 16, 52, ev.facing - 0.6, ev.facing + 0.6)
+            .lineTo(x, y - 16)
+            .fill({ color: '#ff4d4d', alpha: warn * 0.5 });
+        }
       } else if (ev.kind === 'melee' && ev.facing !== undefined) {
         g.arc(x, y - 16, 40, ev.facing - 0.7, ev.facing + 0.7).stroke({
           width: 4,

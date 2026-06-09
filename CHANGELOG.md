@@ -14,6 +14,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Enemy variety — ranged attackers + attack telegraphs** — monsters now have combat archetypes
+  (`behavior: melee | ranged`) and a wind-up before every strike. **Ranged** mobs (new **Gloom
+  Sprite** in the wilderness, **Hooded Cultist** in the crypt) kite to keep their distance and fire
+  **hostile projectiles** (red, dodge by side-stepping the aimed line). **Telegraphs**: every attack
+  has a per-template wind-up (`telegraphMs`) showing a red strike-wedge (melee) or aim-line (ranged)
+  that builds as it nears — move out of it to dodge; the Crypt Lord's heavy slam is the most
+  readable. Pure AI (`stepMob` ranged kiting, unit-tested) + a World telegraph state machine and
+  hostile-projectile path (`src/server/world.ts`); new `mob_templates` columns
+  (`behavior`/`telegraph_ms`/`projectile_speed`/`kite_range`) with a migration for existing DBs;
+  client renders telegraphs and tints enemy projectiles (`src/client/pixi-renderer.ts`).
 - **Character persistence (survives disconnect + restart)** — characters are now saved to SQLite,
   closing the #1 retention hole (state was RAM-only). New guests are issued an opaque token (stored
   in the browser as `bg.token`) and presented on reconnect; the server reloads the saved character

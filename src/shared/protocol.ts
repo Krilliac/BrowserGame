@@ -60,6 +60,8 @@ export interface EntityState {
   level: number;
   /** Projectiles only: which ability spawned it, so the client picks the right sprite. */
   abilityId?: AbilityId;
+  /** Projectiles only: true for an enemy projectile (hits players) — the client tints it hostile. */
+  hostile?: boolean;
   /** Items only: dropped item id + quantity. */
   itemId?: string;
   qty?: number;

@@ -146,13 +146,15 @@ export const MOB_RESPAWN_MS = 8000;
 
 // --- Transient visual effects the server emits and the client renders -----------------
 export interface FxEvent {
-  kind: 'melee' | 'hit' | 'cast' | 'death' | 'pickup' | 'coin' | 'levelup';
+  kind: 'melee' | 'hit' | 'cast' | 'death' | 'pickup' | 'coin' | 'levelup' | 'telegraph';
   x: number;
   y: number;
-  /** Facing/direction in radians (melee arcs, cast flashes). */
+  /** Facing/direction in radians (melee arcs, cast flashes, telegraph aim). */
   facing?: number;
-  /** 'hit': damage amount · 'coin': gold gained · 'levelup': the new level. */
+  /** 'hit': damage · 'coin': gold · 'levelup': new level · 'telegraph': wind-up duration (ms). */
   value?: number;
+  /** 'telegraph' only: 'ranged' draws an aimed line, 'melee' draws a strike arc. */
+  behavior?: 'melee' | 'ranged';
   /** 'hit' only: true if the strike was a critical hit (client renders it bigger). */
   crit?: boolean;
   /** 'pickup' only: rarity of a picked-up gear instance, so the sparkle matches its color. */

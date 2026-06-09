@@ -95,7 +95,11 @@ CREATE TABLE IF NOT EXISTS mob_templates (
   aggro_range         REAL NOT NULL,
   attack_range        REAL NOT NULL,
   damage              REAL NOT NULL,
-  attack_cooldown_ms  INTEGER NOT NULL
+  attack_cooldown_ms  INTEGER NOT NULL,
+  behavior            TEXT NOT NULL DEFAULT 'melee',
+  telegraph_ms        INTEGER NOT NULL DEFAULT 0,
+  projectile_speed    REAL,
+  kite_range          REAL
 );
 
 CREATE TABLE IF NOT EXISTS area_mobs (
