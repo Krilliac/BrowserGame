@@ -92,11 +92,21 @@ The question is always: **"does this make sense to someone reading it for the fi
 - [ ] Anything security-relevant answers: *"could a malicious client use this path to do
       something it shouldn't?"* If yes, the gate is wrong.
 
+## World structure (decided)
+
+**Open world, instanced.** The world is one connected place carved into **areas** (`src/shared/areas.ts`).
+Each area is served by one or more **instances**; the server spins up additional instances based
+on player cap / load, and conceptually each instance could run as its own area-server process
+(the AreaServer/WorldServer model from SparkEngine). Players cross between areas through
+**portals**. For quick testing, `INSTANCING=single` collapses everything to one instance per area
+in a single process. See [`wiki/architecture/Areas-And-Instances.md`](wiki/architecture/Areas-And-Instances.md)
+and `src/server/instance-manager.ts`.
+
 ## Open design decisions (still to settle)
 
-- **World structure:** match-based vs. area/instance-based (Diablo-style) vs. persistent open
-  world. The current foundation is a single shared area; revisit before the netcode hardens.
 - **Renderer:** Canvas2D now; PixiJS/WebGL when art density demands it.
+- **Cross-instance social features:** chat is currently per-instance (area-scoped); global/party/
+  whisper channels and a friends list are future work.
 
 ## Layout
 

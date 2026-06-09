@@ -54,8 +54,10 @@ export type ClientMessage =
 
 /** Messages the server sends to clients. */
 export type ServerMessage =
-  | { t: 'welcome'; id: number; tickRate: number; world: { w: number; h: number } }
+  | { t: 'welcome'; id: number; tickRate: number; areaId: string; instanceId: string }
   | { t: 'snapshot'; tick: number; entities: EntityState[] }
+  /** The server moved this player to another area instance (e.g. through a portal). */
+  | { t: 'area_changed'; areaId: string; instanceId: string }
   | { t: 'chat'; from: string; text: string }
   | { t: 'admin_result'; ok: boolean; message: string };
 

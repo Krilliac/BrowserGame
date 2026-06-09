@@ -40,8 +40,16 @@ directly from SparkEngine's networking model.
   the protocol. See `.github/prompts/gameplay-systems.prompt.md`.
 - Network changes → see `.github/prompts/netcode.prompt.md` and [Protocol](Protocol.md).
 
+## The world is instanced
+
+The simulation above runs **per area instance**, not globally. The world is split into areas, each
+served by one or more instances that scale with load; players cross between them through
+server-authoritative portals, and only ever see their own instance. This is what makes it an
+*open world* that can scale out. Full detail: [Areas & Instances](Areas-And-Instances.md).
+
 ## See also
 
+- [Areas & Instances](Areas-And-Instances.md)
 - [Wire Protocol](Protocol.md)
 - [Authoritative Simulation](Simulation.md)
 - [Threat Model](../security/Threat-Model.md)

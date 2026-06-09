@@ -15,11 +15,13 @@
 
 ## Next (small, high-value)
 
-- [ ] **Decide world structure** — match-based vs. area/instanced vs. persistent open world.
-      This unblocks the netcode and persistence direction. (See `CLAUDE.md` → open decisions.)
+- [x] **World structure decided & built** — open world, instanced per area with cap-based scaling,
+      portals, and an `INSTANCING=single` testing mode. See `architecture/Areas-And-Instances.md`.
 - [x] Snapshot interpolation on the client (smooth movement between ticks).
 - [x] Touch controls (virtual joystick) for true phone play.
 - [x] Message rate limiting + payload size caps (see Threat Model "known gaps").
+- [ ] Smooth the visual on area change (brief fade) and add a minimap of the current area.
+- [ ] Cross-process area servers — host instances in separate workers/processes behind a gateway.
 
 ## Later (systems — reimplement from the SparkGameMMO blueprint)
 

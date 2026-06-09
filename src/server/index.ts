@@ -3,14 +3,12 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { World } from './world.js';
+import { InstanceManager, type InstancingMode } from './instance-manager.js';
 import { sanitizeChat } from './chat.js';
 import { TokenBucket } from './rate-limit.js';
 import {
   DEFAULT_TICK_RATE,
   MAX_MESSAGE_BYTES,
-  WORLD_HEIGHT,
-  WORLD_WIDTH,
   decodeClient,
   encode,
   type ServerMessage,
@@ -19,18 +17,28 @@ import {
 const PORT = Number(process.env.PORT ?? 8080);
 const TICK_RATE = Number(process.env.TICK_RATE ?? DEFAULT_TICK_RATE);
 const ENGINE_ADMIN_TOKEN = process.env.ENGINE_ADMIN_TOKEN ?? '';
+const INSTANCING: InstancingMode = process.env.INSTANCING === 'single' ? 'single' : 'auto';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const clientDir = join(here, '..', 'client'); // dist/client after build
 
-const world = new World();
-const sockets = new Map<number, WebSocket>();
+const manager = new InstanceManager(INSTANCING);
+/** Per-player connection state. instanceId is mutated when the player crosses a portal. */
+const players = new Map<number, { socket: WebSocket; instanceId: string }>();
 
 // --- HTTP: health check + static hosting of the built client in production -----------
 const http = createServer(async (req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, players: world.population, tickRate: TICK_RATE }));
+    res.end(
+      JSON.stringify({
+        ok: true,
+        players: players.size,
+        instances: manager.instanceCount,
+        instancing: INSTANCING,
+        tickRate: TICK_RATE,
+      }),
+    );
     return;
   }
   await serveStatic(req.url ?? '/', res);
@@ -66,11 +74,11 @@ function contentType(path: string): string {
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MESSAGE_BYTES });
 
 wss.on('connection', (socket) => {
-  let id = 0;
+  let entityId = 0;
   // Per-connection rate limits. Every client is untrusted: a single socket must not be
   // able to flood the simulation or chat. Generous for input, tight for chat.
-  const messageBucket = new TokenBucket(80, 80); // overall msgs/sec
-  const chatBucket = new TokenBucket(5, 1); // burst 5, then 1/sec
+  const messageBucket = new TokenBucket(80, 80);
+  const chatBucket = new TokenBucket(5, 1);
 
   socket.on('message', (raw) => {
     if (!messageBucket.tryRemove()) return; // rate-limited: silently drop
@@ -79,26 +87,30 @@ wss.on('connection', (socket) => {
 
     switch (msg.t) {
       case 'join': {
-        if (id !== 0) return; // already joined
-        id = world.spawn(msg.name);
-        sockets.set(id, socket);
+        if (entityId !== 0) return; // already joined
+        const placement = manager.join(msg.name);
+        entityId = placement.entityId;
+        players.set(entityId, { socket, instanceId: placement.instanceId });
         send(socket, {
           t: 'welcome',
-          id,
+          id: entityId,
           tickRate: TICK_RATE,
-          world: { w: WORLD_WIDTH, h: WORLD_HEIGHT },
+          areaId: placement.areaId,
+          instanceId: placement.instanceId,
         });
         break;
       }
       case 'input': {
-        if (id !== 0) world.setInput(id, msg.input);
+        const p = players.get(entityId);
+        if (p) manager.get(p.instanceId)?.world.setInput(entityId, msg.input);
         break;
       }
       case 'chat': {
-        if (id === 0 || !chatBucket.tryRemove()) return;
+        const p = players.get(entityId);
+        if (!p || !chatBucket.tryRemove()) return;
         const text = sanitizeChat(msg.text);
-        const from = world.nameOf(id);
-        if (text && from) broadcast({ t: 'chat', from, text });
+        const from = manager.get(p.instanceId)?.world.nameOf(entityId);
+        if (text && from) broadcastToInstance(p.instanceId, { t: 'chat', from, text });
         break;
       }
       case 'admin': {
@@ -118,9 +130,10 @@ wss.on('connection', (socket) => {
   });
 
   socket.on('close', () => {
-    if (id !== 0) {
-      world.remove(id);
-      sockets.delete(id);
+    const p = players.get(entityId);
+    if (p) {
+      manager.remove(p.instanceId, entityId);
+      players.delete(entityId);
     }
   });
 });
@@ -129,10 +142,12 @@ function send(socket: WebSocket, msg: ServerMessage): void {
   if (socket.readyState === socket.OPEN) socket.send(encode(msg));
 }
 
-function broadcast(msg: ServerMessage): void {
+/** Send a message to every player currently in the given instance (area-scoped). */
+function broadcastToInstance(instanceId: string, msg: ServerMessage): void {
   const payload = encode(msg);
-  for (const socket of sockets.values()) {
-    if (socket.readyState === socket.OPEN) socket.send(payload);
+  for (const id of manager.entityIdsIn(instanceId)) {
+    const socket = players.get(id)?.socket;
+    if (socket && socket.readyState === socket.OPEN) socket.send(payload);
   }
 }
 
@@ -140,15 +155,28 @@ function broadcast(msg: ServerMessage): void {
 const dt = 1 / TICK_RATE;
 let tick = 0;
 setInterval(() => {
-  world.tick(dt);
+  const transfers = manager.tick(dt);
   tick++;
-  const snapshot = encode({ t: 'snapshot', tick, entities: world.snapshot() });
-  for (const socket of sockets.values()) {
-    if (socket.readyState === socket.OPEN) socket.send(snapshot);
+
+  // Apply portal crossings: update routing and tell the player their area changed.
+  for (const ev of transfers) {
+    const p = players.get(ev.entityId);
+    if (!p) continue;
+    p.instanceId = ev.toInstanceId;
+    send(p.socket, { t: 'area_changed', areaId: ev.toAreaId, instanceId: ev.toInstanceId });
+  }
+
+  // Each player only sees their own instance — that is what makes the world instanced.
+  for (const instance of manager.list()) {
+    const snapshot = encode({ t: 'snapshot', tick, entities: instance.world.snapshot() });
+    for (const id of manager.entityIdsIn(instance.id)) {
+      const socket = players.get(id)?.socket;
+      if (socket && socket.readyState === socket.OPEN) socket.send(snapshot);
+    }
   }
 }, 1000 / TICK_RATE);
 
 http.listen(PORT, () => {
-  console.log(`[browsergame] authoritative server on :${PORT} @ ${TICK_RATE}Hz`);
+  console.log(`[browsergame] world server on :${PORT} @ ${TICK_RATE}Hz · instancing=${INSTANCING}`);
   console.log(`[browsergame] in dev, open the Vite url; it proxies /ws to this server.`);
 });

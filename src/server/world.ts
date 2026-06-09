@@ -1,5 +1,6 @@
 import { clamp } from '../shared/math.js';
 import {
+  MAX_NAME_LENGTH,
   PLAYER_SPEED,
   WORLD_HEIGHT,
   WORLD_WIDTH,
@@ -7,26 +8,45 @@ import {
   type InputState,
 } from '../shared/protocol.js';
 
+/** Options for placing a new entity. Defaults to the world's spawn point + an id-derived hue. */
+export interface SpawnOptions {
+  id?: number;
+  x?: number;
+  y?: number;
+  hue?: number;
+}
+
 /**
- * The authoritative simulation. Pure and framework-free so it is trivially testable
- * (see world.test.ts) and could later be compiled to WASM or moved to a worker.
+ * The authoritative simulation for ONE area instance. Pure and framework-free so it is
+ * trivially testable (see world.test.ts) and could later run in its own process/worker —
+ * which is exactly how area servers scale out (cf. SparkEngine's AreaServer/WorldServer).
  *
- * Echoes SparkEngine's server-authoritative model: inputs come in, the world advances
- * by a fixed dt, and a snapshot goes out. No client ever writes state directly.
+ * Inputs come in, the world advances by a fixed dt, and a snapshot goes out. No client
+ * ever writes state directly.
  */
 export class World {
   private nextId = 1;
   private readonly entities = new Map<number, EntityState>();
   private readonly inputs = new Map<number, InputState>();
 
-  spawn(name: string): number {
-    const id = this.nextId++;
+  constructor(
+    private readonly width: number = WORLD_WIDTH,
+    private readonly height: number = WORLD_HEIGHT,
+    private readonly spawnPoint: { x: number; y: number } = {
+      x: WORLD_WIDTH / 2,
+      y: WORLD_HEIGHT / 2,
+    },
+  ) {}
+
+  /** Create an entity. Pass an explicit id to keep identity stable across area transfers. */
+  spawn(name: string, opts: SpawnOptions = {}): number {
+    const id = opts.id ?? this.nextId++;
     this.entities.set(id, {
       id,
       name: sanitizeName(name),
-      x: WORLD_WIDTH / 2,
-      y: WORLD_HEIGHT / 2,
-      hue: (id * 47) % 360,
+      x: opts.x ?? this.spawnPoint.x,
+      y: opts.y ?? this.spawnPoint.y,
+      hue: opts.hue ?? (id * 47) % 360,
     });
     this.inputs.set(id, { up: false, down: false, left: false, right: false });
     return id;
@@ -64,8 +84,8 @@ export class World {
         dy *= inv;
       }
 
-      entity.x = clamp(entity.x + dx * PLAYER_SPEED * dt, 0, WORLD_WIDTH);
-      entity.y = clamp(entity.y + dy * PLAYER_SPEED * dt, 0, WORLD_HEIGHT);
+      entity.x = clamp(entity.x + dx * PLAYER_SPEED * dt, 0, this.width);
+      entity.y = clamp(entity.y + dy * PLAYER_SPEED * dt, 0, this.height);
     }
   }
 
@@ -84,6 +104,6 @@ export class World {
 }
 
 function sanitizeName(name: string): string {
-  const trimmed = (name ?? '').trim().slice(0, 16);
+  const trimmed = (name ?? '').trim().slice(0, MAX_NAME_LENGTH);
   return trimmed.length > 0 ? trimmed : 'Adventurer';
 }

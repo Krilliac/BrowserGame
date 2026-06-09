@@ -9,6 +9,7 @@
 ### Architecture
 
 - [Overview](architecture/Overview.md)
+- [Areas & Instances](architecture/Areas-And-Instances.md)
 - [Wire Protocol](architecture/Protocol.md)
 - [Authoritative Simulation](architecture/Simulation.md)
 

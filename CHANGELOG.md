@@ -8,6 +8,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Open world, instanced** — areas (`src/shared/areas.ts`: town / wilderness / crypt) each served
+  by one or more instances. The server packs players up to an area's cap and spins up new instances
+  on demand (`src/server/instance-manager.ts`), or collapses to one instance per area with
+  `INSTANCING=single` for testing. Server-authoritative **portal** transfers move players between
+  areas (preserving identity); snapshots and chat are scoped per instance.
 - **Client snapshot interpolation** (`src/client/interp.ts`) — smooth movement between 20Hz ticks
   by rendering a short delay in the past and lerping between bracketing snapshots.
 - **Touch controls** — a drag-anywhere virtual joystick (`src/client/input.ts`) merged with

@@ -22,6 +22,11 @@ export class SnapshotBuffer {
     if (this.buffer.length > SnapshotBuffer.MAX) this.buffer.shift();
   }
 
+  /** Drop all buffered snapshots — used on area change so the old area's entities vanish. */
+  clear(): void {
+    this.buffer.length = 0;
+  }
+
   /** Interpolated entity states at `renderTime`, clamped to the latest snapshot at the edges. */
   sample(renderTime: number): EntityState[] {
     if (this.buffer.length === 0) return [];

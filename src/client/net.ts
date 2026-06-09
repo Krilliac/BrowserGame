@@ -20,6 +20,8 @@ export class Net {
   selfId = 0;
   connected = false;
   tickRate = 20;
+  areaId = 'town';
+  instanceId = '';
 
   constructor(private readonly name: string) {}
 
@@ -62,9 +64,16 @@ export class Net {
       case 'welcome':
         this.selfId = msg.id;
         this.tickRate = msg.tickRate;
+        this.areaId = msg.areaId;
+        this.instanceId = msg.instanceId;
         break;
       case 'snapshot':
         this.snapshots.push(msg.entities, performance.now());
+        break;
+      case 'area_changed':
+        this.areaId = msg.areaId;
+        this.instanceId = msg.instanceId;
+        this.snapshots.clear(); // forget the old area's entities immediately
         break;
       case 'chat':
         this.chat.push({ from: msg.from, text: msg.text });

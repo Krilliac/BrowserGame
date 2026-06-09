@@ -1,6 +1,7 @@
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
+import { areaOf } from '../shared/areas.js';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
@@ -83,6 +84,7 @@ function render(): void {
   const camY = self ? self.y - h / 2 : 0;
 
   drawGrid(camX, camY, w, h);
+  drawPortals(camX, camY);
 
   for (const e of entities) {
     const sx = e.x - camX;
@@ -104,10 +106,29 @@ function render(): void {
 
   drawJoystick();
 
+  const area = areaOf(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
-  popEl.textContent = `players: ${entities.length}`;
+  popEl.textContent = `${area?.name ?? net.areaId} · players: ${entities.length}`;
   syncChatLog();
   requestAnimationFrame(render);
+}
+
+function drawPortals(camX: number, camY: number): void {
+  const area = areaOf(net.areaId);
+  if (!area) return;
+  for (const portal of area.portals) {
+    const sx = portal.rect.x - camX;
+    const sy = portal.rect.y - camY;
+    ctx.fillStyle = 'rgba(201,162,75,0.18)';
+    ctx.strokeStyle = 'rgba(201,162,75,0.8)';
+    ctx.lineWidth = 2;
+    ctx.fillRect(sx, sy, portal.rect.w, portal.rect.h);
+    ctx.strokeRect(sx, sy, portal.rect.w, portal.rect.h);
+    ctx.fillStyle = '#e7d9b0';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(portal.label, sx + portal.rect.w / 2, sy - 6);
+  }
 }
 
 function drawGrid(camX: number, camY: number, w: number, h: number): void {

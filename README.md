@@ -16,9 +16,16 @@ npm run dev
 ```
 
 Then open the printed Vite url (it binds `0.0.0.0`, so a phone on the same network — or a tunnel —
-can reach it too). Move with **WASD / arrow keys**. Open a second tab to see live multiplayer.
+can reach it too). Move with **WASD / arrow keys** (or drag anywhere on touch), press **Enter** to
+chat, and walk into a glowing **portal** to travel between areas. Open a second tab to see live
+multiplayer.
 
 That's it. One command, one url, laptop or phone.
+
+The world is an **open world split into instanced areas** (town → wilderness → crypt). By default
+instances scale with player load; for quick testing, `INSTANCING=single npm run dev` keeps
+everything in one instance per area. See
+[`wiki/architecture/Areas-And-Instances.md`](wiki/architecture/Areas-And-Instances.md).
 
 ## Scripts
 
