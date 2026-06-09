@@ -96,6 +96,15 @@ const SHEETS: Record<string, Sheet> = {
     walkCols: [0, 1, 2, 3],
     idleCol: 0,
   },
+  boss: {
+    src: '/assets/sprites/skeleton_lpc.png',
+    fw: 64,
+    fh: 64,
+    scale: 1.6,
+    rows: { N: 8, W: 9, S: 10, E: 11 },
+    walkCols: [1, 2, 3, 4, 5, 6, 7, 8],
+    idleCol: 0,
+  },
 };
 
 /** Misc single/strip textures (spell FX + item icons). */
@@ -103,12 +112,14 @@ const MISC: Record<string, string> = {
   fx_fireball: '/assets/ui/fx/spell_fireball.png', // 96x16 -> 6 frames
   fx_frost: '/assets/ui/fx/spell_ice_lance.png', // 64x16 -> 4 frames
   fx_explosion: '/assets/ui/fx/explosion-cuzco.png', // 256x256 -> 4x4 @64
+  fx_arcane: '/assets/ui/fx/spell_arcane_bolt.png', // 96x16 -> 6 frames
   item_gold: '/assets/ui/items/coin_gold.png', // 32x32
   item_gem: '/assets/ui/items/gem_crystal_shard.png', // 32x32
 };
 const PROJ_STRIP: Record<string, { alias: string; frames: number }> = {
   fireball: { alias: 'fx_fireball', frames: 6 },
   frost: { alias: 'fx_frost', frames: 4 },
+  lightning: { alias: 'fx_arcane', frames: 6 },
 };
 
 /** Per-area ambient screen tint for mood. */
@@ -139,6 +150,7 @@ function dirOf(facing: number): Dir {
 function sheetKey(e: EntityState): string | undefined {
   if (e.kind === 'player') return 'hero';
   if (e.kind === 'mob') {
+    if (e.name.includes('Lord')) return 'boss';
     if (e.name.includes('Wolf')) return 'wolf';
     if (e.name.includes('Skeleton')) return 'skeleton';
     if (e.name.includes('Bat')) return 'bat';

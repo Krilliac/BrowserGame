@@ -55,6 +55,18 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     damage: 5,
     attackCooldownMs: 700,
   },
+  crypt_lord: {
+    id: 'crypt_lord',
+    name: 'Crypt Lord',
+    hp: 400,
+    level: 10,
+    hue: 280,
+    speed: 62,
+    aggroRange: 420,
+    attackRange: 64,
+    damage: 22,
+    attackCooldownMs: 1500,
+  },
 };
 
 export interface AreaMobSpawn {
@@ -69,6 +81,7 @@ export const AREA_MOBS: Record<string, AreaMobSpawn[]> = {
   crypt: [
     { templateId: 'skeleton', count: 5 },
     { templateId: 'bat', count: 4 },
+    { templateId: 'crypt_lord', count: 1 },
   ],
 };
 

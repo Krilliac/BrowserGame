@@ -9,9 +9,9 @@
 
 export type EntityKind = 'player' | 'mob' | 'projectile' | 'item';
 
-export type AbilityId = 'slash' | 'fireball' | 'arrow' | 'frost';
+export type AbilityId = 'slash' | 'fireball' | 'arrow' | 'frost' | 'heal' | 'lightning';
 
-export type AbilityKind = 'melee' | 'projectile';
+export type AbilityKind = 'melee' | 'projectile' | 'heal';
 
 export interface Ability {
   id: AbilityId;
@@ -91,9 +91,42 @@ export const ABILITIES: Record<AbilityId, Ability> = {
     projectileTtlMs: 1400,
     radius: 10,
   },
+  heal: {
+    id: 'heal',
+    name: 'Heal',
+    key: '5',
+    kind: 'heal',
+    damage: 35, // hp restored
+    range: 0,
+    cooldownMs: 6000,
+    manaCost: 30,
+    color: '#7cfc7c',
+    radius: 0,
+  },
+  lightning: {
+    id: 'lightning',
+    name: 'Lightning',
+    key: '6',
+    kind: 'projectile',
+    damage: 34,
+    range: 560,
+    cooldownMs: 1400,
+    manaCost: 24,
+    color: '#b388ff',
+    projectileSpeed: 640,
+    projectileTtlMs: 900,
+    radius: 8,
+  },
 };
 
-export const ABILITY_ORDER: AbilityId[] = ['slash', 'fireball', 'arrow', 'frost'];
+export const ABILITY_ORDER: AbilityId[] = [
+  'slash',
+  'fireball',
+  'arrow',
+  'frost',
+  'heal',
+  'lightning',
+];
 
 export function isAbilityId(value: unknown): value is AbilityId {
   return typeof value === 'string' && value in ABILITIES;

@@ -217,7 +217,9 @@ export class World {
     player.cooldowns.set(abilityId, ability.cooldownMs);
     this.events.push({ kind: 'cast', x: player.x, y: player.y, facing, abilityId });
 
-    if (ability.kind === 'melee') {
+    if (ability.kind === 'heal') {
+      player.hp = Math.min(player.maxHp, player.hp + ability.damage);
+    } else if (ability.kind === 'melee') {
       const halfAngle = ability.meleeHalfAngle ?? 0.6;
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
