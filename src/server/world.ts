@@ -46,6 +46,7 @@ import type { WeatherKind } from '../shared/theme.js';
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
 const INTERACT_RANGE = 70;
+const DASH_MS = 300; // how long a charger's lunge lasts
 
 export interface SpawnOptions {
   id?: number;
@@ -127,6 +128,12 @@ interface Mob {
   /** Aim locked when the wind-up started (so a moving player can dodge out of it). */
   telegraphFacing: number;
   telegraphTargetId: number;
+  /** Charger dash: sim time (ms) the lunge ends at (0 = not dashing). */
+  dashUntil: number;
+  dashVx: number;
+  dashVy: number;
+  /** Players already struck by the current dash (each is hit at most once per lunge). */
+  dashHit: Set<number>;
 }
 
 interface Projectile {
@@ -252,6 +259,10 @@ export class World {
       telegraphUntil: 0,
       telegraphFacing: 0,
       telegraphTargetId: 0,
+      dashUntil: 0,
+      dashVx: 0,
+      dashVy: 0,
+      dashHit: new Set(),
     });
   }
 
@@ -613,6 +624,25 @@ export class World {
 
       const template = getContent().mobTemplate(mob.templateId)!;
 
+      // Charger lunge: while dashing, the mob barrels along its locked aim, striking each player it
+      // passes through once. Overrides normal movement/attack until the dash ends.
+      if (mob.dashUntil > 0) {
+        if (this.now >= mob.dashUntil) {
+          mob.dashUntil = 0;
+        } else {
+          mob.x = clamp(mob.x + mob.dashVx * dt, 0, this.width);
+          mob.y = clamp(mob.y + mob.dashVy * dt, 0, this.height);
+          for (const player of this.players.values()) {
+            if (player.dead || mob.dashHit.has(player.id)) continue;
+            if (circlesOverlap(mob.x, mob.y, MOB_RADIUS, player.x, player.y, PLAYER_RADIUS)) {
+              this.damagePlayer(player, template.damage);
+              mob.dashHit.add(player.id);
+            }
+          }
+          continue;
+        }
+      }
+
       // Attack wind-up: a telegraphed mob is rooted, facing its locked aim. The strike lands when
       // the wind-up elapses — moving out of the way during it is how a player dodges.
       if (mob.telegraphUntil > 0) {
@@ -637,14 +667,23 @@ export class World {
           if (template.telegraphMs > 0) {
             // Begin the wind-up; show the tell so the player can react.
             mob.telegraphUntil = this.now + template.telegraphMs;
-            this.events.push({
+            // A slammer shows an AoE circle; a charger telegraphs the lunge as an aimed line; plain
+            // melee shows a strike arc; ranged shows its aim line.
+            const tellStyle: 'melee' | 'ranged' | 'slam' = template.slamRadius
+              ? 'slam'
+              : template.behavior === 'melee'
+                ? 'melee'
+                : 'ranged';
+            const tele: FxEvent = {
               kind: 'telegraph',
               x: mob.x,
               y: mob.y,
               facing: mob.facing,
               value: template.telegraphMs,
-              behavior: template.behavior,
-            });
+              behavior: tellStyle,
+            };
+            if (template.slamRadius) tele.radius = template.slamRadius;
+            this.events.push(tele);
           } else {
             this.executeMobAttack(mob, template);
             mob.attackCd = template.attackCooldownMs;
@@ -666,6 +705,15 @@ export class World {
    * along the locked aim (so side-stepping the line dodges it).
    */
   private executeMobAttack(mob: Mob, template: MobTemplate): void {
+    if (template.behavior === 'charger') {
+      // Begin the lunge along the locked aim; contact damage is applied during the dash ticks.
+      mob.dashUntil = this.now + DASH_MS;
+      mob.dashVx = Math.cos(mob.telegraphFacing) * (template.dashSpeed ?? 480);
+      mob.dashVy = Math.sin(mob.telegraphFacing) * (template.dashSpeed ?? 480);
+      mob.dashHit.clear();
+      this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
+      return;
+    }
     if (template.behavior === 'ranged') {
       const speed = template.projectileSpeed ?? 280;
       const pid = this.allocId();
@@ -685,6 +733,18 @@ export class World {
         hostile: true,
       });
       this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
+      return;
+    }
+    // Melee: a slam hits everyone within slamRadius; a normal strike hits the locked target if it
+    // is still in reach. Either way, dodging out of range during the wind-up avoids the hit.
+    if (template.slamRadius) {
+      for (const player of this.players.values()) {
+        if (player.dead) continue;
+        if (Math.hypot(player.x - mob.x, player.y - mob.y) <= template.slamRadius + PLAYER_RADIUS) {
+          this.damagePlayer(player, template.damage);
+        }
+      }
+      this.events.push({ kind: 'slam', x: mob.x, y: mob.y, radius: template.slamRadius });
       return;
     }
     const target = this.players.get(mob.telegraphTargetId);

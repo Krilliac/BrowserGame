@@ -156,8 +156,8 @@ function seedMobs(db: Database): void {
   const mob = db.prepare(
     `INSERT INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
-        behavior,telegraph_ms,projectile_speed,kite_range)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     mob.run(
@@ -175,6 +175,8 @@ function seedMobs(db: Database): void {
       t.telegraphMs,
       t.projectileSpeed ?? null,
       t.kiteRange ?? null,
+      t.slamRadius ?? null,
+      t.dashSpeed ?? null,
     );
   }
   const am = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');

@@ -79,3 +79,21 @@ describe('stepMob (ranged kiting)', () => {
     expect(intent.attackTargetId).toBeNull();
   });
 });
+
+const boar = MOB_TEMPLATES.boar!; // charger
+function charger(x: number, y: number, attackReady = true): MobView {
+  return { x, y, template: boar, attackReady };
+}
+
+describe('stepMob (charger)', () => {
+  it('approaches while outside the charge-trigger range', () => {
+    const intent = stepMob(charger(0, 0), [player(1, boar.attackRange + 80, 0)]);
+    expect(intent.vx).toBeCloseTo(boar.speed, 5);
+    expect(intent.attackTargetId).toBeNull();
+  });
+
+  it('triggers an attack (the lunge) once within charge range and ready', () => {
+    const intent = stepMob(charger(0, 0, true), [player(4, boar.attackRange - 40, 0)]);
+    expect(intent.attackTargetId).toBe(4);
+  });
+});

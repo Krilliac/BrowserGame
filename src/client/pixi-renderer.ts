@@ -675,23 +675,36 @@ export class PixiRenderer {
         // A small expanding sparkle in the item's rarity color (white for materials).
         const c = ev.rarity ? (RARITY[ev.rarity as Rarity]?.color ?? '#dfe7f0') : '#dfe7f0';
         g.circle(x, y - 14, 4 + age * 16).stroke({ width: 2, color: c, alpha });
-      } else if (ev.kind === 'telegraph' && ev.facing !== undefined) {
+      } else if (ev.kind === 'telegraph') {
         // Attack wind-up: a red warning that builds as the strike nears, so the player can react.
         const tage = Math.min(1, (now - t0) / (ev.value ?? FX_DURATION));
         const warn = 0.25 + 0.55 * tage;
-        if (ev.behavior === 'ranged') {
-          // An aimed line to side-step out of.
+        if (ev.behavior === 'slam') {
+          // An AoE danger circle that fills as it nears — leave the ring before it lands.
+          const r = ev.radius ?? 80;
+          g.circle(x, y - 16, r).stroke({ width: 2 + 2 * tage, color: '#ff4d4d', alpha: warn });
+          g.circle(x, y - 16, r * tage).fill({ color: '#ff4d4d', alpha: warn * 0.2 });
+        } else if (ev.behavior === 'ranged' && ev.facing !== undefined) {
+          // An aimed line to side-step out of (ranged shots and charger lunges).
           const len = 60 + 220 * tage;
           g.moveTo(x, y - 16)
             .lineTo(x + Math.cos(ev.facing) * len, y - 16 + Math.sin(ev.facing) * len)
             .stroke({ width: 2 + 2 * tage, color: '#ff4d4d', alpha: warn });
-        } else {
+        } else if (ev.facing !== undefined) {
           // A strike wedge in front of the mob to step out of.
           g.moveTo(x, y - 16)
             .arc(x, y - 16, 52, ev.facing - 0.6, ev.facing + 0.6)
             .lineTo(x, y - 16)
             .fill({ color: '#ff4d4d', alpha: warn * 0.5 });
         }
+      } else if (ev.kind === 'slam') {
+        // Impact: a fast expanding shock ring at the slam radius.
+        const r = ev.radius ?? 80;
+        g.circle(x, y - 16, r * (0.6 + 0.4 * age)).stroke({
+          width: 5 * (1 - age),
+          color: '#ff7a3c',
+          alpha,
+        });
       } else if (ev.kind === 'melee' && ev.facing !== undefined) {
         g.arc(x, y - 16, 40, ev.facing - 0.7, ev.facing + 0.7).stroke({
           width: 4,

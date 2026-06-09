@@ -142,11 +142,13 @@ export function loadContent(db: GameDatabase): Content {
       attackRange: r.attack_range,
       damage: r.damage,
       attackCooldownMs: r.attack_cooldown_ms,
-      behavior: r.behavior === 'ranged' ? 'ranged' : 'melee',
+      behavior: r.behavior === 'ranged' ? 'ranged' : r.behavior === 'charger' ? 'charger' : 'melee',
       telegraphMs: r.telegraph_ms,
     };
     if (r.projectile_speed !== null) template.projectileSpeed = r.projectile_speed;
     if (r.kite_range !== null) template.kiteRange = r.kite_range;
+    if (r.slam_radius !== null) template.slamRadius = r.slam_radius;
+    if (r.dash_speed !== null) template.dashSpeed = r.dash_speed;
     mobTemplates.set(r.id, template);
   }
 
@@ -368,6 +370,8 @@ interface MobRow {
   telegraph_ms: number;
   projectile_speed: number | null;
   kite_range: number | null;
+  slam_radius: number | null;
+  dash_speed: number | null;
 }
 interface AreaMobRow {
   area_id: string;

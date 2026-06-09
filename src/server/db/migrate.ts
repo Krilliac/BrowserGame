@@ -35,6 +35,8 @@ const MOB_TEMPLATE_COLUMNS: Record<string, string> = {
   telegraph_ms: 'INTEGER NOT NULL DEFAULT 0',
   projectile_speed: 'REAL',
   kite_range: 'REAL',
+  slam_radius: 'REAL',
+  dash_speed: 'REAL',
 };
 
 export function migrate(db: Database): void {

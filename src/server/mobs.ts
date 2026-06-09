@@ -4,8 +4,13 @@
  * unit-tested (mobs.test.ts). The World owns mob state and applies the returned intent.
  */
 
-/** How a monster fights: a melee bruiser that closes in, or a ranged attacker that kites. */
-export type MobBehavior = 'melee' | 'ranged';
+/**
+ * How a monster fights:
+ *  - melee   : closes in and strikes at short range.
+ *  - ranged  : kites to keep its distance and fires projectiles.
+ *  - charger  : closes in, then telegraphs and dashes through its target.
+ */
+export type MobBehavior = 'melee' | 'ranged' | 'charger';
 
 export interface MobTemplate {
   id: string;
@@ -28,6 +33,10 @@ export interface MobTemplate {
   projectileSpeed?: number;
   /** Ranged only: preferred minimum distance — the mob backs off to keep this gap. */
   kiteRange?: number;
+  /** Melee only: if set, the strike is an AoE slam that hits every player within this radius. */
+  slamRadius?: number;
+  /** Charger only: dash speed (px/s) of the lunge after the wind-up. */
+  dashSpeed?: number;
 }
 
 export const MOB_TEMPLATES: Record<string, MobTemplate> = {
@@ -107,6 +116,22 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     projectileSpeed: 300,
     kiteRange: 220,
   },
+  // Charger: closes the gap, winds up, then lunges through its target.
+  boar: {
+    id: 'boar',
+    name: 'Gloom Boar',
+    hp: 70,
+    level: 5,
+    hue: 18,
+    speed: 95,
+    aggroRange: 360,
+    attackRange: 200, // charge-trigger distance
+    damage: 14,
+    attackCooldownMs: 2000,
+    behavior: 'charger',
+    telegraphMs: 500,
+    dashSpeed: 520,
+  },
   crypt_lord: {
     id: 'crypt_lord',
     name: 'Crypt Lord',
@@ -120,6 +145,7 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     attackCooldownMs: 1500,
     behavior: 'melee',
     telegraphMs: 660, // a big, readable slam — learn the rhythm to dodge
+    slamRadius: 95, // hits everyone nearby, not just one target
   },
 };
 
@@ -134,6 +160,7 @@ export const AREA_MOBS: Record<string, AreaMobSpawn[]> = {
   wilderness: [
     { templateId: 'wolf', count: 6 },
     { templateId: 'sprite', count: 3 },
+    { templateId: 'boar', count: 2 },
   ],
   crypt: [
     { templateId: 'skeleton', count: 5 },

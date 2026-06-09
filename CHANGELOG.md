@@ -14,6 +14,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **More enemy archetypes — chargers + AoE slam** — two new attack patterns built on the telegraph
+  system. **Chargers** (new **Gloom Boar**, wilderness) close in, wind up, then **dash** through
+  their target along a locked line, striking each player they pass (dodge by leaving the line). The
+  **Crypt Lord** now does an **AoE slam** (`slamRadius`) that hits everyone nearby — telegraphed by a
+  filling red danger circle — so it fights like a boss, not a big trash mob. New `behavior: charger`,
+  `slamRadius`/`dashSpeed` template fields + a dash state machine in `src/server/world.ts`; DB
+  columns + migration; client renders the slam danger circle, impact shock-ring, and lunge tell
+  (`src/client/pixi-renderer.ts`).
 - **Gear affixes (Diablo-style itemization)** — gear above Common now rolls bonus **affixes**
   (`+power`, `+hp`, `+crit%`) on top of its base stats — 1 for Magic up to 3 for Legendary, scaled
   by rarity, distinct stats per item (`rollAffixes`, `affixLabel` in `src/shared/items.ts`, tested).

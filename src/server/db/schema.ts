@@ -99,7 +99,9 @@ CREATE TABLE IF NOT EXISTS mob_templates (
   behavior            TEXT NOT NULL DEFAULT 'melee',
   telegraph_ms        INTEGER NOT NULL DEFAULT 0,
   projectile_speed    REAL,
-  kite_range          REAL
+  kite_range          REAL,
+  slam_radius         REAL,
+  dash_speed          REAL
 );
 
 CREATE TABLE IF NOT EXISTS area_mobs (
