@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { LOOT_TABLES, rollLoot } from './loot.js';
 
 /**
- * A deterministic RNG that yields values from a fixed sequence, cycling when exhausted. Each
- * call to rollLoot consumes two values per table row: one to gate the drop, one for quantity.
+ * Deterministic RNG yielding a fixed sequence (cycling). The drop-table engine draws in the
+ * order: each `always` row's quantity, then the main pick + its quantity, then (if a rare table
+ * exists) the rare gate + pick + quantity.
  */
 function seq(values: number[]): () => number {
   let i = 0;
@@ -14,73 +15,55 @@ function seq(values: number[]): () => number {
   };
 }
 
-describe('rollLoot (pure drop tables)', () => {
-  it('produces expected stacks for a known rng sequence (wolf)', () => {
-    // Row order: gold (chance 0.9), wolf_pelt (chance 0.6).
-    // gold: gate 0.0 < 0.9 -> drop, qty draw 0.0 -> min 3.
-    // pelt: gate 0.0 < 0.6 -> drop, qty draw 0.99 -> max 2.
-    const rng = seq([0, 0, 0, 0.99]);
-    expect(rollLoot('wolf', rng)).toEqual([
+describe('rollLoot (drop tables)', () => {
+  it('returns [] for an unknown template id (no throw)', () => {
+    expect(rollLoot('dragon', seq([0]))).toEqual([]);
+    expect(rollLoot('', seq([0]))).toEqual([]);
+  });
+
+  it('always drops gold and the main pick for a known sequence (wolf)', () => {
+    // always gold qty: 3 + floor(0*10) = 3; main pick t=0 -> wolf_pelt; pelt qty 1 + floor(0*2) = 1.
+    expect(rollLoot('wolf', seq([0, 0, 0]))).toEqual([
       { item: 'gold', qty: 3 },
-      { item: 'wolf_pelt', qty: 2 },
+      { item: 'wolf_pelt', qty: 1 },
     ]);
   });
 
-  it('drops nothing when every gate roll fails (chance acts as a floor)', () => {
-    // Gate value 1 is never < any chance (chances are < 1), so no row drops.
-    expect(rollLoot('skeleton', seq([1]))).toEqual([]);
-  });
-
-  it('drops every row when gate rolls always pass', () => {
-    // Gate 0 passes every chance; quantity 0 gives each row its min.
-    const stacks = rollLoot('skeleton', seq([0]));
-    expect(stacks).toEqual([
+  it('yields the rare rune_shard when the rare gate passes (skeleton)', () => {
+    // all-zero draws: gold 5, bone 1, rare gate 0 < 0.05 -> rune_shard 1.
+    expect(rollLoot('skeleton', seq([0]))).toEqual([
       { item: 'gold', qty: 5 },
       { item: 'bone', qty: 1 },
       { item: 'rune_shard', qty: 1 },
     ]);
   });
 
-  it('returns [] for an unknown template id (no throw)', () => {
-    expect(rollLoot('dragon', seq([0]))).toEqual([]);
-    expect(rollLoot('', seq([0]))).toEqual([]);
-  });
-
-  it("keeps quantities within each row's [min, max]", () => {
+  it('always includes a gold drop for every monster (guaranteed always-row)', () => {
     for (const templateId of Object.keys(LOOT_TABLES)) {
-      const table = LOOT_TABLES[templateId] ?? [];
-      const bounds = new Map(table.map((e) => [e.item, { min: e.min, max: e.max }]));
-      // Random rng across many trials; every produced stack must respect bounds.
-      const rng = Math.random;
-      for (let trial = 0; trial < 200; trial++) {
-        for (const stack of rollLoot(templateId, rng)) {
-          const b = bounds.get(stack.item);
-          expect(b).toBeDefined();
-          expect(stack.qty).toBeGreaterThanOrEqual(b?.min ?? 0);
-          expect(stack.qty).toBeLessThanOrEqual(b?.max ?? 0);
-        }
+      for (let trial = 0; trial < 50; trial++) {
+        const stacks = rollLoot(templateId);
+        expect(stacks.some((s) => s.item === 'gold')).toBe(true);
       }
     }
   });
 
-  it('merges duplicate item ids into a single summed stack', () => {
-    // Two rows both dropping gold should collapse into one stack with summed qty.
-    const table = [
-      { item: 'gold' as const, chance: 1, min: 2, max: 2 },
-      { item: 'gold' as const, chance: 1, min: 5, max: 5 },
-    ];
-    LOOT_TABLES['_test_dupe'] = table;
-    try {
-      // Gate 0 passes both rows; qty draw 0 gives each its (min === max) value.
-      expect(rollLoot('_test_dupe', seq([0]))).toEqual([{ item: 'gold', qty: 7 }]);
-    } finally {
-      delete LOOT_TABLES['_test_dupe'];
+  it('only drops rune_shard from the skeleton (rare sub-table is scoped)', () => {
+    for (const templateId of Object.keys(LOOT_TABLES)) {
+      if (templateId === 'skeleton') continue;
+      for (let trial = 0; trial < 100; trial++) {
+        expect(rollLoot(templateId).some((s) => s.item === 'rune_shard')).toBe(false);
+      }
     }
   });
 
-  it('uses Math.random by default and stays within bounds', () => {
-    for (const stack of rollLoot('bat')) {
-      expect(stack.qty).toBeGreaterThanOrEqual(1);
+  it('produces only positive quantities within sane bounds', () => {
+    for (const templateId of Object.keys(LOOT_TABLES)) {
+      for (let trial = 0; trial < 200; trial++) {
+        for (const stack of rollLoot(templateId)) {
+          expect(stack.qty).toBeGreaterThanOrEqual(1);
+          expect(stack.qty).toBeLessThanOrEqual(20);
+        }
+      }
     }
   });
 });

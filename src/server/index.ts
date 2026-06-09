@@ -11,9 +11,16 @@ import {
   MAX_MESSAGE_BYTES,
   decodeClient,
   encode,
+  type EntityState,
   type ServerMessage,
 } from '../shared/protocol.js';
 import { isAbilityId } from '../shared/combat.js';
+import { SpatialGrid } from './spatial.js';
+
+// Area-of-interest half-extents: each player is sent only entities within this box around them,
+// generously larger than any viewport so nothing pops in at the screen edge.
+const AOI_HALF_W = 1400;
+const AOI_HALF_H = 1000;
 
 const PORT = Number(process.env.PORT ?? 8080);
 const TICK_RATE = Number(process.env.TICK_RATE ?? DEFAULT_TICK_RATE);
@@ -174,20 +181,22 @@ setInterval(() => {
     send(p.socket, { t: 'area_changed', areaId: ev.toAreaId, instanceId: ev.toInstanceId });
   }
 
-  // Each player only sees their own instance — that is what makes the world instanced.
+  // Each player only sees their own instance (instancing), and within it only the entities
+  // near them (interest management) — built once per instance via a spatial grid.
   for (const instance of manager.list()) {
     const world = instance.world;
-    const snapshot = encode({
-      t: 'snapshot',
-      tick,
-      entities: world.snapshot(),
-      fx: world.drainEvents(),
-    });
+    const all = world.snapshot();
+    const fx = world.drainEvents();
+    const grid = new SpatialGrid<EntityState>(256);
+    for (const e of all) grid.insert(e);
+
     for (const id of manager.playerIdsIn(instance.id)) {
       const socket = players.get(id)?.socket;
       if (!socket || socket.readyState !== socket.OPEN) continue;
-      socket.send(snapshot);
-      // Personal stats (hp/mana/dead) are kept off the shared snapshot.
+      const me = all.find((e) => e.id === id);
+      const entities = me ? grid.queryRect(me.x, me.y, AOI_HALF_W, AOI_HALF_H) : all;
+      socket.send(encode({ t: 'snapshot', tick, entities, fx }));
+      // Personal stats (hp/mana/xp/gold/dead) are kept off the shared snapshot.
       const stats = world.playerStats(id);
       if (stats) send(socket, { t: 'you', ...stats });
     }

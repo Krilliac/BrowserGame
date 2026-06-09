@@ -20,6 +20,7 @@ import {
   type FxEvent,
 } from '../shared/combat.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
+import { attackRoll, defenceRoll, rollDamage, rolledHit } from './combat-formulas.js';
 import { AREA_MOBS, MOB_TEMPLATES, stepMob, type MobView, type PlayerView } from './mobs.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpReward } from './progression.js';
 import { rollLoot } from './loot.js';
@@ -88,6 +89,7 @@ interface Projectile {
   damage: number;
   radius: number;
   ownerId: number;
+  ownerLevel: number;
 }
 
 interface GroundItem {
@@ -220,8 +222,9 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
-          this.damageMob(mob, ability.damage, abilityId, player.id);
-          applyStatus(mob, abilityId);
+          const dmg = rollAbilityDamage(player.level, mob.level, ability.damage);
+          this.damageMob(mob, dmg, abilityId, player.id);
+          if (dmg > 0) applyStatus(mob, abilityId);
         }
       }
     } else {
@@ -237,6 +240,7 @@ export class World {
         damage: ability.damage,
         radius: ability.radius,
         ownerId: player.id,
+        ownerLevel: player.level,
       });
     }
   }
@@ -326,8 +330,9 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
-          this.damageMob(mob, proj.damage, proj.abilityId, proj.ownerId);
-          applyStatus(mob, proj.abilityId);
+          const dmg = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
+          this.damageMob(mob, dmg, proj.abilityId, proj.ownerId);
+          if (dmg > 0) applyStatus(mob, proj.abilityId);
           consumed = true;
           break;
         }
@@ -564,6 +569,23 @@ export class World {
   nameOf(id: number): string | undefined {
     return this.players.get(id)?.name;
   }
+}
+
+/**
+ * OSRS-inspired hit resolution layered on our ability damage: an accuracy roll (attacker level
+ * vs monster level) decides hit/miss; on a hit, damage is rolled in the upper half of the
+ * ability's base damage so hits still feel meaningful. Returns 0 on a miss.
+ */
+function rollAbilityDamage(
+  attackerLevel: number,
+  defenderLevel: number,
+  baseDamage: number,
+): number {
+  const atk = attackRoll(attackerLevel, 8); // small inherent accuracy so early hits mostly land
+  const def = defenceRoll(defenderLevel);
+  if (!rolledHit(atk, def)) return 0;
+  const half = Math.ceil(baseDamage * 0.5);
+  return half + rollDamage(baseDamage - half);
 }
 
 /** Map an ability's on-hit effect onto a monster: Frostbolt slows, Fireball burns. */

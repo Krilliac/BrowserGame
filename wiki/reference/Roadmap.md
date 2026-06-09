@@ -42,25 +42,25 @@ renderers. Prioritized, codebase-mapped takeaways (full detail + sources in the 
 
 **P0 — high value, incremental, no rewrite**
 
-- [ ] **Interest management (AoI)** in `src/server/world.ts` `snapshot()` — spatial-hash grid
-      (~256px cells); send each player only nearby entities. Biggest bandwidth/CPU win.
-      (netcode research)
-- [ ] **Integer gameplay-tick counter** for ability/attack speeds in `world.ts`/`mobs.ts`
-      (replace float `attackCd -= dt*1000` drift), RuneScape-style. (runescape research)
+- [x] **Interest management (AoI)** — spatial-hash grid (`src/server/spatial.ts`); the host sends
+      each player only nearby entities (per-player snapshots in `index.ts`). (netcode research)
+- [~] **Integer gameplay-tick** — intentionally deferred: per the RuneScape research we keep
+      real-time cadence (we're an action game; float drift is negligible at our tick rate).
+      Revisit only if we add turn-based RuneScape-style skills. (runescape research)
 - [ ] **PixiJS v8 renderer** (MIT, WebGL/WebGPU) behind a `Renderer` interface, migrating
-      `src/client/draw.ts` layer-by-layer with Canvas2D as fallback. (rendering research)
+      `src/client/draw.ts` layer-by-layer with Canvas2D as fallback. **(next up)** (rendering research)
 
 **P1 — depth & fidelity**
 
-- [ ] OSRS-style **two-roll combat** (accuracy vs defence + max-hit formula) — ~15 lines, our
-      injected-RNG style; more depth than flat `damage`. (runescape research)
+- [x] OSRS-style **hit/miss + damage rolls** (`src/server/combat-formulas.ts`) applied to every
+      ability hit — accuracy vs monster level + damage variance. (runescape research)
+- [x] **Drop tables** — weighted main roll + nested rare sub-table (`src/server/drop-table.ts`),
+      loot rebuilt on it. Aggro-from-anchor + level gating still TODO in `mobs.ts`. (runescape)
 - [ ] **Delta snapshots** (send immutable fields once, changed fields per tick). (netcode research)
 - [ ] **Client-side prediction + reconciliation** for the local player (input `seq`/`ackSeq`) to
       kill ~150ms self-input lag; keep `interp.ts` for remote entities. (netcode research)
 - [ ] **Tiled maps** (`.tmj` via `@pixi/tilemap`) to replace hash-based biomes; directional
       sprites driven by `facing` + FxEvents. (rendering research)
-- [ ] **Drop tables**: weighted main roll + nested rare sub-table for clean ultra-rares; aggro
-      from spawn anchor + level gating in `mobs.ts`. (runescape research)
 
 **P2 — deferred, metrics-gated**
 

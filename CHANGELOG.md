@@ -8,6 +8,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Interest management, combat depth & richer loot** — research-driven P0/P1 adoptions, built as
+  pure modules in parallel by sub-agents and integrated:
+  - **Interest management** (`src/server/spatial.ts`) — a spatial hash grid; each player now
+    receives only entities near them (per-player snapshots) instead of the whole instance.
+  - **Combat hit/miss + damage rolls** (`src/server/combat-formulas.ts`) — OSRS-inspired accuracy
+    (attacker level vs monster level) and damage variance on every ability hit; misses show 0.
+  - **Weighted + rare drop tables** (`src/server/drop-table.ts`) — loot rebuilt on a generic engine
+    with a guaranteed drop, a weighted main roll, and a nested rare sub-table (rune shards).
 - **Progression, loot & status effects** — built in parallel by sub-agents as pure, tested modules
   (`src/server/progression.ts`, `loot.ts`, `status-effects.ts`) and integrated into the world:
   XP/leveling with HP scaling, monster loot tables → ground items with auto-pickup (gold in HUD),
