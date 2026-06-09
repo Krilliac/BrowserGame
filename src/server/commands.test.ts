@@ -37,6 +37,11 @@ function makeCtx(
     areaTheme: () => undefined,
     setTheme: () => 'ok',
     reloadContent: () => 'ok',
+    contentTables: () => 'tables',
+    contentColumns: () => 'cols',
+    contentRows: () => 'rows',
+    contentRow: () => 'row',
+    setContent: () => 'ok',
   };
   return { ctx, cap };
 }

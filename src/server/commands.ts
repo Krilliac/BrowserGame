@@ -26,6 +26,12 @@ export interface CommandContext {
   areaTheme: (areaId: string) => AreaTheme | undefined;
   setTheme: (areaId: string, key: string, value: string) => string;
   reloadContent: () => string;
+  // Generic live content editing (Developer): edit any whitelisted content table/column.
+  contentTables: () => string;
+  contentColumns: (table: string) => string;
+  contentRows: (table: string) => string;
+  contentRow: (table: string, id: string) => string;
+  setContent: (table: string, id: string, column: string, value: string) => string;
 }
 
 interface Command {
@@ -305,6 +311,51 @@ const COMMAND_LIST: Command[] = [
     usage: '/reloadcontent',
     help: 'Reload content from the DB and re-skin all clients (after direct SQL edits).',
     run: (ctx) => ctx.reply(ctx.reloadContent()),
+  },
+
+  // --- Developer (live editing for *everything* — the in-game content engine) -----------
+  {
+    name: 'tables',
+    minLevel: AccessLevel.Developer,
+    usage: '/tables',
+    help: 'List the editable content tables (spells, items, monsters, quests, …).',
+    run: (ctx) => ctx.reply(ctx.contentTables()),
+  },
+  {
+    name: 'cols',
+    minLevel: AccessLevel.Developer,
+    usage: '/cols <table>',
+    help: "List a table's editable columns and types.",
+    run: (ctx) => {
+      const table = ctx.args[0];
+      if (!table) return ctx.reply('Usage: /cols <table>  (see /tables)');
+      ctx.reply(ctx.contentColumns(table));
+    },
+  },
+  {
+    name: 'get',
+    minLevel: AccessLevel.Developer,
+    usage: '/get <table> [id]',
+    help: 'Show a content row, or list ids when no id is given.',
+    run: (ctx) => {
+      const [table, id] = ctx.args;
+      if (!table) return ctx.reply('Usage: /get <table> [id]  (see /tables)');
+      ctx.reply(id ? ctx.contentRow(table, id) : ctx.contentRows(table));
+    },
+  },
+  {
+    name: 'set',
+    minLevel: AccessLevel.Developer,
+    usage: '/set <table> <id> <column> <value>',
+    help: 'Live-edit any content value — applies immediately and reloads all clients.',
+    run: (ctx) => {
+      const [table, id, column] = ctx.args;
+      const value = ctx.args.slice(3).join(' ');
+      if (!table || !id || !column || value === '') {
+        return ctx.reply('Usage: /set <table> <id> <column> <value>  (see /tables, /cols, /get)');
+      }
+      ctx.reply(ctx.setContent(table, id, column, value));
+    },
   },
 ];
 

@@ -46,6 +46,10 @@ Chat messages starting with `/` are parsed as commands (`src/server/commands.ts`
 | `/theme [area]` | Developer | show an area's environment theme |
 | `/settheme <area> <key> <value>` | Developer | **live-edit** an area's look (re-skins all clients) |
 | `/reloadcontent` | Developer | reload content from the DB (after direct SQL edits) |
+| `/tables` | Developer | list editable content tables (spells, items, monsters, …) |
+| `/cols <table>` | Developer | a table's editable columns + types/ranges |
+| `/get <table> [id]` | Developer | show a content row, or list ids |
+| `/set <table> <id> <column> <value>` | Developer | **live-edit any content value** |
 
 Mob/item ids come from the content DB (e.g. `/spawn crypt_lord`, `/give iron_sword`) — so
 SQL-added content is immediately usable by commands.
@@ -67,6 +71,29 @@ The value is validated + clamped server-side (`coerceThemeValue` in `src/shared/
 single whitelisted column is upserted in `area_theme`, then content is reloaded and the `content`
 packet is re-broadcast. `/reloadcontent` does the same after you edit `game.db` directly with the
 `sqlite3` CLI — so the world can be re-themed from anywhere, live. See `/themekeys` for the keys.
+
+### Live editing for *everything* (`/set`)
+
+`/settheme` is a friendly alias over a **generic content editor** that can edit any whitelisted
+content table the same way — the in-game engine for the whole backend:
+
+```
+/tables                                  → spells, items, monsters, quests, areas, spawns, npcs, …
+/cols mob_templates                      → name:text  hp:int[1..1000000]  damage:real[0..99999] …
+/get abilities fireball                  → the row's columns + values
+/set abilities fireball damage 40        → buff the spell, live
+/set mob_templates wolf speed 160        → make wolves faster, live
+/set quests wolf_cull reward_gold 500    → richer reward, live
+```
+
+The registry of editable tables/columns and the validation/clamping live in
+`src/server/db/editable.ts` (`EDITABLE_TABLES`, `coerceColumn`); the engine is
+`src/server/content-edit.ts`. Table/column/pk names come only from the whitelist (safe to
+interpolate into SQL); values and ids are always bound. On success the server reloads content and
+re-broadcasts, so edits apply **live**: numbers the simulation reads per-tick (spell damage, monster
+speed/damage/aggro, item power, sell values, quest rewards) change immediately; **structural**
+changes (a new spawn row, moving an NPC, an area's size) apply to newly created instances. Like
+`/settheme`, a bad value or id is rejected with a `System` reply and never disrupts the server.
 
 ## Design
 

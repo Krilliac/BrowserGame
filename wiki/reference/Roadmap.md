@@ -54,6 +54,10 @@
       **affects gameplay** (server-authoritative move/aggro modifiers, `weather-effects.ts`), extra
       prop kinds (`bush`/`mushroom`/`crystal`/`pillar`) and a per-area `sprite_tint`. Plus content-DB
       auto-migration (`db/migrate.ts`) and crash-proof command handling.
+- [x] **Live editing for everything** — a generic content editor (`/tables` `/cols` `/get` `/set`)
+      over a whitelisted registry (`db/editable.ts`, `content-edit.ts`) edits any content table
+      (spells/items/monsters/quests/areas/spawns/npcs/loot/themes) at runtime; edits validate +
+      clamp server-side, then reload + re-broadcast so they apply live. `/settheme` is an alias.
 - [x] Abilities: Heal + Lightning (6-slot hotbar); Crypt Lord boss in the crypt.
 - [x] Town vendor (Merchant NPC) — press E to sell loot for gold (`vendor.ts`, sub-agent module).
 - [x] Equipment & stats — weapon (+power) / armor (+max HP) drops, click-to-equip, HUD panel.

@@ -14,6 +14,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Live editing for *everything*** — a generic, validated content editor turns the whole content
+  DB into an in-game engine. New Developer commands `/tables`, `/cols <table>`, `/get <table> [id]`,
+  and `/set <table> <id> <column> <value>` edit any whitelisted table/column (spells, items,
+  monsters, quests, areas, spawns, NPCs, loot, themes) at runtime; on success the server reloads and
+  re-broadcasts content, so changes apply live — numbers the sim reads per-tick (spell damage,
+  monster speed/damage/aggro, item power, sell values, quest rewards) change immediately. The
+  editable registry + validation/clamping live in `src/server/db/editable.ts` (`EDITABLE_TABLES`,
+  `coerceColumn`), with the engine in `src/server/content-edit.ts`; table/column/pk names come only
+  from the whitelist (safe in SQL) and values/ids are bound. `/settheme` is now a friendly alias
+  over the same machinery. See `wiki/architecture/Commands-And-Access.md`.
 - **Environment theming, deepened** — three more theme dimensions, all live-editable via
   `/settheme` and persisted in `area_theme`:
   - **Per-area color grading** — `grade_saturation` / `grade_brightness` / `grade_contrast` drive a

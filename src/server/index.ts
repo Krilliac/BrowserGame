@@ -20,6 +20,7 @@ import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess } from './accounts.js';
 import { SpatialGrid } from './spatial.js';
 import { THEME_KEYS, coerceThemeValue } from '../shared/theme.js';
+import { listTables, listColumns, listRows, getRow, editContent } from './content-edit.js';
 
 // Load all game content from SQLite (the source of truth). Defaults to ./game.db; the file is
 // created and seeded from the built-in content on first run. Edit it with any SQLite tool.
@@ -222,6 +223,15 @@ wss.on('connection', (socket) => {
               setTheme: (areaId, key, value) => applyThemeEdit(areaId, key, value),
               reloadContent: () =>
                 `Reloaded content from DB — re-skinned ${rebroadcastContent()} areas.`,
+              contentTables: () => listTables(),
+              contentColumns: (table) => listColumns(table),
+              contentRows: (table) => listRows(table),
+              contentRow: (table, id) => getRow(table, id),
+              setContent: (table, id, column, value) => {
+                const r = editContent(table, id, column, value);
+                if (r.ok) rebroadcastContent(); // reload + push to all clients, re-apply weather
+                return r.message;
+              },
             });
           } catch (err) {
             console.error('[command] failed:', err);
