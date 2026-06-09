@@ -8,6 +8,10 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Client mirrors the content DB** — the server sends a `content` packet (areas, spells, items)
+  on connect; the client (`src/client/content-store.ts`) drives the hotbar, portals/minimap, and
+  item display from it instead of bundled constants. New spells/areas/items added via SQL now show
+  up client-side with no code change.
 - **SQLite content database** — game content (areas, spells, items, monsters, area spawns, loot
   tables, NPCs, quests) now lives in SQLite and is loaded at startup via parametrized queries
   (`src/server/db/`, `src/server/content.ts`). Seeded from the built-in content on first run; the

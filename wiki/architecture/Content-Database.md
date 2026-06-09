@@ -57,13 +57,17 @@ UPDATE npcs SET x = 800, y = 600 WHERE name = 'Merchant';
 All of these take effect on the next server start — no code change. (Gameplay numbers are
 server-authoritative, so they apply immediately to combat/loot/spawns.)
 
-## Scope & next step
+## Client mirrors the database too
 
-The **server** is fully data-driven today. The **client** still bundles the area/ability/item
-*display* definitions (sprite layouts, colors), so brand-new areas or spells added via SQL need a
-client content message to render — that's the planned next step (a `content` packet sent on
-connect so the client mirrors the database too). Existing-content edits (mob stats, loot, ability
-damage, vendor prices, spawns, NPC placement) already work end-to-end.
+On connect the server sends a **`content` packet** (areas, abilities, items) built from the DB.
+The client stores it (`src/client/content-store.ts`) and reads everything from it — the hotbar,
+portals/minimap, item names/colors, and equip checks. So a brand-new spell added via SQL shows up
+in the hotbar, and a new area renders, **with no client code change**. The client keeps only pure
+*presentation* config locally (sprite-sheet frame layouts, biome/atmosphere colors, physics radii).
+
+The one thing not yet hot-reloaded is **sprite art for a brand-new monster type** added purely via
+SQL — it falls back to a procedural shape until a sheet is registered for it. Everything else
+(stats, spells, items, areas, spawns, NPCs, vendor prices, loot) is fully data-driven end to end.
 
 ## See also
 

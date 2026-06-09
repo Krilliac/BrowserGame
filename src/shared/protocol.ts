@@ -8,7 +8,20 @@
  * gets to assert its own position.
  */
 
-import type { AbilityId, EntityKind, FxEvent } from './combat.js';
+import type { AbilityId, Ability, EntityKind, FxEvent } from './combat.js';
+import type { AreaDef } from './areas.js';
+
+/** Item display/stat info sent to the client (mirrors the server's content DB items). */
+export interface ItemInfo {
+  id: string;
+  name: string;
+  kind: string;
+  slot: 'weapon' | 'armor' | null;
+  power: number | null;
+  hp: number | null;
+  color: string | null;
+  sellValue: number;
+}
 
 /** Simulation tick rate in Hz. Overridable via the TICK_RATE env var on the server. */
 export const DEFAULT_TICK_RATE = 20;
@@ -77,6 +90,8 @@ export type ClientMessage =
 
 /** Messages the server sends to clients. */
 export type ServerMessage =
+  /** Game content from the server's SQLite DB, sent once on connect (areas, spells, items). */
+  | { t: 'content'; areas: AreaDef[]; abilities: Ability[]; items: ItemInfo[] }
   | { t: 'welcome'; id: number; tickRate: number; areaId: string; instanceId: string }
   | { t: 'snapshot'; tick: number; entities: EntityState[]; fx: FxEvent[] }
   /** Personal stats for the receiving player (kept off the shared snapshot). */

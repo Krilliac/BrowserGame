@@ -44,7 +44,9 @@ export interface Content {
   areas(): AreaDef[];
   ability(id: string): Ability | undefined;
   abilityOrder(): AbilityId[];
+  abilityList(): Ability[];
   item(id: string): ItemDef | undefined;
+  items(): ItemDef[];
   sellValue(itemId: string): number;
   mobTemplate(id: string): MobTemplate | undefined;
   areaMobs(areaId: string): { templateId: string; count: number }[];
@@ -188,7 +190,9 @@ export function loadContent(db: GameDatabase): Content {
     areas: () => [...areas.values()],
     ability: (id) => abilities.get(id),
     abilityOrder: () => [...order],
+    abilityList: () => order.map((id) => abilities.get(id)!),
     item: (id) => items.get(id),
+    items: () => [...items.values()],
     sellValue: (id) => items.get(id)?.sellValue ?? 0,
     mobTemplate: (id) => mobTemplates.get(id),
     areaMobs: (areaId) => areaMobs.get(areaId) ?? [],

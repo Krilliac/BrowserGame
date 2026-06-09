@@ -4,9 +4,7 @@ import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
-import { areaOf } from '../shared/areas.js';
-import { ABILITIES, ABILITY_ORDER, type AbilityId } from '../shared/combat.js';
-import { isEquip } from '../shared/equipment.js';
+import type { AbilityId } from '../shared/combat.js';
 import type { EntityState } from '../shared/protocol.js';
 
 const gameCanvas = document.getElementById('game') as HTMLCanvasElement;
@@ -33,15 +31,6 @@ await app.init({
   background: '#0e0f13',
   preference: 'webgl',
 });
-const renderer = new PixiRenderer(app);
-await renderer.loadAssets();
-
-const sound = new Sound();
-sound.load();
-const unlockAudio = (): void => sound.unlock();
-window.addEventListener('pointerdown', unlockAudio, { once: true });
-window.addEventListener('keydown', unlockAudio, { once: true });
-
 const name =
   window.localStorage.getItem('bg.name') ??
   (() => {
@@ -50,8 +39,18 @@ const name =
     return n;
   })();
 
+// Net is created first so the renderer can read game content from its store (filled by the
+// server's `content` packet — the client mirrors the SQLite DB).
 const net = new Net(name);
+const renderer = new PixiRenderer(app, net.content);
+await renderer.loadAssets();
 net.connect();
+
+const sound = new Sound();
+sound.load();
+const unlockAudio = (): void => sound.unlock();
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+window.addEventListener('keydown', unlockAudio, { once: true });
 
 const input = new Input();
 input.attach(gameCanvas);
@@ -86,7 +85,7 @@ window.addEventListener('pointermove', (e) => {
 
 window.addEventListener('keydown', (e) => {
   if (document.activeElement === chatInputEl) return;
-  const ability = ABILITY_ORDER.find((id) => ABILITIES[id].key === e.key);
+  const ability = net.content.abilityOrder().find((id) => net.content.ability(id)?.key === e.key);
   if (ability) {
     selected = ability;
     castAbility(ability);
@@ -132,7 +131,8 @@ gameCanvas.addEventListener('pointerdown', (e) => {
 
 function castAbility(abilityId: AbilityId): void {
   if (net.you.dead || !self) return;
-  const ability = ABILITIES[abilityId];
+  const ability = net.content.ability(abilityId);
+  if (!ability) return;
   if ((cooldownEnd[abilityId] ?? 0) > performance.now()) return;
   if (net.you.mana < ability.manaCost) return;
   const aim = computeAim();
@@ -214,7 +214,7 @@ app.ticker.add(() => {
   sound.fromFx(net.fx);
   drawHud();
 
-  const area = areaOf(net.areaId);
+  const area = net.content.area(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
   popEl.textContent = `${area?.name ?? net.areaId} · players: ${entities.filter((e) => e.kind === 'player').length}`;
   syncChatLog();
@@ -227,7 +227,8 @@ function drawHud(): void {
 
   const slot = 48;
   const gap = 10;
-  const count = ABILITY_ORDER.length;
+  const order = net.content.abilityOrder();
+  const count = order.length;
   const panelW = count * slot + (count - 1) * gap;
   const panelX = w / 2 - panelW / 2;
   const slotsY = h - 60;
@@ -255,9 +256,10 @@ function drawHud(): void {
   );
 
   slotRects.length = 0;
-  ABILITY_ORDER.forEach((id, i) => {
+  order.forEach((id, i) => {
+    const ability = net.content.ability(id);
+    if (!ability) return;
     const x = panelX + i * (slot + gap);
-    const ability = ABILITIES[id];
     slotRects.push({ ability: id, x, y: slotsY, w: slot, h: slot });
 
     hud.fillStyle = 'rgba(0,0,0,0.55)';
@@ -357,7 +359,7 @@ function drawMinimap(w: number): void {
   hud.clip();
 
   if (self) {
-    const area = areaOf(net.areaId);
+    const area = net.content.area(net.areaId);
     if (area) {
       for (const p of area.portals) {
         plot(
@@ -441,7 +443,7 @@ function drawInventory(w: number): void {
   hud.font = '12px system-ui, sans-serif';
   items.forEach(([id, n], i) => {
     const ry = py + 24 + i * 16;
-    const equippable = isEquip(id);
+    const equippable = net.content.isEquip(id);
     bagRects.push({ itemId: id, x: px, y: ry, w: pw, h: 16, equippable });
     hud.fillStyle = equippable ? '#9fd0ff' : '#d7dbe3';
     hud.textAlign = 'left';

@@ -24,6 +24,14 @@ const content = initGameDb(process.env.GAME_DB ?? 'game.db');
 console.log(
   `[browsergame] content loaded: ${content.areas().length} areas, ${content.abilityOrder().length} abilities`,
 );
+// Pre-encode the content packet once — it's the same for every client and sent on connect, so
+// the client mirrors the database (new areas/spells/items added via SQL render with no code change).
+const contentMessage = encode({
+  t: 'content',
+  areas: content.areas(),
+  abilities: content.abilityList(),
+  items: content.items(),
+});
 
 // Area-of-interest half-extents: each player is sent only entities within this box around them,
 // generously larger than any viewport so nothing pops in at the screen edge.
@@ -91,6 +99,7 @@ const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MES
 
 wss.on('connection', (socket) => {
   let entityId = 0;
+  socket.send(contentMessage); // hand the client the game content first
   // Per-connection rate limits. Every client is untrusted: a single socket must not be
   // able to flood the simulation or chat. Generous for input, tight for chat.
   const messageBucket = new TokenBucket(80, 80);

@@ -1,4 +1,5 @@
 import { SnapshotBuffer } from './interp.js';
+import { ClientContentStore } from './content-store.js';
 import type { TimedFx } from './draw.js';
 import { decodeServer, encode, type InputState, type ServerMessage } from '../shared/protocol.js';
 import type { AbilityId } from '../shared/combat.js';
@@ -37,6 +38,7 @@ const MAX_FX = 150;
 export class Net {
   private ws: WebSocket | null = null;
   readonly snapshots = new SnapshotBuffer();
+  readonly content = new ClientContentStore();
   readonly chat: ChatLine[] = [];
   readonly fx: TimedFx[] = [];
   you: SelfStats = {
@@ -112,6 +114,9 @@ export class Net {
 
   private handle(msg: ServerMessage): void {
     switch (msg.t) {
+      case 'content':
+        this.content.load(msg.areas, msg.abilities, msg.items);
+        break;
       case 'welcome':
         this.selfId = msg.id;
         this.tickRate = msg.tickRate;

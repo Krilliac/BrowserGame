@@ -11,11 +11,10 @@ import {
   type ColorSource,
   type TextureSource,
 } from 'pixi.js';
-import { ABILITIES, MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
-import { areaOf } from '../shared/areas.js';
-import { equipDef } from '../shared/equipment.js';
+import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import type { EntityState } from '../shared/protocol.js';
 import type { TimedFx } from './draw.js';
+import type { ClientContentStore } from './content-store.js';
 
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
@@ -198,7 +197,10 @@ export class PixiRenderer {
   private readonly tex = new Map<string, Texture>(); // sheets + misc
   private readonly frameCache = new Map<string, Texture>();
 
-  constructor(private readonly app: Application) {
+  constructor(
+    private readonly app: Application,
+    private readonly content: ClientContentStore,
+  ) {
     this.ground = new TilingSprite({ texture: Texture.WHITE, width: 100, height: 100 });
     this.actorLayer.sortableChildren = true;
     this.propLayer.sortableChildren = true;
@@ -227,13 +229,13 @@ export class PixiRenderer {
 
   setArea(areaId: string): void {
     if (areaId === this.currentArea) return;
+    const area = this.content.area(areaId);
+    if (!area) return; // content packet not loaded yet — retry next frame
     this.currentArea = areaId;
     const biome = BIOMES[areaId] ?? BIOMES.wilderness!;
     this.ground.texture = this.groundTexture(areaId, biome);
 
     for (const child of this.propLayer.removeChildren()) child.destroy();
-    const area = areaOf(areaId);
-    if (!area) return;
 
     for (const portal of area.portals) {
       const cx = portal.rect.x + portal.rect.w / 2;
@@ -423,7 +425,7 @@ export class PixiRenderer {
   }
 
   private updateProjectile(e: EntityState): void {
-    const ability = e.abilityId ? ABILITIES[e.abilityId] : undefined;
+    const ability = e.abilityId ? this.content.ability(e.abilityId) : undefined;
     const color = (ability?.color ?? '#ffffff') as ColorSource;
     const radius = ability?.radius ?? 6;
     const strip = e.abilityId ? PROJ_STRIP[e.abilityId] : undefined;
@@ -465,7 +467,8 @@ export class PixiRenderer {
   }
 
   private updateItem(e: EntityState): void {
-    const color = ITEM_COLORS[e.itemId ?? ''] ?? equipDef(e.itemId ?? '')?.color ?? '#cccccc';
+    const color =
+      ITEM_COLORS[e.itemId ?? ''] ?? this.content.item(e.itemId ?? '')?.color ?? '#cccccc';
     const alias =
       e.itemId === 'gold' ? 'item_gold' : e.itemId === 'rune_shard' ? 'item_gem' : undefined;
     let view = this.views.get(e.id);
@@ -514,7 +517,11 @@ export class PixiRenderer {
         t.visible = true;
         t.text = ev.value === 0 ? 'miss' : `${ev.value}`;
         t.style.fill =
-          ev.value === 0 ? '#9bbbbb' : ev.abilityId ? ABILITIES[ev.abilityId]!.color : '#ffee66';
+          ev.value === 0
+            ? '#9bbbbb'
+            : ev.abilityId
+              ? (this.content.ability(ev.abilityId)?.color ?? '#ffee66')
+              : '#ffee66';
         t.alpha = alpha;
         t.position.set(x, y - 50 - age * 26);
       } else if (ev.kind === 'melee' && ev.facing !== undefined) {
@@ -524,7 +531,9 @@ export class PixiRenderer {
           alpha,
         });
       } else if (ev.kind === 'cast') {
-        const c = ev.abilityId ? ABILITIES[ev.abilityId]!.color : '#ffffff';
+        const c = ev.abilityId
+          ? (this.content.ability(ev.abilityId)?.color ?? '#ffffff')
+          : '#ffffff';
         g.circle(x, y - 16, 16 + age * 18).stroke({ width: 2, color: c, alpha: alpha * 0.7 });
       } else if (ev.kind === 'death') {
         const da = (now - t0) / EXPLOSION_MS;
