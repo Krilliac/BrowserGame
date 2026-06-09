@@ -66,8 +66,8 @@ function seedAreas(db: Database): void {
     `INSERT INTO area_theme
        (area_id,ground_base,ground_speck,prop,prop_density,atmo_color,atmo_alpha,outdoor,
         particle_color,particle_count,particle_rise,particle_flicker,weather,weather_intensity,
-        fog_color,light_ambient)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        fog_color,light_ambient,grade_saturation,grade_brightness,grade_contrast,sprite_tint)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const a of Object.values(AREAS)) {
     area.run(a.id, a.name, a.width, a.height, a.spawn.x, a.spawn.y, a.playerCap);
@@ -102,6 +102,10 @@ function seedAreas(db: Database): void {
       t.weatherIntensity,
       t.fogColor,
       t.lightAmbient,
+      t.gradeSaturation,
+      t.gradeBrightness,
+      t.gradeContrast,
+      t.spriteTint,
     );
   }
 }

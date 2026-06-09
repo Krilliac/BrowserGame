@@ -274,6 +274,10 @@ function rowToTheme(r: AreaThemeRow): AreaTheme {
     weatherIntensity: r.weather_intensity,
     fogColor: r.fog_color,
     lightAmbient: r.light_ambient,
+    gradeSaturation: r.grade_saturation,
+    gradeBrightness: r.grade_brightness,
+    gradeContrast: r.grade_contrast,
+    spriteTint: r.sprite_tint,
   };
 }
 
@@ -304,6 +308,10 @@ interface AreaThemeRow {
   weather_intensity: number;
   fog_color: string;
   light_ambient: number;
+  grade_saturation: number;
+  grade_brightness: number;
+  grade_contrast: number;
+  sprite_tint: string;
 }
 interface PortalRow {
   rect_x: number;

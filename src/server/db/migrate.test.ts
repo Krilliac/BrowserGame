@@ -1,0 +1,32 @@
+import { describe, expect, it } from 'vitest';
+import BetterSqlite3 from 'better-sqlite3';
+import { migrate } from './migrate.js';
+
+describe('content DB migration', () => {
+  it('adds theme columns missing from an older area_theme table', () => {
+    const db = new BetterSqlite3(':memory:');
+    // Simulate an old DB: area_theme exists but predates the color-grade / sprite-tint columns.
+    db.exec(`CREATE TABLE area_theme (
+      area_id TEXT PRIMARY KEY, ground_base TEXT NOT NULL DEFAULT '#000000');`);
+    db.prepare('INSERT INTO area_theme (area_id) VALUES (?)').run('town');
+
+    migrate(db);
+
+    const cols = new Set(
+      (db.prepare('PRAGMA table_info(area_theme)').all() as { name: string }[]).map((r) => r.name),
+    );
+    expect(cols.has('grade_saturation')).toBe(true);
+    expect(cols.has('sprite_tint')).toBe(true);
+    // Existing row gets the column default, so reads don't break.
+    const row = db
+      .prepare('SELECT grade_saturation, sprite_tint FROM area_theme WHERE area_id = ?')
+      .get('town') as { grade_saturation: number; sprite_tint: string };
+    expect(row.grade_saturation).toBe(1);
+    expect(row.sprite_tint).toBe('#ffffff');
+  });
+
+  it('is a no-op when the table is absent', () => {
+    const db = new BetterSqlite3(':memory:');
+    expect(() => migrate(db)).not.toThrow();
+  });
+});

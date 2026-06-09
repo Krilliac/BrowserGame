@@ -14,6 +14,19 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Environment theming, deepened** — three more theme dimensions, all live-editable via
+  `/settheme` and persisted in `area_theme`:
+  - **Per-area color grading** — `grade_saturation` / `grade_brightness` / `grade_contrast` drive a
+    single `ColorMatrixFilter` on the scene (one GPU pass), for cohesive area color moods.
+  - **Weather affects gameplay** (server-authoritative, `src/server/weather-effects.ts`) — `snow`
+    slows movement, `fog` shrinks monster aggro range, `rain` does a bit of both; applied in the
+    sim and re-applied live when the weather theme changes.
+  - **More scenery + per-area sprite tint** — new prop kinds (`bush`/`mushroom`/`crystal`/`pillar`)
+    selectable by SQL, and a `sprite_tint` that recolors an area's actors cohesively.
+- **Server robustness + DB migration** — a chat-command handler can no longer crash the server
+  (errors become a `System` reply); and content databases created by an older build are
+  auto-migrated on open (`src/server/db/migrate.ts`) so new theme columns are added to existing
+  `game.db` files instead of erroring.
 - **SQL-driven environment theming (live, from anywhere)** — every area's *look* now lives in the
   content DB (`area_theme` table) and is sent to the client in the `content` packet: ground colors,
   scattered props, mood tint, ambient particles, weather, and lighting. Editing it re-skins the

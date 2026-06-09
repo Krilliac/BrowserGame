@@ -1,5 +1,6 @@
 import {
   Assets,
+  ColorMatrixFilter,
   Container,
   Graphics,
   Rectangle,
@@ -127,7 +128,6 @@ const FADE_SECONDS = 0.45;
 const PROJECTILE_HEIGHT = 18;
 
 const FLASH_MS = 150;
-const TINT_NORMAL = 0xffffff;
 const TINT_FLASH = 0xff5555;
 const TINT_BURN = 0xffaa55;
 const TINT_SLOW = 0x88bbff;
@@ -187,6 +187,7 @@ export class PixiRenderer {
   private readonly atmosphere = new Atmosphere();
   private readonly weather = new Weather();
   private readonly lighting = new Lighting();
+  private readonly grade = new ColorMatrixFilter(); // per-area color grading (one pass on the world)
   private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
   private readonly fxTexts: Text[] = [];
@@ -261,6 +262,7 @@ export class PixiRenderer {
     this.currentTheme = theme;
     this.atmosphere.setArea(theme);
     this.weather.setWeather(theme.weather, theme.weatherIntensity, theme.fogColor);
+    this.applyGrade(theme);
     this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
     this.ground.texture = this.groundTexture(theme.groundBase, theme.groundSpeck);
 
@@ -300,6 +302,22 @@ export class PixiRenderer {
         }
       }
     }
+  }
+
+  /** Configure the per-area color grade (saturation/brightness/contrast) as one filter pass. */
+  private applyGrade(theme: AreaTheme): void {
+    const identity =
+      theme.gradeSaturation === 1 && theme.gradeBrightness === 1 && theme.gradeContrast === 1;
+    if (identity) {
+      this.world.filters = [];
+      return;
+    }
+    const f = this.grade;
+    f.reset();
+    f.brightness(theme.gradeBrightness, false); // 1 = unchanged
+    f.contrast(theme.gradeContrast - 1, true); // 0 = unchanged
+    f.saturate(theme.gradeSaturation - 1, true); // 0 = unchanged
+    this.world.filters = [f];
   }
 
   update(state: RenderState): void {
@@ -418,6 +436,7 @@ export class PixiRenderer {
     view.lastHp = e.hp;
     if (view.sprite) {
       const flags = e.flags ?? 0;
+      // Status/flash tints override; otherwise actors take the area's cohesive sprite tint.
       view.sprite.tint =
         e.kind === 'npc'
           ? 0xffd97a
@@ -427,7 +446,7 @@ export class PixiRenderer {
               ? TINT_BURN
               : flags & 1
                 ? TINT_SLOW
-                : TINT_NORMAL;
+                : (this.currentTheme.spriteTint as ColorSource);
     }
 
     if (view.dyn && e.maxHp > 0) {
@@ -688,6 +707,22 @@ export class PixiRenderer {
     } else if (kind === 'grave') {
       g.roundRect(-8, -26, 16, 26, 3).fill({ color: '#3a3a48' });
       g.rect(-2, -34, 4, 12).fill({ color: '#4a4a5c' });
+    } else if (kind === 'bush') {
+      g.circle(-6, -8, 9).fill({ color: '#2d432a' });
+      g.circle(6, -8, 9).fill({ color: '#34502f' });
+      g.circle(0, -13, 10).fill({ color: '#3a5836' });
+    } else if (kind === 'mushroom') {
+      g.rect(-2, -12, 4, 12).fill({ color: '#d8cfc0' });
+      g.ellipse(0, -13, 11, 6).fill({ color: '#b1402f' });
+      g.circle(-3, -14, 1.6).fill({ color: '#e8d9c0' });
+      g.circle(3, -13, 1.6).fill({ color: '#e8d9c0' });
+    } else if (kind === 'crystal') {
+      g.poly([0, -30, 6, -10, 0, -4, -6, -10]).fill({ color: '#6fb6e0', alpha: 0.92 });
+      g.poly([-7, -18, -3, -6, -9, -7]).fill({ color: '#9fd4f0', alpha: 0.85 });
+    } else if (kind === 'pillar') {
+      g.rect(-7, -40, 14, 40).fill({ color: '#5b5b66' });
+      g.rect(-9, -44, 18, 6).fill({ color: '#6c6c78' });
+      g.rect(-9, -4, 18, 6).fill({ color: '#46464f' });
     } else {
       g.ellipse(0, -8, 14, 10).fill({ color: '#3a3d42' });
     }

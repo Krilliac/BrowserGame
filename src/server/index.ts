@@ -44,6 +44,10 @@ function rebroadcastContent(): number {
   for (const { socket } of players.values()) {
     if (socket.readyState === socket.OPEN) socket.send(contentMessage);
   }
+  // Re-apply weather as gameplay modifiers on every running instance (live, not just visual).
+  for (const instance of manager.list()) {
+    instance.world.applyWeather(c.area(instance.areaId)?.theme?.weather ?? 'none');
+  }
   return c.areas().length;
 }
 
@@ -191,31 +195,38 @@ wss.on('connection', (socket) => {
         const from = world.nameOf(entityId) ?? 'Player';
 
         if (isCommand(text)) {
-          runCommand(text, {
-            accessLevel: p.accessLevel,
-            args: [],
-            playerId: entityId,
-            areaId: instance.areaId,
-            world,
-            reply: (t) => send(p.socket, { t: 'chat', from: 'System', text: t }),
-            broadcast: (t) =>
-              broadcastToInstance(p.instanceId, { t: 'chat', from: 'System', text: t }),
-            name: () => from,
-            login: (u, pw) => verifyLogin(getDb(), u, pw),
-            setAccessLevel: (lvl) => {
-              p.accessLevel = lvl;
-            },
-            listPlayers: () => world.playerNames(),
-            setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),
-            areaIds: () =>
-              getContent()
-                .areas()
-                .map((a) => a.id),
-            areaTheme: (areaId) => getContent().area(areaId)?.theme,
-            setTheme: (areaId, key, value) => applyThemeEdit(areaId, key, value),
-            reloadContent: () =>
-              `Reloaded content from DB — re-skinned ${rebroadcastContent()} areas.`,
-          });
+          // A command handler must never crash the server — every client is untrusted, and a bad
+          // input or DB error is the issuer's problem, not the whole world's.
+          try {
+            runCommand(text, {
+              accessLevel: p.accessLevel,
+              args: [],
+              playerId: entityId,
+              areaId: instance.areaId,
+              world,
+              reply: (t) => send(p.socket, { t: 'chat', from: 'System', text: t }),
+              broadcast: (t) =>
+                broadcastToInstance(p.instanceId, { t: 'chat', from: 'System', text: t }),
+              name: () => from,
+              login: (u, pw) => verifyLogin(getDb(), u, pw),
+              setAccessLevel: (lvl) => {
+                p.accessLevel = lvl;
+              },
+              listPlayers: () => world.playerNames(),
+              setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),
+              areaIds: () =>
+                getContent()
+                  .areas()
+                  .map((a) => a.id),
+              areaTheme: (areaId) => getContent().area(areaId)?.theme,
+              setTheme: (areaId, key, value) => applyThemeEdit(areaId, key, value),
+              reloadContent: () =>
+                `Reloaded content from DB — re-skinned ${rebroadcastContent()} areas.`,
+            });
+          } catch (err) {
+            console.error('[command] failed:', err);
+            send(p.socket, { t: 'chat', from: 'System', text: 'Command failed (server error).' });
+          }
         } else {
           broadcastToInstance(p.instanceId, { t: 'chat', from, text });
         }

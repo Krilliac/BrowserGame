@@ -70,12 +70,18 @@ colors, scattered props, mood tint, ambient particles, weather (rain/snow/fog), 
 | Column(s) | Effect |
 |---|---|
 | `ground_base`, `ground_speck` | tiled ground fill + speckle colors |
-| `prop`, `prop_density` | scattered props (`tree`/`grave`/`rock`/`none`) and how dense |
+| `prop`, `prop_density` | scattered props (`tree`/`grave`/`rock`/`bush`/`mushroom`/`crystal`/`pillar`/`none`) and how dense |
 | `atmo_color`, `atmo_alpha` | base mood tint over the whole screen |
 | `outdoor` | `1` = the day/night cycle applies; `0` = indoor gloom (crypts) |
 | `particle_color`, `particle_count`, `particle_rise`, `particle_flicker` | drifting ambient motes |
-| `weather`, `weather_intensity`, `fog_color` | weather overlay |
+| `weather`, `weather_intensity`, `fog_color` | weather overlay — **also affects gameplay** (see below) |
 | `light_ambient` | baseline light `0..1`; lower = murkier and torch/portal glow reads stronger |
+| `grade_saturation`, `grade_brightness`, `grade_contrast` | per-area color grading (one `ColorMatrixFilter`; `1` = unchanged) |
+| `sprite_tint` | cohesive tint multiplied onto actor sprites in the area (`#ffffff` = none) |
+
+**Weather is a gameplay input, not just visual** — it's applied server-authoritatively
+(`src/server/weather-effects.ts`): `snow` slows player movement, `fog` shrinks monster aggro range,
+`rain` does a bit of both. So re-theming an area's weather changes how it *plays*, live.
 
 This is **live-editable without a restart**: the `/settheme <area> <key> <value>` Developer command
 (see [Commands & Access](Commands-And-Access.md)) validates + clamps the value, upserts the column,

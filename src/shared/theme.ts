@@ -11,7 +11,15 @@
  * field, type, and valid range, and powers validation for the live-edit command.
  */
 
-export type PropKind = 'tree' | 'grave' | 'rock' | 'none';
+export type PropKind =
+  | 'tree'
+  | 'grave'
+  | 'rock'
+  | 'bush'
+  | 'mushroom'
+  | 'crystal'
+  | 'pillar'
+  | 'none';
 export type WeatherKind = 'none' | 'rain' | 'snow' | 'fog';
 
 export interface AreaTheme {
@@ -38,6 +46,12 @@ export interface AreaTheme {
   fogColor: string;
   /** Baseline ambient light 0..1 (1 = unaffected by night darkening; lower = murkier). */
   lightAmbient: number;
+  /** Per-area color grading applied to the scene (one ColorMatrixFilter). 1 = unchanged. */
+  gradeSaturation: number;
+  gradeBrightness: number;
+  gradeContrast: number;
+  /** Cohesive tint multiplied onto actor sprites in this area (CSS hex; #ffffff = none). */
+  spriteTint: string;
 }
 
 export const DEFAULT_THEME: AreaTheme = {
@@ -56,6 +70,10 @@ export const DEFAULT_THEME: AreaTheme = {
   weatherIntensity: 0.5,
   fogColor: '#8a93a0',
   lightAmbient: 1,
+  gradeSaturation: 1,
+  gradeBrightness: 1,
+  gradeContrast: 1,
+  spriteTint: '#ffffff',
 };
 
 interface ThemeKeySpec {
@@ -70,7 +88,11 @@ interface ThemeKeySpec {
 export const THEME_KEYS: Record<string, ThemeKeySpec> = {
   ground_base: { field: 'groundBase', type: 'color' },
   ground_speck: { field: 'groundSpeck', type: 'color' },
-  prop: { field: 'prop', type: 'enum', values: ['tree', 'grave', 'rock', 'none'] },
+  prop: {
+    field: 'prop',
+    type: 'enum',
+    values: ['tree', 'grave', 'rock', 'bush', 'mushroom', 'crystal', 'pillar', 'none'],
+  },
   prop_density: { field: 'propDensity', type: 'number', min: 0, max: 1 },
   atmo_color: { field: 'atmoColor', type: 'color' },
   atmo_alpha: { field: 'atmoAlpha', type: 'number', min: 0, max: 1 },
@@ -83,6 +105,10 @@ export const THEME_KEYS: Record<string, ThemeKeySpec> = {
   weather_intensity: { field: 'weatherIntensity', type: 'number', min: 0, max: 1 },
   fog_color: { field: 'fogColor', type: 'color' },
   light_ambient: { field: 'lightAmbient', type: 'number', min: 0, max: 1 },
+  grade_saturation: { field: 'gradeSaturation', type: 'number', min: 0, max: 2 },
+  grade_brightness: { field: 'gradeBrightness', type: 'number', min: 0.2, max: 2 },
+  grade_contrast: { field: 'gradeContrast', type: 'number', min: 0, max: 2 },
+  sprite_tint: { field: 'spriteTint', type: 'color' },
 };
 
 const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/;

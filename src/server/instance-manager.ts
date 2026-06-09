@@ -104,6 +104,7 @@ export class InstanceManager {
     const world = new World(area.width, area.height, area.spawn, () => this.nextEntityId++);
     world.populateMobs(area.id);
     world.populateNpcs(area.id);
+    world.applyWeather(area.theme?.weather ?? 'none');
     const instance: Instance = { id, areaId: area.id, world };
     this.instances.set(id, instance);
     return instance;

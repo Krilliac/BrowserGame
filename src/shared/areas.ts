@@ -131,6 +131,10 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
     weatherIntensity: 0.5,
     fogColor: '#cfd6e0',
     lightAmbient: 1,
+    gradeSaturation: 1.05,
+    gradeBrightness: 1.02,
+    gradeContrast: 1,
+    spriteTint: '#ffffff',
   },
   wilderness: {
     groundBase: '#1f2a1c',
@@ -148,6 +152,10 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
     weatherIntensity: 0.5,
     fogColor: '#8a93a0',
     lightAmbient: 0.95,
+    gradeSaturation: 1.1,
+    gradeBrightness: 1,
+    gradeContrast: 1.05,
+    spriteTint: '#ffffff',
   },
   crypt: {
     groundBase: '#16161c',
@@ -165,6 +173,10 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
     weatherIntensity: 0.35,
     fogColor: '#2a3346',
     lightAmbient: 0.5,
+    gradeSaturation: 0.7,
+    gradeBrightness: 0.92,
+    gradeContrast: 1.08,
+    spriteTint: '#bcc6e6',
   },
 };
 

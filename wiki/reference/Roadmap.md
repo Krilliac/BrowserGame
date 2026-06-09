@@ -50,6 +50,10 @@
       `content` packet, and is hot-edited via `/settheme` (re-skins every client, no reconnect) or
       a direct SQL edit + `/reloadcontent`. New client modules: `weather.ts` (rain/snow/fog) and
       `lighting.ts` (additive torch/portal glow). Design: `wiki/research/environment-theming.md`.
+- [x] **Theming, deepened** — per-area color grading (one `ColorMatrixFilter`), weather that
+      **affects gameplay** (server-authoritative move/aggro modifiers, `weather-effects.ts`), extra
+      prop kinds (`bush`/`mushroom`/`crystal`/`pillar`) and a per-area `sprite_tint`. Plus content-DB
+      auto-migration (`db/migrate.ts`) and crash-proof command handling.
 - [x] Abilities: Heal + Lightning (6-slot hotbar); Crypt Lord boss in the crypt.
 - [x] Town vendor (Merchant NPC) — press E to sell loot for gold (`vendor.ts`, sub-agent module).
 - [x] Equipment & stats — weapon (+power) / armor (+max HP) drops, click-to-equip, HUD panel.

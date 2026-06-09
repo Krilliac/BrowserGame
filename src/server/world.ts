@@ -25,6 +25,8 @@ import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { getContent } from './content.js';
+import { weatherModifiers } from './weather-effects.js';
+import type { WeatherKind } from '../shared/theme.js';
 
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
@@ -152,6 +154,9 @@ export class World {
   private readonly npcs = new Map<number, Npc>();
   private events: FxEvent[] = [];
   private notices: { playerId: number; text: string }[] = [];
+  // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
+  private moveScale = 1;
+  private aggroScale = 1;
 
   constructor(
     private readonly width: number = WORLD_WIDTH,
@@ -163,6 +168,16 @@ export class World {
     allocId?: () => number,
   ) {
     this.allocId = allocId ?? (() => this.localId++);
+  }
+
+  /**
+   * Apply the area's weather as gameplay modifiers (move speed, monster aggro range). Called by the
+   * instance manager on creation and re-applied when a live theme edit changes the weather.
+   */
+  applyWeather(weather: WeatherKind): void {
+    const mods = weatherModifiers(weather);
+    this.moveScale = mods.moveScale;
+    this.aggroScale = mods.aggroScale;
   }
 
   /** Populate the area's monsters. Called once by the instance manager after construction. */
@@ -496,8 +511,9 @@ export class World {
 
       const { dx, dy } = moveVector(player.input);
       if (dx !== 0 || dy !== 0) {
-        player.x = clamp(player.x + dx * PLAYER_SPEED * dt, 0, this.width);
-        player.y = clamp(player.y + dy * PLAYER_SPEED * dt, 0, this.height);
+        const speed = PLAYER_SPEED * this.moveScale; // weather may slow movement
+        player.x = clamp(player.x + dx * speed * dt, 0, this.width);
+        player.y = clamp(player.y + dy * speed * dt, 0, this.height);
         player.facing = Math.atan2(dy, dx);
       }
     }
@@ -526,7 +542,7 @@ export class World {
 
       const template = getContent().mobTemplate(mob.templateId)!;
       const view: MobView = { x: mob.x, y: mob.y, template, attackReady: mob.attackCd <= 0 };
-      const intent = stepMob(view, views);
+      const intent = stepMob(view, views, this.aggroScale); // weather may dampen aggro range
 
       if (intent.attackTargetId !== null) {
         const target = this.players.get(intent.attackTargetId);

@@ -115,8 +115,8 @@ const IDLE: MobIntent = { vx: 0, vy: 0, facing: null, attackTargetId: null };
  * Aggro the nearest living player in range: chase until within attack range, then strike on
  * cooldown. Returns IDLE when no target — the World adds gentle wandering for idle mobs.
  */
-export function stepMob(mob: MobView, players: PlayerView[]): MobIntent {
-  const target = nearestTarget(mob, players);
+export function stepMob(mob: MobView, players: PlayerView[], aggroScale = 1): MobIntent {
+  const target = nearestTarget(mob, players, aggroScale);
   if (!target) return IDLE;
 
   const dx = target.x - mob.x;
@@ -136,9 +136,9 @@ export function stepMob(mob: MobView, players: PlayerView[]): MobIntent {
   };
 }
 
-function nearestTarget(mob: MobView, players: PlayerView[]): PlayerView | null {
+function nearestTarget(mob: MobView, players: PlayerView[], aggroScale = 1): PlayerView | null {
   let best: PlayerView | null = null;
-  let bestDist = mob.template.aggroRange;
+  let bestDist = mob.template.aggroRange * aggroScale;
   for (const p of players) {
     if (!p.alive) continue;
     const dist = Math.hypot(p.x - mob.x, p.y - mob.y);

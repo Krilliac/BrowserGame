@@ -48,7 +48,11 @@ CREATE TABLE IF NOT EXISTS area_theme (
   weather           TEXT NOT NULL DEFAULT 'none',     -- 'none' | 'rain' | 'snow' | 'fog'
   weather_intensity REAL NOT NULL DEFAULT 0.5,
   fog_color         TEXT NOT NULL DEFAULT '#8a93a0',
-  light_ambient     REAL NOT NULL DEFAULT 1           -- 0..1 baseline ambient light
+  light_ambient     REAL NOT NULL DEFAULT 1,           -- 0..1 baseline ambient light
+  grade_saturation  REAL NOT NULL DEFAULT 1,           -- color grading (1 = unchanged)
+  grade_brightness  REAL NOT NULL DEFAULT 1,
+  grade_contrast    REAL NOT NULL DEFAULT 1,
+  sprite_tint       TEXT NOT NULL DEFAULT '#ffffff'    -- cohesive actor tint (#ffffff = none)
 );
 
 -- Spells / abilities.
