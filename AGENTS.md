@@ -11,6 +11,9 @@ For every new session/chat in this repo:
 3. **Verify the tree is healthy** before changing it: `npm run check`.
 4. Use `CLAUDE.md` plus the relevant wiki pages as persistent project context for workflow,
    conventions, and task execution.
+5. **If concurrent work is possible, follow `CLAUDE_PARALLEL.md`** — run
+   `tools/parallel/status.sh` and claim your files before editing. Sub-agents own disjoint,
+   self-contained modules; the orchestrator owns the chokepoint files and integration.
 
 If `CLAUDE.md` is missing, report that clearly and continue with available context.
 

@@ -27,6 +27,11 @@ automation rigor* of two sibling projects (without copying their native code):
 2. **Skim the wiki:** `cat wiki/_Sidebar.md`, then read the pages relevant to your task.
    Roadmap and deferred work live in `wiki/reference/Roadmap.md`.
 3. **Sanity-check the tree builds:** `npm run check` (typecheck + lint + format + tests).
+4. **If running parallel work, follow [`CLAUDE_PARALLEL.md`](CLAUDE_PARALLEL.md):** check
+   `tools/parallel/status.sh` and claim your files before editing. Partition by files —
+   sub-agents own disjoint new modules; the orchestrator owns the chokepoint files
+   (`src/shared/protocol.ts`, `src/server/world.ts`, `src/server/index.ts`,
+   `src/client/main.ts`, `src/client/draw.ts`) and integration.
 
 ## Project pillars (do not drift from these)
 
