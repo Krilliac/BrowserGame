@@ -1,0 +1,50 @@
+:root {
+  color-scheme: dark;
+  --bg: #0e0f13;
+  --fg: #d7dbe3;
+  --accent: #c9a24b; /* warm gold — a nod to the WC3/Diablo palette */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, sans-serif;
+}
+
+#game {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  touch-action: none;
+}
+
+#hud {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  display: flex;
+  gap: 12px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+#hint {
+  position: fixed;
+  bottom: 8px;
+  left: 8px;
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.6;
+}

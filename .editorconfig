@@ -1,0 +1,18 @@
+# EditorConfig — keep formatting consistent across editors and contributors.
+# Adapted from the standards used in SparkEngine and DuetOS.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{png,jpg,jpeg,gif,wav,ogg,mp3,obj,glb,gltf}]
+insert_final_newline = false
+trim_trailing_whitespace = false
