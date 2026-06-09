@@ -6,6 +6,7 @@ import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
 import { areaOf } from '../shared/areas.js';
 import { ABILITIES, ABILITY_ORDER, type AbilityId } from '../shared/combat.js';
+import { isEquip } from '../shared/equipment.js';
 import type { EntityState } from '../shared/protocol.js';
 
 const gameCanvas = document.getElementById('game') as HTMLCanvasElement;
@@ -63,6 +64,14 @@ let hasMouse = false;
 let selected: AbilityId = 'slash';
 const cooldownEnd: Record<string, number> = {};
 const slotRects: { ability: AbilityId; x: number; y: number; w: number; h: number }[] = [];
+const bagRects: {
+  itemId: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  equippable: boolean;
+}[] = [];
 
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
@@ -93,6 +102,11 @@ function nearbyNpc(): EntityState | undefined {
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
+  const bag = bagRects.find((b) => b.equippable && inRect(e.clientX, e.clientY, b));
+  if (bag) {
+    net.sendEquip(bag.itemId);
+    return;
+  }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
     selected = slot.ability;
@@ -104,6 +118,11 @@ window.addEventListener('pointerdown', (e) => {
 
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
+  const bag = bagRects.find((b) => b.equippable && inRect(e.clientX, e.clientY, b));
+  if (bag) {
+    net.sendEquip(bag.itemId);
+    return;
+  }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
     selected = slot.ability;
@@ -381,16 +400,39 @@ function drawMinimap(w: number): void {
 }
 
 function drawInventory(w: number): void {
+  const pw = 156;
+  const px = w - pw - 8;
+  let py = 44 + MINIMAP_SIZE + 8;
+
+  // Equipped panel (always shown): weapon, armor, and total power.
+  const eqH = 54;
+  hud.fillStyle = 'rgba(0,0,0,0.5)';
+  hud.fillRect(px, py, pw, eqH);
+  hud.strokeStyle = 'rgba(201,162,75,0.6)';
+  hud.lineWidth = 1;
+  hud.strokeRect(px, py, pw, eqH);
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText('Equipped', px + 8, py + 15);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#f2c14e';
+  hud.fillText(`+${net.you.power} pow`, px + pw - 8, py + 15);
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillStyle = '#d7dbe3';
+  hud.textAlign = 'left';
+  hud.fillText(`Wpn: ${net.you.weapon ? prettyItem(net.you.weapon) : '—'}`, px + 8, py + 32);
+  hud.fillText(`Arm: ${net.you.armor ? prettyItem(net.you.armor) : '—'}`, px + 8, py + 47);
+  py += eqH + 6;
+
+  // Bag panel (equippable rows are clickable).
+  bagRects.length = 0;
   const items = Object.entries(net.you.loot).filter(([, n]) => n > 0);
   if (items.length === 0) return;
-  const pw = 156;
   const ph = 24 + items.length * 16;
-  const px = w - pw - 8;
-  const py = 44 + MINIMAP_SIZE + 8;
   hud.fillStyle = 'rgba(0,0,0,0.5)';
   hud.fillRect(px, py, pw, ph);
   hud.strokeStyle = 'rgba(201,162,75,0.6)';
-  hud.lineWidth = 1;
   hud.strokeRect(px, py, pw, ph);
   hud.fillStyle = '#e7d9b0';
   hud.font = 'bold 12px system-ui, sans-serif';
@@ -398,13 +440,15 @@ function drawInventory(w: number): void {
   hud.fillText('Bag', px + 8, py + 16);
   hud.font = '12px system-ui, sans-serif';
   items.forEach(([id, n], i) => {
-    const y = py + 34 + i * 16;
-    hud.fillStyle = '#d7dbe3';
+    const ry = py + 24 + i * 16;
+    const equippable = isEquip(id);
+    bagRects.push({ itemId: id, x: px, y: ry, w: pw, h: 16, equippable });
+    hud.fillStyle = equippable ? '#9fd0ff' : '#d7dbe3';
     hud.textAlign = 'left';
-    hud.fillText(prettyItem(id), px + 8, y);
+    hud.fillText(prettyItem(id) + (equippable ? ' (equip)' : ''), px + 8, ry + 12);
     hud.fillStyle = '#f2c14e';
     hud.textAlign = 'right';
-    hud.fillText(`${n}`, px + pw - 8, y);
+    hud.fillText(`${n}`, px + pw - 8, ry + 12);
   });
 }
 

@@ -13,6 +13,7 @@ import {
 } from 'pixi.js';
 import { ABILITIES, MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import { areaOf } from '../shared/areas.js';
+import { equipDef } from '../shared/equipment.js';
 import type { EntityState } from '../shared/protocol.js';
 import type { TimedFx } from './draw.js';
 
@@ -464,7 +465,7 @@ export class PixiRenderer {
   }
 
   private updateItem(e: EntityState): void {
-    const color = ITEM_COLORS[e.itemId ?? ''] ?? '#cccccc';
+    const color = ITEM_COLORS[e.itemId ?? ''] ?? equipDef(e.itemId ?? '')?.color ?? '#cccccc';
     const alias =
       e.itemId === 'gold' ? 'item_gold' : e.itemId === 'rune_shard' ? 'item_gem' : undefined;
     let view = this.views.get(e.id);

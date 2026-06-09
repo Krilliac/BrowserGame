@@ -21,6 +21,9 @@ export interface SelfStats {
   gold: number;
   loot: Record<string, number>;
   respawnIn: number;
+  power: number;
+  weapon: string;
+  armor: string;
 }
 
 const MAX_CHAT_LINES = 50;
@@ -49,6 +52,9 @@ export class Net {
     gold: 0,
     loot: {},
     respawnIn: 0,
+    power: 0,
+    weapon: '',
+    armor: '',
   };
   selfId = 0;
   connected = false;
@@ -96,6 +102,10 @@ export class Net {
     this.send({ t: 'interact' });
   }
 
+  sendEquip(itemId: string): void {
+    this.send({ t: 'equip', itemId });
+  }
+
   private send(msg: Parameters<typeof encode>[0]): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(msg));
   }
@@ -129,6 +139,9 @@ export class Net {
           gold: msg.gold,
           loot: msg.loot,
           respawnIn: msg.respawnIn,
+          power: msg.power,
+          weapon: msg.weapon,
+          armor: msg.armor,
         };
         break;
       case 'area_changed':

@@ -43,7 +43,8 @@
 - [x] Combat feedback (hit-flash, status tints), per-area atmosphere tint, respawn countdown.
 - [x] Abilities: Heal + Lightning (6-slot hotbar); Crypt Lord boss in the crypt.
 - [x] Town vendor (Merchant NPC) — press E to sell loot for gold (`vendor.ts`, sub-agent module).
-- [ ] Equipment/stats from gear; shop to *buy* items; banking.
+- [x] Equipment & stats — weapon (+power) / armor (+max HP) drops, click-to-equip, HUD panel.
+- [ ] Shop to *buy* gear; banking; gear rarity/affixes.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
 - [ ] Tilemap ground from hand-authored Tiled maps (the bundled tiles suit authored maps better

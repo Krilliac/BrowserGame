@@ -8,6 +8,10 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Equipment & stats** — weapons (+attack power) and armor (+max HP) drop from monsters
+  (`src/shared/equipment.ts`), shown as colored ground glints. Click an equippable bag item to
+  equip it; the HUD shows an Equipped panel (weapon/armor/power). Weapon power adds to every hit;
+  armor raises max HP. Server-authoritative equip/stat derivation.
 - **One-command hosting (`npm run host`)** — builds + serves the game on one port and opens a free
   Cloudflare quick tunnel (`*.trycloudflare.com`), giving a public https URL to play from anywhere.
   `scripts/tunnel.mjs` + the `cloudflared` dev dependency; QUIC-blocked networks can set

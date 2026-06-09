@@ -26,6 +26,7 @@ import { levelForXp, levelProgress, maxHpForLevel, xpReward } from './progressio
 import { rollLoot } from './loot.js';
 import { StatusSet } from './status-effects.js';
 import { sellAll } from './vendor.js';
+import { equipDef, isEquip, rollEquipDrop } from '../shared/equipment.js';
 
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
@@ -52,6 +53,8 @@ interface Player {
   xp: number;
   gold: number;
   loot: Map<string, number>;
+  equipment: { weapon: string | null; armor: string | null };
+  power: number;
   input: InputState;
   cooldowns: Map<AbilityId, number>;
   dead: boolean;
@@ -199,6 +202,31 @@ export class World {
     }
   }
 
+  /** Equip an item from the player's bag, returning any displaced gear to the bag. */
+  equip(id: number, itemId: string): void {
+    const player = this.players.get(id);
+    if (!player || !isEquip(itemId) || (player.loot.get(itemId) ?? 0) < 1) return;
+    const def = equipDef(itemId)!;
+
+    const remaining = (player.loot.get(itemId) ?? 0) - 1;
+    if (remaining <= 0) player.loot.delete(itemId);
+    else player.loot.set(itemId, remaining);
+
+    const previous = player.equipment[def.slot];
+    if (previous) player.loot.set(previous, (player.loot.get(previous) ?? 0) + 1);
+    player.equipment[def.slot] = itemId;
+    this.recomputeStats(player);
+  }
+
+  /** Derive power + max HP from level and equipped gear. */
+  private recomputeStats(player: Player): void {
+    const weapon = player.equipment.weapon;
+    const armor = player.equipment.armor;
+    player.power = weapon ? (equipDef(weapon)?.power ?? 0) : 0;
+    player.maxHp = maxHpForLevel(player.level) + (armor ? (equipDef(armor)?.hp ?? 0) : 0);
+    if (player.hp > player.maxHp) player.hp = player.maxHp;
+  }
+
   /** Create a player. Pass an explicit id to keep identity stable across area transfers. */
   spawn(name: string, opts: SpawnOptions = {}): number {
     const id = opts.id ?? this.allocId();
@@ -216,6 +244,8 @@ export class World {
       xp: 0,
       gold: 0,
       loot: new Map(),
+      equipment: { weapon: null, armor: null },
+      power: 0,
       input: { up: false, down: false, left: false, right: false },
       cooldowns: new Map(),
       dead: false,
@@ -259,7 +289,7 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
-          const dmg = rollAbilityDamage(player.level, mob.level, ability.damage);
+          const dmg = rollAbilityDamage(player.level, mob.level, ability.damage + player.power);
           this.damageMob(mob, dmg, abilityId, player.id);
           if (dmg > 0) applyStatus(mob, abilityId);
         }
@@ -274,7 +304,7 @@ export class World {
         vx: Math.cos(facing) * (ability.projectileSpeed ?? 300),
         vy: Math.sin(facing) * (ability.projectileSpeed ?? 300),
         ttl: ability.projectileTtlMs ?? 1200,
-        damage: ability.damage,
+        damage: ability.damage + player.power,
         radius: ability.radius,
         ownerId: player.id,
         ownerLevel: player.level,
@@ -419,9 +449,15 @@ export class World {
     if (killer) {
       killer.xp += xpReward(mob.level);
       killer.level = levelForXp(killer.xp);
-      killer.maxHp = maxHpForLevel(killer.level);
+      this.recomputeStats(killer);
     }
-    for (const stack of rollLoot(mob.templateId)) {
+    const drops: { item: string; qty: number }[] = rollLoot(mob.templateId).map((s) => ({
+      item: s.item,
+      qty: s.qty,
+    }));
+    const gear = rollEquipDrop(mob.level);
+    if (gear) drops.push({ item: gear, qty: 1 });
+    for (const stack of drops) {
       const id = this.allocId();
       this.items.set(id, {
         id,
@@ -593,6 +629,9 @@ export class World {
         gold: number;
         loot: Record<string, number>;
         respawnIn: number;
+        power: number;
+        weapon: string;
+        armor: string;
       }
     | undefined {
     const p = this.players.get(id);
@@ -611,6 +650,9 @@ export class World {
       gold: p.gold,
       loot: Object.fromEntries(p.loot),
       respawnIn: p.dead ? Math.max(0, Math.ceil(p.respawnAt - this.now)) : 0,
+      power: p.power,
+      weapon: p.equipment.weapon ?? '',
+      armor: p.equipment.armor ?? '',
     };
   }
 

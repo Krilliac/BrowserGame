@@ -70,6 +70,8 @@ export type ClientMessage =
   | { t: 'chat'; text: string }
   /** Interact with a nearby NPC (e.g. sell loot to the town vendor). */
   | { t: 'interact' }
+  /** Equip an item from the player's loot bag. */
+  | { t: 'equip'; itemId: string }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string };
 
@@ -94,6 +96,11 @@ export type ServerMessage =
       loot: Record<string, number>;
       /** Milliseconds until respawn while dead (0 when alive). */
       respawnIn: number;
+      /** Attack power from the equipped weapon (added to every hit). */
+      power: number;
+      /** Equipped item ids ('' when empty). */
+      weapon: string;
+      armor: string;
     }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
