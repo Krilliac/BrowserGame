@@ -13,6 +13,7 @@ import {
   type TextureSource,
 } from 'pixi.js';
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
+import { RARITY, type Rarity } from '../shared/items.js';
 import type { EntityState } from '../shared/protocol.js';
 import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
@@ -583,8 +584,13 @@ export class PixiRenderer {
   }
 
   private updateItem(e: EntityState): void {
+    // Gear drops glint in their rarity color; materials fall back to their item color.
+    const rarityColor = e.rarity ? RARITY[e.rarity as Rarity]?.color : undefined;
     const color =
-      ITEM_COLORS[e.itemId ?? ''] ?? this.content.item(e.itemId ?? '')?.color ?? '#cccccc';
+      rarityColor ??
+      ITEM_COLORS[e.itemId ?? ''] ??
+      this.content.item(e.itemId ?? '')?.color ??
+      '#cccccc';
     const alias =
       e.itemId === 'gold' ? 'item_gold' : e.itemId === 'rune_shard' ? 'item_gem' : undefined;
     let view = this.views.get(e.id);

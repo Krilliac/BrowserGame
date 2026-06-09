@@ -14,6 +14,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **RNG tier loot (rarity + rolled instances)** — slain monsters now drop **gear instances** with a
+  rolled rarity (Common → Magic → Rare → Epic → Legendary) and stats rolled around the base item, so
+  two "Iron Swords" are no longer interchangeable. Rarity drives drop weight, a stat multiplier +
+  variance, and a glow color. The pure roller lives in `src/shared/items.ts` (`rollRarity`,
+  `rollStat`, `rollItemInstance`, `gearSellValue`); the server rolls instances on drop, carries them
+  through pickup → a per-player **gear bag** → equip-by-uid → equipped slots (rolled stats feed
+  `power`/`maxHp`), the vendor, and save/load (`src/server/world.ts`). The wire carries instances on
+  the `you` packet and drop rarity on the snapshot (`src/shared/protocol.ts`); the client shows a
+  rarity-colored Gear panel (tap to equip), rarity-colored equipped slots, and rarity-tinted ground
+  glints (`src/client/main.ts`, `pixi-renderer.ts`). Replaces the old fixed-stat `rollEquipDrop`.
 - **Critical hits** — every attack now has a base 15% chance to critically strike for 2× damage
   (`rollCrit` / `applyCrit`, `src/server/combat-formulas.ts`). The authoritative server rolls the
   crit per hit and flags the `hit` FX event (`crit`); the client renders crit numbers larger, in a

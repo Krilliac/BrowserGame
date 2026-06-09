@@ -10,9 +10,10 @@ describe('player save / transfer', () => {
     const id = a.spawn('Hero');
     a.setLevel(id, 5);
     a.addXp(id, 50);
-    a.giveItem(id, 'iron_sword', 1);
-    a.equip(id, 'iron_sword');
-    a.giveItem(id, 'wolf_pelt', 3);
+    a.giveItem(id, 'iron_sword', 1); // equipment -> a rolled gear instance in the bag
+    const sword = a.playerStats(id)!.gear[0]!;
+    a.equip(id, sword.uid);
+    a.giveItem(id, 'wolf_pelt', 3); // material -> stacks in the loot map
 
     const save = a.exportPlayer(id);
     expect(save).toBeDefined();
@@ -21,7 +22,7 @@ describe('player save / transfer', () => {
     b.importPlayer(id, save!, 100, 200);
     const s = b.playerStats(id)!;
     expect(s.level).toBeGreaterThanOrEqual(5);
-    expect(s.weapon).toBe('iron_sword');
+    expect(s.weapon?.baseId).toBe('iron_sword');
     expect(s.loot.wolf_pelt).toBe(3);
     expect(s.power).toBe(a.playerStats(id)!.power);
     expect({ x: s.x, y: s.y }).toEqual({ x: 100, y: 200 });

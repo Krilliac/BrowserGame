@@ -44,14 +44,3 @@ export function isEquip(id: string): boolean {
 export function equipDef(id: string): EquipDef | undefined {
   return EQUIPMENT[id];
 }
-
-/**
- * Roll an equipment drop for a slain monster. ~15% chance; higher-level monsters drop the
- * better tier. Returns an item id or null.
- */
-export function rollEquipDrop(mobLevel: number, rng: () => number = Math.random): string | null {
-  if (rng() >= 0.15) return null;
-  const highTier = mobLevel >= 5;
-  if (rng() < 0.5) return highTier ? 'iron_sword' : 'rusty_sword';
-  return highTier ? 'iron_armor' : 'leather_armor';
-}

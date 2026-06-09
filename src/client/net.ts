@@ -3,6 +3,7 @@ import { ClientContentStore } from './content-store.js';
 import type { TimedFx } from './draw.js';
 import { decodeServer, encode, type InputState, type ServerMessage } from '../shared/protocol.js';
 import type { AbilityId } from '../shared/combat.js';
+import type { ItemInstance } from '../shared/items.js';
 
 export interface ChatLine {
   from: string;
@@ -21,10 +22,11 @@ export interface SelfStats {
   xpNext: number;
   gold: number;
   loot: Record<string, number>;
+  gear: ItemInstance[];
   respawnIn: number;
   power: number;
-  weapon: string;
-  armor: string;
+  weapon: ItemInstance | null;
+  armor: ItemInstance | null;
   x: number;
   y: number;
   ackSeq: number;
@@ -56,10 +58,11 @@ export class Net {
     xpNext: 100,
     gold: 0,
     loot: {},
+    gear: [],
     respawnIn: 0,
     power: 0,
-    weapon: '',
-    armor: '',
+    weapon: null,
+    armor: null,
     x: 0,
     y: 0,
     ackSeq: 0,
@@ -114,8 +117,8 @@ export class Net {
     this.send({ t: 'interact' });
   }
 
-  sendEquip(itemId: string): void {
-    this.send({ t: 'equip', itemId });
+  sendEquip(uid: number): void {
+    this.send({ t: 'equip', uid });
   }
 
   private send(msg: Parameters<typeof encode>[0]): void {
@@ -154,6 +157,7 @@ export class Net {
           xpNext: msg.xpNext,
           gold: msg.gold,
           loot: msg.loot,
+          gear: msg.gear,
           respawnIn: msg.respawnIn,
           power: msg.power,
           weapon: msg.weapon,

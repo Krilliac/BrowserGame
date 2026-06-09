@@ -28,6 +28,12 @@ import {
   rollDamage,
   rolledHit,
 } from './combat-formulas.js';
+import {
+  gearSellValue,
+  rollItemInstance,
+  type BaseItem,
+  type ItemInstance,
+} from '../shared/items.js';
 import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
@@ -60,7 +66,9 @@ interface Player {
   xp: number;
   gold: number;
   loot: Map<string, number>;
-  equipment: { weapon: string | null; armor: string | null };
+  /** Unequipped gear instances in the bag (rolled rarity + stats). */
+  gear: ItemInstance[];
+  equipment: { weapon: ItemInstance | null; armor: ItemInstance | null };
   power: number;
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
@@ -82,8 +90,9 @@ export interface PlayerSave {
   xp: number;
   gold: number;
   loot: [string, number][];
-  weapon: string | null;
-  armor: string | null;
+  gear: ItemInstance[];
+  weapon: ItemInstance | null;
+  armor: ItemInstance | null;
   god: boolean;
   quests: [string, number][];
   questsDone: string[];
@@ -132,6 +141,8 @@ interface GroundItem {
   x: number;
   y: number;
   ttl: number;
+  /** Set for gear drops: the rolled instance the picker-up receives. */
+  instance?: ItemInstance;
 }
 
 interface Npc {
@@ -251,6 +262,9 @@ export class World {
         gold += value * qty;
         player.loot.delete(item);
       }
+      // Sell all unequipped gear too, priced by rolled stats + rarity.
+      for (const inst of player.gear) gold += gearSellValue(inst);
+      player.gear = [];
       if (gold <= 0) return;
       player.gold += gold;
       this.events.push({ kind: 'cast', x: player.x, y: player.y });
@@ -258,30 +272,28 @@ export class World {
     }
   }
 
-  /** Equip an item from the player's bag, returning any displaced gear to the bag. */
-  equip(id: number, itemId: string): void {
+  /** Equip a gear instance (by uid) from the player's bag, returning displaced gear to the bag. */
+  equip(id: number, uid: number): void {
     const player = this.players.get(id);
-    if (!player || (player.loot.get(itemId) ?? 0) < 1) return;
-    const def = getContent().item(itemId);
-    if (!def || def.kind !== 'equip' || (def.slot !== 'weapon' && def.slot !== 'armor')) return;
+    if (!player) return;
+    const idx = player.gear.findIndex((g) => g.uid === uid);
+    if (idx < 0) return;
+    const inst = player.gear[idx]!;
+    const def = getContent().item(inst.baseId);
+    const slot = def?.slot;
+    if (slot !== 'weapon' && slot !== 'armor') return;
 
-    const remaining = (player.loot.get(itemId) ?? 0) - 1;
-    if (remaining <= 0) player.loot.delete(itemId);
-    else player.loot.set(itemId, remaining);
-
-    const previous = player.equipment[def.slot];
-    if (previous) player.loot.set(previous, (player.loot.get(previous) ?? 0) + 1);
-    player.equipment[def.slot] = itemId;
+    player.gear.splice(idx, 1);
+    const previous = player.equipment[slot];
+    if (previous) player.gear.push(previous);
+    player.equipment[slot] = inst;
     this.recomputeStats(player);
   }
 
-  /** Derive power + max HP from level and equipped gear. */
+  /** Derive power + max HP from level and the equipped instances' rolled stats. */
   private recomputeStats(player: Player): void {
-    const content = getContent();
-    const weapon = player.equipment.weapon;
-    const armor = player.equipment.armor;
-    player.power = weapon ? (content.item(weapon)?.power ?? 0) : 0;
-    player.maxHp = maxHpForLevel(player.level) + (armor ? (content.item(armor)?.hp ?? 0) : 0);
+    player.power = player.equipment.weapon?.power ?? 0;
+    player.maxHp = maxHpForLevel(player.level) + (player.equipment.armor?.hp ?? 0);
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
 
@@ -311,11 +323,27 @@ export class World {
     return true;
   }
 
-  /** Add an item to a player's bag. Returns false for an unknown item id. */
+  /**
+   * Add an item to a player's bag. Equipment becomes rolled gear instance(s) in the gear bag;
+   * materials/currency stack in the loot map. Returns false for an unknown item id.
+   */
   giveItem(id: number, itemId: string, qty: number): boolean {
     const p = this.players.get(id);
-    if (!p || !getContent().item(itemId)) return false;
-    p.loot.set(itemId, (p.loot.get(itemId) ?? 0) + Math.max(1, qty));
+    const def = getContent().item(itemId);
+    if (!p || !def) return false;
+    const n = Math.max(1, qty);
+    if (def.kind === 'equip' && (def.slot === 'weapon' || def.slot === 'armor')) {
+      const base: BaseItem = {
+        id: def.id,
+        name: def.name,
+        slot: def.slot,
+        power: def.power,
+        hp: def.hp,
+      };
+      for (let i = 0; i < n; i++) p.gear.push(rollItemInstance(this.allocId(), base));
+    } else {
+      p.loot.set(itemId, (p.loot.get(itemId) ?? 0) + n);
+    }
     return true;
   }
 
@@ -380,6 +408,7 @@ export class World {
       xp: 0,
       gold: 0,
       loot: new Map(),
+      gear: [],
       equipment: { weapon: null, armor: null },
       power: 0,
       god: false,
@@ -407,6 +436,7 @@ export class World {
       xp: p.xp,
       gold: p.gold,
       loot: [...p.loot],
+      gear: [...p.gear],
       weapon: p.equipment.weapon,
       armor: p.equipment.armor,
       god: p.god,
@@ -424,6 +454,7 @@ export class World {
     p.xp = save.xp;
     p.gold = save.gold;
     p.loot = new Map(save.loot);
+    p.gear = [...save.gear];
     p.equipment = { weapon: save.weapon, armor: save.armor };
     p.god = save.god;
     p.quests = new Map(save.quests);
@@ -642,17 +673,31 @@ export class World {
       this.recomputeStats(killer);
       this.progressQuests(killer, mob.templateId);
     }
-    // Loot (materials + gear) comes from the DB-backed content drop tables.
-    for (const stack of getContent().rollLoot(mob.templateId)) {
+    // Loot (materials + gear) comes from the DB-backed content drop tables. Equipment items roll a
+    // rarity + stats into a unique instance; materials/currency drop as plain stacks.
+    const content = getContent();
+    for (const stack of content.rollLoot(mob.templateId)) {
       const id = this.allocId();
-      this.items.set(id, {
+      const item: GroundItem = {
         id,
         itemId: stack.item,
         qty: stack.qty,
         x: mob.x + (Math.random() - 0.5) * 30,
         y: mob.y + (Math.random() - 0.5) * 30,
         ttl: ITEM_TTL_MS,
-      });
+      };
+      const def = content.item(stack.item);
+      if (def && def.kind === 'equip' && (def.slot === 'weapon' || def.slot === 'armor')) {
+        const base: BaseItem = {
+          id: def.id,
+          name: def.name,
+          slot: def.slot,
+          power: def.power,
+          hp: def.hp,
+        };
+        item.instance = rollItemInstance(this.allocId(), base);
+      }
+      this.items.set(id, item);
     }
   }
 
@@ -731,6 +776,7 @@ export class World {
         if (player.dead) continue;
         if (Math.hypot(player.x - item.x, player.y - item.y) <= PICKUP_RADIUS) {
           if (item.itemId === 'gold') player.gold += item.qty;
+          else if (item.instance) player.gear.push(item.instance);
           else player.loot.set(item.itemId, (player.loot.get(item.itemId) ?? 0) + item.qty);
           this.events.push({ kind: 'cast', x: item.x, y: item.y });
           this.items.delete(item.id);
@@ -825,7 +871,7 @@ export class World {
       });
     }
     for (const item of this.items.values()) {
-      out.push({
+      const e: EntityState = {
         id: item.id,
         x: item.x,
         y: item.y,
@@ -838,7 +884,9 @@ export class World {
         level: 0,
         itemId: item.itemId,
         qty: item.qty,
-      });
+      };
+      if (item.instance) e.rarity = item.instance.rarity;
+      out.push(e);
     }
     for (const npc of this.npcs.values()) {
       out.push({
@@ -878,10 +926,11 @@ export class World {
         xpNext: number;
         gold: number;
         loot: Record<string, number>;
+        gear: ItemInstance[];
         respawnIn: number;
         power: number;
-        weapon: string;
-        armor: string;
+        weapon: ItemInstance | null;
+        armor: ItemInstance | null;
         x: number;
         y: number;
         ackSeq: number;
@@ -902,10 +951,11 @@ export class World {
       xpNext: progress.neededForNext,
       gold: p.gold,
       loot: Object.fromEntries(p.loot),
+      gear: p.gear,
       respawnIn: p.dead ? Math.max(0, Math.ceil(p.respawnAt - this.now)) : 0,
       power: p.power,
-      weapon: p.equipment.weapon ?? '',
-      armor: p.equipment.armor ?? '',
+      weapon: p.equipment.weapon,
+      armor: p.equipment.armor,
       x: p.x,
       y: p.y,
       ackSeq: p.lastSeq,

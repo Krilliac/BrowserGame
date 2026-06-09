@@ -1,5 +1,6 @@
 import { Application } from 'pixi.js';
 import { isPinnedToBottom } from './chat.js';
+import { instanceName, RARITY, type ItemInstance } from '../shared/items.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -95,12 +96,11 @@ let selected: AbilityId = 'slash';
 const cooldownEnd: Record<string, number> = {};
 const slotRects: { ability: AbilityId; x: number; y: number; w: number; h: number }[] = [];
 const bagRects: {
-  itemId: string;
+  uid: number;
   x: number;
   y: number;
   w: number;
   h: number;
-  equippable: boolean;
 }[] = [];
 
 let entities: EntityState[] = [];
@@ -140,9 +140,9 @@ function nearbyNpc(): EntityState | undefined {
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
-  const bag = bagRects.find((b) => b.equippable && inRect(e.clientX, e.clientY, b));
+  const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    net.sendEquip(bag.itemId);
+    net.sendEquip(bag.uid);
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
@@ -156,9 +156,9 @@ window.addEventListener('pointerdown', (e) => {
 
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
-  const bag = bagRects.find((b) => b.equippable && inRect(e.clientX, e.clientY, b));
+  const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    net.sendEquip(bag.itemId);
+    net.sendEquip(bag.uid);
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
@@ -437,6 +437,18 @@ function prettyItem(id: string): string {
   return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Rarity-prefixed display name for a gear instance (e.g. "Rare Iron Sword"). */
+function instLabel(inst: ItemInstance): string {
+  return instanceName(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
+}
+
+/** Short stat line for a gear instance (weapons show power, armor shows hp). */
+function instStat(inst: ItemInstance): string {
+  if (inst.power > 0) return `+${inst.power} pow`;
+  if (inst.hp > 0) return `+${inst.hp} hp`;
+  return '';
+}
+
 const MINIMAP_SIZE = 160;
 
 function drawMinimap(w: number): void {
@@ -522,7 +534,7 @@ function drawInventory(w: number): void {
   const px = w - pw - 8;
   let py = 44 + MINIMAP_SIZE + 8;
 
-  // Equipped panel (always shown): weapon, armor, and total power.
+  // Equipped panel (always shown): weapon, armor (rarity-colored), and total power.
   const eqH = 54;
   hud.fillStyle = 'rgba(0,0,0,0.5)';
   hud.fillRect(px, py, pw, eqH);
@@ -537,14 +549,43 @@ function drawInventory(w: number): void {
   hud.fillStyle = '#f2c14e';
   hud.fillText(`+${net.you.power} pow`, px + pw - 8, py + 15);
   hud.font = '11px system-ui, sans-serif';
-  hud.fillStyle = '#d7dbe3';
   hud.textAlign = 'left';
-  hud.fillText(`Wpn: ${net.you.weapon ? prettyItem(net.you.weapon) : '—'}`, px + 8, py + 32);
-  hud.fillText(`Arm: ${net.you.armor ? prettyItem(net.you.armor) : '—'}`, px + 8, py + 47);
+  const drawSlot = (label: string, inst: ItemInstance | null, ty: number): void => {
+    hud.fillStyle = inst ? RARITY[inst.rarity].color : '#8a8f99';
+    hud.fillText(`${label}: ${inst ? instLabel(inst) : '—'}`, px + 8, ty);
+  };
+  drawSlot('Wpn', net.you.weapon, py + 32);
+  drawSlot('Arm', net.you.armor, py + 47);
   py += eqH + 6;
 
-  // Bag panel (equippable rows are clickable).
+  // Gear panel: unequipped instances, rarity-colored and clickable to equip.
   bagRects.length = 0;
+  const gear = net.you.gear;
+  if (gear.length > 0) {
+    const gh = 24 + gear.length * 16;
+    hud.fillStyle = 'rgba(0,0,0,0.5)';
+    hud.fillRect(px, py, pw, gh);
+    hud.strokeStyle = 'rgba(201,162,75,0.6)';
+    hud.strokeRect(px, py, pw, gh);
+    hud.fillStyle = '#e7d9b0';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.textAlign = 'left';
+    hud.fillText('Gear — tap to equip', px + 8, py + 16);
+    hud.font = '11px system-ui, sans-serif';
+    gear.forEach((inst, i) => {
+      const ry = py + 24 + i * 16;
+      bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: 16 });
+      hud.fillStyle = RARITY[inst.rarity].color;
+      hud.textAlign = 'left';
+      hud.fillText(instLabel(inst), px + 8, ry + 12);
+      hud.fillStyle = '#cfd6df';
+      hud.textAlign = 'right';
+      hud.fillText(instStat(inst), px + pw - 8, ry + 12);
+    });
+    py += gh + 6;
+  }
+
+  // Materials panel: stackable loot sold to the vendor (not equippable).
   const items = Object.entries(net.you.loot).filter(([, n]) => n > 0);
   if (items.length === 0) return;
   const ph = 24 + items.length * 16;
@@ -559,11 +600,9 @@ function drawInventory(w: number): void {
   hud.font = '12px system-ui, sans-serif';
   items.forEach(([id, n], i) => {
     const ry = py + 24 + i * 16;
-    const equippable = net.content.isEquip(id);
-    bagRects.push({ itemId: id, x: px, y: ry, w: pw, h: 16, equippable });
-    hud.fillStyle = equippable ? '#9fd0ff' : '#d7dbe3';
+    hud.fillStyle = '#d7dbe3';
     hud.textAlign = 'left';
-    hud.fillText(prettyItem(id) + (equippable ? ' (equip)' : ''), px + 8, ry + 12);
+    hud.fillText(prettyItem(id), px + 8, ry + 12);
     hud.fillStyle = '#f2c14e';
     hud.textAlign = 'right';
     hud.fillText(`${n}`, px + pw - 8, ry + 12);

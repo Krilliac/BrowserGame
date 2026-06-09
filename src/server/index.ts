@@ -183,7 +183,7 @@ wss.on('connection', (socket) => {
       }
       case 'equip': {
         const p = players.get(entityId);
-        if (p) manager.get(p.instanceId)?.world.equip(entityId, msg.itemId);
+        if (p) manager.get(p.instanceId)?.world.equip(entityId, msg.uid);
         break;
       }
       case 'chat': {

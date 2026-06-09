@@ -10,6 +10,7 @@
 
 import type { AbilityId, Ability, EntityKind, FxEvent } from './combat.js';
 import type { AreaDef } from './areas.js';
+import type { ItemInstance } from './items.js';
 
 /** Item display/stat info sent to the client (mirrors the server's content DB items). */
 export interface ItemInfo {
@@ -62,6 +63,8 @@ export interface EntityState {
   /** Items only: dropped item id + quantity. */
   itemId?: string;
   qty?: number;
+  /** Gear drops only: rarity tier, so the client can color the ground glint. */
+  rarity?: string;
   /** Status bitflags for rendering tints (1 = slowed, 2 = burning). */
   flags?: number;
 }
@@ -84,8 +87,8 @@ export type ClientMessage =
   | { t: 'chat'; text: string }
   /** Interact with a nearby NPC (e.g. sell loot to the town vendor). */
   | { t: 'interact' }
-  /** Equip an item from the player's loot bag. */
-  | { t: 'equip'; itemId: string }
+  /** Equip a gear instance from the player's bag, by its unique id. */
+  | { t: 'equip'; uid: number }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string };
 
@@ -108,15 +111,17 @@ export type ServerMessage =
       xpInto: number;
       xpNext: number;
       gold: number;
-      /** Non-gold loot held: item id -> quantity. */
+      /** Non-gold material loot held: item id -> quantity (stackable, sold to the vendor). */
       loot: Record<string, number>;
+      /** Unequipped gear instances held in the bag (each with rolled rarity + stats). */
+      gear: ItemInstance[];
       /** Milliseconds until respawn while dead (0 when alive). */
       respawnIn: number;
       /** Attack power from the equipped weapon (added to every hit). */
       power: number;
-      /** Equipped item ids ('' when empty). */
-      weapon: string;
-      armor: string;
+      /** Equipped gear instances (null when the slot is empty). */
+      weapon: ItemInstance | null;
+      armor: ItemInstance | null;
       /** Authoritative position + last input the server processed (client reconciliation). */
       x: number;
       y: number;
