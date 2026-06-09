@@ -263,6 +263,8 @@ function drawHud(): void {
 
   input.hudRect = { x: panelX - 6, y: h - 108, w: panelW + 12, h: 104 };
 
+  drawInventory(w);
+
   if (net.you.dead) {
     hud.fillStyle = 'rgba(0,0,0,0.55)';
     hud.fillRect(0, 0, w, h);
@@ -271,6 +273,38 @@ function drawHud(): void {
     hud.textAlign = 'center';
     hud.fillText('You died — respawning…', w / 2, h / 2);
   }
+}
+
+function prettyItem(id: string): string {
+  return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function drawInventory(w: number): void {
+  const items = Object.entries(net.you.loot).filter(([, n]) => n > 0);
+  if (items.length === 0) return;
+  const pw = 156;
+  const ph = 24 + items.length * 16;
+  const px = w - pw - 8;
+  const py = 44;
+  hud.fillStyle = 'rgba(0,0,0,0.5)';
+  hud.fillRect(px, py, pw, ph);
+  hud.strokeStyle = 'rgba(201,162,75,0.6)';
+  hud.lineWidth = 1;
+  hud.strokeRect(px, py, pw, ph);
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText('Bag', px + 8, py + 16);
+  hud.font = '12px system-ui, sans-serif';
+  items.forEach(([id, n], i) => {
+    const y = py + 34 + i * 16;
+    hud.fillStyle = '#d7dbe3';
+    hud.textAlign = 'left';
+    hud.fillText(prettyItem(id), px + 8, y);
+    hud.fillStyle = '#f2c14e';
+    hud.textAlign = 'right';
+    hud.fillText(`${n}`, px + pw - 8, y);
+  });
 }
 
 function drawBar(

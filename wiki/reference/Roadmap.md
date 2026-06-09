@@ -36,8 +36,12 @@
 - [ ] Use the remaining sourced art: **tilemap ground** from the Kenney/OGA tiles, **item-icon
       sprites** (coins/gems) and **spell-FX sprite strips** (fireball/arrow/frost/explosion) to
       replace the procedural projectile/item/FX graphics.
+- [x] Spell-FX sprites (fireball/frost strips + explosion on death) and item-icon sprites
+      (coin/gem) wired into the renderer with procedural fallbacks.
+- [x] Inventory panel — non-gold loot now sent in the `you` message and shown in a HUD "Bag".
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
-- [ ] Inventory UI for non-gold loot (already accumulates server-side).
+- [ ] Tilemap ground from hand-authored Tiled maps (the bundled tiles suit authored maps better
+      than a single-tile fill; procedural ground kept for now).
 - [ ] More abilities, level-up effects, monster status visuals.
 
 ## Research-driven adoptions (from `wiki/research/`)

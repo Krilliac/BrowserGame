@@ -537,6 +537,7 @@ export class World {
         xpInto: number;
         xpNext: number;
         gold: number;
+        loot: Record<string, number>;
       }
     | undefined {
     const p = this.players.get(id);
@@ -553,6 +554,7 @@ export class World {
       xpInto: progress.intoLevel,
       xpNext: progress.neededForNext,
       gold: p.gold,
+      loot: Object.fromEntries(p.loot),
     };
   }
 

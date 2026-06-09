@@ -86,6 +86,8 @@ export type ServerMessage =
       xpInto: number;
       xpNext: number;
       gold: number;
+      /** Non-gold loot held: item id -> quantity. */
+      loot: Record<string, number>;
     }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
