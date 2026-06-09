@@ -651,6 +651,29 @@ export class PixiRenderer {
         t.alpha = alpha;
         // Crits float higher and faster so they read as a bigger moment.
         t.position.set(x, y - 50 - age * (crit ? 40 : 26));
+      } else if (ev.kind === 'coin' && ev.value !== undefined) {
+        // Gold gained (loot pickup / vendor sale): a rising "+N" in coin gold.
+        const t = this.fxText(ti++);
+        t.visible = true;
+        t.text = `+${ev.value}`;
+        t.style.fontSize = 15;
+        t.style.fill = '#f2c14e';
+        t.alpha = alpha;
+        t.position.set(x, y - 40 - age * 24);
+      } else if (ev.kind === 'levelup') {
+        // A gold burst ring + a "Level N!" callout rising over the player.
+        g.circle(x, y - 16, 14 + age * 46).stroke({ width: 3, color: '#ffe08a', alpha });
+        const t = this.fxText(ti++);
+        t.visible = true;
+        t.text = ev.value !== undefined ? `Level ${ev.value}!` : 'Level up!';
+        t.style.fontSize = 22;
+        t.style.fill = '#ffe08a';
+        t.alpha = alpha;
+        t.position.set(x, y - 56 - age * 30);
+      } else if (ev.kind === 'pickup') {
+        // A small expanding sparkle in the item's rarity color (white for materials).
+        const c = ev.rarity ? (RARITY[ev.rarity as Rarity]?.color ?? '#dfe7f0') : '#dfe7f0';
+        g.circle(x, y - 14, 4 + age * 16).stroke({ width: 2, color: c, alpha });
       } else if (ev.kind === 'melee' && ev.facing !== undefined) {
         g.arc(x, y - 16, 40, ev.facing - 0.7, ev.facing + 0.7).stroke({
           width: 4,

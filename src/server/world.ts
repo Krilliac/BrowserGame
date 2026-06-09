@@ -267,7 +267,7 @@ export class World {
       player.gear = [];
       if (gold <= 0) return;
       player.gold += gold;
-      this.events.push({ kind: 'cast', x: player.x, y: player.y });
+      this.events.push({ kind: 'coin', x: player.x, y: player.y, value: gold });
       return;
     }
   }
@@ -668,7 +668,10 @@ export class World {
     if (killer) {
       killer.xp += xpReward(mob.level);
       const newLevel = levelForXp(killer.xp);
-      if (newLevel > killer.level) this.notify(killer.id, `You reached level ${newLevel}!`);
+      if (newLevel > killer.level) {
+        this.notify(killer.id, `You reached level ${newLevel}!`);
+        this.events.push({ kind: 'levelup', x: killer.x, y: killer.y, value: newLevel });
+      }
       killer.level = newLevel;
       this.recomputeStats(killer);
       this.progressQuests(killer, mob.templateId);
@@ -775,10 +778,21 @@ export class World {
       for (const player of this.players.values()) {
         if (player.dead) continue;
         if (Math.hypot(player.x - item.x, player.y - item.y) <= PICKUP_RADIUS) {
-          if (item.itemId === 'gold') player.gold += item.qty;
-          else if (item.instance) player.gear.push(item.instance);
-          else player.loot.set(item.itemId, (player.loot.get(item.itemId) ?? 0) + item.qty);
-          this.events.push({ kind: 'cast', x: item.x, y: item.y });
+          if (item.itemId === 'gold') {
+            player.gold += item.qty;
+            this.events.push({ kind: 'coin', x: item.x, y: item.y, value: item.qty });
+          } else if (item.instance) {
+            player.gear.push(item.instance);
+            this.events.push({
+              kind: 'pickup',
+              x: item.x,
+              y: item.y,
+              rarity: item.instance.rarity,
+            });
+          } else {
+            player.loot.set(item.itemId, (player.loot.get(item.itemId) ?? 0) + item.qty);
+            this.events.push({ kind: 'pickup', x: item.x, y: item.y });
+          }
           this.items.delete(item.id);
           break;
         }

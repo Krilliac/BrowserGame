@@ -14,6 +14,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Reward feedback (the dopamine engine, turned on)** — loot, gold, and level-ups are no longer
+  silent and effectless. New `FxEvent` kinds (`pickup`, `coin`, `levelup`) are emitted server-side on
+  item pickup, gold gain / vendor sale, and level-up (`src/server/world.ts`) and rendered as a
+  rarity-colored pickup sparkle, a rising `+N` gold number, and a gold burst + "Level N!" callout
+  (`src/client/pixi-renderer.ts`). Also fixes the bug where **picking up loot and selling fired a
+  spell-cast ring** — they now show coin/sparkle FX. (Reward *audio* still TODO — needs CC0 clips.)
 - **RNG tier loot (rarity + rolled instances)** — slain monsters now drop **gear instances** with a
   rolled rarity (Common → Magic → Rare → Epic → Legendary) and stats rolled around the base item, so
   two "Iron Swords" are no longer interchangeable. Rarity drives drop weight, a stat multiplier +
