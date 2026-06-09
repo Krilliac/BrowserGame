@@ -77,7 +77,8 @@ export interface InputState {
 /** Messages the client sends to the server. */
 export type ClientMessage =
   | { t: 'join'; name: string }
-  | { t: 'input'; input: InputState }
+  /** Movement intent with a client sequence number (for prediction/reconciliation). */
+  | { t: 'input'; input: InputState; seq: number }
   /** Cast an ability aimed in direction (dx, dy); the server normalizes and validates. */
   | { t: 'cast'; ability: AbilityId; dx: number; dy: number }
   | { t: 'chat'; text: string }
@@ -116,6 +117,10 @@ export type ServerMessage =
       /** Equipped item ids ('' when empty). */
       weapon: string;
       armor: string;
+      /** Authoritative position + last input the server processed (client reconciliation). */
+      x: number;
+      y: number;
+      ackSeq: number;
     }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }

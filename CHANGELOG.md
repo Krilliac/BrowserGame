@@ -8,6 +8,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Client-side prediction + reconciliation** — the local player now simulates input immediately
+  (`src/client/predictor.ts`) instead of being rendered ~100ms in the past, so your own movement
+  feels instant. Inputs carry a sequence number; the server acks it with the authoritative position
+  in `you`, and the client rebases + replays unacknowledged inputs (smoothing residual error,
+  snapping on teleports). Movement math is shared (`src/shared/movement.ts`) so prediction matches
+  the server exactly. Remote entities stay interpolated. (Design: `wiki/research/state-sync.md`.)
 - **Accounts, access levels & chat commands** — slash-commands in chat gated by account access
   level (Player→Moderator→GameMaster→Admin→Developer). `accounts` table with scrypt-hashed
   passwords (`src/server/accounts.ts`); authenticate in-game with `/login`. A command registry

@@ -4,6 +4,7 @@ import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
+import { Predictor } from './predictor.js';
 import type { AbilityId } from '../shared/combat.js';
 import type { EntityState } from '../shared/protocol.js';
 
@@ -54,7 +55,27 @@ window.addEventListener('keydown', unlockAudio, { once: true });
 
 const input = new Input();
 input.attach(gameCanvas);
-setInterval(() => net.sendInput(input.sample()), 1000 / 30);
+
+// --- Client-side prediction (local player feels instant; server stays authoritative) --
+const predictor = new Predictor();
+const STEP_DT = 1 / 30;
+let lastAreaId = '';
+let lastAuthRev = 0;
+setInterval(() => {
+  const sample = input.sample();
+  if (net.areaId !== lastAreaId) {
+    predictor.reset();
+    lastAreaId = net.areaId;
+  }
+  if (net.authRev !== lastAuthRev) {
+    predictor.reconcile(net.you.ackSeq, net.you.x, net.you.y, STEP_DT);
+    lastAuthRev = net.authRev;
+  }
+  const area = net.content.area(net.areaId);
+  if (area) predictor.setBounds(area.width, area.height);
+  const seq = predictor.ready ? predictor.step(sample, STEP_DT) : 0;
+  net.sendInput(sample, seq);
+}, 1000 * STEP_DT);
 
 // --- Combat input ---------------------------------------------------------------------
 let mouseX = window.innerWidth / 2;
@@ -206,8 +227,17 @@ app.ticker.add(() => {
   const now = performance.now();
   entities = net.snapshots.sample(now - INTERP_DELAY_MS);
   self = entities.find((e) => e.id === net.selfId);
-  const camX = self ? self.x : 0;
-  const camY = self ? self.y : 0;
+  let camX = self ? self.x : 0;
+  let camY = self ? self.y : 0;
+
+  // Render the local player from the prediction (instant), others from interpolation (smooth).
+  if (self && predictor.ready) {
+    const predicted = { ...self, x: predictor.x, y: predictor.y };
+    entities = entities.map((e) => (e.id === net.selfId ? predicted : e));
+    self = predicted;
+    camX = predictor.x;
+    camY = predictor.y;
+  }
 
   renderer.update({ areaId: net.areaId, entities, selfId: net.selfId, fx: net.fx, camX, camY });
   sound.setArea(net.areaId);

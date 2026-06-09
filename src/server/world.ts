@@ -1,4 +1,5 @@
 import { clamp } from '../shared/math.js';
+import { moveVector } from '../shared/movement.js';
 import {
   MAX_NAME_LENGTH,
   PLAYER_SPEED,
@@ -54,6 +55,7 @@ interface Player {
   power: number;
   god: boolean;
   input: InputState;
+  lastSeq: number;
   cooldowns: Map<AbilityId, number>;
   dead: boolean;
   respawnAt: number;
@@ -340,6 +342,7 @@ export class World {
       power: 0,
       god: false,
       input: { up: false, down: false, left: false, right: false },
+      lastSeq: 0,
       cooldowns: new Map(),
       dead: false,
       respawnAt: 0,
@@ -351,7 +354,7 @@ export class World {
     this.players.delete(id);
   }
 
-  setInput(id: number, input: InputState): void {
+  setInput(id: number, input: InputState, seq = 0): void {
     const player = this.players.get(id);
     if (!player) return;
     player.input = {
@@ -360,6 +363,7 @@ export class World {
       left: !!input.left,
       right: !!input.right,
     };
+    if (seq > player.lastSeq) player.lastSeq = seq;
   }
 
   /** Cast an ability aimed in direction (dx,dy). Validated server-side: alive, cooldown, mana. */
@@ -722,6 +726,9 @@ export class World {
         power: number;
         weapon: string;
         armor: string;
+        x: number;
+        y: number;
+        ackSeq: number;
       }
     | undefined {
     const p = this.players.get(id);
@@ -743,6 +750,9 @@ export class World {
       power: p.power,
       weapon: p.equipment.weapon ?? '',
       armor: p.equipment.armor ?? '',
+      x: p.x,
+      y: p.y,
+      ackSeq: p.lastSeq,
     };
   }
 
@@ -782,17 +792,6 @@ function rollAbilityDamage(
 function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
   if (abilityId === 'frost') mob.statuses.apply('slow', 1500, 0.4);
   else if (abilityId === 'fireball') mob.statuses.apply('burn', 2000, 8);
-}
-
-function moveVector(input: InputState): { dx: number; dy: number } {
-  let dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-  let dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
-  if (dx !== 0 && dy !== 0) {
-    const inv = 1 / Math.SQRT2;
-    dx *= inv;
-    dy *= inv;
-  }
-  return { dx, dy };
 }
 
 function sanitizeName(name: string): string {

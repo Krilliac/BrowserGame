@@ -25,6 +25,9 @@ export interface SelfStats {
   power: number;
   weapon: string;
   armor: string;
+  x: number;
+  y: number;
+  ackSeq: number;
 }
 
 const MAX_CHAT_LINES = 50;
@@ -57,7 +60,12 @@ export class Net {
     power: 0,
     weapon: '',
     armor: '',
+    x: 0,
+    y: 0,
+    ackSeq: 0,
   };
+  /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
+  authRev = 0;
   selfId = 0;
   connected = false;
   tickRate = 20;
@@ -88,8 +96,8 @@ export class Net {
     });
   }
 
-  sendInput(input: InputState): void {
-    this.send({ t: 'input', input });
+  sendInput(input: InputState, seq: number): void {
+    this.send({ t: 'input', input, seq });
   }
 
   sendChat(text: string): void {
@@ -147,7 +155,11 @@ export class Net {
           power: msg.power,
           weapon: msg.weapon,
           armor: msg.armor,
+          x: msg.x,
+          y: msg.y,
+          ackSeq: msg.ackSeq,
         };
+        this.authRev++;
         break;
       case 'area_changed':
         this.areaId = msg.areaId;

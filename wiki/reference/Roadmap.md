@@ -45,7 +45,8 @@
 - [x] Town vendor (Merchant NPC) — press E to sell loot for gold (`vendor.ts`, sub-agent module).
 - [x] Equipment & stats — weapon (+power) / armor (+max HP) drops, click-to-equip, HUD panel.
 - [x] Accounts + access levels + chat commands (player/GM/admin/dev); `/login` auth.
-- [ ] **Delta snapshots + client prediction** (design in `wiki/research/state-sync.md`).
+- [x] Client-side prediction + reconciliation (instant local movement; `predictor.ts`).
+- [ ] **Delta snapshots** (per-client field diffs; design in `wiki/research/state-sync.md`).
 - [ ] More chat channels (global/party/guild/whisper) + moderation (/mute /kick); quests wired in.
 - [ ] Shop to *buy* gear; banking; gear rarity/affixes; parties/guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.

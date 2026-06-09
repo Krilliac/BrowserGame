@@ -129,7 +129,7 @@ wss.on('connection', (socket) => {
       }
       case 'input': {
         const p = players.get(entityId);
-        if (p) manager.get(p.instanceId)?.world.setInput(entityId, msg.input);
+        if (p) manager.get(p.instanceId)?.world.setInput(entityId, msg.input, msg.seq);
         break;
       }
       case 'cast': {
