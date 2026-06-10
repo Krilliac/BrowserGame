@@ -167,6 +167,8 @@ export type ClientMessage =
   | { t: 'friend_remove'; name: string }
   /** Send a private whisper to another player by name. */
   | { t: 'whisper'; to: string; text: string }
+  /** Socket a held gem into the first open socket on your equipped gear. */
+  | { t: 'socket_gem'; gemId: string }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */

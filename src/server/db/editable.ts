@@ -117,7 +117,7 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     label: 'item',
     columns: {
       name: { type: 'text' },
-      kind: { type: 'enum', values: ['equip', 'loot', 'currency', 'spellbook'] },
+      kind: { type: 'enum', values: ['equip', 'loot', 'currency', 'spellbook', 'gem'] },
       slot: { type: 'enum', values: ['weapon', 'armor'], nullable: true },
       power: { type: 'real', min: 0, max: 9999, nullable: true },
       hp: { type: 'real', min: 0, max: 99999, nullable: true },

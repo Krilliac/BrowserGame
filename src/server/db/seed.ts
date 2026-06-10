@@ -6,6 +6,7 @@ import { EQUIPMENT } from '../../shared/equipment.js';
 import { MOB_TEMPLATES, AREA_MOBS } from '../mobs.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
+import { GEMS } from '../../shared/gems.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 
 /** Display names + colors for the non-equipment loot materials (and gold). */
@@ -112,6 +113,13 @@ function ensureSpellbookContent(db: Database): void {
   db.prepare(
     "UPDATE quests SET reward_gold = 150 WHERE id = 'wolf_cull' AND reward_gold = 50",
   ).run();
+
+  // Gems are content items (kind 'gem') so the client gets their name + color via the content
+  // packet. Their stats/socket logic live in shared/gems.ts; here we just register them as items.
+  // Sell value scales loosely with tier so a spare gem is still worth a little gold.
+  for (const g of Object.values(GEMS)) {
+    insItem.run(g.id, g.name, 'gem', null, null, null, g.color, g.tier * 10, null);
+  }
 }
 
 /** Seed a default developer account if none exists. Password from DEV_PASSWORD (default insecure). */

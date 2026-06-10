@@ -115,6 +115,8 @@ const bagRects: {
 }[] = [];
 // Spellbook entries in the Bag (tap to read/learn) and shop rows (tap to buy) + the sell/close buttons.
 const learnRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
+// Gem entries in the Bag (tap to socket into equipped gear).
+const socketRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
 const shopRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
 let shopSellRect: { x: number; y: number; w: number; h: number } | null = null;
 let shopCloseRect: { x: number; y: number; w: number; h: number } | null = null;
@@ -208,6 +210,11 @@ window.addEventListener('pointerdown', (e) => {
   const book = learnRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (book) {
     net.sendLearn(book.itemId);
+    return;
+  }
+  const gem = socketRects.find((g) => inRect(e.clientX, e.clientY, g));
+  if (gem) {
+    net.sendSocketGem(gem.itemId);
     return;
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
@@ -320,6 +327,11 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   const book = learnRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (book) {
     net.sendLearn(book.itemId);
+    return;
+  }
+  const gem = socketRects.find((g) => inRect(e.clientX, e.clientY, g));
+  if (gem) {
+    net.sendSocketGem(gem.itemId);
     return;
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
@@ -624,6 +636,22 @@ function drawCharSlot(slot: string, bx: number, by: number, bw: number, bh: numb
       .map((s) => s.text)
       .join('  ');
     hud.fillText(fitText(stats, bw - 12), bx + 6, by + 37);
+    // Socket pips along the right edge: filled diamond (gem color) or hollow (empty socket).
+    const sockets = inst.sockets ?? [];
+    sockets.forEach((gemId, i) => {
+      const sx = bx + bw - 12 - i * 13;
+      const sy = by + 12;
+      hud.font = '11px system-ui, sans-serif';
+      hud.textAlign = 'center';
+      if (gemId) {
+        hud.fillStyle = net.content.item(gemId)?.color ?? '#d6a8ff';
+        hud.fillText('◆', sx, sy);
+      } else {
+        hud.fillStyle = 'rgba(214,168,255,0.45)';
+        hud.fillText('◇', sx, sy);
+      }
+    });
+    hud.textAlign = 'left';
   } else {
     hud.fillStyle = '#565b64';
     hud.font = 'italic 10px system-ui, sans-serif';
@@ -1238,8 +1266,39 @@ function drawInventory(w: number): void {
     py += bh + 6;
   }
 
-  // Materials panel: stackable loot sold to the vendor (not equippable, not a spellbook).
-  const items = held.filter(([id]) => net.content.item(id)?.kind !== 'spellbook');
+  // Gems panel: socketable gems in the bag, tappable to slot into the first open equipped socket.
+  socketRects.length = 0;
+  const gems = held.filter(([id]) => net.content.item(id)?.kind === 'gem');
+  if (gems.length > 0) {
+    const gh2 = 24 + gems.length * 18;
+    hud.fillStyle = 'rgba(0,0,0,0.5)';
+    hud.fillRect(px, py, pw, gh2);
+    hud.strokeStyle = 'rgba(180,136,255,0.5)';
+    hud.strokeRect(px, py, pw, gh2);
+    hud.fillStyle = '#d6a8ff';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.textAlign = 'left';
+    hud.fillText('Gems — tap to socket', px + 8, py + 16);
+    gems.forEach(([id, n], i) => {
+      const ry = py + 22 + i * 18;
+      socketRects.push({ itemId: id, x: px, y: ry, w: pw, h: 18 });
+      hud.font = '11px system-ui, sans-serif';
+      hud.fillStyle = net.content.item(id)?.color ?? '#d7dbe3';
+      hud.textAlign = 'left';
+      hud.fillText(
+        fitText((net.content.item(id)?.name ?? prettyItem(id)) + (n > 1 ? ` ×${n}` : ''), pw - 16),
+        px + 8,
+        ry + 13,
+      );
+    });
+    py += gh2 + 6;
+  }
+
+  // Materials panel: stackable loot sold to the vendor (not equippable, spellbook, or gem).
+  const items = held.filter(([id]) => {
+    const kind = net.content.item(id)?.kind;
+    return kind !== 'spellbook' && kind !== 'gem';
+  });
   if (items.length === 0) return;
   const ph = 24 + items.length * 16;
   hud.fillStyle = 'rgba(0,0,0,0.5)';

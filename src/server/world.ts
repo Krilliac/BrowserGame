@@ -42,6 +42,7 @@ import {
   type BaseItem,
   type ItemInstance,
 } from '../shared/items.js';
+import { gemBonuses, isGem, rollGemDrop } from '../shared/gems.js';
 import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-corruption.js';
 import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../shared/equipment.js';
 import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
@@ -94,6 +95,11 @@ const BOSS_CORRUPT_CHANCE = 0.003;
 const SPELLBOOK_DROP_NORMAL = 0.004; // 0.4% per ordinary kill (1 in 250)
 const SPELLBOOK_DROP_ELITE = 0.03; // 3% per champion
 const SPELLBOOK_DROP_BOSS = 0.3; // 30% per area boss
+
+// Gem drops: more common than spellbooks (they stack into sockets, a smaller per-item bonus).
+const GEM_DROP_NORMAL = 0.02; // 2% per ordinary kill
+const GEM_DROP_ELITE = 0.12; // 12% per champion
+const GEM_DROP_BOSS = 0.6; // 60% per area boss
 
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
 const ELITE_CHANCE = 0.09;
@@ -545,6 +551,34 @@ export class World {
     }
   }
 
+  /**
+   * Socket a held gem into the first equipped item with an open socket. Consumes one gem from the
+   * bag. Auto-targets so it's a single tap — no fiddly drag/drop. Server-authoritative: the gem
+   * must be held and a real gem, and there must be an open socket.
+   */
+  socketGem(id: number, gemId: string): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    if ((player.loot.get(gemId) ?? 0) <= 0 || !isGem(gemId)) return;
+    // Find the first equipped piece with a free socket (stable slot order).
+    for (const slot of EQUIP_SLOTS) {
+      const inst = player.equipment[slot];
+      if (!inst?.sockets) continue;
+      const free = inst.sockets.indexOf(null);
+      if (free >= 0) {
+        inst.sockets[free] = gemId;
+        this.consumeLoot(player, gemId);
+        this.recomputeStats(player);
+        this.notify(
+          player.id,
+          `Socketed a gem into your ${getContent().item(inst.baseId)?.name ?? slot}.`,
+        );
+        return;
+      }
+    }
+    this.notify(player.id, 'No open sockets on your equipped gear.');
+  }
+
   /** Remove one unit of a stackable loot item, deleting the stack when it hits zero. */
   private consumeLoot(player: Player, itemId: string): void {
     const n = (player.loot.get(itemId) ?? 0) - 1;
@@ -625,6 +659,12 @@ export class World {
           bonusHp -= a.value; // corrupted debuff: less max HP
         else if (a.stat === 'fragile') damageTaken += a.value / 100; // corrupted debuff: take more
       }
+      // Socketed gems add the same stat kinds (crit gem value is in whole % points).
+      const gems = gemBonuses(inst.sockets ?? []);
+      power += gems.power;
+      bonusHp += gems.hp;
+      crit += gems.crit / 100;
+      multishot += gems.multishot;
     }
     player.power = power;
     player.critChance = crit;
@@ -1205,6 +1245,11 @@ export class World {
         ? SPELLBOOK_DROP_ELITE
         : SPELLBOOK_DROP_NORMAL;
     if (Math.random() < bookChance) this.dropSpellbook(mob.x, mob.y);
+
+    // Gems are loot too: an independent roll (elites/bosses far likelier), tier-weighted toward
+    // chipped. A socketed gem is a small, stackable build bonus — the "loot = your build" layer.
+    const gemChance = isBoss ? GEM_DROP_BOSS : mob.elite ? GEM_DROP_ELITE : GEM_DROP_NORMAL;
+    if (Math.random() < gemChance) this.dropGround(rollGemDrop(), 1, mob.x, mob.y);
 
     // Living loot meta: consume this monster type's accumulated hunting bounty. A long lull since the
     // last kill (or a never-farmed type) means a high chance of a bonus rarity-bumped drop; the kill

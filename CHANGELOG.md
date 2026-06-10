@@ -8,6 +8,13 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Gems + sockets (Diablo-style).** Gear now rolls **gem sockets** by rarity (magic/rare 1, epic/
+  legendary 2, corrupted 1). Gems drop from monsters (2%/12%/60% normal/elite/boss) as their own
+  stackable item kind — three families × three tiers (Ruby→power, Sapphire→hp, Topaz→crit) plus a
+  rare tier-3 Diamond (+1 projectile). Tap a gem in the bag to socket it into the first open socket
+  on your equipped gear (server-authoritative, auto-targeted); socketed gems fold into your stats
+  via `recomputeStats`, and the character panel shows filled/empty socket pips. Built on
+  `src/shared/gems.ts` (15 unit tests) with socket plumbing on `ItemInstance`.
 - **Player parties (press P).** Invite the nearest player (or `/invite <name>`), accept/decline,
   and leave from a party panel showing each member's name, level, live HP bar, and area. Parties are
   host-level so they span areas/instances; a kill **shares full XP + quest credit** with every

@@ -176,6 +176,60 @@ describe('vendor shop — buy / sell / proximity', () => {
   });
 });
 
+describe('gem socketing', () => {
+  it('sockets a held gem into equipped gear, applies its bonus, and consumes the gem', () => {
+    const w = new World();
+    const id = w.spawn('Jeweler');
+    // Give and equip a rare weapon (rare rolls 1 socket per socketCountFor).
+    w.giveItem(id, 'iron_sword', 1);
+    let gear = w.playerStats(id)!.gear;
+    // Find an instance that actually rolled a socket; rare/epic/legendary do. Re-roll via more drops
+    // until we have one with a socket (giveItem rolls random rarity).
+    for (let i = 0; i < 50 && !gear.some((g) => (g.sockets?.length ?? 0) > 0); i++) {
+      w.giveItem(id, 'iron_sword', 1);
+      gear = w.playerStats(id)!.gear;
+    }
+    const socketed = gear.find((g) => (g.sockets?.length ?? 0) > 0)!;
+    expect(socketed).toBeDefined();
+    w.equip(id, socketed.uid);
+    const powerBefore = w.playerStats(id)!.power;
+
+    // Give a power gem and socket it.
+    w.giveItem(id, 'ruby_t3', 1); // Flawless Ruby: +10 power
+    expect(w.playerStats(id)!.loot.ruby_t3).toBe(1);
+    w.socketGem(id, 'ruby_t3');
+
+    // The gem is consumed and the equipped item now has it in a socket; power went up.
+    expect(w.playerStats(id)!.loot.ruby_t3 ?? 0).toBe(0);
+    const eqSlot = Object.values(w.playerStats(id)!.equipment).find((e) =>
+      e?.sockets?.includes('ruby_t3'),
+    );
+    expect(eqSlot).toBeDefined();
+    // The ruby adds power only if the equipped piece is a weapon; if it landed on armor, power may
+    // be unchanged — so assert the socket is filled (above) and, when it's the weapon, power rose.
+    if (eqSlot?.baseId === 'iron_sword') {
+      expect(w.playerStats(id)!.power).toBeGreaterThan(powerBefore);
+    }
+  });
+
+  it('rejects socketing with no open socket and does not consume the gem', () => {
+    const w = new World();
+    const id = w.spawn('NoSlots');
+    w.giveItem(id, 'ruby_t1', 1);
+    // No gear equipped → no sockets anywhere. The gem must remain in the bag.
+    w.socketGem(id, 'ruby_t1');
+    expect(w.playerStats(id)!.loot.ruby_t1).toBe(1);
+  });
+
+  it('rejects socketing a non-gem item', () => {
+    const w = new World();
+    const id = w.spawn('Faker');
+    w.giveItem(id, 'wolf_pelt', 1);
+    w.socketGem(id, 'wolf_pelt');
+    expect(w.playerStats(id)!.loot.wolf_pelt).toBe(1); // untouched
+  });
+});
+
 describe('quest log state (the wire data for the quest-log UI)', () => {
   it('reports available → active → done with progress', () => {
     const w = new World(1600, 1200, { x: 800, y: 600 }, undefined, 'wilderness');

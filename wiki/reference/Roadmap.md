@@ -81,7 +81,15 @@
       & named-elite quest *types*; gambler / healer / crafter (Artificer) NPCs + gold sinks;
       area-scoped quest offers; hard portal gates (boss-kill / quest-key); waypoints; biome hazard
       gimmicks (poison pools, lava cracks, death-explosions); vendor stock rotation + sealed-tome gamble.
-- [ ] Banking; parties/guilds/trade.
+- [x] **Parties** — host-level grouping (invite/accept/leave, leader promotion), shared XP + quest
+      credit for co-members in the same instance, roster UI (P). `party.ts` + tests.
+- [x] **Friends + whispers** — persistent friends list with live presence, social panel (F),
+      `/friend` `/unfriend` `/w`, chat channels (say/party/whisper/system). `social.ts` + tests.
+- [x] **Quest log UI** (L) — available/active/completed with progress bars + accept buttons.
+- [x] **Gems + sockets** — gem drops, sockets rolled on gear, tap-to-socket, stat folding,
+      socket pips in the character panel. `shared/gems.ts` + tests.
+- [ ] **Enchanting NPC (Artificer)** — reroll/add affixes for gold + materials; gem unsocketing.
+- [ ] Banking; guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
 - [ ] Tilemap ground from hand-authored Tiled maps (the bundled tiles suit authored maps better

@@ -205,6 +205,26 @@ export interface ItemInstance {
   hp: number;
   /** Rolled bonus affixes (empty for common gear). */
   affixes: Affix[];
+  /** Gem sockets: each entry is a socketed gem id or null (empty). Absent on pre-gem saves/gear. */
+  sockets?: (string | null)[];
+}
+
+/** How many gem sockets a piece of gear of this rarity rolls. Sockets are a valued, rarer perk. */
+export function socketCountFor(rarity: Rarity): number {
+  const counts: Record<Rarity, number> = {
+    common: 0,
+    magic: 1,
+    rare: 1,
+    epic: 2,
+    legendary: 2,
+    corrupted: 1,
+  };
+  return counts[rarity];
+}
+
+/** A fresh array of `n` empty sockets. */
+function emptySockets(n: number): (string | null)[] {
+  return new Array<string | null>(n).fill(null);
 }
 
 /** Roll a fresh instance of a base item: a rarity, then its stat(s). Deterministic given `rng`. */
@@ -222,6 +242,7 @@ export function rollItemInstance(
     power: rollStat(base.power ?? 0, rarity, rng),
     hp: rollStat(base.hp ?? 0, rarity, rng),
     affixes: rollAffixes(rarity, rng),
+    sockets: emptySockets(socketCountFor(rarity)),
   };
 }
 
@@ -258,6 +279,7 @@ export function rollCorruptedInstance(
     power: rollStat(base.power ?? 0, 'corrupted', rng),
     hp: rollStat(base.hp ?? 0, 'corrupted', rng),
     affixes: rollCorruptedAffixes(rng),
+    sockets: emptySockets(socketCountFor('corrupted')),
   };
 }
 

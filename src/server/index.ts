@@ -364,6 +364,13 @@ wss.on('connection', (socket) => {
         }
         break;
       }
+      case 'socket_gem': {
+        const p = players.get(entityId);
+        if (p && typeof msg.gemId === 'string') {
+          manager.get(p.instanceId)?.world.socketGem(entityId, msg.gemId);
+        }
+        break;
+      }
       case 'party_invite': {
         if (!players.has(entityId) || typeof msg.targetName !== 'string') break;
         const target = findPlayerByName(msg.targetName);

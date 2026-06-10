@@ -205,6 +205,10 @@ export class Net {
     this.send({ t: 'whisper', to, text });
   }
 
+  sendSocketGem(gemId: string): void {
+    this.send({ t: 'socket_gem', gemId });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
