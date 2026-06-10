@@ -14,6 +14,13 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Living loot meta — the hunting bounty** — the first of the signature twists: each monster type
+  accumulates a loot "bounty" while it is left alone and **consumes it on a kill**, so the first
+  kills after a lull are richer (a high chance of a bonus rarity-bumped drop) and farming one spot
+  quickly depletes it back to base loot. The loot value literally *reacts to farming pressure* —
+  rewarding exploration over camping. Server-side and time-based (`lastKillAt` per template, no DB),
+  with a player notice on a bounty (`src/server/world.ts`). (Seasonal/persistent meta evolution
+  remains future work.)
 - **Quest-giver NPC (the loop now has direction)** — a new **Elder Maeve** stands in the town plaza
   beside the merchant; walk up and press **E** to take the next quest (or hear your progress) — no
   more undiscoverable typed `/accept`. New `questgiver` NPC kind dispatched in `World.interact`

@@ -48,6 +48,11 @@ const ITEM_TTL_MS = 30_000;
 const INTERACT_RANGE = 70;
 const DASH_MS = 300; // how long a charger's lunge lasts
 
+// Living loot meta — a "hunting bounty" per monster type that regenerates while it is left alone and
+// is consumed on a kill, so the first kills after a lull are richer and spam-farming yields base loot.
+const BOUNTY_FULL_MS = 60_000; // a minute untouched = a full bounty
+const BOUNTY_MAX_CHANCE = 0.5; // bonus-drop chance at a full bounty
+
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
 const ELITE_CHANCE = 0.09;
 const ELITE_MODIFIERS: { name: string; hp: number; dmg: number; spd: number }[] = [
@@ -206,6 +211,8 @@ export class World {
   private readonly npcs = new Map<number, Npc>();
   private events: FxEvent[] = [];
   private notices: { playerId: number; text: string }[] = [];
+  /** Living-loot meta: sim time (ms) each monster type was last killed, for the hunting bounty. */
+  private readonly lastKillAt = new Map<string, number>();
   // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
   private moveScale = 1;
   private aggroScale = 1;
@@ -931,22 +938,37 @@ export class World {
     // Champion bonus: a pile of gold + one guaranteed, rarity-bumped piece of gear.
     if (mob.elite) {
       this.dropGround('gold', 30 + Math.floor(Math.random() * 50), mob.x, mob.y);
-      const equips = content
-        .items()
-        .filter((i) => i.kind === 'equip' && (i.slot === 'weapon' || i.slot === 'armor'));
-      const def = equips[Math.floor(Math.random() * equips.length)];
-      if (def) {
-        const base: BaseItem = {
-          id: def.id,
-          name: def.name,
-          slot: def.slot as 'weapon' | 'armor',
-          power: def.power,
-          hp: def.hp,
-        };
-        const ground = this.dropGround(def.id, 1, mob.x, mob.y);
-        ground.instance = rollItemInstance(this.allocId(), base, Math.random, 2);
-      }
+      this.dropBonusGear(mob.x, mob.y, 2);
     }
+
+    // Living loot meta: consume this monster type's accumulated hunting bounty. A long lull since the
+    // last kill (or a never-farmed type) means a high chance of a bonus rarity-bumped drop; the kill
+    // resets the timer, so farming the same spot quickly depletes it back to base loot.
+    const last = this.lastKillAt.get(mob.templateId);
+    const bounty = last === undefined ? 1 : Math.min(1, (this.now - last) / BOUNTY_FULL_MS);
+    this.lastKillAt.set(mob.templateId, this.now);
+    if (Math.random() < bounty * BOUNTY_MAX_CHANCE) {
+      this.dropBonusGear(mob.x, mob.y, 1);
+      if (killer) this.notify(killer.id, 'A hunting bounty! Fresh quarry yields richer loot.');
+    }
+  }
+
+  /** Drop one random equipment piece as a rolled, rarity-bumped instance (elite + bounty rewards). */
+  private dropBonusGear(x: number, y: number, rarityBump: number): void {
+    const equips = getContent()
+      .items()
+      .filter((i) => i.kind === 'equip' && (i.slot === 'weapon' || i.slot === 'armor'));
+    const def = equips[Math.floor(Math.random() * equips.length)];
+    if (!def) return;
+    const base: BaseItem = {
+      id: def.id,
+      name: def.name,
+      slot: def.slot as 'weapon' | 'armor',
+      power: def.power,
+      hp: def.hp,
+    };
+    const ground = this.dropGround(def.id, 1, x, y);
+    ground.instance = rollItemInstance(this.allocId(), base, Math.random, rarityBump);
   }
 
   /** Spawn a ground item (gold or a material/gear stack) with a little scatter. Returns it. */
