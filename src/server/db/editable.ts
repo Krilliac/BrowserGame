@@ -155,6 +155,8 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       reward_gold: { type: 'int', min: 0, max: 100000000 },
       reward_xp: { type: 'int', min: 0, max: 100000000 },
       reward_item: { type: 'text', nullable: true },
+      turn_in_item: { type: 'text', nullable: true },
+      turn_in_count: { type: 'int', min: 0, max: 100000 },
     },
   },
 

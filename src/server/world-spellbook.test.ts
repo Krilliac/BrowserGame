@@ -323,6 +323,62 @@ describe('quest log state (the wire data for the quest-log UI)', () => {
   });
 });
 
+describe('collect / turn-in quests', () => {
+  /** Town world with the quest-giver (Elder Maeve at 740,560) and a player beside her. */
+  function townWithGiver(): { w: World; id: number } {
+    const w = new World(1600, 1200, { x: 740, y: 560 }, undefined, 'town');
+    w.populateNpcs('town');
+    const id = w.spawn('Collector', { x: 740, y: 560 });
+    return { w, id };
+  }
+
+  it('reports collect progress from held items and completes on turn-in (consuming them)', () => {
+    const { w, id } = townWithGiver();
+    w.acceptQuest(id, 'warm_hides'); // turn in 8 wolf_pelt
+    // Not enough yet: progress reflects held count, not done.
+    w.giveItem(id, 'wolf_pelt', 5);
+    let q = w.playerStats(id)!.quests.find((x) => x.id === 'warm_hides')!;
+    expect(q.kind).toBe('collect');
+    expect(q.status).toBe('active');
+    expect(q.progress).toBe(5);
+    expect(q.targetCount).toBe(8);
+
+    // Reach the threshold and talk to the quest-giver (interact) to turn in.
+    w.giveItem(id, 'wolf_pelt', 3); // now 8
+    const goldBefore = w.playerStats(id)!.gold;
+    w.interact(id); // Elder Maeve auto-turns-in the completable collect quest
+    q = w.playerStats(id)!.quests.find((x) => x.id === 'warm_hides')!;
+    expect(q.status).toBe('done');
+    expect(w.playerStats(id)!.loot.wolf_pelt ?? 0).toBe(0); // 8 consumed
+    expect(w.playerStats(id)!.gold).toBe(goldBefore + 120); // reward
+  });
+
+  it('does not turn in a collect quest without enough items', () => {
+    const { w, id } = townWithGiver();
+    w.acceptQuest(id, 'warm_hides');
+    w.giveItem(id, 'wolf_pelt', 3);
+    w.interact(id); // not enough — should not complete or consume
+    const q = w.playerStats(id)!.quests.find((x) => x.id === 'warm_hides')!;
+    expect(q.status).toBe('active');
+    expect(w.playerStats(id)!.loot.wolf_pelt).toBe(3);
+  });
+
+  it('a kill on a collect quest does not advance it', () => {
+    const w = new World(1600, 1200, { x: 800, y: 600 }, undefined, 'wilderness');
+    const id = w.spawn('Hunter', { x: 800, y: 600 });
+    w.acceptQuest(id, 'warm_hides');
+    w.setLevel(id, 50);
+    w.toggleGod(id);
+    for (let t = 0; t < 80; t++) {
+      w.spawnMobAt(id, 'wolf');
+      w.cast(id, 'slash', 1, 0);
+      w.tick(0.05);
+    }
+    // Collect quests are completed by turn-in, not kills — still active.
+    expect(w.playerStats(id)!.quests.find((x) => x.id === 'warm_hides')!.status).toBe('active');
+  });
+});
+
 describe('quest reward items', () => {
   it('grants the reward item on completion (wolf_cull → tome_heal)', () => {
     // A high-level, god-mode hunter one-shots wolves with Slash; we keep a wolf next to the

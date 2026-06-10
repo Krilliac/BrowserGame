@@ -17,8 +17,10 @@ export interface QuestState {
   id: string;
   name: string;
   description: string;
+  /** 'kill' = slay N mobs (auto-progress); 'collect' = turn N items in to a quest-giver. */
+  kind: 'kill' | 'collect';
   targetCount: number;
-  /** Kills so far (0 for available/done). */
+  /** Kills so far, or items currently held toward a collect quest (0 for available/done). */
   progress: number;
   status: 'available' | 'active' | 'done';
   /** Reward summary for the log (gold/xp + optional item name). */

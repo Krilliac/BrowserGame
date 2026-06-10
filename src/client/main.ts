@@ -792,7 +792,11 @@ function drawQuestPanel(): void {
 
     hud.fillStyle = '#9aa3b2';
     hud.font = '10px system-ui, sans-serif';
-    hud.fillText(fitText(q.description, pw - 28), px + 14, ry + 30);
+    const desc =
+      q.kind === 'collect' && q.status === 'active'
+        ? `${q.description}  (turn in at a quest-giver)`
+        : q.description;
+    hud.fillText(fitText(desc, pw - 28), px + 14, ry + 30);
 
     // Reward line.
     const rewardItemName = q.rewardItem

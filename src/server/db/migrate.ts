@@ -41,7 +41,12 @@ const MOB_TEMPLATE_COLUMNS: Record<string, string> = {
 
 /** Spellbook era: items can teach an ability; quests can reward an item. */
 const ITEMS_COLUMNS: Record<string, string> = { teaches: 'TEXT' };
-const QUESTS_COLUMNS: Record<string, string> = { reward_item: 'TEXT' };
+/** Quest rewards + the collect/turn-in quest type. */
+const QUESTS_COLUMNS: Record<string, string> = {
+  reward_item: 'TEXT',
+  turn_in_item: 'TEXT',
+  turn_in_count: 'INTEGER NOT NULL DEFAULT 0',
+};
 
 export function migrate(db: Database): void {
   // Tables may not exist yet on a brand-new DB — SCHEMA creates them; skip a table if absent.

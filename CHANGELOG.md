@@ -8,6 +8,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Collect / turn-in quests (a new quest type).** Quests can now require turning in N of an item
+  (consumed) instead of slaying mobs. Talk to a quest-giver to hand in a completed collect quest —
+  the quest log shows live held/needed progress and a "turn in at a quest-giver" hint. Two new
+  quests: *Warm Hides* (8 Wolf Pelts) and *Old Bones* (12 Bones). New `quests.turn_in_item` /
+  `turn_in_count` columns (migrated), `QuestState.kind` on the wire, and a shared `completeQuest`
+  path so kill + collect rewards behave identically.
 - **Town services — Healer + Gambler NPCs.** **Sister Oona** (healer) fully restores HP/mana on
   interact — a free QoL stop. **Lucky Marn** (gambler, the D3-Kadala pattern) opens a window where
   you spend gold for a **random item of a chosen equip slot** (cost `50 + 30 × level`, scaling

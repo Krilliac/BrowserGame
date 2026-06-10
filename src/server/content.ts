@@ -42,6 +42,10 @@ export interface QuestDef {
   rewardXp: number;
   /** Optional item granted on completion (e.g. a spellbook). */
   rewardItem: string | null;
+  /** Collect quests: the item id to turn in (null for kill quests). */
+  turnInItem: string | null;
+  /** Collect quests: how many of {@link turnInItem} to turn in. */
+  turnInCount: number;
 }
 
 /** One row on a vendor's shelf. */
@@ -198,6 +202,8 @@ export function loadContent(db: GameDatabase): Content {
     rewardGold: q.reward_gold,
     rewardXp: q.reward_xp,
     rewardItem: q.reward_item ?? null,
+    turnInItem: q.turn_in_item ?? null,
+    turnInCount: q.turn_in_count ?? 0,
   }));
 
   const loot = new Map<string, LootGroup>();
@@ -428,6 +434,8 @@ interface QuestRow {
   reward_gold: number;
   reward_xp: number;
   reward_item: string | null;
+  turn_in_item: string | null;
+  turn_in_count: number;
 }
 interface LootRow {
   mob_template_id: string;

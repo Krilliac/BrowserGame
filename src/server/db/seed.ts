@@ -136,6 +136,26 @@ function ensureSpellbookContent(db: Database): void {
   };
   ensureNpc('town', 'Sister Oona', 860, 560, 140, 'healer');
   ensureNpc('town', 'Lucky Marn', 940, 560, 300, 'gambler');
+
+  // Collect/turn-in quests added after the original seed (id is the PK, so OR IGNORE dedups).
+  const insQuest = db.prepare(
+    'INSERT OR IGNORE INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item,turn_in_item,turn_in_count) VALUES (?,?,?,?,?,?,?,?,?,?)',
+  );
+  for (const q of QUESTS) {
+    if (!q.turnInItem) continue; // only the new collect quests need retro-seeding
+    insQuest.run(
+      q.id,
+      q.name,
+      q.description,
+      null,
+      0,
+      q.rewardGold,
+      q.rewardXp,
+      null,
+      q.turnInItem,
+      q.turnInCount ?? 0,
+    );
+  }
 }
 
 /** Seed a default developer account if none exists. Password from DEV_PASSWORD (default insecure). */
@@ -346,11 +366,13 @@ const QUESTS: {
   id: string;
   name: string;
   description: string;
-  targetMob: string;
+  targetMob: string | null;
   targetCount: number;
   rewardGold: number;
   rewardXp: number;
   rewardItem: string | null;
+  turnInItem?: string;
+  turnInCount?: number;
 }[] = [
   {
     id: 'wolf_cull',
@@ -361,6 +383,30 @@ const QUESTS: {
     rewardGold: 150,
     rewardXp: 80,
     rewardItem: 'tome_heal',
+  },
+  {
+    id: 'warm_hides',
+    name: 'Warm Hides',
+    description: 'Gather 8 Wolf Pelts for the tanner.',
+    targetMob: null,
+    targetCount: 0,
+    rewardGold: 120,
+    rewardXp: 90,
+    rewardItem: null,
+    turnInItem: 'wolf_pelt',
+    turnInCount: 8,
+  },
+  {
+    id: 'old_bones',
+    name: 'Old Bones',
+    description: 'Bring 12 Bones to the keeper of the dead.',
+    targetMob: null,
+    targetCount: 0,
+    rewardGold: 250,
+    rewardXp: 240,
+    rewardItem: null,
+    turnInItem: 'bone',
+    turnInCount: 12,
   },
   {
     id: 'crypt_cleanse',
@@ -406,7 +452,7 @@ const QUESTS: {
 
 function seedQuests(db: Database): void {
   const ins = db.prepare(
-    'INSERT INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item) VALUES (?,?,?,?,?,?,?,?)',
+    'INSERT INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item,turn_in_item,turn_in_count) VALUES (?,?,?,?,?,?,?,?,?,?)',
   );
   for (const q of QUESTS) {
     ins.run(
@@ -418,6 +464,8 @@ function seedQuests(db: Database): void {
       q.rewardGold,
       q.rewardXp,
       q.rewardItem,
+      q.turnInItem ?? null,
+      q.turnInCount ?? 0,
     );
   }
 }

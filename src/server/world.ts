@@ -49,7 +49,7 @@ import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../sha
 import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
-import { getContent } from './content.js';
+import { getContent, type QuestDef } from './content.js';
 import { weatherModifiers } from './weather-effects.js';
 import type { WeatherKind } from '../shared/theme.js';
 
@@ -633,22 +633,56 @@ export class World {
     else player.loot.delete(itemId);
   }
 
-  /** Offer the next un-taken quest, or report progress if there is nothing new. */
+  /** Offer the next un-taken quest, turning in any completable collect quest first. */
   private talkToQuestGiver(player: Player): void {
     const quests = getContent().quests();
+    // First: hand in any active collect quest the player can now complete (consume the items).
+    for (const q of quests) {
+      if (!q.turnInItem || q.turnInCount <= 0 || !player.quests.has(q.id)) continue;
+      if ((player.loot.get(q.turnInItem) ?? 0) >= q.turnInCount) {
+        for (let i = 0; i < q.turnInCount; i++) this.consumeLoot(player, q.turnInItem);
+        this.completeQuest(player, q);
+        return;
+      }
+    }
     const next = quests.find((q) => !player.quests.has(q.id) && !player.questsDone.has(q.id));
     if (next) {
       player.quests.set(next.id, 0);
-      this.notify(player.id, `Quest accepted: ${next.name} — ${next.description}`);
+      const ask = next.turnInItem
+        ? `${next.description} (bring ${next.turnInCount} — turn in here)`
+        : next.description;
+      this.notify(player.id, `Quest accepted: ${next.name} — ${ask}`);
       return;
     }
     const active = quests.find((q) => player.quests.has(q.id));
     if (active) {
-      const got = player.quests.get(active.id) ?? 0;
-      this.notify(player.id, `In progress: ${active.name} (${got}/${active.targetCount})`);
+      const got = active.turnInItem
+        ? (player.loot.get(active.turnInItem) ?? 0)
+        : (player.quests.get(active.id) ?? 0);
+      const need = active.turnInItem ? active.turnInCount : active.targetCount;
+      this.notify(player.id, `In progress: ${active.name} (${Math.min(got, need)}/${need})`);
     } else {
       this.notify(player.id, 'No new quests right now — well done, adventurer.');
     }
+  }
+
+  /** Grant a quest's rewards, mark it done, and notify — shared by kill + collect completion. */
+  private completeQuest(player: Player, quest: QuestDef): void {
+    player.quests.delete(quest.id);
+    player.questsDone.add(quest.id);
+    player.gold += quest.rewardGold;
+    player.xp += quest.rewardXp;
+    player.level = levelForXp(player.xp);
+    this.recomputeStats(player);
+    let extra = '';
+    if (quest.rewardItem) {
+      this.giveItem(player.id, quest.rewardItem, 1);
+      extra = ` + ${getContent().item(quest.rewardItem)?.name ?? quest.rewardItem}`;
+    }
+    this.notify(
+      player.id,
+      `Quest complete: ${quest.name}! +${quest.rewardGold}g +${quest.rewardXp}xp${extra}`,
+    );
   }
 
   /** Equip a gear instance (by uid) from the player's bag, returning any displaced gear to the bag. */
@@ -1423,12 +1457,18 @@ export class World {
           : player.quests.has(q.id)
             ? 'active'
             : 'available';
+        const collect = !!q.turnInItem;
+        // Collect quests show how many of the item the player currently holds; kill quests show kills.
+        const progress = collect
+          ? Math.min(player.loot.get(q.turnInItem!) ?? 0, q.turnInCount)
+          : (player.quests.get(q.id) ?? 0);
         return {
           id: q.id,
           name: q.name,
           description: q.description,
-          targetCount: q.targetCount,
-          progress: player.quests.get(q.id) ?? 0,
+          kind: collect ? ('collect' as const) : ('kill' as const),
+          targetCount: collect ? q.turnInCount : q.targetCount,
+          progress,
           status,
           rewardGold: q.rewardGold,
           rewardXp: q.rewardXp,
@@ -1456,27 +1496,11 @@ export class World {
     const content = getContent();
     for (const [questId, kills] of player.quests) {
       const quest = content.quest(questId);
-      if (!quest || quest.targetMob !== mobTemplateId) continue;
+      // Only kill quests auto-progress here; collect quests are turned in at a quest-giver.
+      if (!quest || quest.turnInItem || quest.targetMob !== mobTemplateId) continue;
       const next = kills + 1;
-      if (next >= quest.targetCount) {
-        player.quests.delete(questId);
-        player.questsDone.add(questId);
-        player.gold += quest.rewardGold;
-        player.xp += quest.rewardXp;
-        player.level = levelForXp(player.xp);
-        this.recomputeStats(player);
-        let extra = '';
-        if (quest.rewardItem) {
-          this.giveItem(player.id, quest.rewardItem, 1);
-          extra = ` + ${getContent().item(quest.rewardItem)?.name ?? quest.rewardItem}`;
-        }
-        this.notify(
-          player.id,
-          `Quest complete: ${quest.name}! +${quest.rewardGold}g +${quest.rewardXp}xp${extra}`,
-        );
-      } else {
-        player.quests.set(questId, next);
-      }
+      if (next >= quest.targetCount) this.completeQuest(player, quest);
+      else player.quests.set(questId, next);
     }
   }
 

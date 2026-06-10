@@ -90,9 +90,11 @@
       socket pips in the character panel. `shared/gems.ts` + tests.
 - [x] **Healer + Gambler NPCs** — Sister Oona (free full restore) and Lucky Marn (slot-targeted
       gold gamble, cost 50+30×level). `shared/gamble.ts` + tests.
+- [x] **Collect/turn-in quest type** — turn N items in to a quest-giver; live held/needed progress
+      in the quest log. (*Warm Hides*, *Old Bones*.) `quests.turn_in_item`/`turn_in_count`.
 - [ ] **Enchanting NPC (Artificer)** — reroll/add affixes for gold + materials; gem unsocketing.
 - [ ] **Waypoints** — fast-travel between discovered areas from town.
-- [ ] **Quest types** — collect/turn-in (consume items), explore/discover.
+- [ ] **Explore/discover quest type**; chain quests.
 - [ ] Banking; guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
