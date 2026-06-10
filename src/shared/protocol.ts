@@ -175,6 +175,10 @@ export type ClientMessage =
   | { t: 'gamble'; slot: string }
   /** Fast-travel to a previously-discovered area (server validates discovery). */
   | { t: 'waypoint'; areaId: string }
+  /** Artificer: reroll a bag gear instance's affixes for gold + a rune shard. */
+  | { t: 'enchant'; uid: number }
+  /** Artificer: pop the gem out of an equipped item's socket back into the bag for gold. */
+  | { t: 'unsocket_gem'; slot: string; index: number }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
@@ -245,6 +249,8 @@ export type ServerMessage =
   | { t: 'friends'; list: FriendInfo[] }
   /** Open the gambling window (sent when interacting with a gambler NPC); `cost` is per pull. */
   | { t: 'gamble_open'; cost: number }
+  /** Open the Artificer window (sent when interacting with an artificer NPC). */
+  | { t: 'artificer_open'; rerollCost: number; unsocketCost: number }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
   | { t: 'chat'; from: string; text: string; channel?: ChatChannel }

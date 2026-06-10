@@ -105,6 +105,8 @@ export class Net {
   friends: FriendInfo[] = [];
   /** Open gambling window (per-pull cost), or null when no gambler panel is open. */
   gamble: { cost: number } | null = null;
+  /** Open Artificer window (service costs), or null when no artificer panel is open. */
+  artificer: { rerollCost: number; unsocketCost: number } | null = null;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
   authRev = 0;
   /** Bumped whenever a content packet arrives — drives a live re-skin (theme edits, hot reload). */
@@ -221,6 +223,14 @@ export class Net {
     this.send({ t: 'waypoint', areaId });
   }
 
+  sendEnchant(uid: number): void {
+    this.send({ t: 'enchant', uid });
+  }
+
+  sendUnsocketGem(slot: string, index: number): void {
+    this.send({ t: 'unsocket_gem', slot, index });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
@@ -300,6 +310,12 @@ export class Net {
       case 'gamble_open':
         this.gamble = { cost: typeof msg.cost === 'number' ? msg.cost : 0 };
         break;
+      case 'artificer_open':
+        this.artificer = {
+          rerollCost: typeof msg.rerollCost === 'number' ? msg.rerollCost : 0,
+          unsocketCost: typeof msg.unsocketCost === 'number' ? msg.unsocketCost : 0,
+        };
+        break;
       case 'area_changed':
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
@@ -307,6 +323,7 @@ export class Net {
         this.fx.length = 0;
         this.shop = null; // close any open shop when we leave the area
         this.gamble = null;
+        this.artificer = null;
         break;
       case 'chat':
         this.chat.push(

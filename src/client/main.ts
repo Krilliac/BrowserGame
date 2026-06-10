@@ -14,6 +14,7 @@ import { drawPartyPanel, type PartyButton } from './party-panel.js';
 import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
+import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -142,6 +143,7 @@ let gambleButtons: GambleButton[] = [];
 // Waypoint / fast-travel panel: open with M.
 let waypointOpen = false;
 let waypointButtons: WaypointButton[] = [];
+let artificerButtons: ArtificerButton[] = [];
 
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
@@ -170,6 +172,10 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && net.gamble) {
     net.gamble = null;
+    return;
+  }
+  if (e.key === 'Escape' && net.artificer) {
+    net.artificer = null;
     return;
   }
   if (e.key === 'Escape' && questOpen) {
@@ -211,6 +217,7 @@ window.addEventListener('pointerdown', (e) => {
   // An open shop captures clicks (buy / sell / close) and never falls through to a cast.
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
+  if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   // The quest log captures clicks (accept buttons / panel body) and never falls through to a cast.
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
@@ -315,6 +322,18 @@ function handleWaypointClick(x: number, y: number): boolean {
   return true;
 }
 
+/** Route a click inside the open Artificer panel. Returns true if it was consumed. */
+function handleArtificerClick(x: number, y: number): boolean {
+  const btn = artificerButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.artificer = null;
+  else if (btn.action === 'reroll' && btn.uid !== undefined) net.sendEnchant(btn.uid);
+  else if (btn.action === 'unsocket' && btn.slot && btn.index !== undefined) {
+    net.sendUnsocketGem(btn.slot, btn.index);
+  }
+  return true;
+}
+
 /** Route a click inside the open gambling panel. Returns true if it was consumed. */
 function handleGambleClick(x: number, y: number): boolean {
   const btn = gambleButtons.find((b) => inRect(x, y, b));
@@ -353,6 +372,7 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
+  if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
   if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
@@ -642,6 +662,24 @@ function frame(): void {
     );
   } else {
     waypointButtons = [];
+  }
+  if (net.artificer) {
+    artificerButtons = drawArtificerPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      {
+        gear: net.you.gear,
+        equipment: net.you.equipment,
+        gold: net.you.gold,
+        rerollCost: net.artificer.rerollCost,
+        unsocketCost: net.artificer.unsocketCost,
+        nameOf: instLabel,
+        gemName: (id) => net.content.item(id)?.name ?? prettyItem(id),
+        gemColor: (id) => net.content.item(id)?.color ?? '#d6a8ff',
+      },
+    );
+  } else {
+    artificerButtons = [];
   }
   if (net.gamble) {
     gambleButtons = drawGamblePanel(
@@ -1075,7 +1113,7 @@ function drawHud(): void {
   drawJoystick();
 
   const npc = nearbyNpc();
-  if (npc && !net.you.dead && !net.shop && !net.gamble) {
+  if (npc && !net.you.dead && !net.shop && !net.gamble && !net.artificer) {
     const action =
       npc.npcKind === 'questgiver'
         ? 'talk to'
@@ -1083,7 +1121,9 @@ function drawHud(): void {
           ? 'rest at'
           : npc.npcKind === 'gambler'
             ? 'gamble with'
-            : 'shop with';
+            : npc.npcKind === 'artificer'
+              ? 'enchant at'
+              : 'shop with';
     const text = `Press E — ${action} ${npc.name}`;
     hud.font = '14px system-ui, sans-serif';
     hud.textAlign = 'center';

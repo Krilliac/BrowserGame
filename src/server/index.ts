@@ -29,6 +29,7 @@ import {
 } from './player-store.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
+import { ARTIFICER_REROLL_GOLD, ARTIFICER_UNSOCKET_GOLD } from './world.js';
 import type { PartyMember } from '../shared/protocol.js';
 import { morningDayIndex } from './area-corruption.js';
 import { SpatialGrid } from './spatial.js';
@@ -383,6 +384,20 @@ wss.on('connection', (socket) => {
         }
         break;
       }
+      case 'enchant': {
+        const p = players.get(entityId);
+        if (p && typeof msg.uid === 'number') {
+          manager.get(p.instanceId)?.world.enchant(entityId, msg.uid);
+        }
+        break;
+      }
+      case 'unsocket_gem': {
+        const p = players.get(entityId);
+        if (p && typeof msg.slot === 'string' && typeof msg.index === 'number') {
+          manager.get(p.instanceId)?.world.unsocketGem(entityId, msg.slot, msg.index);
+        }
+        break;
+      }
       case 'waypoint': {
         const p = players.get(entityId);
         if (!p || typeof msg.areaId !== 'string') break;
@@ -706,6 +721,18 @@ setInterval(() => {
       const socket = players.get(offer.playerId)?.socket;
       if (socket && socket.readyState === socket.OPEN) {
         send(socket, { t: 'gamble_open', cost: offer.cost });
+      }
+    }
+
+    // Deliver Artificer windows to players who just interacted with an artificer.
+    for (const offer of world.drainArtificerOffers()) {
+      const socket = players.get(offer.playerId)?.socket;
+      if (socket && socket.readyState === socket.OPEN) {
+        send(socket, {
+          t: 'artificer_open',
+          rerollCost: ARTIFICER_REROLL_GOLD,
+          unsocketCost: ARTIFICER_UNSOCKET_GOLD,
+        });
       }
     }
   }

@@ -36,6 +36,8 @@ import {
 } from './combat-formulas.js';
 import {
   gearSellValue,
+  rollAffixes,
+  rollCorruptedAffixes,
   rollCorruptedInstance,
   rollItemInstance,
   rollVendorInstance,
@@ -78,6 +80,10 @@ function asBaseItem(def: {
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
 const INTERACT_RANGE = 70;
+// Artificer service costs (flat, predictable): reroll an item's affixes for gold + a rune shard;
+// pop a socketed gem back to the bag for gold.
+export const ARTIFICER_REROLL_GOLD = 250;
+export const ARTIFICER_UNSOCKET_GOLD = 120;
 const DASH_MS = 300; // how long a charger's lunge lasts
 
 // Living loot meta — a "hunting bounty" per monster type that regenerates while it is left alone and
@@ -245,7 +251,7 @@ interface GroundItem {
   instance?: ItemInstance;
 }
 
-type NpcKind = 'vendor' | 'questgiver' | 'healer' | 'gambler';
+type NpcKind = 'vendor' | 'questgiver' | 'healer' | 'gambler' | 'artificer';
 
 interface Npc {
   id: number;
@@ -282,6 +288,8 @@ export class World {
   }[] = [];
   /** Pending gambling windows to deliver (player just interacted with a gambler NPC). */
   private gambleOffers: { playerId: number; cost: number }[] = [];
+  /** Pending Artificer windows to deliver (player just interacted with an artificer NPC). */
+  private artificerOffers: { playerId: number }[] = [];
   /** Living-loot meta: sim time (ms) each monster type was last killed, for the hunting bounty. */
   private readonly lastKillAt = new Map<string, number>();
   // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
@@ -454,6 +462,8 @@ export class World {
       this.healAtNpc(player, npc.name);
     } else if (npc.kind === 'gambler') {
       this.gambleOffers.push({ playerId: player.id, cost: gambleCost(player.level) });
+    } else if (npc.kind === 'artificer') {
+      this.artificerOffers.push({ playerId: player.id });
     } else {
       this.talkToQuestGiver(player);
     }
@@ -519,6 +529,56 @@ export class World {
     const drained = this.gambleOffers;
     this.gambleOffers = [];
     return drained;
+  }
+
+  /** Drain pending Artificer windows for the host to deliver as `artificer_open` packets. */
+  drainArtificerOffers(): { playerId: number }[] {
+    const drained = this.artificerOffers;
+    this.artificerOffers = [];
+    return drained;
+  }
+
+  /**
+   * Artificer: reroll a bag gear instance's affixes for gold + a rune shard. Requires being next to
+   * an artificer, the item to have affixes, and the player to afford the cost. Corrupted gear rerolls
+   * its buff/debuff pair; everything else rerolls normal affixes for its rarity.
+   */
+  enchant(id: number, uid: number): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    const npc = this.nearbyNpc(player);
+    if (!npc || npc.kind !== 'artificer') return;
+    const inst = player.gear.find((g) => g.uid === uid);
+    if (!inst || (inst.affixes?.length ?? 0) === 0) return;
+    if (player.gold < ARTIFICER_REROLL_GOLD || (player.loot.get('rune_shard') ?? 0) < 1) return;
+    player.gold -= ARTIFICER_REROLL_GOLD;
+    this.consumeLoot(player, 'rune_shard');
+    inst.affixes = inst.rarity === 'corrupted' ? rollCorruptedAffixes() : rollAffixes(inst.rarity);
+    this.notify(player.id, 'The Artificer reforges your gear — new powers emerge.');
+  }
+
+  /**
+   * Artificer: pop the gem out of an equipped item's socket, returning it to the bag for gold.
+   * Re-validates artificer proximity, the slot, and that the socket actually holds a gem.
+   */
+  unsocketGem(id: number, slot: string, index: number): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    const npc = this.nearbyNpc(player);
+    if (!npc || npc.kind !== 'artificer') return;
+    if (!(EQUIP_SLOTS as string[]).includes(slot)) return;
+    const inst = player.equipment[slot as EquipSlot];
+    const gemId = inst?.sockets?.[index];
+    if (!inst || !gemId) return;
+    if (player.gold < ARTIFICER_UNSOCKET_GOLD) return;
+    player.gold -= ARTIFICER_UNSOCKET_GOLD;
+    inst.sockets![index] = null;
+    player.loot.set(gemId, (player.loot.get(gemId) ?? 0) + 1);
+    this.recomputeStats(player);
+    this.notify(
+      player.id,
+      `The Artificer frees a gem from your ${getContent().item(inst.baseId)?.name ?? slot}.`,
+    );
   }
 
   /**

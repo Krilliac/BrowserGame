@@ -8,6 +8,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Artificer NPC — enchanting + gem unsocketing.** Coalhand the Artificer joins the town: press E
+  to open a crafting window that **rerolls a bag item's affixes** (250g + 1 rune shard — corrupted
+  gear rerolls its buff/debuff pair) or **pops a gem out of equipped gear** back into the bag (120g),
+  freeing the socket. Both are server-authoritative (proximity + cost + ownership re-validated). New
+  `enchant` / `unsocket_gem` messages, an `artificer_open` panel packet, and an `artificer-panel.ts`
+  renderer. This completes the gems system (socket → reroll → unsocket).
 - **Renderer — real loot icons (3D-feel pass, slice 6).** Ground drops now use the sourced sprite
   icons that were already bundled but unused: gold renders as a few coins / a stack / a big pile by
   stack size, and **gems drop as their actual gem icon** (ruby/sapphire/topaz/diamond) instead of a
