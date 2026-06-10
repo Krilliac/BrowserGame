@@ -135,8 +135,14 @@ const MISC: Record<string, string> = {
   fx_frost: '/assets/ui/fx/spell_ice_lance.png', // 64x16 -> 4 frames
   fx_explosion: '/assets/ui/fx/explosion-cuzco.png', // 256x256 -> 4x4 @64
   fx_arcane: '/assets/ui/fx/spell_arcane_bolt.png', // 96x16 -> 6 frames
-  item_gold: '/assets/ui/items/coin_gold.png', // 32x32
-  item_gem: '/assets/ui/items/gem_crystal_shard.png', // 32x32
+  item_gold: '/assets/ui/items/coin_gold.png', // 32x32 — a few coins
+  item_gold_stack: '/assets/ui/items/coin_gold_stack.png', // a small stack
+  item_gold_pile: '/assets/ui/items/coin_pile_large.png', // a big pile
+  item_gem: '/assets/ui/items/gem_crystal_shard.png', // 32x32 (rune shard)
+  gem_ruby: '/assets/ui/items/gem_ruby.png',
+  gem_sapphire: '/assets/ui/items/gem_sapphire.png',
+  gem_topaz: '/assets/ui/items/gem_amethyst.png', // amethyst icon stands in for topaz
+  gem_diamond: '/assets/ui/items/gem_diamond.png',
 };
 const PROJ_STRIP: Record<string, { alias: string; frames: number }> = {
   fireball: { alias: 'fx_fireball', frames: 6 },
@@ -734,6 +740,21 @@ export class PixiRenderer {
     }
   }
 
+  /** Pick the ground-drop icon for an item: gold scales with the stack, gems use their gem icon. */
+  private itemIcon(e: EntityState): string | undefined {
+    const id = e.itemId ?? '';
+    if (id === 'gold') {
+      const q = e.qty ?? 1;
+      return q >= 50 ? 'item_gold_pile' : q >= 12 ? 'item_gold_stack' : 'item_gold';
+    }
+    if (id === 'rune_shard') return 'item_gem';
+    if (id.startsWith('ruby')) return 'gem_ruby';
+    if (id.startsWith('sapphire')) return 'gem_sapphire';
+    if (id.startsWith('topaz')) return 'gem_topaz';
+    if (id.startsWith('diamond')) return 'gem_diamond';
+    return undefined;
+  }
+
   private updateItem(e: EntityState): void {
     // Gear drops glint in their rarity color; materials fall back to their item color.
     const rarityColor = e.rarity ? RARITY[e.rarity as Rarity]?.color : undefined;
@@ -742,8 +763,7 @@ export class PixiRenderer {
       ITEM_COLORS[e.itemId ?? ''] ??
       this.content.item(e.itemId ?? '')?.color ??
       '#cccccc';
-    const alias =
-      e.itemId === 'gold' ? 'item_gold' : e.itemId === 'rune_shard' ? 'item_gem' : undefined;
+    const alias = this.itemIcon(e);
     let view = this.views.get(e.id);
     if (!view) {
       const container = new Container();

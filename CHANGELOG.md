@@ -8,6 +8,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Renderer — real loot icons (3D-feel pass, slice 6).** Ground drops now use the sourced sprite
+  icons that were already bundled but unused: gold renders as a few coins / a stack / a big pile by
+  stack size, and **gems drop as their actual gem icon** (ruby/sapphire/topaz/diamond) instead of a
+  generic glowing dot. (Bulk new-art sourcing + atlasing — more monsters, a Tiled ground — remains
+  future work needing the asset pipeline + per-asset CC-BY review, per
+  `wiki/research/renderer-3d-feel-and-animation.md` §6.)
 - **Renderer — depth, atmosphere & bloom (3D-feel pass, slices 3–5).** A **camera dolly** seats the
   player below screen-center so more world shows ahead (a tilted-camera depth cue), and actors get a
   subtle **faux-perspective scale** (closer = bigger, clamped) — the D2/D3 depth read. The vignette

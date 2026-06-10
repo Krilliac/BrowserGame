@@ -102,6 +102,14 @@
 - [ ] Tilemap ground from hand-authored Tiled maps (the bundled tiles suit authored maps better
       than a single-tile fill; procedural ground kept for now).
 - [ ] More abilities, level-up effects, monster status visuals.
+- [x] **Renderer 3D-feel + animation pass** (`wiki/research/renderer-3d-feel-and-animation.md`):
+      soft directional shadows; a real sprite **animation system** (idle/walk/attack/cast/hurt/death,
+      `animation-controller.ts`, driven by FxEvents); camera dolly + faux-perspective depth scale;
+      atmospheric edge-fog; quality-gated bloom (`post-fx.ts`); real gold/gem loot icons. Verified via
+      the screenshot harness (also fixed a Windows static-serve bug + a Pixi-v8 filters-null crash).
+- [ ] **Renderer — remaining asset upgrade**: source + atlas more monsters/tiles/FX (LPC/DCSS/Kenney),
+      a Tiled `.tmj` ground via `@pixi/tilemap`, composite LPC equipment layers — needs the asset
+      pipeline (Free Texture Packer) + human CC-BY attribution review.
 
 ## Research-driven adoptions (from `wiki/research/`)
 
