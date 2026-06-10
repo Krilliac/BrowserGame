@@ -21,6 +21,14 @@ import { Atmosphere } from './atmosphere.js';
 import { Weather } from './weather.js';
 import { Lighting, type LightSource } from './lighting.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
+import {
+  newAnimView,
+  resolveAnim,
+  triggerOneShot,
+  type AnimState,
+  type AnimView,
+  type ClipSet,
+} from './animation-controller.js';
 
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
@@ -45,64 +53,71 @@ const ITEM_COLORS: Record<string, string> = {
   rune_shard: '#5fb0e0',
 };
 
-type Dir = 'E' | 'S' | 'W' | 'N';
-
 interface Sheet {
   src: string;
   fw: number;
   fh: number;
   scale: number;
-  rows: Record<Dir, number>;
-  walkCols: number[];
-  idleCol: number;
+  clips: ClipSet;
+}
+
+/**
+ * The Universal LPC Spritesheet block layout (832×1344 = 21 rows): each animation block is 4 rows
+ * in the order up(N)/left(W)/down(S)/right(E). spellcast 0–3, thrust 4–7, walk 8–11, slash 12–15,
+ * shoot 16–19, hurt/death 20 (a single down-facing row whose last frame is the fallen pose).
+ */
+function lpcClips(): ClipSet {
+  return {
+    dirOrder: ['N', 'W', 'S', 'E'],
+    clips: {
+      idle: { row0: 8, startCol: 0, frames: 1, perFrameMs: 1, loop: true },
+      walk: { row0: 8, startCol: 1, frames: 8, perFrameMs: WALK_FRAME_MS, loop: true },
+      cast: { row0: 0, startCol: 0, frames: 7, perFrameMs: 70, loop: false },
+      attack: { row0: 12, startCol: 0, frames: 6, perFrameMs: 60, loop: false },
+      hurt: { row0: 20, startCol: 0, frames: 6, perFrameMs: 45, loop: false, dirless: true },
+      death: { row0: 20, startCol: 0, frames: 6, perFrameMs: 75, loop: false, dirless: true },
+    },
+  };
 }
 
 const SHEETS: Record<string, Sheet> = {
-  hero: {
-    src: '/assets/sprites/hero_walk_lpc.png',
-    fw: 64,
-    fh: 64,
-    scale: 0.7,
-    rows: { N: 8, W: 9, S: 10, E: 11 },
-    walkCols: [1, 2, 3, 4, 5, 6, 7, 8],
-    idleCol: 0,
-  },
+  hero: { src: '/assets/sprites/hero_walk_lpc.png', fw: 64, fh: 64, scale: 0.7, clips: lpcClips() },
   skeleton: {
     src: '/assets/sprites/skeleton_lpc.png',
     fw: 64,
     fh: 64,
     scale: 0.7,
-    rows: { N: 8, W: 9, S: 10, E: 11 },
-    walkCols: [1, 2, 3, 4, 5, 6, 7, 8],
-    idleCol: 0,
+    clips: lpcClips(),
   },
+  // Wolf: a 6-row walk-only sheet (4 directional walk rows). No action clips → falls back to walk.
   wolf: {
     src: '/assets/sprites/wolf_lpc.png',
     fw: 64,
     fh: 64,
     scale: 0.75,
-    rows: { N: 0, W: 1, S: 2, E: 3 },
-    walkCols: [0, 1, 2, 3, 4, 5, 6, 7, 8],
-    idleCol: 0,
+    clips: {
+      dirOrder: ['N', 'W', 'S', 'E'],
+      clips: {
+        idle: { row0: 0, startCol: 0, frames: 1, perFrameMs: 1, loop: true },
+        walk: { row0: 0, startCol: 0, frames: 9, perFrameMs: WALK_FRAME_MS, loop: true },
+      },
+    },
   },
+  // Bat: 32px 4×4 sheet, direction rows S/W/E/N, 4 flap frames.
   bat: {
     src: '/assets/sprites/bat.png',
     fw: 32,
     fh: 32,
     scale: 1.5,
-    rows: { S: 0, W: 1, E: 2, N: 3 },
-    walkCols: [0, 1, 2, 3],
-    idleCol: 0,
+    clips: {
+      dirOrder: ['S', 'W', 'E', 'N'],
+      clips: {
+        idle: { row0: 0, startCol: 0, frames: 4, perFrameMs: WALK_FRAME_MS, loop: true },
+        walk: { row0: 0, startCol: 0, frames: 4, perFrameMs: WALK_FRAME_MS, loop: true },
+      },
+    },
   },
-  boss: {
-    src: '/assets/sprites/skeleton_lpc.png',
-    fw: 64,
-    fh: 64,
-    scale: 1.6,
-    rows: { N: 8, W: 9, S: 10, E: 11 },
-    walkCols: [1, 2, 3, 4, 5, 6, 7, 8],
-    idleCol: 0,
-  },
+  boss: { src: '/assets/sprites/skeleton_lpc.png', fw: 64, fh: 64, scale: 1.6, clips: lpcClips() },
 };
 
 /** Misc single/strip textures (spell FX + item icons). */
@@ -140,11 +155,6 @@ function hash2(x: number, y: number): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
-function dirOf(facing: number): Dir {
-  const q = ((Math.round(facing / (Math.PI / 2)) % 4) + 4) % 4;
-  return (['E', 'S', 'W', 'N'] as const)[q]!;
-}
-
 function sheetKey(e: EntityState): string | undefined {
   if (e.kind === 'player' || e.kind === 'npc') return 'hero';
   if (e.kind === 'mob') {
@@ -175,6 +185,12 @@ interface ActorView {
   /** Soft, directional ground shadow (leans away from a fixed sun — the D2 "planted" cue). */
   shadow?: Sprite;
   sheet?: Sheet;
+  /** The sprite-sheet alias (for setting the corpse frame after the entity leaves the snapshot). */
+  spriteKey?: string;
+  /** Per-actor animation state machine (idle/walk/attack/cast/hurt/death). Absent on proj/item views. */
+  anim?: AnimView;
+  /** Set when a death one-shot is playing: keep the corpse pose until this time, then sweep it. */
+  dyingUntil?: number;
   topY: number;
   lastX: number;
   lastY: number;
@@ -182,6 +198,9 @@ interface ActorView {
   flashUntil: number;
   seen: boolean;
 }
+
+/** How long a slain actor's corpse pose lingers before its view is swept. */
+const DEATH_HOLD_MS = 900;
 
 // A fixed "sun" direction (light from the upper-left) so every actor's shadow leans the same way —
 // the consistent baked-light look of Diablo 2. Offsets are fractions of the actor's foot radius.
@@ -210,6 +229,7 @@ export class PixiRenderer {
   private portalCenters: { x: number; y: number }[] = []; // world-space, for portal glow lights
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
+  private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
   private fadeAlpha = 0; // area-change fade-from-black, eases 1 -> 0 on arrival
   private lastFrameAt = performance.now();
   private readonly groundTextures = new Map<string, Texture>();
@@ -386,6 +406,11 @@ export class PixiRenderer {
     if (this.fadeAlpha > 0.001)
       this.fade.rect(0, 0, sw, sh).fill({ color: 0x000000, alpha: this.fadeAlpha });
 
+    // Fire one-shot animations from FX events BEFORE the sweep, so a death can latch a corpse pose
+    // on the actor's view the same tick the entity drops out of the snapshot.
+    const nowMs = performance.now();
+    this.triggerAnimEvents(state.fx, nowMs);
+
     for (const view of this.views.values()) view.seen = false;
     for (const e of state.entities) {
       if (e.kind === 'projectile') this.updateProjectile(e);
@@ -393,7 +418,8 @@ export class PixiRenderer {
       else this.updateActor(e, e.id === state.selfId);
     }
     for (const [id, view] of this.views) {
-      if (!view.seen) {
+      // Keep a freshly-slain actor's corpse pose for a moment, then sweep it.
+      if (!view.seen && (view.dyingUntil ?? 0) <= nowMs) {
         view.container.destroy({ children: true });
         this.views.delete(id);
       }
@@ -413,6 +439,61 @@ export class PixiRenderer {
     this.lastDeathT0 = newest;
   }
 
+  /**
+   * Drive one-shot animations from the server's FxEvents (cast/melee/slam/death), matched to the
+   * nearest actor by position — the events fire at the actor's exact spot the tick they happen.
+   * Runs BEFORE the not-seen sweep so a death can hold the corpse pose past the entity's removal.
+   */
+  private triggerAnimEvents(fx: TimedFx[], now: number): void {
+    let newest = this.lastAnimT0;
+    for (const { ev, t0 } of fx) {
+      if (t0 <= this.lastAnimT0) continue;
+      if (t0 > newest) newest = t0;
+      const state: AnimState | null =
+        ev.kind === 'cast'
+          ? 'cast'
+          : ev.kind === 'melee' || ev.kind === 'slam'
+            ? 'attack'
+            : ev.kind === 'death'
+              ? 'death'
+              : null;
+      if (!state) continue;
+      const view = this.nearestActorView(ev.x, ev.y);
+      if (!view || !view.sheet || !view.sheet.clips.clips[state]) continue;
+      const anim = (view.anim ??= newAnimView());
+      triggerOneShot(anim, state, now, view.sheet.clips);
+      if (state === 'death') {
+        // Hold the corpse a moment past the entity leaving the snapshot, frozen on its last frame.
+        view.dyingUntil = now + DEATH_HOLD_MS;
+        const f = resolveAnim(anim, view.sheet.clips, 0, false, now);
+        if (view.sprite && view.spriteKey) {
+          view.sprite.texture = this.frame(
+            view.spriteKey,
+            view.sheet.fw,
+            view.sheet.fh,
+            f.col,
+            f.row,
+          );
+        }
+      }
+    }
+    this.lastAnimT0 = newest;
+  }
+
+  /** The actor view nearest a world point (within a small radius), for matching FxEvents to actors. */
+  private nearestActorView(x: number, y: number): ActorView | undefined {
+    let best: ActorView | undefined;
+    let bestD2 = 50 * 50; // only match within ~50px
+    for (const view of this.views.values()) {
+      const d2 = (view.lastX - x) ** 2 + (view.lastY - y) ** 2;
+      if (d2 < bestD2) {
+        best = view;
+        bestD2 = d2;
+      }
+    }
+    return best;
+  }
+
   private updateActor(e: EntityState, isSelf: boolean): void {
     let view = this.views.get(e.id);
     if (!view) {
@@ -424,29 +505,29 @@ export class PixiRenderer {
     view.container.position.set(e.x, e.y * PITCH);
     view.container.zIndex = e.y;
 
+    const now = performance.now();
+    const anim = (view.anim ??= newAnimView());
+    // Hit-flash + hurt animation on HP drop; status tint otherwise (burn > slow).
+    if (e.hp < view.lastHp) {
+      view.flashUntil = now + FLASH_MS;
+      if (view.sheet) triggerOneShot(anim, 'hurt', now, view.sheet.clips);
+    }
+    view.lastHp = e.hp;
+
     if (view.sprite && view.sheet) {
       const moving = Math.hypot(e.x - view.lastX, e.y - view.lastY) > 0.25;
       const sheet = view.sheet;
-      const row = sheet.rows[dirOf(e.facing)];
-      const t = performance.now();
-      const col = moving
-        ? sheet.walkCols[Math.floor(t / WALK_FRAME_MS) % sheet.walkCols.length]!
-        : sheet.idleCol;
+      const { row, col } = resolveAnim(anim, sheet.clips, e.facing, moving, now);
       view.sprite.texture = this.frame(sheetKey(e)!, sheet.fw, sheet.fh, col, row);
       // A small vertical bob — a quick footstep lift while moving, a slow breath while idle —
       // staggered per entity so a crowd doesn't pulse in lockstep. Sells the billboards as alive.
       const phase = e.id * 1.7;
       view.sprite.y = moving
-        ? -Math.abs(Math.sin(t / 110 + phase)) * 2.5
-        : Math.sin(t / 420 + phase) * 1.2;
+        ? -Math.abs(Math.sin(now / 110 + phase)) * 2.5
+        : Math.sin(now / 420 + phase) * 1.2;
     }
     view.lastX = e.x;
     view.lastY = e.y;
-
-    // Hit-flash on HP drop, else status tint (burn > slow).
-    const now = performance.now();
-    if (e.hp < view.lastHp) view.flashUntil = now + FLASH_MS;
-    view.lastHp = e.hp;
     if (view.sprite) {
       const flags = e.flags ?? 0;
       // Status/flash tints override; otherwise actors take the area's cohesive sprite tint.
@@ -504,9 +585,11 @@ export class PixiRenderer {
     const key = sheetKey(e);
     const sheet = key ? SHEETS[key] : undefined;
     const baseTex = key ? this.tex.get(key) : undefined;
+    const anim = newAnimView();
     const view: ActorView = {
       container,
       shadow,
+      anim,
       dyn: new Graphics(),
       topY: -radius * 2.6,
       lastX: e.x,
@@ -517,13 +600,13 @@ export class PixiRenderer {
     };
 
     if (sheet && baseTex) {
-      const sprite = new Sprite(
-        this.frame(key!, sheet.fw, sheet.fh, sheet.idleCol, sheet.rows[dirOf(e.facing)]),
-      );
+      const start = resolveAnim(anim, sheet.clips, e.facing, false, performance.now());
+      const sprite = new Sprite(this.frame(key!, sheet.fw, sheet.fh, start.col, start.row));
       sprite.anchor.set(0.5, 0.92);
       sprite.scale.set(sheet.scale);
       view.sprite = sprite;
       view.sheet = sheet;
+      view.spriteKey = key!;
       view.topY = -sheet.fh * sheet.scale * 0.85;
       container.addChild(sprite);
     } else {

@@ -8,6 +8,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Renderer — sprite animation system (3D-feel pass, slice 2).** The old "idle-vs-walk frame index"
+  becomes a real state machine: **idle / walk / attack / cast / hurt / death**, driven by movement
+  and the server's existing `FxEvent`s (no new wire fields). Characters now swing on a melee/slam,
+  cast on a spell, flinch when hit, and **hold a corpse pose on death** (lingering ~0.9s before the
+  view is swept). The full Universal-LPC block rows (slash/spellcast/hurt — previously unused) are
+  now animated. Built on a new pure, unit-tested `animation-controller.ts` (9 tests: priority,
+  one-shot completion, dirless hurt, terminal death, walk-only fallback); the renderer pre-resolves
+  (row,col) per frame with zero allocation. Animation stays 100% cosmetic and server-authoritative.
 - **Renderer — soft directional shadows (3D-feel pass, slice 1).** Actors now cast a soft,
   baked-radial ground shadow that's offset and skewed toward a fixed "sun" (upper-left), so
   characters read as *planted* and lit from a consistent direction (the Diablo 2 look) instead of
