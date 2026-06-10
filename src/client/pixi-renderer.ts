@@ -206,6 +206,8 @@ interface ActorView {
   anim?: AnimView;
   /** Set when a death one-shot is playing: keep the corpse pose until this time, then sweep it. */
   dyingUntil?: number;
+  /** Item views only: spawn time, for a brief loot-pop arc when the drop appears. */
+  spawnT?: number;
   topY: number;
   lastX: number;
   lastY: number;
@@ -216,6 +218,9 @@ interface ActorView {
 
 /** How long a slain actor's corpse pose lingers before its view is swept. */
 const DEATH_HOLD_MS = 900;
+/** Loot-pop: a brief hop when a dropped item first appears (the orb/icon, not its shadow). */
+const LOOT_POP_MS = 420;
+const LOOT_POP_HEIGHT = 14;
 
 // A fixed "sun" direction (light from the upper-left) so every actor's shadow leans the same way —
 // the consistent baked-light look of Diablo 2. Offsets are fractions of the actor's foot radius.
@@ -770,7 +775,16 @@ export class PixiRenderer {
       const shadow = new Graphics();
       shadow.ellipse(0, 0, 8, 4).fill({ color: '#000000', alpha: 0.3 });
       container.addChild(shadow);
-      view = { container, topY: 0, lastX: e.x, lastY: e.y, lastHp: 0, flashUntil: 0, seen: true };
+      view = {
+        container,
+        topY: 0,
+        lastX: e.x,
+        lastY: e.y,
+        lastHp: 0,
+        flashUntil: 0,
+        seen: true,
+        spawnT: performance.now(),
+      };
       if (alias && this.tex.has(alias)) {
         const s = new Sprite(this.tex.get(alias)!);
         s.anchor.set(0.5, 0.85);
@@ -790,6 +804,12 @@ export class PixiRenderer {
     view.seen = true;
     view.container.position.set(e.x, e.y * PITCH);
     view.container.zIndex = e.y;
+    // Loot pop: the drop hops up and settles when it first appears (shadow stays planted).
+    const drop = view.sprite ?? view.orb;
+    if (drop) {
+      const age = performance.now() - (view.spawnT ?? 0);
+      drop.y = age < LOOT_POP_MS ? -Math.sin((age / LOOT_POP_MS) * Math.PI) * LOOT_POP_HEIGHT : 0;
+    }
   }
 
   private updateFx(fx: TimedFx[]): void {
