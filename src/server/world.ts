@@ -1182,7 +1182,8 @@ export class World {
     if (player.god) return;
     const taken = amount * player.damageTakenMult; // corrupted +fragile makes hits land harder
     player.hp -= taken;
-    this.events.push({ kind: 'hit', x: player.x, y: player.y, value: taken });
+    // Round the floating damage (mult'd by corruption/fragile) for a clean floating number.
+    this.events.push({ kind: 'hit', x: player.x, y: player.y, value: Math.ceil(taken) });
     if (player.hp <= 0) {
       player.hp = 0;
       player.dead = true;
