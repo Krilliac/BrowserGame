@@ -454,11 +454,19 @@ export class PixiRenderer {
       const bw = (e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS) * 2.4;
       const frac = Math.max(0, Math.min(1, e.hp / e.maxHp));
       view.dyn.clear();
+      // Elite/champion mob: a gold ground-ring marker (drawn under the bar).
+      if (e.elite) {
+        view.dyn
+          .ellipse(0, 2, MOB_RADIUS + 7, (MOB_RADIUS + 7) * 0.5)
+          .stroke({ width: 2, color: '#ffcf5a', alpha: 0.9 });
+      }
       view.dyn.rect(-bw / 2, view.topY - 6, bw, 4).fill({ color: '#000000', alpha: 0.6 });
       view.dyn.rect(-bw / 2, view.topY - 6, bw * frac, 4).fill({
         color: e.kind === 'mob' ? '#cc4444' : '#4caf50',
       });
     }
+    // Champions stand bigger than their kin.
+    if (e.kind === 'mob') view.container.scale.set(e.elite ? 1.32 : 1);
   }
 
   private makeActor(e: EntityState, isSelf: boolean): ActorView {

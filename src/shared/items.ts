@@ -49,6 +49,12 @@ export function rollRarity(rng: () => number = Math.random): Rarity {
   return 'common';
 }
 
+/** Bump a rarity up `steps` tiers (capped at legendary). Used for elite/champion drops. */
+export function bumpRarity(rarity: Rarity, steps = 1): Rarity {
+  const i = Math.min(RARITY_ORDER.length - 1, RARITY_ORDER.indexOf(rarity) + Math.max(0, steps));
+  return RARITY_ORDER[i]!;
+}
+
 /**
  * Roll a concrete stat value for a base stat at a rarity: `base * statMult` then a uniform draw
  * within ±variance, rounded. A non-positive base yields 0 (e.g. a weapon has no hp). Positive
@@ -145,8 +151,9 @@ export function rollItemInstance(
   uid: number,
   base: BaseItem,
   rng: () => number = Math.random,
+  rarityBump = 0,
 ): ItemInstance {
-  const rarity = rollRarity(rng);
+  const rarity = rarityBump > 0 ? bumpRarity(rollRarity(rng), rarityBump) : rollRarity(rng);
   return {
     uid,
     baseId: base.id,

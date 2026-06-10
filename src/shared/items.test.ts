@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   affixCount,
   affixLabel,
+  bumpRarity,
   gearSellValue,
   instanceName,
   RARITY,
@@ -50,6 +51,19 @@ describe('rollRarity (weighted)', () => {
     for (let i = 1; i < RARITY_ORDER.length; i++) {
       expect(RARITY[RARITY_ORDER[i - 1]!].weight).toBeGreaterThan(RARITY[RARITY_ORDER[i]!].weight);
     }
+  });
+
+  it('bumpRarity steps up tiers and caps at legendary', () => {
+    expect(bumpRarity('common', 1)).toBe('magic');
+    expect(bumpRarity('common', 2)).toBe('rare');
+    expect(bumpRarity('legendary', 1)).toBe('legendary');
+    expect(bumpRarity('epic', 5)).toBe('legendary');
+    expect(bumpRarity('rare', 0)).toBe('rare');
+  });
+
+  it('rollItemInstance with a rarity bump never drops below the bump from common', () => {
+    const inst = rollItemInstance(1, SWORD, () => 0, 1); // rng=0 => common, bumped to magic
+    expect(inst.rarity).toBe('magic');
   });
 });
 

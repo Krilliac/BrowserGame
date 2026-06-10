@@ -14,6 +14,13 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Elite / champion monsters** — any non-boss mob has a small chance (~9%) to spawn as an **elite**
+  with a flavor modifier (**Swift** / **Brutal** / **Vigorous**) that scales its HP, damage, and
+  speed, a name prefix, a gold ground-ring marker, and a bigger body. Killing one is a real event:
+  **3× XP**, a pile of gold, and **one guaranteed rarity-bumped gear drop** (`rollItemInstance` gains
+  a `rarityBump`; `bumpRarity` in `src/shared/items.ts`, tested). All runtime (no DB change) —
+  modifiers + rewards in `src/server/world.ts`, the `elite` flag rides the snapshot, and the client
+  draws the marker + upscales the mob (`src/client/pixi-renderer.ts`).
 - **"Loot = your build" — the multishot affix** — gear can now roll a build-defining **`+projectile`**
   affix that makes your projectile abilities fire extra bolts in a fan (1, or 2 at Epic/Legendary).
   Your *kit* now changes with your *gear*, not just your stats — the first taste of the loot-as-build

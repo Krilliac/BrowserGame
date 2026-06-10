@@ -69,6 +69,8 @@ export interface EntityState {
   rarity?: string;
   /** Status bitflags for rendering tints (1 = slowed, 2 = burning). */
   flags?: number;
+  /** Mobs only: true for an elite/champion (the client draws a marker + scales it up). */
+  elite?: boolean;
 }
 
 /** Directional intent for one frame, normalized to -1..1 on each axis. */

@@ -48,6 +48,14 @@ const ITEM_TTL_MS = 30_000;
 const INTERACT_RANGE = 70;
 const DASH_MS = 300; // how long a charger's lunge lasts
 
+// Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
+const ELITE_CHANCE = 0.09;
+const ELITE_MODIFIERS: { name: string; hp: number; dmg: number; spd: number }[] = [
+  { name: 'Swift', hp: 2.0, dmg: 1.3, spd: 1.6 }, // fast and harassing
+  { name: 'Brutal', hp: 2.4, dmg: 1.9, spd: 1.0 }, // hits like a truck
+  { name: 'Vigorous', hp: 3.4, dmg: 1.4, spd: 1.0 }, // a damage sponge
+];
+
 export interface SpawnOptions {
   id?: number;
   x?: number;
@@ -136,6 +144,10 @@ interface Mob {
   dashVy: number;
   /** Players already struck by the current dash (each is hit at most once per lunge). */
   dashHit: Set<number>;
+  /** Elite ("champion") flag + its stat multipliers; bigger, deadlier, drops better loot. */
+  elite: boolean;
+  dmgMult: number;
+  spdMult: number;
 }
 
 interface Projectile {
@@ -238,18 +250,26 @@ export class World {
 
   private createMob(template: MobTemplate, x: number, y: number): void {
     const id = this.allocId();
+    // Elite ("champion") roll: a rare, beefed-up variant with a modifier prefix. Bosses (very high
+    // HP) never roll elite — they are already special.
+    const isBoss = template.hp >= 200;
+    const elite = !isBoss && Math.random() < ELITE_CHANCE;
+    const mod = elite
+      ? (ELITE_MODIFIERS[Math.floor(Math.random() * ELITE_MODIFIERS.length)] ?? null)
+      : null;
+    const hp = mod ? Math.round(template.hp * mod.hp) : template.hp;
     this.mobs.set(id, {
       id,
       templateId: template.id,
-      name: template.name,
+      name: mod ? `${mod.name} ${template.name}` : template.name,
       x,
       y,
       homeX: x,
       homeY: y,
       hue: template.hue,
       facing: 0,
-      hp: template.hp,
-      maxHp: template.hp,
+      hp,
+      maxHp: hp,
       level: template.level,
       attackCd: 0,
       wanderAngle: null,
@@ -265,6 +285,9 @@ export class World {
       dashVx: 0,
       dashVy: 0,
       dashHit: new Set(),
+      elite,
+      dmgMult: mod ? mod.dmg : 1,
+      spdMult: mod ? mod.spd : 1,
     });
   }
 
@@ -648,7 +671,7 @@ export class World {
           for (const player of this.players.values()) {
             if (player.dead || mob.dashHit.has(player.id)) continue;
             if (circlesOverlap(mob.x, mob.y, MOB_RADIUS, player.x, player.y, PLAYER_RADIUS)) {
-              this.damagePlayer(player, template.damage);
+              this.damagePlayer(player, template.damage * mob.dmgMult);
               mob.dashHit.add(player.id);
             }
           }
@@ -703,11 +726,11 @@ export class World {
           }
         }
       } else if (intent.vx !== 0 || intent.vy !== 0) {
-        mob.x = clamp(mob.x + intent.vx * slow * dt, 0, this.width);
-        mob.y = clamp(mob.y + intent.vy * slow * dt, 0, this.height);
+        mob.x = clamp(mob.x + intent.vx * slow * mob.spdMult * dt, 0, this.width);
+        mob.y = clamp(mob.y + intent.vy * slow * mob.spdMult * dt, 0, this.height);
         if (intent.facing !== null) mob.facing = intent.facing;
       } else {
-        this.wander(mob, dt, template.speed * slow);
+        this.wander(mob, dt, template.speed * slow * mob.spdMult);
       }
     }
   }
@@ -721,8 +744,9 @@ export class World {
     if (template.behavior === 'charger') {
       // Begin the lunge along the locked aim; contact damage is applied during the dash ticks.
       mob.dashUntil = this.now + DASH_MS;
-      mob.dashVx = Math.cos(mob.telegraphFacing) * (template.dashSpeed ?? 480);
-      mob.dashVy = Math.sin(mob.telegraphFacing) * (template.dashSpeed ?? 480);
+      const dashSpeed = (template.dashSpeed ?? 480) * mob.spdMult;
+      mob.dashVx = Math.cos(mob.telegraphFacing) * dashSpeed;
+      mob.dashVy = Math.sin(mob.telegraphFacing) * dashSpeed;
       mob.dashHit.clear();
       this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
       return;
@@ -738,7 +762,7 @@ export class World {
         vx: Math.cos(mob.telegraphFacing) * speed,
         vy: Math.sin(mob.telegraphFacing) * speed,
         ttl: 2400,
-        damage: template.damage,
+        damage: template.damage * mob.dmgMult,
         radius: 8,
         ownerId: 0,
         ownerLevel: template.level,
@@ -754,7 +778,7 @@ export class World {
       for (const player of this.players.values()) {
         if (player.dead) continue;
         if (Math.hypot(player.x - mob.x, player.y - mob.y) <= template.slamRadius + PLAYER_RADIUS) {
-          this.damagePlayer(player, template.damage);
+          this.damagePlayer(player, template.damage * mob.dmgMult);
         }
       }
       this.events.push({ kind: 'slam', x: mob.x, y: mob.y, radius: template.slamRadius });
@@ -763,7 +787,7 @@ export class World {
     const target = this.players.get(mob.telegraphTargetId);
     const reach = template.attackRange + PLAYER_RADIUS;
     if (target && !target.dead && Math.hypot(target.x - mob.x, target.y - mob.y) <= reach) {
-      this.damagePlayer(target, template.damage);
+      this.damagePlayer(target, template.damage * mob.dmgMult);
     }
     this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
   }
@@ -844,7 +868,7 @@ export class World {
   private onMobKilled(mob: Mob): void {
     const killer = this.players.get(mob.lastAttacker);
     if (killer) {
-      killer.xp += xpReward(mob.level);
+      killer.xp += xpReward(mob.level) * (mob.elite ? 3 : 1); // champions give a big XP bonus
       const newLevel = levelForXp(killer.xp);
       if (newLevel > killer.level) {
         this.notify(killer.id, `You reached level ${newLevel}!`);
@@ -880,6 +904,41 @@ export class World {
       }
       this.items.set(id, item);
     }
+
+    // Champion bonus: a pile of gold + one guaranteed, rarity-bumped piece of gear.
+    if (mob.elite) {
+      this.dropGround('gold', 30 + Math.floor(Math.random() * 50), mob.x, mob.y);
+      const equips = content
+        .items()
+        .filter((i) => i.kind === 'equip' && (i.slot === 'weapon' || i.slot === 'armor'));
+      const def = equips[Math.floor(Math.random() * equips.length)];
+      if (def) {
+        const base: BaseItem = {
+          id: def.id,
+          name: def.name,
+          slot: def.slot as 'weapon' | 'armor',
+          power: def.power,
+          hp: def.hp,
+        };
+        const ground = this.dropGround(def.id, 1, mob.x, mob.y);
+        ground.instance = rollItemInstance(this.allocId(), base, Math.random, 2);
+      }
+    }
+  }
+
+  /** Spawn a ground item (gold or a material/gear stack) with a little scatter. Returns it. */
+  private dropGround(itemId: string, qty: number, x: number, y: number): GroundItem {
+    const id = this.allocId();
+    const item: GroundItem = {
+      id,
+      itemId,
+      qty,
+      x: x + (Math.random() - 0.5) * 30,
+      y: y + (Math.random() - 0.5) * 30,
+      ttl: ITEM_TTL_MS,
+    };
+    this.items.set(id, item);
+    return item;
   }
 
   // --- quests + per-player notices -----------------------------------------------------
@@ -1045,6 +1104,7 @@ export class World {
         level: m.level,
       };
       if (flags > 0) mob.flags = flags;
+      if (m.elite) mob.elite = true;
       out.push(mob);
     }
     for (const proj of this.projectiles.values()) {
