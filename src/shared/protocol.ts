@@ -173,6 +173,8 @@ export type ClientMessage =
   | { t: 'socket_gem'; gemId: string }
   /** Gamble gold for a random item of the given equip slot (at a nearby gambler NPC). */
   | { t: 'gamble'; slot: string }
+  /** Fast-travel to a previously-discovered area (server validates discovery). */
+  | { t: 'waypoint'; areaId: string }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
@@ -223,6 +225,8 @@ export type ServerMessage =
       known: Record<string, number>;
       /** Quest log: available + active (with progress) + completed quests. */
       quests: QuestState[];
+      /** Area ids this character has visited (the waypoint fast-travel list). */
+      discovered: string[];
       /** Area corruption 0..1 (drives the client's darkening of the scene). */
       corruption: number;
       /** Authoritative position + last input the server processed (client reconciliation). */

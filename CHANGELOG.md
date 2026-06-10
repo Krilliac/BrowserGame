@@ -8,6 +8,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Waypoints / fast-travel (press M).** Characters now remember every area they've visited; a
+  waypoint map lists discovered areas and lets you instantly travel to any of them (carrying full
+  state, the same export/import as a portal). Discovery persists in the save and grandfathers in for
+  old saves (the area you load into is always discovered). New `waypoint` message +
+  `InstanceManager.teleport`; the server only honors travel to a discovered area.
 - **Collect / turn-in quests (a new quest type).** Quests can now require turning in N of an item
   (consumed) instead of slaying mobs. Talk to a quest-giver to hand in a completed collect quest —
   the quest log shows live held/needed progress and a "turn in at a quest-giver" hint. Two new

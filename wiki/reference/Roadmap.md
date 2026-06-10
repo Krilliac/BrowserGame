@@ -92,8 +92,9 @@
       gold gamble, cost 50+30×level). `shared/gamble.ts` + tests.
 - [x] **Collect/turn-in quest type** — turn N items in to a quest-giver; live held/needed progress
       in the quest log. (*Warm Hides*, *Old Bones*.) `quests.turn_in_item`/`turn_in_count`.
+- [x] **Waypoints** — discovered-area fast-travel (press M); discovery persists, `teleport` carries
+      full state. `InstanceManager.teleport`.
 - [ ] **Enchanting NPC (Artificer)** — reroll/add affixes for gold + materials; gem unsocketing.
-- [ ] **Waypoints** — fast-travel between discovered areas from town.
 - [ ] **Explore/discover quest type**; chain quests.
 - [ ] Banking; guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.

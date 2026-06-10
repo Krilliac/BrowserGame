@@ -61,6 +61,29 @@ export class InstanceManager {
     return { instanceId: instance.id, entityId, areaId: area.id };
   }
 
+  /**
+   * Fast-travel a player to another area's spawn (the waypoint system), carrying their full
+   * persistent state — the same export/import dance as a portal crossing, but triggered on demand
+   * rather than by stepping into a rect. Returns the transfer, or null if the area/player is gone.
+   */
+  teleport(fromInstanceId: string, entityId: number, toAreaId: string): TransferEvent | null {
+    const from = this.instances.get(fromInstanceId);
+    const target = getContent().area(toAreaId);
+    if (!from || !target) return null;
+    const save = from.world.exportPlayer(entityId);
+    if (!save) return null;
+    const dest = this.pickInstance(target);
+    from.world.remove(entityId);
+    dest.world.importPlayer(entityId, save, target.spawn.x, target.spawn.y);
+    this.gc(from);
+    return {
+      entityId,
+      fromInstanceId: from.id,
+      toInstanceId: dest.id,
+      toAreaId: target.id,
+    };
+  }
+
   remove(instanceId: string, entityId: number): void {
     const instance = this.instances.get(instanceId);
     if (!instance) return;

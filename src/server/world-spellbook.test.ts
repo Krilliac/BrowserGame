@@ -176,6 +176,32 @@ describe('vendor shop — buy / sell / proximity', () => {
   });
 });
 
+describe('waypoint discovery', () => {
+  it('marks the spawn area discovered and adds new areas on import (transfer)', () => {
+    const a = new World(1600, 1200, { x: 800, y: 600 }, undefined, 'town');
+    const id = a.spawn('Wanderer', { x: 800, y: 600 });
+    expect(a.playerStats(id)!.discovered).toEqual(['town']);
+
+    // Simulate crossing to the wilderness: export, import into a wilderness World.
+    const save = a.exportPlayer(id)!;
+    const b = new World(2400, 2000, { x: 160, y: 700 }, undefined, 'wilderness');
+    b.importPlayer(id, save, 160, 700);
+    const discovered = b.playerStats(id)!.discovered;
+    expect(discovered).toContain('town');
+    expect(discovered).toContain('wilderness'); // newly arrived area auto-discovered
+  });
+
+  it('a pre-waypoint save (no discovered field) still discovers the area it loads into', () => {
+    const a = new World(1600, 1200, { x: 800, y: 600 }, undefined, 'town');
+    const id = a.spawn('Old', { x: 800, y: 600 });
+    const save = a.exportPlayer(id)!;
+    delete save.discovered;
+    const b = new World(1400, 1400, { x: 700, y: 300 }, undefined, 'crypt');
+    b.importPlayer(id, save, 700, 300);
+    expect(b.playerStats(id)!.discovered).toContain('crypt');
+  });
+});
+
 describe('town service NPCs (healer + gambler)', () => {
   /** A town world with all service NPCs placed and a player on the gambler/healer row. */
   function townWithServices(): { w: World; id: number } {

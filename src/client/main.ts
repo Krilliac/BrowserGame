@@ -13,6 +13,7 @@ import { SLOT_LABELS } from '../shared/equipment.js';
 import { drawPartyPanel, type PartyButton } from './party-panel.js';
 import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
+import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -138,6 +139,9 @@ let socialOpen = false;
 let partyButtons: PartyButton[] = [];
 let socialButtons: SocialButton[] = [];
 let gambleButtons: GambleButton[] = [];
+// Waypoint / fast-travel panel: open with M.
+let waypointOpen = false;
+let waypointButtons: WaypointButton[] = [];
 
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
@@ -172,9 +176,10 @@ window.addEventListener('keydown', (e) => {
     questOpen = false;
     return;
   }
-  if (e.key === 'Escape' && (partyOpen || socialOpen)) {
+  if (e.key === 'Escape' && (partyOpen || socialOpen || waypointOpen)) {
     partyOpen = false;
     socialOpen = false;
+    waypointOpen = false;
     return;
   }
   const ability = net.content.abilityOrder().find((id) => net.content.ability(id)?.key === e.key);
@@ -191,6 +196,8 @@ window.addEventListener('keydown', (e) => {
     partyOpen = !partyOpen; // toggle the party panel
   } else if (e.key.toLowerCase() === 'f') {
     socialOpen = !socialOpen; // toggle the friends panel
+  } else if (e.key.toLowerCase() === 'm') {
+    waypointOpen = !waypointOpen; // toggle the waypoint / fast-travel map
   }
 });
 
@@ -208,6 +215,7 @@ window.addEventListener('pointerdown', (e) => {
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
   if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
+  if (waypointOpen && handleWaypointClick(e.clientX, e.clientY)) return;
   // Clicks on the open character panel unequip a slot and never fall through to a cast.
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
@@ -295,6 +303,18 @@ function handleQuestClick(x: number, y: number): boolean {
   return questPanelRect ? inRect(x, y, questPanelRect) : false;
 }
 
+/** Route a click inside the open waypoint panel. Returns true if it was consumed. */
+function handleWaypointClick(x: number, y: number): boolean {
+  const btn = waypointButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') waypointOpen = false;
+  else if (btn.action === 'travel' && btn.areaId) {
+    net.sendWaypoint(btn.areaId);
+    waypointOpen = false;
+  }
+  return true;
+}
+
 /** Route a click inside the open gambling panel. Returns true if it was consumed. */
 function handleGambleClick(x: number, y: number): boolean {
   const btn = gambleButtons.find((b) => inRect(x, y, b));
@@ -336,6 +356,7 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
   if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
+  if (waypointOpen && handleWaypointClick(e.clientX, e.clientY)) return;
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
     if (cs) net.sendUnequip(cs.slot);
@@ -607,6 +628,20 @@ function frame(): void {
     socialButtons = drawSocialPanel(hud, { w: hudCanvas.width, h: hudCanvas.height }, net.friends);
   } else {
     socialButtons = [];
+  }
+  if (waypointOpen) {
+    const areas = net.you.discovered.map((aid) => ({
+      id: aid,
+      name: net.content.area(aid)?.name ?? aid,
+    }));
+    waypointButtons = drawWaypointPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      areas,
+      net.areaId,
+    );
+  } else {
+    waypointButtons = [];
   }
   if (net.gamble) {
     gambleButtons = drawGamblePanel(
@@ -1239,7 +1274,7 @@ function drawInventory(w: number): void {
   );
   hud.fillStyle = '#9aa3b2';
   hud.font = '10px system-ui, sans-serif';
-  hud.fillText('C char · L quests · P party · F friends', px + 8, py + 30);
+  hud.fillText('C char·L quests·P party·F friends·M map', px + 8, py + 30);
   py += eqH + 6;
 
   // Gear panel: unequipped instances, two lines each (name, then stats) so long affix lists never

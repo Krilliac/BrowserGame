@@ -378,6 +378,26 @@ wss.on('connection', (socket) => {
         }
         break;
       }
+      case 'waypoint': {
+        const p = players.get(entityId);
+        if (!p || typeof msg.areaId !== 'string') break;
+        const world = manager.get(p.instanceId)?.world;
+        const stats = world?.playerStats(entityId);
+        // Only travel to a discovered area, and never to the one you're already in.
+        if (!stats || !stats.discovered.includes(msg.areaId)) break;
+        if (manager.get(p.instanceId)?.areaId === msg.areaId) break;
+        const ev = manager.teleport(p.instanceId, entityId, msg.areaId);
+        if (ev) {
+          p.instanceId = ev.toInstanceId;
+          send(p.socket, { t: 'area_changed', areaId: ev.toAreaId, instanceId: ev.toInstanceId });
+          social.updatePresence(p.token, ev.toAreaId, stats.level);
+          const name = nameOf(entityId);
+          if (name) notifyFriendWatchers(name);
+          const party = parties.partyOf(entityId);
+          if (party) for (const m of party.memberIds) sendPartyState(m);
+        }
+        break;
+      }
       case 'party_invite': {
         if (!players.has(entityId) || typeof msg.targetName !== 'string') break;
         const target = findPlayerByName(msg.targetName);

@@ -45,6 +45,7 @@ export interface SelfStats {
   equipment: Record<string, ItemInstance | null>;
   known: Record<string, number>;
   quests: QuestState[];
+  discovered: string[];
   corruption: number;
   x: number;
   y: number;
@@ -90,6 +91,7 @@ export class Net {
     equipment: {},
     known: {},
     quests: [],
+    discovered: [],
     corruption: 0,
     x: 0,
     y: 0,
@@ -215,6 +217,10 @@ export class Net {
     this.send({ t: 'gamble', slot });
   }
 
+  sendWaypoint(areaId: string): void {
+    this.send({ t: 'waypoint', areaId });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
@@ -268,6 +274,7 @@ export class Net {
           equipment: msg.equipment,
           known: msg.known,
           quests: msg.quests,
+          discovered: msg.discovered,
           corruption: msg.corruption,
           x: msg.x,
           y: msg.y,

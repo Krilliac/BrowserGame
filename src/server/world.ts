@@ -146,6 +146,8 @@ interface Player {
   questsDone: Set<string>;
   /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
   known: Map<AbilityId, number>;
+  /** Area ids this character has visited — the waypoint fast-travel list. */
+  discovered: Set<string>;
   input: InputState;
   lastSeq: number;
   cooldowns: Map<AbilityId, number>;
@@ -171,6 +173,8 @@ export interface PlayerSave {
   questsDone: string[];
   /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
   known?: [string, number][];
+  /** Visited area ids (waypoints). Absent on old saves — the current area is added on load. */
+  discovered?: string[];
 }
 
 interface Mob {
@@ -874,6 +878,7 @@ export class World {
       quests: new Map(),
       questsDone: new Set(),
       known: new Map(STARTER_ABILITIES.map((a) => [a, 1])),
+      discovered: new Set([this.areaId]),
       input: { up: false, down: false, left: false, right: false },
       lastSeq: 0,
       cooldowns: new Map(),
@@ -902,6 +907,7 @@ export class World {
       quests: [...p.quests],
       questsDone: [...p.questsDone],
       known: [...p.known],
+      discovered: [...p.discovered],
     };
   }
 
@@ -920,6 +926,9 @@ export class World {
     p.quests = new Map(save.quests);
     p.questsDone = new Set(save.questsDone);
     p.known = restoreKnown(save.known);
+    // Carry visited areas across the transfer + always mark the area we just arrived in.
+    p.discovered = new Set(save.discovered ?? []);
+    p.discovered.add(this.areaId);
     this.recomputeStats(p);
     p.hp = Math.min(save.hp, p.maxHp);
     p.mana = save.mana;
@@ -1692,6 +1701,7 @@ export class World {
         equipment: Equipment;
         known: Record<string, number>;
         quests: QuestState[];
+        discovered: string[];
         corruption: number;
         x: number;
         y: number;
@@ -1720,6 +1730,7 @@ export class World {
       equipment: p.equipment,
       known: Object.fromEntries(p.known),
       quests: this.questStates(p),
+      discovered: [...p.discovered],
       corruption: this.corruption(),
       x: p.x,
       y: p.y,
