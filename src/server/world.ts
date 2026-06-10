@@ -264,12 +264,39 @@ export class World {
     }
   }
 
-  private createMob(template: MobTemplate, x: number, y: number): void {
+  /**
+   * Spawn a sudden invasion wave: `count` forced-elite monsters drawn from the area's roster, ringed
+   * around a random living player — a spontaneous raid. Returns false if there's no one to invade.
+   */
+  spawnInvasion(areaId: string, count: number): boolean {
+    const content = getContent();
+    const alive = [...this.players.values()].filter((p) => !p.dead);
+    const templates = content
+      .areaMobs(areaId)
+      .map((s) => content.mobTemplate(s.templateId))
+      .filter((t): t is MobTemplate => !!t && t.hp < 200);
+    if (alive.length === 0 || templates.length === 0) return false;
+    const anchor = alive[Math.floor(Math.random() * alive.length)]!;
+    for (let i = 0; i < count; i++) {
+      const t = templates[Math.floor(Math.random() * templates.length)]!;
+      const ang = Math.random() * Math.PI * 2;
+      const r = 170 + Math.random() * 130;
+      this.createMob(
+        t,
+        clamp(anchor.x + Math.cos(ang) * r, 0, this.width),
+        clamp(anchor.y + Math.sin(ang) * r, 0, this.height),
+        true,
+      );
+    }
+    return true;
+  }
+
+  private createMob(template: MobTemplate, x: number, y: number, forceElite = false): void {
     const id = this.allocId();
     // Elite ("champion") roll: a rare, beefed-up variant with a modifier prefix. Bosses (very high
-    // HP) never roll elite — they are already special.
+    // HP) never roll elite — they are already special. Invasions force the elite flag.
     const isBoss = template.hp >= 200;
-    const elite = !isBoss && Math.random() < ELITE_CHANCE;
+    const elite = !isBoss && (forceElite || Math.random() < ELITE_CHANCE);
     const mod = elite
       ? (ELITE_MODIFIERS[Math.floor(Math.random() * ELITE_MODIFIERS.length)] ?? null)
       : null;

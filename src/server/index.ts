@@ -78,6 +78,10 @@ function applyThemeEdit(area: string, key: string, raw: string): string {
 const AOI_HALF_W = 1400;
 const AOI_HALF_H = 1000;
 
+// Invasion events: how often we roll, and the per-instance chance each roll.
+const INVASION_INTERVAL_MS = 90_000;
+const INVASION_CHANCE = 0.35;
+
 const PORT = Number(process.env.PORT ?? 8080);
 const TICK_RATE = Number(process.env.TICK_RATE ?? DEFAULT_TICK_RATE);
 const ENGINE_ADMIN_TOKEN = process.env.ENGINE_ADMIN_TOKEN ?? '';
@@ -352,6 +356,25 @@ setInterval(() => {
     if (save) storeSave(db, p.token, save);
   }
 }, 20_000);
+
+// Invasion events: every so often a populated, non-town instance is raided by a champion wave — a
+// spontaneous group fight that turns a quiet farm into an onslaught.
+setInterval(() => {
+  for (const instance of manager.list()) {
+    if (instance.areaId === 'town') continue;
+    if (manager.playerIdsIn(instance.id).length === 0) continue;
+    if (Math.random() > INVASION_CHANCE) continue;
+    const count = 3 + Math.floor(Math.random() * 3); // 3–5 champions
+    if (instance.world.spawnInvasion(instance.areaId, count)) {
+      const area = getContent().area(instance.areaId);
+      broadcastToInstance(instance.id, {
+        t: 'chat',
+        from: 'System',
+        text: `⚔ An invasion! Champions pour into ${area?.name ?? instance.areaId} — survive the onslaught.`,
+      });
+    }
+  }
+}, INVASION_INTERVAL_MS);
 
 http.listen(PORT, () => {
   console.log(`[browsergame] world server on :${PORT} @ ${TICK_RATE}Hz · instancing=${INSTANCING}`);

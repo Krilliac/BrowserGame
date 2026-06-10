@@ -14,6 +14,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Invasion events** — every so often a populated, non-town area instance is raided by a sudden
+  wave of 3–5 **champions** ringed around a random player, announced in chat — a spontaneous group
+  fight that turns a quiet farm into an onslaught (`World.spawnInvasion`, host-driven timer in
+  `src/server/index.ts`). This is the gameplay of the "spontaneous raid" twist; literal
+  *cross-instance portal-linking* (joining separate instances into one raid) remains a deliberate
+  future step — it needs coordination across the otherwise-pure instance manager.
 - **Persistent corruption** — a signature twist: each area instance carries a **corruption** level
   (0..1) that **rises when players die there** and is **pushed back by killing monsters** (decaying
   slowly on its own). High corruption makes mobs hit harder (up to +60% damage) and visibly **darkens
