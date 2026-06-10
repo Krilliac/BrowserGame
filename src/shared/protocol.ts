@@ -10,13 +10,15 @@
 
 import type { AbilityId, Ability, EntityKind, FxEvent } from './combat.js';
 import type { AreaDef } from './areas.js';
+import type { ItemInstance } from './items.js';
 
 /** Item display/stat info sent to the client (mirrors the server's content DB items). */
 export interface ItemInfo {
   id: string;
   name: string;
   kind: string;
-  slot: 'weapon' | 'armor' | null;
+  /** Item slot (head/chest/mainhand/ring/…) for equippable items, else null. */
+  slot: string | null;
   power: number | null;
   hp: number | null;
   color: string | null;
@@ -59,11 +61,19 @@ export interface EntityState {
   level: number;
   /** Projectiles only: which ability spawned it, so the client picks the right sprite. */
   abilityId?: AbilityId;
+  /** Projectiles only: true for an enemy projectile (hits players) — the client tints it hostile. */
+  hostile?: boolean;
   /** Items only: dropped item id + quantity. */
   itemId?: string;
   qty?: number;
+  /** Gear drops only: rarity tier, so the client can color the ground glint. */
+  rarity?: string;
   /** Status bitflags for rendering tints (1 = slowed, 2 = burning). */
   flags?: number;
+  /** Mobs only: true for an elite/champion (the client draws a marker + scales it up). */
+  elite?: boolean;
+  /** NPCs only: their role, so the client shows the right prompt + marker ('vendor' | 'questgiver'). */
+  npcKind?: string;
 }
 
 /** Directional intent for one frame, normalized to -1..1 on each axis. */
@@ -76,7 +86,7 @@ export interface InputState {
 
 /** Messages the client sends to the server. */
 export type ClientMessage =
-  | { t: 'join'; name: string }
+  | { t: 'join'; name: string; token?: string }
   /** Movement intent with a client sequence number (for prediction/reconciliation). */
   | { t: 'input'; input: InputState; seq: number }
   /** Cast an ability aimed in direction (dx, dy); the server normalizes and validates. */
@@ -84,8 +94,10 @@ export type ClientMessage =
   | { t: 'chat'; text: string }
   /** Interact with a nearby NPC (e.g. sell loot to the town vendor). */
   | { t: 'interact' }
-  /** Equip an item from the player's loot bag. */
-  | { t: 'equip'; itemId: string }
+  /** Equip a gear instance from the player's bag, by its unique id. */
+  | { t: 'equip'; uid: number }
+  /** Unequip the item in a doll slot (head/chest/mainhand/ring1/…) back to the bag. */
+  | { t: 'unequip'; slot: string }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string };
 
@@ -93,7 +105,15 @@ export type ClientMessage =
 export type ServerMessage =
   /** Game content from the server's SQLite DB, sent once on connect (areas, spells, items). */
   | { t: 'content'; areas: AreaDef[]; abilities: Ability[]; items: ItemInfo[] }
-  | { t: 'welcome'; id: number; tickRate: number; areaId: string; instanceId: string }
+  | {
+      t: 'welcome';
+      id: number;
+      tickRate: number;
+      areaId: string;
+      instanceId: string;
+      /** Opaque save token for this client to persist and present on reconnect. */
+      token: string;
+    }
   | { t: 'snapshot'; tick: number; entities: EntityState[]; fx: FxEvent[] }
   /** Personal stats for the receiving player (kept off the shared snapshot). */
   | {
@@ -108,15 +128,20 @@ export type ServerMessage =
       xpInto: number;
       xpNext: number;
       gold: number;
-      /** Non-gold loot held: item id -> quantity. */
+      /** Non-gold material loot held: item id -> quantity (stackable, sold to the vendor). */
       loot: Record<string, number>;
+      /** Unequipped gear instances held in the bag (each with rolled rarity + stats). */
+      gear: ItemInstance[];
       /** Milliseconds until respawn while dead (0 when alive). */
       respawnIn: number;
       /** Attack power from the equipped weapon (added to every hit). */
       power: number;
-      /** Equipped item ids ('' when empty). */
-      weapon: string;
-      armor: string;
+      /** Crit chance in [0,1] (base + equipped +crit affixes). */
+      critChance: number;
+      /** Equipped gear by doll slot (head/chest/mainhand/ring1/… → instance or null). */
+      equipment: Record<string, ItemInstance | null>;
+      /** Area corruption 0..1 (drives the client's darkening of the scene). */
+      corruption: number;
       /** Authoritative position + last input the server processed (client reconciliation). */
       x: number;
       y: number;

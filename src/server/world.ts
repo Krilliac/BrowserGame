@@ -15,12 +15,30 @@ import {
   MOB_RESPAWN_MS,
   PLAYER_MAX_HP,
   PLAYER_MAX_MANA,
+  PLAYER_RADIUS,
   PLAYER_RESPAWN_MS,
   type AbilityId,
   type FxEvent,
 } from '../shared/combat.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
-import { attackRoll, defenceRoll, rollDamage, rolledHit } from './combat-formulas.js';
+import {
+  applyCrit,
+  attackRoll,
+  BASE_CRIT_CHANCE,
+  defenceRoll,
+  rollCrit,
+  rollDamage,
+  rolledHit,
+} from './combat-formulas.js';
+import {
+  gearSellValue,
+  rollCorruptedInstance,
+  rollItemInstance,
+  type BaseItem,
+  type ItemInstance,
+} from '../shared/items.js';
+import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-corruption.js';
+import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../shared/equipment.js';
 import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
@@ -28,9 +46,50 @@ import { getContent } from './content.js';
 import { weatherModifiers } from './weather-effects.js';
 import type { WeatherKind } from '../shared/theme.js';
 
+type Equipment = Record<EquipSlot, ItemInstance | null>;
+
+/** A fresh equipment record with every doll slot empty. */
+function emptyEquipment(): Equipment {
+  const eq = {} as Equipment;
+  for (const slot of EQUIP_SLOTS) eq[slot] = null;
+  return eq;
+}
+
+/** Build the roll base from a content item, or null if it isn't equippable. */
+function asBaseItem(def: {
+  id: string;
+  name: string;
+  slot: string | null;
+  kind: string;
+  power: number | null;
+  hp: number | null;
+}): BaseItem | null {
+  if (def.kind !== 'equip' || !def.slot) return null;
+  return { id: def.id, name: def.name, slot: def.slot as ItemSlot, power: def.power, hp: def.hp };
+}
+
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
 const INTERACT_RANGE = 70;
+const DASH_MS = 300; // how long a charger's lunge lasts
+
+// Living loot meta — a "hunting bounty" per monster type that regenerates while it is left alone and
+// is consumed on a kill, so the first kills after a lull are richer and spam-farming yields base loot.
+const BOUNTY_FULL_MS = 60_000; // a minute untouched = a full bounty
+const BOUNTY_MAX_CHANCE = 0.5; // bonus-drop chance at a full bounty
+
+// Extra corrupted-gear sources independent of the area's corruption level: a slim chance from
+// invasion champions, and an even slimmer chance from bosses (below the ~0.43% legendary rate).
+const INVASION_CORRUPT_CHANCE = 0.08;
+const BOSS_CORRUPT_CHANCE = 0.003;
+
+// Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
+const ELITE_CHANCE = 0.09;
+const ELITE_MODIFIERS: { name: string; hp: number; dmg: number; spd: number }[] = [
+  { name: 'Swift', hp: 2.0, dmg: 1.3, spd: 1.6 }, // fast and harassing
+  { name: 'Brutal', hp: 2.4, dmg: 1.9, spd: 1.0 }, // hits like a truck
+  { name: 'Vigorous', hp: 3.4, dmg: 1.4, spd: 1.0 }, // a damage sponge
+];
 
 export interface SpawnOptions {
   id?: number;
@@ -53,8 +112,16 @@ interface Player {
   xp: number;
   gold: number;
   loot: Map<string, number>;
-  equipment: { weapon: string | null; armor: string | null };
+  /** Unequipped gear instances in the bag (rolled rarity + stats). */
+  gear: ItemInstance[];
+  equipment: Equipment;
   power: number;
+  /** Crit chance in [0,1]: base plus the sum of equipped +crit affixes. */
+  critChance: number;
+  /** Extra projectiles per projectile cast, from equipped +multishot affixes. */
+  multishot: number;
+  /** Incoming-damage multiplier (>1) from corrupted +fragile debuffs. */
+  damageTakenMult: number;
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
@@ -75,8 +142,9 @@ export interface PlayerSave {
   xp: number;
   gold: number;
   loot: [string, number][];
-  weapon: string | null;
-  armor: string | null;
+  gear: ItemInstance[];
+  /** Equipped gear by doll slot; partial-friendly so older saves migrate cleanly. */
+  equipment: Record<string, ItemInstance | null>;
   god: boolean;
   quests: [string, number][];
   questsDone: string[];
@@ -102,6 +170,23 @@ interface Mob {
   lastAttacker: number;
   dead: boolean;
   respawnAt: number;
+  /** Attack wind-up: sim time (ms) the telegraphed strike lands at (0 = not winding up). */
+  telegraphUntil: number;
+  /** Aim locked when the wind-up started (so a moving player can dodge out of it). */
+  telegraphFacing: number;
+  telegraphTargetId: number;
+  /** Charger dash: sim time (ms) the lunge ends at (0 = not dashing). */
+  dashUntil: number;
+  dashVx: number;
+  dashVy: number;
+  /** Players already struck by the current dash (each is hit at most once per lunge). */
+  dashHit: Set<number>;
+  /** Elite ("champion") flag + its stat multipliers; bigger, deadlier, drops better loot. */
+  elite: boolean;
+  dmgMult: number;
+  spdMult: number;
+  /** Spawned by an invasion event — its drops carry a slim corrupted-gear chance. */
+  invader: boolean;
 }
 
 interface Projectile {
@@ -116,6 +201,10 @@ interface Projectile {
   radius: number;
   ownerId: number;
   ownerLevel: number;
+  /** Owner's crit chance at fire time (player projectiles); 0 for mob projectiles. */
+  critChance: number;
+  /** True for an enemy (mob) projectile — it damages players instead of mobs. */
+  hostile: boolean;
 }
 
 interface GroundItem {
@@ -125,6 +214,8 @@ interface GroundItem {
   x: number;
   y: number;
   ttl: number;
+  /** Set for gear drops: the rolled instance the picker-up receives. */
+  instance?: ItemInstance;
 }
 
 interface Npc {
@@ -133,7 +224,7 @@ interface Npc {
   x: number;
   y: number;
   hue: number;
-  kind: 'vendor';
+  kind: 'vendor' | 'questgiver';
 }
 
 /**
@@ -154,9 +245,14 @@ export class World {
   private readonly npcs = new Map<number, Npc>();
   private events: FxEvent[] = [];
   private notices: { playerId: number; text: string }[] = [];
+  /** Living-loot meta: sim time (ms) each monster type was last killed, for the hunting bounty. */
+  private readonly lastKillAt = new Map<string, number>();
   // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
   private moveScale = 1;
   private aggroScale = 1;
+  private readonly areaId: string;
+  /** Area-wide corruption pool, shared across every instance of the area (host-owned). */
+  private readonly areaCorruption: AreaCorruption;
 
   constructor(
     private readonly width: number = WORLD_WIDTH,
@@ -166,8 +262,17 @@ export class World {
       y: WORLD_HEIGHT / 2,
     },
     allocId?: () => number,
+    areaId = 'world',
+    areaCorruption?: AreaCorruption,
   ) {
     this.allocId = allocId ?? (() => this.localId++);
+    this.areaId = areaId;
+    this.areaCorruption = areaCorruption ?? new AreaCorruption();
+  }
+
+  /** Current corruption (0..1) of this world's area. */
+  private corruption(): number {
+    return this.areaCorruption.get(this.areaId);
   }
 
   /**
@@ -196,20 +301,62 @@ export class World {
     }
   }
 
-  private createMob(template: MobTemplate, x: number, y: number): void {
+  /**
+   * Spawn a sudden invasion wave: `count` forced-elite monsters drawn from the area's roster, ringed
+   * around a random living player — a spontaneous raid. Returns false if there's no one to invade.
+   */
+  spawnInvasion(areaId: string, count: number): boolean {
+    const content = getContent();
+    const alive = [...this.players.values()].filter((p) => !p.dead);
+    const templates = content
+      .areaMobs(areaId)
+      .map((s) => content.mobTemplate(s.templateId))
+      .filter((t): t is MobTemplate => !!t && t.hp < 200);
+    if (alive.length === 0 || templates.length === 0) return false;
+    const anchor = alive[Math.floor(Math.random() * alive.length)]!;
+    for (let i = 0; i < count; i++) {
+      const t = templates[Math.floor(Math.random() * templates.length)]!;
+      const ang = Math.random() * Math.PI * 2;
+      const r = 170 + Math.random() * 130;
+      this.createMob(
+        t,
+        clamp(anchor.x + Math.cos(ang) * r, 0, this.width),
+        clamp(anchor.y + Math.sin(ang) * r, 0, this.height),
+        true, // forced elite
+        true, // invader → slim corrupted-drop chance
+      );
+    }
+    return true;
+  }
+
+  private createMob(
+    template: MobTemplate,
+    x: number,
+    y: number,
+    forceElite = false,
+    invader = false,
+  ): void {
     const id = this.allocId();
+    // Elite ("champion") roll: a rare, beefed-up variant with a modifier prefix. Bosses (very high
+    // HP) never roll elite — they are already special. Invasions force the elite flag.
+    const isBoss = template.hp >= 200;
+    const elite = !isBoss && (forceElite || Math.random() < ELITE_CHANCE);
+    const mod = elite
+      ? (ELITE_MODIFIERS[Math.floor(Math.random() * ELITE_MODIFIERS.length)] ?? null)
+      : null;
+    const hp = mod ? Math.round(template.hp * mod.hp) : template.hp;
     this.mobs.set(id, {
       id,
       templateId: template.id,
-      name: template.name,
+      name: mod ? `${mod.name} ${template.name}` : template.name,
       x,
       y,
       homeX: x,
       homeY: y,
       hue: template.hue,
       facing: 0,
-      hp: template.hp,
-      maxHp: template.hp,
+      hp,
+      maxHp: hp,
       level: template.level,
       attackCd: 0,
       wanderAngle: null,
@@ -218,6 +365,17 @@ export class World {
       lastAttacker: 0,
       dead: false,
       respawnAt: 0,
+      telegraphUntil: 0,
+      telegraphFacing: 0,
+      telegraphTargetId: 0,
+      dashUntil: 0,
+      dashVx: 0,
+      dashVy: 0,
+      dashHit: new Set(),
+      elite,
+      dmgMult: mod ? mod.dmg : 1,
+      spdMult: mod ? mod.spd : 1,
+      invader,
     });
   }
 
@@ -225,56 +383,119 @@ export class World {
   populateNpcs(areaId: string): void {
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
-      this.npcs.set(id, { id, name: npc.name, x: npc.x, y: npc.y, hue: npc.hue, kind: 'vendor' });
+      const kind = npc.kind === 'questgiver' ? 'questgiver' : 'vendor';
+      this.npcs.set(id, { id, name: npc.name, x: npc.x, y: npc.y, hue: npc.hue, kind });
     }
   }
 
-  /** Interact with the nearest in-range NPC: the vendor buys the player's loot for gold. */
+  /** Interact with the nearest in-range NPC: a vendor buys loot, a quest-giver offers quests. */
   interact(id: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
-    const content = getContent();
     for (const npc of this.npcs.values()) {
       if (Math.hypot(player.x - npc.x, player.y - npc.y) > INTERACT_RANGE) continue;
-      if (npc.kind !== 'vendor') continue;
-      let gold = 0;
-      for (const [item, qty] of player.loot) {
-        const value = content.sellValue(item);
-        if (value <= 0 || qty <= 0) continue;
-        gold += value * qty;
-        player.loot.delete(item);
-      }
-      if (gold <= 0) return;
-      player.gold += gold;
-      this.events.push({ kind: 'cast', x: player.x, y: player.y });
+      if (npc.kind === 'vendor') this.sellToVendor(player);
+      else this.talkToQuestGiver(player);
       return;
     }
   }
 
-  /** Equip an item from the player's bag, returning any displaced gear to the bag. */
-  equip(id: number, itemId: string): void {
+  /** Sell the player's whole bag (materials + gear) to a vendor for gold. */
+  private sellToVendor(player: Player): void {
+    const content = getContent();
+    let gold = 0;
+    for (const [item, qty] of player.loot) {
+      const value = content.sellValue(item);
+      if (value <= 0 || qty <= 0) continue;
+      gold += value * qty;
+      player.loot.delete(item);
+    }
+    for (const inst of player.gear) gold += gearSellValue(inst);
+    player.gear = [];
+    if (gold <= 0) return;
+    player.gold += gold;
+    this.events.push({ kind: 'coin', x: player.x, y: player.y, value: gold });
+  }
+
+  /** Offer the next un-taken quest, or report progress if there is nothing new. */
+  private talkToQuestGiver(player: Player): void {
+    const quests = getContent().quests();
+    const next = quests.find((q) => !player.quests.has(q.id) && !player.questsDone.has(q.id));
+    if (next) {
+      player.quests.set(next.id, 0);
+      this.notify(player.id, `Quest accepted: ${next.name} — ${next.description}`);
+      return;
+    }
+    const active = quests.find((q) => player.quests.has(q.id));
+    if (active) {
+      const got = player.quests.get(active.id) ?? 0;
+      this.notify(player.id, `In progress: ${active.name} (${got}/${active.targetCount})`);
+    } else {
+      this.notify(player.id, 'No new quests right now — well done, adventurer.');
+    }
+  }
+
+  /** Equip a gear instance (by uid) from the player's bag, returning any displaced gear to the bag. */
+  equip(id: number, uid: number): void {
     const player = this.players.get(id);
-    if (!player || (player.loot.get(itemId) ?? 0) < 1) return;
-    const def = getContent().item(itemId);
-    if (!def || def.kind !== 'equip' || (def.slot !== 'weapon' && def.slot !== 'armor')) return;
+    if (!player) return;
+    const idx = player.gear.findIndex((g) => g.uid === uid);
+    if (idx < 0) return;
+    const inst = player.gear[idx]!;
+    const itemSlot = getContent().item(inst.baseId)?.slot as ItemSlot | undefined;
+    if (!itemSlot) return;
+    const slots = dollSlotsFor(itemSlot);
+    if (slots.length === 0) return;
+    // Prefer an empty doll slot (e.g. ring1 over ring2); otherwise replace the first.
+    const target = slots.find((s) => player.equipment[s] === null) ?? slots[0]!;
 
-    const remaining = (player.loot.get(itemId) ?? 0) - 1;
-    if (remaining <= 0) player.loot.delete(itemId);
-    else player.loot.set(itemId, remaining);
-
-    const previous = player.equipment[def.slot];
-    if (previous) player.loot.set(previous, (player.loot.get(previous) ?? 0) + 1);
-    player.equipment[def.slot] = itemId;
+    player.gear.splice(idx, 1);
+    const previous = player.equipment[target];
+    if (previous) player.gear.push(previous);
+    player.equipment[target] = inst;
     this.recomputeStats(player);
   }
 
-  /** Derive power + max HP from level and equipped gear. */
+  /** Unequip the item in a doll slot back to the bag. */
+  unequip(id: number, slot: string): void {
+    const player = this.players.get(id);
+    if (!player) return;
+    if (!(EQUIP_SLOTS as string[]).includes(slot)) return;
+    const s = slot as EquipSlot;
+    const inst = player.equipment[s];
+    if (!inst) return;
+    player.equipment[s] = null;
+    player.gear.push(inst);
+    this.recomputeStats(player);
+  }
+
+  /** Derive power, max HP, crit, multishot, and damage-taken from level + every equipped instance. */
   private recomputeStats(player: Player): void {
-    const content = getContent();
-    const weapon = player.equipment.weapon;
-    const armor = player.equipment.armor;
-    player.power = weapon ? (content.item(weapon)?.power ?? 0) : 0;
-    player.maxHp = maxHpForLevel(player.level) + (armor ? (content.item(armor)?.hp ?? 0) : 0);
+    let power = 0;
+    let bonusHp = 0;
+    let crit = BASE_CRIT_CHANCE;
+    let multishot = 0;
+    let damageTaken = 1;
+    for (const slot of EQUIP_SLOTS) {
+      const inst = player.equipment[slot];
+      if (!inst) continue;
+      power += inst.power;
+      bonusHp += inst.hp;
+      for (const a of inst.affixes ?? []) {
+        if (a.stat === 'power') power += a.value;
+        else if (a.stat === 'hp') bonusHp += a.value;
+        else if (a.stat === 'crit') crit += a.value / 100;
+        else if (a.stat === 'multishot') multishot += a.value;
+        else if (a.stat === 'frail')
+          bonusHp -= a.value; // corrupted debuff: less max HP
+        else if (a.stat === 'fragile') damageTaken += a.value / 100; // corrupted debuff: take more
+      }
+    }
+    player.power = power;
+    player.critChance = crit;
+    player.multishot = multishot;
+    player.damageTakenMult = damageTaken;
+    player.maxHp = Math.max(1, maxHpForLevel(player.level) + bonusHp);
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
 
@@ -304,11 +525,21 @@ export class World {
     return true;
   }
 
-  /** Add an item to a player's bag. Returns false for an unknown item id. */
+  /**
+   * Add an item to a player's bag. Equipment becomes rolled gear instance(s) in the gear bag;
+   * materials/currency stack in the loot map. Returns false for an unknown item id.
+   */
   giveItem(id: number, itemId: string, qty: number): boolean {
     const p = this.players.get(id);
-    if (!p || !getContent().item(itemId)) return false;
-    p.loot.set(itemId, (p.loot.get(itemId) ?? 0) + Math.max(1, qty));
+    const def = getContent().item(itemId);
+    if (!p || !def) return false;
+    const n = Math.max(1, qty);
+    const base = asBaseItem(def);
+    if (base) {
+      for (let i = 0; i < n; i++) p.gear.push(rollItemInstance(this.allocId(), base));
+    } else {
+      p.loot.set(itemId, (p.loot.get(itemId) ?? 0) + n);
+    }
     return true;
   }
 
@@ -373,8 +604,12 @@ export class World {
       xp: 0,
       gold: 0,
       loot: new Map(),
-      equipment: { weapon: null, armor: null },
+      gear: [],
+      equipment: emptyEquipment(),
       power: 0,
+      critChance: BASE_CRIT_CHANCE,
+      multishot: 0,
+      damageTakenMult: 1,
       god: false,
       quests: new Map(),
       questsDone: new Set(),
@@ -400,8 +635,8 @@ export class World {
       xp: p.xp,
       gold: p.gold,
       loot: [...p.loot],
-      weapon: p.equipment.weapon,
-      armor: p.equipment.armor,
+      gear: [...p.gear],
+      equipment: { ...p.equipment },
       god: p.god,
       quests: [...p.quests],
       questsDone: [...p.questsDone],
@@ -417,7 +652,8 @@ export class World {
     p.xp = save.xp;
     p.gold = save.gold;
     p.loot = new Map(save.loot);
-    p.equipment = { weapon: save.weapon, armor: save.armor };
+    p.gear = [...save.gear];
+    p.equipment = { ...emptyEquipment(), ...save.equipment };
     p.god = save.god;
     p.quests = new Map(save.quests);
     p.questsDone = new Set(save.questsDone);
@@ -463,36 +699,53 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
-          const dmg = rollAbilityDamage(player.level, mob.level, ability.damage + player.power);
-          this.damageMob(mob, dmg, abilityId, player.id);
+          const base = rollAbilityDamage(player.level, mob.level, ability.damage + player.power);
+          const crit = base > 0 && rollCrit(Math.random, player.critChance);
+          const dmg = applyCrit(base, crit);
+          this.damageMob(mob, dmg, abilityId, player.id, crit);
           if (dmg > 0) applyStatus(mob, abilityId);
         }
       }
     } else {
-      const pid = this.allocId();
-      this.projectiles.set(pid, {
-        id: pid,
-        abilityId,
-        x: player.x,
-        y: player.y,
-        vx: Math.cos(facing) * (ability.projectileSpeed ?? 300),
-        vy: Math.sin(facing) * (ability.projectileSpeed ?? 300),
-        ttl: ability.projectileTtlMs ?? 1200,
-        damage: ability.damage + player.power,
-        radius: ability.radius,
-        ownerId: player.id,
-        ownerLevel: player.level,
-      });
+      // Multishot affixes add extra projectiles, fanned around the aim — gear shapes the kit.
+      const speed = ability.projectileSpeed ?? 300;
+      const count = 1 + player.multishot;
+      const spread = 0.18; // radians between adjacent shots
+      for (let i = 0; i < count; i++) {
+        const a = facing + (i - (count - 1) / 2) * spread;
+        const pid = this.allocId();
+        this.projectiles.set(pid, {
+          id: pid,
+          abilityId,
+          x: player.x,
+          y: player.y,
+          vx: Math.cos(a) * speed,
+          vy: Math.sin(a) * speed,
+          ttl: ability.projectileTtlMs ?? 1200,
+          damage: ability.damage + player.power,
+          radius: ability.radius,
+          ownerId: player.id,
+          ownerLevel: player.level,
+          critChance: player.critChance,
+          hostile: false,
+        });
+      }
     }
   }
 
   /** Advance the simulation by dt seconds. */
   tick(dt: number): void {
     this.now += dt * 1000;
+    // Corruption decay is driven once by the host on the shared registry, not per-instance here.
     this.tickPlayers(dt);
     this.tickMobs(dt);
     this.tickProjectiles(dt);
     this.tickItems(dt);
+  }
+
+  /** Mob-damage multiplier from corruption (1 at calm, up to 1 + CORRUPT_MAX_DMG_BONUS at full). */
+  private corruptionDmg(): number {
+    return 1 + this.corruption() * CORRUPT_MAX_DMG_BONUS;
   }
 
   private tickPlayers(dt: number): void {
@@ -541,25 +794,137 @@ export class World {
       const slow = mob.statuses.slowFactor();
 
       const template = getContent().mobTemplate(mob.templateId)!;
+
+      // Charger lunge: while dashing, the mob barrels along its locked aim, striking each player it
+      // passes through once. Overrides normal movement/attack until the dash ends.
+      if (mob.dashUntil > 0) {
+        if (this.now >= mob.dashUntil) {
+          mob.dashUntil = 0;
+        } else {
+          mob.x = clamp(mob.x + mob.dashVx * dt, 0, this.width);
+          mob.y = clamp(mob.y + mob.dashVy * dt, 0, this.height);
+          for (const player of this.players.values()) {
+            if (player.dead || mob.dashHit.has(player.id)) continue;
+            if (circlesOverlap(mob.x, mob.y, MOB_RADIUS, player.x, player.y, PLAYER_RADIUS)) {
+              this.damagePlayer(player, template.damage * mob.dmgMult * this.corruptionDmg());
+              mob.dashHit.add(player.id);
+            }
+          }
+          continue;
+        }
+      }
+
+      // Attack wind-up: a telegraphed mob is rooted, facing its locked aim. The strike lands when
+      // the wind-up elapses — moving out of the way during it is how a player dodges.
+      if (mob.telegraphUntil > 0) {
+        mob.facing = mob.telegraphFacing;
+        if (this.now >= mob.telegraphUntil) {
+          mob.telegraphUntil = 0;
+          this.executeMobAttack(mob, template);
+          mob.attackCd = template.attackCooldownMs;
+        }
+        continue;
+      }
+
       const view: MobView = { x: mob.x, y: mob.y, template, attackReady: mob.attackCd <= 0 };
       const intent = stepMob(view, views, this.aggroScale); // weather may dampen aggro range
 
       if (intent.attackTargetId !== null) {
         const target = this.players.get(intent.attackTargetId);
         if (target && !target.dead) {
-          this.damagePlayer(target, template.damage);
-          mob.attackCd = template.attackCooldownMs;
           mob.facing = intent.facing ?? mob.facing;
-          this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.facing });
+          mob.telegraphFacing = mob.facing;
+          mob.telegraphTargetId = target.id;
+          if (template.telegraphMs > 0) {
+            // Begin the wind-up; show the tell so the player can react.
+            mob.telegraphUntil = this.now + template.telegraphMs;
+            // A slammer shows an AoE circle; a charger telegraphs the lunge as an aimed line; plain
+            // melee shows a strike arc; ranged shows its aim line.
+            const tellStyle: 'melee' | 'ranged' | 'slam' = template.slamRadius
+              ? 'slam'
+              : template.behavior === 'melee'
+                ? 'melee'
+                : 'ranged';
+            const tele: FxEvent = {
+              kind: 'telegraph',
+              x: mob.x,
+              y: mob.y,
+              facing: mob.facing,
+              value: template.telegraphMs,
+              behavior: tellStyle,
+            };
+            if (template.slamRadius) tele.radius = template.slamRadius;
+            this.events.push(tele);
+          } else {
+            this.executeMobAttack(mob, template);
+            mob.attackCd = template.attackCooldownMs;
+          }
         }
       } else if (intent.vx !== 0 || intent.vy !== 0) {
-        mob.x = clamp(mob.x + intent.vx * slow * dt, 0, this.width);
-        mob.y = clamp(mob.y + intent.vy * slow * dt, 0, this.height);
+        mob.x = clamp(mob.x + intent.vx * slow * mob.spdMult * dt, 0, this.width);
+        mob.y = clamp(mob.y + intent.vy * slow * mob.spdMult * dt, 0, this.height);
         if (intent.facing !== null) mob.facing = intent.facing;
       } else {
-        this.wander(mob, dt, template.speed * slow);
+        this.wander(mob, dt, template.speed * slow * mob.spdMult);
       }
     }
+  }
+
+  /**
+   * Resolve a mob's attack at the moment its wind-up completes. Melee strikes the locked target if
+   * it is still in reach (so dodging out of range whiffs it); ranged fires a hostile projectile
+   * along the locked aim (so side-stepping the line dodges it).
+   */
+  private executeMobAttack(mob: Mob, template: MobTemplate): void {
+    if (template.behavior === 'charger') {
+      // Begin the lunge along the locked aim; contact damage is applied during the dash ticks.
+      mob.dashUntil = this.now + DASH_MS;
+      const dashSpeed = (template.dashSpeed ?? 480) * mob.spdMult;
+      mob.dashVx = Math.cos(mob.telegraphFacing) * dashSpeed;
+      mob.dashVy = Math.sin(mob.telegraphFacing) * dashSpeed;
+      mob.dashHit.clear();
+      this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
+      return;
+    }
+    if (template.behavior === 'ranged') {
+      const speed = template.projectileSpeed ?? 280;
+      const pid = this.allocId();
+      this.projectiles.set(pid, {
+        id: pid,
+        abilityId: 'arrow', // sprite hint only; the client tints hostile projectiles separately
+        x: mob.x,
+        y: mob.y,
+        vx: Math.cos(mob.telegraphFacing) * speed,
+        vy: Math.sin(mob.telegraphFacing) * speed,
+        ttl: 2400,
+        damage: template.damage * mob.dmgMult * this.corruptionDmg(),
+        radius: 8,
+        ownerId: 0,
+        ownerLevel: template.level,
+        critChance: 0,
+        hostile: true,
+      });
+      this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
+      return;
+    }
+    // Melee: a slam hits everyone within slamRadius; a normal strike hits the locked target if it
+    // is still in reach. Either way, dodging out of range during the wind-up avoids the hit.
+    if (template.slamRadius) {
+      for (const player of this.players.values()) {
+        if (player.dead) continue;
+        if (Math.hypot(player.x - mob.x, player.y - mob.y) <= template.slamRadius + PLAYER_RADIUS) {
+          this.damagePlayer(player, template.damage * mob.dmgMult * this.corruptionDmg());
+        }
+      }
+      this.events.push({ kind: 'slam', x: mob.x, y: mob.y, radius: template.slamRadius });
+      return;
+    }
+    const target = this.players.get(mob.telegraphTargetId);
+    const reach = template.attackRange + PLAYER_RADIUS;
+    if (target && !target.dead && Math.hypot(target.x - mob.x, target.y - mob.y) <= reach) {
+      this.damagePlayer(target, template.damage * mob.dmgMult * this.corruptionDmg());
+    }
+    this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
   }
 
   private tickProjectiles(dt: number): void {
@@ -569,14 +934,28 @@ export class World {
       proj.ttl -= dt * 1000;
 
       let consumed = false;
-      for (const mob of this.mobs.values()) {
-        if (mob.dead) continue;
-        if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
-          const dmg = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
-          this.damageMob(mob, dmg, proj.abilityId, proj.ownerId);
-          if (dmg > 0) applyStatus(mob, proj.abilityId);
-          consumed = true;
-          break;
+      if (proj.hostile) {
+        // Enemy projectile: hits the first living, non-godmode player it overlaps.
+        for (const player of this.players.values()) {
+          if (player.dead) continue;
+          if (circlesOverlap(proj.x, proj.y, proj.radius, player.x, player.y, PLAYER_RADIUS)) {
+            this.damagePlayer(player, proj.damage);
+            consumed = true;
+            break;
+          }
+        }
+      } else {
+        for (const mob of this.mobs.values()) {
+          if (mob.dead) continue;
+          if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
+            const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
+            const crit = base > 0 && rollCrit(Math.random, proj.critChance);
+            const dmg = applyCrit(base, crit);
+            this.damageMob(mob, dmg, proj.abilityId, proj.ownerId, crit);
+            if (dmg > 0) applyStatus(mob, proj.abilityId);
+            consumed = true;
+            break;
+          }
         }
       }
       if (consumed || proj.ttl <= 0 || this.outOfBounds(proj.x, proj.y)) {
@@ -604,11 +983,13 @@ export class World {
     amount: number,
     abilityId: AbilityId | undefined,
     attackerId: number,
+    crit = false,
   ): void {
     if (attackerId !== 0) mob.lastAttacker = attackerId;
     mob.hp -= amount;
     const hit: FxEvent = { kind: 'hit', x: mob.x, y: mob.y, value: Math.ceil(amount) };
     if (abilityId !== undefined) hit.abilityId = abilityId;
+    if (crit) hit.crit = true;
     this.events.push(hit);
     if (mob.hp <= 0) {
       mob.dead = true;
@@ -620,27 +1001,118 @@ export class World {
 
   /** Award XP to the killer and drop loot on the ground. */
   private onMobKilled(mob: Mob): void {
+    // Clearing monsters pushes back the area's corruption.
+    this.areaCorruption.pushBack(this.areaId);
     const killer = this.players.get(mob.lastAttacker);
     if (killer) {
-      killer.xp += xpReward(mob.level);
+      killer.xp += xpReward(mob.level) * (mob.elite ? 3 : 1); // champions give a big XP bonus
       const newLevel = levelForXp(killer.xp);
-      if (newLevel > killer.level) this.notify(killer.id, `You reached level ${newLevel}!`);
+      if (newLevel > killer.level) {
+        this.notify(killer.id, `You reached level ${newLevel}!`);
+        this.events.push({ kind: 'levelup', x: killer.x, y: killer.y, value: newLevel });
+      }
       killer.level = newLevel;
       this.recomputeStats(killer);
       this.progressQuests(killer, mob.templateId);
     }
-    // Loot (materials + gear) comes from the DB-backed content drop tables.
-    for (const stack of getContent().rollLoot(mob.templateId)) {
+    // Loot (materials + gear) comes from the DB-backed content drop tables. Equipment items roll a
+    // rarity + stats into a unique instance; materials/currency drop as plain stacks.
+    const content = getContent();
+    const isBoss = (content.mobTemplate(mob.templateId)?.hp ?? 0) >= 200;
+    const corruptedChance = this.corruptedDropChance(mob, isBoss);
+    for (const stack of content.rollLoot(mob.templateId)) {
       const id = this.allocId();
-      this.items.set(id, {
+      const item: GroundItem = {
         id,
         itemId: stack.item,
         qty: stack.qty,
         x: mob.x + (Math.random() - 0.5) * 30,
         y: mob.y + (Math.random() - 0.5) * 30,
         ttl: ITEM_TTL_MS,
-      });
+      };
+      const def = content.item(stack.item);
+      if (def && def.kind === 'equip') {
+        // A gear drop rolls a *random* equippable (any slot) for full variety; the loot table just
+        // controls how often gear drops. Relabel the ground item so the glint matches the piece.
+        const base = this.randomEquipBase() ?? asBaseItem(def);
+        if (base) {
+          item.itemId = base.id;
+          item.instance = this.rollGear(base, 0, corruptedChance);
+        }
+      }
+      this.items.set(id, item);
     }
+
+    // Champion bonus: a pile of gold + one guaranteed, rarity-bumped piece of gear.
+    if (mob.elite) {
+      this.dropGround('gold', 30 + Math.floor(Math.random() * 50), mob.x, mob.y);
+      this.dropBonusGear(mob.x, mob.y, 2, corruptedChance);
+    }
+
+    // Living loot meta: consume this monster type's accumulated hunting bounty. A long lull since the
+    // last kill (or a never-farmed type) means a high chance of a bonus rarity-bumped drop; the kill
+    // resets the timer, so farming the same spot quickly depletes it back to base loot.
+    const last = this.lastKillAt.get(mob.templateId);
+    const bounty = last === undefined ? 1 : Math.min(1, (this.now - last) / BOUNTY_FULL_MS);
+    this.lastKillAt.set(mob.templateId, this.now);
+    if (Math.random() < bounty * BOUNTY_MAX_CHANCE) {
+      this.dropBonusGear(mob.x, mob.y, 1, corruptedChance);
+      if (killer) this.notify(killer.id, 'A hunting bounty! Fresh quarry yields richer loot.');
+    }
+  }
+
+  /** A random equippable base item (any slot), or null if the content has none. */
+  private randomEquipBase(): BaseItem | null {
+    const equips = getContent()
+      .items()
+      .filter((i) => i.kind === 'equip');
+    const def = equips[Math.floor(Math.random() * equips.length)];
+    return def ? asBaseItem(def) : null;
+  }
+
+  /** Drop one random equipment piece as a rolled, rarity-bumped instance (elite + bounty rewards). */
+  private dropBonusGear(x: number, y: number, rarityBump: number, corruptedChance: number): void {
+    const base = this.randomEquipBase();
+    if (!base) return;
+    const ground = this.dropGround(base.id, 1, x, y);
+    ground.instance = this.rollGear(base, rarityBump, corruptedChance);
+  }
+
+  /**
+   * Roll a gear instance for a drop. With probability `corruptedChance` the item is born
+   * **corrupted** (a strong buff + a debuff); otherwise it's a normal rolled instance.
+   */
+  private rollGear(base: BaseItem, rarityBump: number, corruptedChance: number): ItemInstance {
+    if (Math.random() < corruptedChance) {
+      return rollCorruptedInstance(this.allocId(), base);
+    }
+    return rollItemInstance(this.allocId(), base, Math.random, rarityBump);
+  }
+
+  /**
+   * Combined corrupted-drop chance for a slain mob: the area's corruption (scaled), plus a slim flat
+   * bonus for invasion champions and an even slimmer one for bosses.
+   */
+  private corruptedDropChance(mob: Mob, isBoss: boolean): number {
+    let chance = this.corruption() * CORRUPT_DROP_MAX;
+    if (mob.invader) chance += INVASION_CORRUPT_CHANCE;
+    if (isBoss) chance += BOSS_CORRUPT_CHANCE;
+    return chance;
+  }
+
+  /** Spawn a ground item (gold or a material/gear stack) with a little scatter. Returns it. */
+  private dropGround(itemId: string, qty: number, x: number, y: number): GroundItem {
+    const id = this.allocId();
+    const item: GroundItem = {
+      id,
+      itemId,
+      qty,
+      x: x + (Math.random() - 0.5) * 30,
+      y: y + (Math.random() - 0.5) * 30,
+      ttl: ITEM_TTL_MS,
+    };
+    this.items.set(id, item);
+    return item;
   }
 
   // --- quests + per-player notices -----------------------------------------------------
@@ -717,9 +1189,21 @@ export class World {
       for (const player of this.players.values()) {
         if (player.dead) continue;
         if (Math.hypot(player.x - item.x, player.y - item.y) <= PICKUP_RADIUS) {
-          if (item.itemId === 'gold') player.gold += item.qty;
-          else player.loot.set(item.itemId, (player.loot.get(item.itemId) ?? 0) + item.qty);
-          this.events.push({ kind: 'cast', x: item.x, y: item.y });
+          if (item.itemId === 'gold') {
+            player.gold += item.qty;
+            this.events.push({ kind: 'coin', x: item.x, y: item.y, value: item.qty });
+          } else if (item.instance) {
+            player.gear.push(item.instance);
+            this.events.push({
+              kind: 'pickup',
+              x: item.x,
+              y: item.y,
+              rarity: item.instance.rarity,
+            });
+          } else {
+            player.loot.set(item.itemId, (player.loot.get(item.itemId) ?? 0) + item.qty);
+            this.events.push({ kind: 'pickup', x: item.x, y: item.y });
+          }
           this.items.delete(item.id);
           break;
         }
@@ -729,13 +1213,17 @@ export class World {
 
   private damagePlayer(player: Player, amount: number): void {
     if (player.god) return;
-    player.hp -= amount;
-    this.events.push({ kind: 'hit', x: player.x, y: player.y, value: amount });
+    const taken = amount * player.damageTakenMult; // corrupted +fragile makes hits land harder
+    player.hp -= taken;
+    // Round the floating damage (mult'd by corruption/fragile) for a clean floating number.
+    this.events.push({ kind: 'hit', x: player.x, y: player.y, value: Math.ceil(taken) });
     if (player.hp <= 0) {
       player.hp = 0;
       player.dead = true;
       player.respawnAt = this.now + PLAYER_RESPAWN_MS;
       this.events.push({ kind: 'death', x: player.x, y: player.y });
+      // Every player's death feeds the shared area-wide corruption — darker and deadlier for all.
+      this.areaCorruption.addDeath(this.areaId);
     }
   }
 
@@ -794,10 +1282,11 @@ export class World {
         level: m.level,
       };
       if (flags > 0) mob.flags = flags;
+      if (m.elite) mob.elite = true;
       out.push(mob);
     }
     for (const proj of this.projectiles.values()) {
-      out.push({
+      const e: EntityState = {
         id: proj.id,
         x: proj.x,
         y: proj.y,
@@ -809,10 +1298,12 @@ export class World {
         maxHp: 0,
         level: 0,
         abilityId: proj.abilityId,
-      });
+      };
+      if (proj.hostile) e.hostile = true;
+      out.push(e);
     }
     for (const item of this.items.values()) {
-      out.push({
+      const e: EntityState = {
         id: item.id,
         x: item.x,
         y: item.y,
@@ -825,7 +1316,9 @@ export class World {
         level: 0,
         itemId: item.itemId,
         qty: item.qty,
-      });
+      };
+      if (item.instance) e.rarity = item.instance.rarity;
+      out.push(e);
     }
     for (const npc of this.npcs.values()) {
       out.push({
@@ -839,6 +1332,7 @@ export class World {
         hp: 0,
         maxHp: 0,
         level: 0,
+        npcKind: npc.kind,
       });
     }
     return out;
@@ -865,10 +1359,12 @@ export class World {
         xpNext: number;
         gold: number;
         loot: Record<string, number>;
+        gear: ItemInstance[];
         respawnIn: number;
         power: number;
-        weapon: string;
-        armor: string;
+        critChance: number;
+        equipment: Equipment;
+        corruption: number;
         x: number;
         y: number;
         ackSeq: number;
@@ -889,10 +1385,12 @@ export class World {
       xpNext: progress.neededForNext,
       gold: p.gold,
       loot: Object.fromEntries(p.loot),
+      gear: p.gear,
       respawnIn: p.dead ? Math.max(0, Math.ceil(p.respawnAt - this.now)) : 0,
       power: p.power,
-      weapon: p.equipment.weapon ?? '',
-      armor: p.equipment.armor ?? '',
+      critChance: p.critChance,
+      equipment: p.equipment,
+      corruption: this.corruption(),
       x: p.x,
       y: p.y,
       ackSeq: p.lastSeq,

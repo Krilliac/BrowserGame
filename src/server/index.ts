@@ -18,6 +18,8 @@ import { isAbilityId } from '../shared/combat.js';
 import { initGameDb, getDb, getContent, reloadContent } from './content.js';
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess } from './accounts.js';
+import { isValidToken, loadSave, newPlayerToken, storeSave } from './player-store.js';
+import { morningDayIndex } from './area-corruption.js';
 import { SpatialGrid } from './spatial.js';
 import { THEME_KEYS, coerceThemeValue } from '../shared/theme.js';
 import { listTables, listColumns, listRows, getRow, editContent } from './content-edit.js';
@@ -77,6 +79,10 @@ function applyThemeEdit(area: string, key: string, raw: string): string {
 const AOI_HALF_W = 1400;
 const AOI_HALF_H = 1000;
 
+// Invasion events: how often we roll, and the per-instance chance each roll.
+const INVASION_INTERVAL_MS = 90_000;
+const INVASION_CHANCE = 0.35;
+
 const PORT = Number(process.env.PORT ?? 8080);
 const TICK_RATE = Number(process.env.TICK_RATE ?? DEFAULT_TICK_RATE);
 const ENGINE_ADMIN_TOKEN = process.env.ENGINE_ADMIN_TOKEN ?? '';
@@ -87,7 +93,10 @@ const clientDir = join(here, '..', 'client'); // dist/client after build
 
 const manager = new InstanceManager(INSTANCING);
 /** Per-player connection state. instanceId is mutated on portal crossings; accessLevel via /login. */
-const players = new Map<number, { socket: WebSocket; instanceId: string; accessLevel: number }>();
+const players = new Map<
+  number,
+  { socket: WebSocket; instanceId: string; accessLevel: number; token: string }
+>();
 
 // --- HTTP: health check + static hosting of the built client in production -----------
 const http = createServer(async (req, res) => {
@@ -136,8 +145,26 @@ function contentType(path: string): string {
 // maxPayload caps frame size so a single client can't send a giant message (DoS guard).
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MESSAGE_BYTES });
 
+// Heartbeat: ping every socket periodically; a client that misses a pong (tab closed abruptly, a
+// reload, a dropped network) is terminated so its player entity is removed promptly instead of
+// lingering as an idle "ghost" until TCP times out. (This is what piled up dozens of stale players.)
+const HEARTBEAT_MS = 15_000;
+const alive = new WeakSet<WebSocket>();
+setInterval(() => {
+  for (const client of wss.clients) {
+    if (!alive.has(client)) {
+      client.terminate(); // missed the last ping → dead; terminate fires 'close' → removes player
+      continue;
+    }
+    alive.delete(client);
+    client.ping();
+  }
+}, HEARTBEAT_MS);
+
 wss.on('connection', (socket) => {
   let entityId = 0;
+  alive.add(socket);
+  socket.on('pong', () => alive.add(socket));
   socket.send(contentMessage); // hand the client the game content first
   // Per-connection rate limits. Every client is untrusted: a single socket must not be
   // able to flood the simulation or chat. Generous for input, tight for chat.
@@ -152,15 +179,26 @@ wss.on('connection', (socket) => {
     switch (msg.t) {
       case 'join': {
         if (entityId !== 0) return; // already joined
-        const placement = manager.join(msg.name);
+        // Returning guests present an opaque token; load their save if we recognize it, else mint
+        // a fresh token. The token is validated before it ever touches the DB (bound param anyway).
+        const presented = isValidToken(msg.token) ? msg.token : undefined;
+        const token = presented ?? newPlayerToken();
+        const save = presented ? (loadSave(getDb(), presented) ?? undefined) : undefined;
+        const placement = manager.join(save?.name ?? msg.name, undefined, save);
         entityId = placement.entityId;
-        players.set(entityId, { socket, instanceId: placement.instanceId, accessLevel: 0 });
+        players.set(entityId, {
+          socket,
+          instanceId: placement.instanceId,
+          accessLevel: 0,
+          token,
+        });
         send(socket, {
           t: 'welcome',
           id: entityId,
           tickRate: TICK_RATE,
           areaId: placement.areaId,
           instanceId: placement.instanceId,
+          token,
         });
         break;
       }
@@ -183,7 +221,12 @@ wss.on('connection', (socket) => {
       }
       case 'equip': {
         const p = players.get(entityId);
-        if (p) manager.get(p.instanceId)?.world.equip(entityId, msg.itemId);
+        if (p) manager.get(p.instanceId)?.world.equip(entityId, msg.uid);
+        break;
+      }
+      case 'unequip': {
+        const p = players.get(entityId);
+        if (p) manager.get(p.instanceId)?.world.unequip(entityId, msg.slot);
         break;
       }
       case 'chat': {
@@ -261,6 +304,9 @@ wss.on('connection', (socket) => {
   socket.on('close', () => {
     const p = players.get(entityId);
     if (p) {
+      // Persist the character so this guest can reload it on reconnect.
+      const save = manager.get(p.instanceId)?.world.exportPlayer(entityId);
+      if (save) storeSave(getDb(), p.token, save);
       manager.remove(p.instanceId, entityId);
       players.delete(entityId);
     }
@@ -286,6 +332,20 @@ let tick = 0;
 setInterval(() => {
   const transfers = manager.tick(dt);
   tick++;
+
+  // Area corruption: fade it once on the shared pool, and reset it every morning (06:00 local).
+  manager.corruption.decay(dt);
+  if (
+    manager.corruption.rolloverIfNewDay(morningDayIndex(Date.now(), new Date().getTimezoneOffset()))
+  ) {
+    for (const instance of manager.list()) {
+      broadcastToInstance(instance.id, {
+        t: 'chat',
+        from: 'System',
+        text: 'Dawn breaks. The corruption of yesterday fades from the land.',
+      });
+    }
+  }
 
   // Apply portal crossings: update routing and tell the player their area changed.
   for (const ev of transfers) {
@@ -324,6 +384,66 @@ setInterval(() => {
     }
   }
 }, 1000 / TICK_RATE);
+
+// Periodic autosave: persist every connected character so progress survives a server crash, not
+// just a clean disconnect. Cheap (a handful of upserts) and infrequent.
+setInterval(() => {
+  const db = getDb();
+  for (const [id, p] of players) {
+    const save = manager.get(p.instanceId)?.world.exportPlayer(id);
+    if (save) storeSave(db, p.token, save);
+  }
+}, 20_000);
+
+// Invasion events: every so often a populated, non-town instance is raided by a champion wave — a
+// spontaneous group fight that turns a quiet farm into an onslaught.
+setInterval(() => {
+  for (const instance of manager.list()) {
+    if (instance.areaId === 'town') continue;
+    if (manager.playerIdsIn(instance.id).length === 0) continue;
+    if (Math.random() > INVASION_CHANCE) continue;
+    const count = 3 + Math.floor(Math.random() * 3); // 3–5 champions
+    if (instance.world.spawnInvasion(instance.areaId, count)) {
+      const area = getContent().area(instance.areaId);
+      broadcastToInstance(instance.id, {
+        t: 'chat',
+        from: 'System',
+        text: `⚔ An invasion! Champions pour into ${area?.name ?? instance.areaId} — survive the onslaught.`,
+      });
+    }
+  }
+}, INVASION_INTERVAL_MS);
+
+// "The forces of darkness grow stronger/weaker" — announce per-area corruption tier crossings
+// (no numeric meter), broadcast to every instance of the area whose darkness shifted.
+setInterval(() => {
+  const seen = new Set<string>();
+  for (const instance of manager.list()) {
+    if (instance.areaId === 'town' || seen.has(instance.areaId)) continue;
+    seen.add(instance.areaId);
+    const change = manager.corruption.pollTierChange(instance.areaId);
+    if (!change) continue;
+    const area = getContent().area(instance.areaId);
+    const text = corruptionFlavor(area?.name ?? instance.areaId, change.tier, change.dir);
+    for (const inst of manager.list()) {
+      if (inst.areaId === instance.areaId) {
+        broadcastToInstance(inst.id, { t: 'chat', from: 'System', text });
+      }
+    }
+  }
+}, 4000);
+
+/** Diablo-style flavor for a corruption tier crossing — louder as the darkness deepens. */
+function corruptionFlavor(area: string, tier: number, dir: 'up' | 'down'): string {
+  if (dir === 'up') {
+    if (tier >= 3) return `The forces of darkness are rampant in ${area} — tread carefully.`;
+    if (tier === 2) return `The forces of darkness grow stronger in ${area}.`;
+    return `The forces of darkness stir in ${area}.`;
+  }
+  if (tier <= 0) return `${area} is cleansed; the darkness recedes.`;
+  if (tier === 1) return `The forces of darkness grow weaker in ${area}.`;
+  return `The darkness loosens its grip on ${area}.`;
+}
 
 http.listen(PORT, () => {
   console.log(`[browsergame] world server on :${PORT} @ ${TICK_RATE}Hz · instancing=${INSTANCING}`);

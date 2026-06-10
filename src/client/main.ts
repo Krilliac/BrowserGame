@@ -1,4 +1,15 @@
 import { Application } from 'pixi.js';
+import { isPinnedToBottom } from './chat.js';
+import {
+  affixLabel,
+  instanceName,
+  isDebuff,
+  RARITY,
+  type Affix,
+  type ItemInstance,
+  type Rarity,
+} from '../shared/items.js';
+import { SLOT_LABELS } from '../shared/equipment.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -13,6 +24,7 @@ const hudCanvas = document.getElementById('hud') as HTMLCanvasElement;
 const hud = hudCanvas.getContext('2d')!;
 const statusEl = document.getElementById('status')!;
 const popEl = document.getElementById('pop')!;
+const chatEl = document.getElementById('chat')!;
 const chatLogEl = document.getElementById('chat-log')!;
 const chatInputEl = document.getElementById('chat-input') as HTMLInputElement;
 
@@ -56,6 +68,14 @@ window.addEventListener('keydown', unlockAudio, { once: true });
 const input = new Input();
 input.attach(gameCanvas);
 
+// Reserve right-click for the game: suppress the browser's native context menu (copy image,
+// etc.) everywhere except editable fields, so right-click paste still works in the chat box.
+window.addEventListener('contextmenu', (e) => {
+  const el = e.target as HTMLElement | null;
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+  e.preventDefault();
+});
+
 // --- Client-side prediction (local player feels instant; server stays authoritative) --
 const predictor = new Predictor();
 const STEP_DT = 1 / 30;
@@ -85,13 +105,16 @@ let selected: AbilityId = 'slash';
 const cooldownEnd: Record<string, number> = {};
 const slotRects: { ability: AbilityId; x: number; y: number; w: number; h: number }[] = [];
 const bagRects: {
-  itemId: string;
+  uid: number;
   x: number;
   y: number;
   w: number;
   h: number;
-  equippable: boolean;
 }[] = [];
+// Character panel (paper doll): open with C; each slot box is a click target to unequip.
+let charOpen = false;
+const charSlotRects: { slot: string; x: number; y: number; w: number; h: number }[] = [];
+let charPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
@@ -120,6 +143,8 @@ window.addEventListener('keydown', (e) => {
     castAbility(ability);
   } else if (e.key.toLowerCase() === 'e') {
     net.sendInteract(); // server validates NPC proximity
+  } else if (e.key.toLowerCase() === 'c') {
+    charOpen = !charOpen; // toggle the character/equipment panel
   }
 });
 
@@ -130,9 +155,15 @@ function nearbyNpc(): EntityState | undefined {
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
-  const bag = bagRects.find((b) => b.equippable && inRect(e.clientX, e.clientY, b));
+  // Clicks on the open character panel unequip a slot and never fall through to a cast.
+  if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
+    const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
+    if (cs) net.sendUnequip(cs.slot);
+    return;
+  }
+  const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    net.sendEquip(bag.itemId);
+    net.sendEquip(bag.uid);
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
@@ -144,27 +175,55 @@ window.addEventListener('pointerdown', (e) => {
   }
 });
 
+// Touch tap-vs-drag: a drag drives the move joystick (input.ts); a quick stationary tap on the
+// world casts the selected ability toward the tapped point. HUD/bag/slot taps are handled here.
+const TAP_MAX_MOVE = 18; // px of travel still counted as a tap, not a drag
+const TAP_MAX_MS = 260;
+let touchStart: { x: number; y: number; t: number } | null = null;
+
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
-  const bag = bagRects.find((b) => b.equippable && inRect(e.clientX, e.clientY, b));
+  if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
+    const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
+    if (cs) net.sendUnequip(cs.slot);
+    return;
+  }
+  const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    net.sendEquip(bag.itemId);
+    net.sendEquip(bag.uid);
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
     selected = slot.ability;
     castAbility(slot.ability);
+    return;
+  }
+  // A world touch: remember it so pointerup can tell a tap (attack) from a drag (move).
+  touchStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+});
+
+gameCanvas.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'mouse' || !touchStart) return;
+  const moved = Math.hypot(e.clientX - touchStart.x, e.clientY - touchStart.y);
+  const heldMs = performance.now() - touchStart.t;
+  touchStart = null;
+  if (moved <= TAP_MAX_MOVE && heldMs <= TAP_MAX_MS) {
+    // Aim from the player (always screen-center, camera follows) toward the tapped point.
+    castAbility(selected, {
+      dx: e.clientX - window.innerWidth / 2,
+      dy: e.clientY - window.innerHeight / 2,
+    });
   }
 });
 
-function castAbility(abilityId: AbilityId): void {
+function castAbility(abilityId: AbilityId, aimOverride?: { dx: number; dy: number }): void {
   if (net.you.dead || !self) return;
   const ability = net.content.ability(abilityId);
   if (!ability) return;
   if ((cooldownEnd[abilityId] ?? 0) > performance.now()) return;
   if (net.you.mana < ability.manaCost) return;
-  const aim = computeAim();
+  const aim = aimOverride ?? computeAim();
   net.sendCast(abilityId, aim.dx, aim.dy);
   cooldownEnd[abilityId] = performance.now() + ability.cooldownMs;
 }
@@ -200,7 +259,26 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
   }
 });
-chatInputEl.addEventListener('focus', () => input.clearKeys());
+// Focusing chat marks it active: the log becomes interactive (scrollbar + wheel) on any device,
+// and the wheel listener below routes scrolling to it.
+chatInputEl.addEventListener('focus', () => {
+  input.clearKeys();
+  chatEl.classList.add('chat-active');
+});
+chatInputEl.addEventListener('blur', () => chatEl.classList.remove('chat-active'));
+
+// While chat is focused, the mouse wheel scrolls the log even if the cursor is over the game.
+// preventDefault stops the page/game from also reacting (needs a non-passive listener).
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (document.activeElement !== chatInputEl) return;
+    chatLogEl.scrollTop += e.deltaY;
+    e.preventDefault();
+  },
+  { passive: false },
+);
+
 chatInputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     const text = chatInputEl.value;
@@ -217,6 +295,13 @@ chatInputEl.addEventListener('keydown', (e) => {
 let renderedChatLen = 0;
 function syncChatLog(): void {
   if (net.chat.length === renderedChatLen) return;
+  // Follow the newest message only if the reader is already at the bottom; if they've scrolled
+  // up to read history, leave them there. Check before re-rendering blows the scroll position away.
+  const pinned = isPinnedToBottom(
+    chatLogEl.scrollTop,
+    chatLogEl.scrollHeight,
+    chatLogEl.clientHeight,
+  );
   chatLogEl.replaceChildren();
   for (const line of net.chat) {
     const div = document.createElement('div');
@@ -226,12 +311,26 @@ function syncChatLog(): void {
     div.append(who, document.createTextNode(line.text));
     chatLogEl.append(div);
   }
-  chatLogEl.scrollTop = chatLogEl.scrollHeight;
+  if (pinned) chatLogEl.scrollTop = chatLogEl.scrollHeight;
   renderedChatLen = net.chat.length;
 }
 
 // --- Frame loop: drive the Pixi scene + the HUD overlay -------------------------------
+// Wrapped so a single transient render error can never freeze the whole client (it logs, throttled,
+// and the next frame keeps going) — a render hiccup should degrade gracefully, not brick the game.
+let lastFrameError = 0;
 app.ticker.add(() => {
+  try {
+    frame();
+  } catch (err) {
+    if (performance.now() - lastFrameError > 2000) {
+      lastFrameError = performance.now();
+      console.error('[frame] render error (continuing):', err);
+    }
+  }
+});
+
+function frame(): void {
   const now = performance.now();
   entities = net.snapshots.sample(now - INTERP_DELAY_MS);
   self = entities.find((e) => e.id === net.selfId);
@@ -262,16 +361,127 @@ app.ticker.add(() => {
     lastContentRev = net.contentRev;
   }
 
-  renderer.update({ areaId: net.areaId, entities, selfId: net.selfId, fx: net.fx, camX, camY });
+  renderer.update({
+    areaId: net.areaId,
+    entities,
+    selfId: net.selfId,
+    fx: net.fx,
+    camX,
+    camY,
+    corruption: net.you.corruption,
+  });
   sound.setArea(net.areaId);
   sound.fromFx(net.fx);
   drawHud();
+  if (charOpen) drawCharacterPanel();
+  if (!net.connected) drawReconnect();
 
   const area = net.content.area(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
   popEl.textContent = `${area?.name ?? net.areaId} · players: ${entities.filter((e) => e.kind === 'player').length}`;
   syncChatLog();
-});
+}
+
+/** Trim text with an ellipsis to fit a max pixel width (font must be set before calling). */
+function fitText(text: string, maxW: number): string {
+  if (hud.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && hud.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
+
+/** Draw one equipment slot box (and register it as an unequip click target). */
+function drawCharSlot(slot: string, bx: number, by: number, bw: number, bh: number): void {
+  const inst = net.you.equipment[slot] ?? null;
+  hud.fillStyle = 'rgba(0,0,0,0.45)';
+  hud.fillRect(bx, by, bw, bh);
+  hud.lineWidth = inst ? 2 : 1;
+  hud.strokeStyle = inst ? rarityColor(inst.rarity) : 'rgba(201,162,75,0.3)';
+  hud.strokeRect(bx, by, bw, bh);
+  hud.textAlign = 'left';
+  hud.fillStyle = '#7d828c';
+  hud.font = '9px system-ui, sans-serif';
+  hud.fillText(SLOT_LABELS[slot as keyof typeof SLOT_LABELS].toUpperCase(), bx + 6, by + 11);
+  if (inst) {
+    hud.fillStyle = rarityColor(inst.rarity);
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.fillText(fitText(instLabel(inst), bw - 12), bx + 6, by + 25);
+    hud.fillStyle = '#9fb0c0';
+    hud.font = '9px system-ui, sans-serif';
+    const stats = instStatSegments(inst)
+      .map((s) => s.text)
+      .join('  ');
+    hud.fillText(fitText(stats, bw - 12), bx + 6, by + 37);
+  } else {
+    hud.fillStyle = '#565b64';
+    hud.font = 'italic 10px system-ui, sans-serif';
+    hud.fillText('empty', bx + 6, by + 27);
+  }
+  charSlotRects.push({ slot, x: bx, y: by, w: bw, h: bh });
+}
+
+/** The Diablo-style character / equipment panel (toggled with C). Tap a slot to unequip. */
+function drawCharacterPanel(): void {
+  charSlotRects.length = 0;
+  const pw = 384;
+  const ph = 430;
+  const px = 20;
+  const py = 56;
+  charPanelRect = { x: px, y: py, w: pw, h: ph };
+
+  hud.fillStyle = 'rgba(8,9,13,0.92)';
+  hud.fillRect(px, py, pw, ph);
+  hud.strokeStyle = '#c9a24b';
+  hud.lineWidth = 2;
+  hud.strokeRect(px, py, pw, ph);
+
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 15px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText('Character', px + 14, py + 22);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#8a8f99';
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillText('C to close · tap a slot to remove', px + pw - 14, py + 22);
+
+  // Totals.
+  hud.textAlign = 'left';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.fillStyle = '#f2c14e';
+  hud.fillText(
+    `Power ${net.you.power}    Crit ${Math.round(net.you.critChance * 100)}%    Max HP ${net.you.maxHp}`,
+    px + 14,
+    py + 42,
+  );
+
+  // Two columns of slot boxes + main hand spanning the bottom.
+  const left: string[] = ['head', 'shoulders', 'chest', 'hands', 'legs', 'feet'];
+  const right: string[] = ['neck', 'waist', 'ring1', 'ring2', 'trinket', 'offhand'];
+  const bw = (pw - 14 * 2 - 12) / 2;
+  const bh = 44;
+  const gap = 7;
+  const sy = py + 54;
+  left.forEach((s, i) => drawCharSlot(s, px + 14, sy + i * (bh + gap), bw, bh));
+  right.forEach((s, i) => drawCharSlot(s, px + 14 + bw + 12, sy + i * (bh + gap), bw, bh));
+  const lastY = sy + 6 * (bh + gap);
+  drawCharSlot('mainhand', px + 14, lastY, pw - 28, bh);
+}
+
+/** Dim the scene and show an animated "Reconnecting…" overlay while the socket is down. */
+function drawReconnect(): void {
+  const w = hudCanvas.width;
+  const h = hudCanvas.height;
+  hud.fillStyle = 'rgba(0,0,0,0.55)';
+  hud.fillRect(0, 0, w, h);
+  hud.textAlign = 'center';
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 22px system-ui, sans-serif';
+  const dots = '.'.repeat(1 + (Math.floor(performance.now() / 400) % 3));
+  hud.fillText(`Reconnecting${dots}`, w / 2, h / 2 - 4);
+  hud.font = '13px system-ui, sans-serif';
+  hud.fillStyle = '#9aa3b2';
+  hud.fillText('Lost connection to the server — retrying every second', w / 2, h / 2 + 22);
+}
 
 function drawHud(): void {
   const w = hudCanvas.width;
@@ -346,10 +556,12 @@ function drawHud(): void {
 
   drawMinimap(w);
   drawInventory(w);
+  drawJoystick();
 
   const npc = nearbyNpc();
   if (npc && !net.you.dead) {
-    const text = `Press E — sell loot to ${npc.name}`;
+    const action = npc.npcKind === 'questgiver' ? 'talk to' : 'sell loot to';
+    const text = `Press E — ${action} ${npc.name}`;
     hud.font = '14px system-ui, sans-serif';
     hud.textAlign = 'center';
     const tw = hud.measureText(text).width;
@@ -401,7 +613,43 @@ function prettyItem(id: string): string {
   return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/** Rarity color, never throwing on an unknown rarity (e.g. an older client missing a new tier). */
+function rarityColor(rarity: string): string {
+  return RARITY[rarity as Rarity]?.color ?? '#cccccc';
+}
+
+/** Rarity-prefixed display name for a gear instance (e.g. "Rare Iron Sword"). */
+function instLabel(inst: ItemInstance): string {
+  return instanceName(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
+}
+
+/** Stat segments for a gear instance: base stat(s) then affixes, flagging debuffs for red text. */
+function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean }[] {
+  const segs: { text: string; debuff: boolean }[] = [];
+  if (inst.power > 0) segs.push({ text: `+${inst.power} pow`, debuff: false });
+  if (inst.hp > 0) segs.push({ text: `+${inst.hp} hp`, debuff: false });
+  for (const a of inst.affixes) segs.push({ text: affixLabel(a as Affix), debuff: isDebuff(a) });
+  return segs;
+}
+
 const MINIMAP_SIZE = 160;
+
+/** Draw the touch move-joystick where the player is dragging (input.ts computes the geometry). */
+function drawJoystick(): void {
+  const j = input.joystick;
+  if (!j.active) return;
+  hud.save();
+  hud.lineWidth = 2;
+  hud.strokeStyle = 'rgba(201,162,75,0.55)';
+  hud.beginPath();
+  hud.arc(j.baseX, j.baseY, 60, 0, Math.PI * 2);
+  hud.stroke();
+  hud.fillStyle = 'rgba(201,162,75,0.45)';
+  hud.beginPath();
+  hud.arc(j.knobX, j.knobY, 22, 0, Math.PI * 2);
+  hud.fill();
+  hud.restore();
+}
 
 function drawMinimap(w: number): void {
   const size = MINIMAP_SIZE;
@@ -486,29 +734,62 @@ function drawInventory(w: number): void {
   const px = w - pw - 8;
   let py = 44 + MINIMAP_SIZE + 8;
 
-  // Equipped panel (always shown): weapon, armor, and total power.
-  const eqH = 54;
+  // Compact stat panel (always shown): totals + a hint to open the full character screen.
+  const eqH = 38;
   hud.fillStyle = 'rgba(0,0,0,0.5)';
   hud.fillRect(px, py, pw, eqH);
   hud.strokeStyle = 'rgba(201,162,75,0.6)';
   hud.lineWidth = 1;
   hud.strokeRect(px, py, pw, eqH);
-  hud.fillStyle = '#e7d9b0';
+  hud.fillStyle = '#f2c14e';
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'left';
-  hud.fillText('Equipped', px + 8, py + 15);
-  hud.textAlign = 'right';
-  hud.fillStyle = '#f2c14e';
-  hud.fillText(`+${net.you.power} pow`, px + pw - 8, py + 15);
-  hud.font = '11px system-ui, sans-serif';
-  hud.fillStyle = '#d7dbe3';
-  hud.textAlign = 'left';
-  hud.fillText(`Wpn: ${net.you.weapon ? prettyItem(net.you.weapon) : '—'}`, px + 8, py + 32);
-  hud.fillText(`Arm: ${net.you.armor ? prettyItem(net.you.armor) : '—'}`, px + 8, py + 47);
+  hud.fillText(
+    `+${net.you.power} pow · ${Math.round(net.you.critChance * 100)}% crit`,
+    px + 8,
+    py + 15,
+  );
+  hud.fillStyle = '#9aa3b2';
+  hud.font = '10px system-ui, sans-serif';
+  hud.fillText('Press C — character & equipment', px + 8, py + 30);
   py += eqH + 6;
 
-  // Bag panel (equippable rows are clickable).
+  // Gear panel: unequipped instances, two lines each (name, then stats) so long affix lists never
+  // overlap the name. Rarity-colored, clickable to equip; debuff affixes shown in red.
   bagRects.length = 0;
+  const gear = net.you.gear;
+  if (gear.length > 0) {
+    const rowH = 28;
+    const gh = 22 + gear.length * rowH;
+    hud.fillStyle = 'rgba(0,0,0,0.5)';
+    hud.fillRect(px, py, pw, gh);
+    hud.strokeStyle = 'rgba(201,162,75,0.6)';
+    hud.strokeRect(px, py, pw, gh);
+    hud.fillStyle = '#e7d9b0';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.textAlign = 'left';
+    hud.fillText('Gear — tap to equip', px + 8, py + 15);
+    gear.forEach((inst, i) => {
+      const ry = py + 22 + i * rowH;
+      bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: rowH });
+      // Line 1: the item name, in its rarity color.
+      hud.font = 'bold 11px system-ui, sans-serif';
+      hud.fillStyle = rarityColor(inst.rarity);
+      hud.textAlign = 'left';
+      hud.fillText(instLabel(inst), px + 8, ry + 11);
+      // Line 2: stat segments laid out left-to-right (debuffs in red), no overlap with the name.
+      hud.font = '10px system-ui, sans-serif';
+      let sx = px + 8;
+      for (const seg of instStatSegments(inst)) {
+        hud.fillStyle = seg.debuff ? '#ff6b6b' : '#9fb0c0';
+        hud.fillText(seg.text, sx, ry + 23);
+        sx += hud.measureText(seg.text).width + 7;
+      }
+    });
+    py += gh + 6;
+  }
+
+  // Materials panel: stackable loot sold to the vendor (not equippable).
   const items = Object.entries(net.you.loot).filter(([, n]) => n > 0);
   if (items.length === 0) return;
   const ph = 24 + items.length * 16;
@@ -523,11 +804,9 @@ function drawInventory(w: number): void {
   hud.font = '12px system-ui, sans-serif';
   items.forEach(([id, n], i) => {
     const ry = py + 24 + i * 16;
-    const equippable = net.content.isEquip(id);
-    bagRects.push({ itemId: id, x: px, y: ry, w: pw, h: 16, equippable });
-    hud.fillStyle = equippable ? '#9fd0ff' : '#d7dbe3';
+    hud.fillStyle = '#d7dbe3';
     hud.textAlign = 'left';
-    hud.fillText(prettyItem(id) + (equippable ? ' (equip)' : ''), px + 8, ry + 12);
+    hud.fillText(prettyItem(id), px + 8, ry + 12);
     hud.fillStyle = '#f2c14e';
     hud.textAlign = 'right';
     hud.fillText(`${n}`, px + pw - 8, ry + 12);

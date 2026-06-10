@@ -95,7 +95,13 @@ CREATE TABLE IF NOT EXISTS mob_templates (
   aggro_range         REAL NOT NULL,
   attack_range        REAL NOT NULL,
   damage              REAL NOT NULL,
-  attack_cooldown_ms  INTEGER NOT NULL
+  attack_cooldown_ms  INTEGER NOT NULL,
+  behavior            TEXT NOT NULL DEFAULT 'melee',
+  telegraph_ms        INTEGER NOT NULL DEFAULT 0,
+  projectile_speed    REAL,
+  kite_range          REAL,
+  slam_radius         REAL,
+  dash_speed          REAL
 );
 
 CREATE TABLE IF NOT EXISTS area_mobs (
@@ -148,5 +154,15 @@ CREATE TABLE IF NOT EXISTS accounts (
   password_hash TEXT,
   salt          TEXT,
   created_at    TEXT
+);
+
+-- Persistent character saves keyed by an opaque per-client token (stored in the browser). Lets a
+-- returning guest reload their character across disconnects and server restarts. The full
+-- PlayerSave is stored as JSON in the data column; the server is the sole writer.
+CREATE TABLE IF NOT EXISTS player_saves (
+  token      TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  data       TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 `;

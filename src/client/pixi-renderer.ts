@@ -13,6 +13,7 @@ import {
   type TextureSource,
 } from 'pixi.js';
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
+import { RARITY, type Rarity } from '../shared/items.js';
 import type { EntityState } from '../shared/protocol.js';
 import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
@@ -162,6 +163,8 @@ export interface RenderState {
   fx: TimedFx[];
   camX: number;
   camY: number;
+  /** Area corruption 0..1 — darkens the scene with a creeping crimson pall. */
+  corruption?: number;
 }
 
 interface ActorView {
@@ -343,7 +346,7 @@ export class PixiRenderer {
     this.ground.height = sh;
     this.ground.tilePosition.set(originX, originY);
 
-    this.atmosphere.update(now, sw, sh);
+    this.atmosphere.update(now, sw, sh, state.corruption ?? 0);
     this.weather.update(now, sw, sh);
 
     // Dynamic lights (additive): the local player carries a torch at screen center; portals glow.
@@ -453,11 +456,19 @@ export class PixiRenderer {
       const bw = (e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS) * 2.4;
       const frac = Math.max(0, Math.min(1, e.hp / e.maxHp));
       view.dyn.clear();
+      // Elite/champion mob: a gold ground-ring marker (drawn under the bar).
+      if (e.elite) {
+        view.dyn
+          .ellipse(0, 2, MOB_RADIUS + 7, (MOB_RADIUS + 7) * 0.5)
+          .stroke({ width: 2, color: '#ffcf5a', alpha: 0.9 });
+      }
       view.dyn.rect(-bw / 2, view.topY - 6, bw, 4).fill({ color: '#000000', alpha: 0.6 });
       view.dyn.rect(-bw / 2, view.topY - 6, bw * frac, 4).fill({
         color: e.kind === 'mob' ? '#cc4444' : '#4caf50',
       });
     }
+    // Champions stand bigger than their kin.
+    if (e.kind === 'mob') view.container.scale.set(e.elite ? 1.32 : 1);
   }
 
   private makeActor(e: EntityState, isSelf: boolean): ActorView {
@@ -516,6 +527,17 @@ export class PixiRenderer {
     label.anchor.set(0.5, 1);
     label.position.set(0, view.topY - 8);
     container.addChild(view.dyn!, label);
+
+    // Quest-giver marker: a gold "!" floating above so the objective source is discoverable.
+    if (e.kind === 'npc' && e.npcKind === 'questgiver') {
+      const mark = new Text({
+        text: '!',
+        style: { fontFamily: 'system-ui', fontSize: 22, fontWeight: 'bold', fill: '#ffd23f' },
+      });
+      mark.anchor.set(0.5, 1);
+      mark.position.set(0, view.topY - 22);
+      container.addChild(mark);
+    }
     return view;
   }
 
@@ -536,7 +558,8 @@ export class PixiRenderer {
 
   private updateProjectile(e: EntityState): void {
     const ability = e.abilityId ? this.content.ability(e.abilityId) : undefined;
-    const color = (ability?.color ?? '#ffffff') as ColorSource;
+    // Enemy projectiles read as a menacing red regardless of the sprite hint they were given.
+    const color = (e.hostile ? '#ff4d4d' : (ability?.color ?? '#ffffff')) as ColorSource;
     const radius = ability?.radius ?? 6;
     const strip = e.abilityId ? PROJ_STRIP[e.abilityId] : undefined;
     const hasStrip = strip ? this.tex.has(strip.alias) : false;
@@ -583,8 +606,13 @@ export class PixiRenderer {
   }
 
   private updateItem(e: EntityState): void {
+    // Gear drops glint in their rarity color; materials fall back to their item color.
+    const rarityColor = e.rarity ? RARITY[e.rarity as Rarity]?.color : undefined;
     const color =
-      ITEM_COLORS[e.itemId ?? ''] ?? this.content.item(e.itemId ?? '')?.color ?? '#cccccc';
+      rarityColor ??
+      ITEM_COLORS[e.itemId ?? ''] ??
+      this.content.item(e.itemId ?? '')?.color ??
+      '#cccccc';
     const alias =
       e.itemId === 'gold' ? 'item_gold' : e.itemId === 'rune_shard' ? 'item_gem' : undefined;
     let view = this.views.get(e.id);
@@ -630,16 +658,74 @@ export class PixiRenderer {
       const alpha = 1 - age;
       if (ev.kind === 'hit' && ev.value !== undefined) {
         const t = this.fxText(ti++);
+        const crit = ev.crit === true && ev.value > 0;
         t.visible = true;
-        t.text = ev.value === 0 ? 'miss' : `${ev.value}`;
+        t.text = ev.value === 0 ? 'miss' : crit ? `${ev.value}!` : `${ev.value}`;
+        t.style.fontSize = crit ? 26 : 16;
         t.style.fill =
           ev.value === 0
             ? '#9bbbbb'
-            : ev.abilityId
-              ? (this.content.ability(ev.abilityId)?.color ?? '#ffee66')
-              : '#ffee66';
+            : crit
+              ? '#ff5a3c' // crits pop in hot orange-red
+              : ev.abilityId
+                ? (this.content.ability(ev.abilityId)?.color ?? '#ffee66')
+                : '#ffee66';
         t.alpha = alpha;
-        t.position.set(x, y - 50 - age * 26);
+        // Crits float higher and faster so they read as a bigger moment.
+        t.position.set(x, y - 50 - age * (crit ? 40 : 26));
+      } else if (ev.kind === 'coin' && ev.value !== undefined) {
+        // Gold gained (loot pickup / vendor sale): a rising "+N" in coin gold.
+        const t = this.fxText(ti++);
+        t.visible = true;
+        t.text = `+${ev.value}`;
+        t.style.fontSize = 15;
+        t.style.fill = '#f2c14e';
+        t.alpha = alpha;
+        t.position.set(x, y - 40 - age * 24);
+      } else if (ev.kind === 'levelup') {
+        // A gold burst ring + a "Level N!" callout rising over the player.
+        g.circle(x, y - 16, 14 + age * 46).stroke({ width: 3, color: '#ffe08a', alpha });
+        const t = this.fxText(ti++);
+        t.visible = true;
+        t.text = ev.value !== undefined ? `Level ${ev.value}!` : 'Level up!';
+        t.style.fontSize = 22;
+        t.style.fill = '#ffe08a';
+        t.alpha = alpha;
+        t.position.set(x, y - 56 - age * 30);
+      } else if (ev.kind === 'pickup') {
+        // A small expanding sparkle in the item's rarity color (white for materials).
+        const c = ev.rarity ? (RARITY[ev.rarity as Rarity]?.color ?? '#dfe7f0') : '#dfe7f0';
+        g.circle(x, y - 14, 4 + age * 16).stroke({ width: 2, color: c, alpha });
+      } else if (ev.kind === 'telegraph') {
+        // Attack wind-up: a red warning that builds as the strike nears, so the player can react.
+        const tage = Math.min(1, (now - t0) / (ev.value ?? FX_DURATION));
+        const warn = 0.25 + 0.55 * tage;
+        if (ev.behavior === 'slam') {
+          // An AoE danger circle that fills as it nears — leave the ring before it lands.
+          const r = ev.radius ?? 80;
+          g.circle(x, y - 16, r).stroke({ width: 2 + 2 * tage, color: '#ff4d4d', alpha: warn });
+          g.circle(x, y - 16, r * tage).fill({ color: '#ff4d4d', alpha: warn * 0.2 });
+        } else if (ev.behavior === 'ranged' && ev.facing !== undefined) {
+          // An aimed line to side-step out of (ranged shots and charger lunges).
+          const len = 60 + 220 * tage;
+          g.moveTo(x, y - 16)
+            .lineTo(x + Math.cos(ev.facing) * len, y - 16 + Math.sin(ev.facing) * len)
+            .stroke({ width: 2 + 2 * tage, color: '#ff4d4d', alpha: warn });
+        } else if (ev.facing !== undefined) {
+          // A strike wedge in front of the mob to step out of.
+          g.moveTo(x, y - 16)
+            .arc(x, y - 16, 52, ev.facing - 0.6, ev.facing + 0.6)
+            .lineTo(x, y - 16)
+            .fill({ color: '#ff4d4d', alpha: warn * 0.5 });
+        }
+      } else if (ev.kind === 'slam') {
+        // Impact: a fast expanding shock ring at the slam radius.
+        const r = ev.radius ?? 80;
+        g.circle(x, y - 16, r * (0.6 + 0.4 * age)).stroke({
+          width: 5 * (1 - age),
+          color: '#ff7a3c',
+          alpha,
+        });
       } else if (ev.kind === 'melee' && ev.facing !== undefined) {
         g.arc(x, y - 16, 40, ev.facing - 0.7, ev.facing + 0.7).stroke({
           width: 4,

@@ -14,6 +14,141 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Full equipment slots + a Diablo-style character panel** — gear expands from weapon/armor to **13
+  doll slots**: head, neck, shoulders, chest, hands, waist, legs, feet, main-hand, off-hand, **two
+  rings**, and a trinket. The model is generalized (`ItemSlot`/`EquipSlot` + `EQUIP_SLOTS` in
+  `src/shared/equipment.ts`, ~18 base items across the slots); the player's `equipment` is a slot→
+  instance map; `recomputeStats` sums power/HP/affixes from every equipped piece; equipping a ring
+  fills the first free ring slot; and a new `unequip` action returns a slot to the bag. Press **C**
+  for the character panel — a paper-doll of all slots showing each equipped item in its rarity color
+  with stats, tap a slot to remove it; the bag (tap to equip) auto-routes to the right slot. Mob
+  kills now drop a **random** equippable (any slot) for variety. The `you` packet carries the
+  equipment map; old `{ weapon, armor }` saves migrate to `equipment.mainhand`/`chest`.
+- **Ghost-player fix (WebSocket heartbeat)** — abruptly-dropped clients (tab reloads, HMR, network
+  blips) left idle "ghost" players in the world until TCP timed out (dozens piled up). The server now
+  pings every socket every 15s and terminates any that miss a pong, removing their player promptly.
+- **Corrupted gear (high-risk, high-reward)** — a new top rarity, **Corrupted** (sinister pink),
+  that never drops normally: it is **born from area corruption**. In a corrupted area, a
+  corruption-scaled share of gear drops (up to ~30% at full corruption) come out Corrupted — with the
+  **strongest base stats of all** plus a **corrupted affix pair**: one powerful buff (big +power,
+  +crit, or +2 projectiles) bound to a real **debuff** (`frail` −max HP, or `fragile` +% damage
+  taken). Debuffs feed `recomputeStats` (lower max HP / a damage-taken multiplier applied in
+  `damagePlayer`). This ties the loot chase to the corruption system — the deadliest places yield the
+  deadliest gear. Beyond area corruption, corrupted gear also drops on a **slim chance from invasion
+  champions** and an **even slimmer chance from bosses** (below the legendary rate). New
+  `rollCorruptedInstance` / `rollCorruptedAffixes` / `isDebuff` in `src/shared/items.ts` (tested); the
+  corrupted rarity color + debuff labels render through the existing bag/drop paths.
+- **Invasion events** — every so often a populated, non-town area instance is raided by a sudden
+  wave of 3–5 **champions** ringed around a random player, announced in chat — a spontaneous group
+  fight that turns a quiet farm into an onslaught (`World.spawnInvasion`, host-driven timer in
+  `src/server/index.ts`). This is the gameplay of the "spontaneous raid" twist; literal
+  *cross-instance portal-linking* (joining separate instances into one raid) remains a deliberate
+  future step — it needs coordination across the otherwise-pure instance manager.
+- **Persistent corruption** — a signature twist: each **area** carries a shared **corruption** level
+  (0..1) — **every player's death in the area** feeds the same pool (across all its instances) — that
+  is **pushed back by killing monsters**, fades slowly, and **resets every morning** (06:00 local).
+  High corruption makes mobs hit harder (up to +60% damage) and visibly **darkens the area** with a
+  crimson pall. Rather than a numeric meter, the world announces threshold crossings **Diablo-style**
+  ("The forces of darkness grow stronger/weaker in …"). Area-wide pool + 06:00 daily reset live in
+  `src/server/area-corruption.ts` (tested); the host drives decay, the daily rollover, and the tier
+  announcements (`src/server/index.ts`); the darkening rides a `corruption` value on the `you` packet.
+- **Living loot meta — the hunting bounty** — the first of the signature twists: each monster type
+  accumulates a loot "bounty" while it is left alone and **consumes it on a kill**, so the first
+  kills after a lull are richer (a high chance of a bonus rarity-bumped drop) and farming one spot
+  quickly depletes it back to base loot. The loot value literally *reacts to farming pressure* —
+  rewarding exploration over camping. Server-side and time-based (`lastKillAt` per template, no DB),
+  with a player notice on a bounty (`src/server/world.ts`). (Seasonal/persistent meta evolution
+  remains future work.)
+- **Quest-giver NPC (the loop now has direction)** — a new **Elder Maeve** stands in the town plaza
+  beside the merchant; walk up and press **E** to take the next quest (or hear your progress) — no
+  more undiscoverable typed `/accept`. New `questgiver` NPC kind dispatched in `World.interact`
+  (`sellToVendor` / `talkToQuestGiver`), the NPC role rides the snapshot (`npcKind`), and the client
+  shows a context-aware prompt plus a floating gold **!** marker over the giver.
+- **Elite / champion monsters** — any non-boss mob has a small chance (~9%) to spawn as an **elite**
+  with a flavor modifier (**Swift** / **Brutal** / **Vigorous**) that scales its HP, damage, and
+  speed, a name prefix, a gold ground-ring marker, and a bigger body. Killing one is a real event:
+  **3× XP**, a pile of gold, and **one guaranteed rarity-bumped gear drop** (`rollItemInstance` gains
+  a `rarityBump`; `bumpRarity` in `src/shared/items.ts`, tested). All runtime (no DB change) —
+  modifiers + rewards in `src/server/world.ts`, the `elite` flag rides the snapshot, and the client
+  draws the marker + upscales the mob (`src/client/pixi-renderer.ts`).
+- **"Loot = your build" — the multishot affix** — gear can now roll a build-defining **`+projectile`**
+  affix that makes your projectile abilities fire extra bolts in a fan (1, or 2 at Epic/Legendary).
+  Your *kit* now changes with your *gear*, not just your stats — the first taste of the loot-as-build
+  twist. Aggregated into `player.multishot` on equip and applied in the cast path
+  (`src/server/world.ts`); rolls/labels in `src/shared/items.ts` (bounded, never rarity-scaled into
+  absurdity); shows in the bag like any affix.
+- **Reward + combat audio (procedurally synthesized)** — the silent dopamine channel now has sound,
+  with **no audio assets** required: `src/client/sound.ts` synthesizes one-shot SFX via the Web Audio
+  API (oscillator blips/chords/arpeggios) and maps them to FX events — a punchy hit, a ringing crit,
+  a coin ka-ching on gold, a rising fanfare on level-up, a heavy boom on the Crypt Lord's slam, a
+  death thud, and a whoosh for enemy shots. Ambient area loops (bundled files) are unchanged.
+- **More enemy archetypes — chargers + AoE slam** — two new attack patterns built on the telegraph
+  system. **Chargers** (new **Gloom Boar**, wilderness) close in, wind up, then **dash** through
+  their target along a locked line, striking each player they pass (dodge by leaving the line). The
+  **Crypt Lord** now does an **AoE slam** (`slamRadius`) that hits everyone nearby — telegraphed by a
+  filling red danger circle — so it fights like a boss, not a big trash mob. New `behavior: charger`,
+  `slamRadius`/`dashSpeed` template fields + a dash state machine in `src/server/world.ts`; DB
+  columns + migration; client renders the slam danger circle, impact shock-ring, and lunge tell
+  (`src/client/pixi-renderer.ts`).
+- **Gear affixes (Diablo-style itemization)** — gear above Common now rolls bonus **affixes**
+  (`+power`, `+hp`, `+crit%`) on top of its base stats — 1 for Magic up to 3 for Legendary, scaled
+  by rarity, distinct stats per item (`rollAffixes`, `affixLabel` in `src/shared/items.ts`, tested).
+  Equipping aggregates affixes into the player's power, max HP, and **crit chance** — so a `+crit%`
+  drop literally raises how often you crit, on both melee and projectiles (wiring the crit-chance
+  parameter left in `rollCrit`). Crit chance rides the `you` packet and shows in the Equipped panel
+  (`+N pow · X% crit`); the bag lists each item's affixes; the vendor pays more for affixed gear; and
+  affixes persist with the save. Forward step toward the "loot = your build" twist.
+- **Enemy variety — ranged attackers + attack telegraphs** — monsters now have combat archetypes
+  (`behavior: melee | ranged`) and a wind-up before every strike. **Ranged** mobs (new **Gloom
+  Sprite** in the wilderness, **Hooded Cultist** in the crypt) kite to keep their distance and fire
+  **hostile projectiles** (red, dodge by side-stepping the aimed line). **Telegraphs**: every attack
+  has a per-template wind-up (`telegraphMs`) showing a red strike-wedge (melee) or aim-line (ranged)
+  that builds as it nears — move out of it to dodge; the Crypt Lord's heavy slam is the most
+  readable. Pure AI (`stepMob` ranged kiting, unit-tested) + a World telegraph state machine and
+  hostile-projectile path (`src/server/world.ts`); new `mob_templates` columns
+  (`behavior`/`telegraph_ms`/`projectile_speed`/`kite_range`) with a migration for existing DBs;
+  client renders telegraphs and tints enemy projectiles (`src/client/pixi-renderer.ts`).
+- **Character persistence (survives disconnect + restart)** — characters are now saved to SQLite,
+  closing the #1 retention hole (state was RAM-only). New guests are issued an opaque token (stored
+  in the browser as `bg.token`) and presented on reconnect; the server reloads the saved character
+  via the existing `exportPlayer`/`importPlayer` plumbing. New `player_saves` table; store +
+  token validation in `src/server/player-store.ts` (round-trip tested); the server persists on
+  disconnect and on a 20s autosave for crash safety (`src/server/index.ts`). The `join` message
+  carries the token and `welcome` returns it (`src/shared/protocol.ts`).
+- **Phone playability — joystick drawn + tap-to-attack** — the on-screen move joystick is now
+  actually rendered while dragging (its geometry was computed in `input.ts` but never drawn), and a
+  quick stationary tap on the world casts the selected ability toward the tapped point, with
+  tap-vs-drag detection so a move-drag never fires an attack (`src/client/main.ts`). The primary
+  platform is now playable for combat without reaching for the tiny hotbar.
+- **Reward feedback (the dopamine engine, turned on)** — loot, gold, and level-ups are no longer
+  silent and effectless. New `FxEvent` kinds (`pickup`, `coin`, `levelup`) are emitted server-side on
+  item pickup, gold gain / vendor sale, and level-up (`src/server/world.ts`) and rendered as a
+  rarity-colored pickup sparkle, a rising `+N` gold number, and a gold burst + "Level N!" callout
+  (`src/client/pixi-renderer.ts`). Also fixes the bug where **picking up loot and selling fired a
+  spell-cast ring** — they now show coin/sparkle FX. (Reward *audio* still TODO — needs CC0 clips.)
+- **RNG tier loot (rarity + rolled instances)** — slain monsters now drop **gear instances** with a
+  rolled rarity (Common → Magic → Rare → Epic → Legendary) and stats rolled around the base item, so
+  two "Iron Swords" are no longer interchangeable. Rarity drives drop weight, a stat multiplier +
+  variance, and a glow color. The pure roller lives in `src/shared/items.ts` (`rollRarity`,
+  `rollStat`, `rollItemInstance`, `gearSellValue`); the server rolls instances on drop, carries them
+  through pickup → a per-player **gear bag** → equip-by-uid → equipped slots (rolled stats feed
+  `power`/`maxHp`), the vendor, and save/load (`src/server/world.ts`). The wire carries instances on
+  the `you` packet and drop rarity on the snapshot (`src/shared/protocol.ts`); the client shows a
+  rarity-colored Gear panel (tap to equip), rarity-colored equipped slots, and rarity-tinted ground
+  glints (`src/client/main.ts`, `pixi-renderer.ts`). Replaces the old fixed-stat `rollEquipDrop`.
+- **Critical hits** — every attack now has a base 15% chance to critically strike for 2× damage
+  (`rollCrit` / `applyCrit`, `src/server/combat-formulas.ts`). The authoritative server rolls the
+  crit per hit and flags the `hit` FX event (`crit`); the client renders crit numbers larger, in a
+  hot orange-red, with a trailing `!`, floating higher so they read as a bigger moment
+  (`src/client/pixi-renderer.ts`). Crit chance is designed to become an item affix.
+- **Scrollable chat log** — the chat panel is now scrollable by scrollbar and mouse wheel. The log
+  is interactive for mouse devices and whenever the chat input is focused (touch still passes drags
+  through to the movement joystick); while focused, the wheel scrolls the log even when the cursor
+  is over the game; and new messages no longer yank you to the bottom if you've scrolled up to read
+  history (`isPinnedToBottom`, `src/client/chat.ts`; wired in `src/client/main.ts` + `styles/main.css`).
+- **Right-click reserved for the game** — the browser's native context menu (copy image, etc.) is
+  suppressed everywhere except editable fields, freeing right-click for future game actions
+  (`src/client/main.ts`).
 - **Live editing for *everything*** — a generic, validated content editor turns the whole content
   DB into an in-game engine. New Developer commands `/tables`, `/cols <table>`, `/get <table> [id]`,
   and `/set <table> <id> <column> <value>` edit any whitelisted table/column (spells, items,

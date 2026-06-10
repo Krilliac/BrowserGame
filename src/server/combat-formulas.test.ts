@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyCrit,
   attackRoll,
+  BASE_CRIT_CHANCE,
+  CRIT_MULTIPLIER,
   defenceRoll,
   hitChance,
   maxHit,
   resolveAttack,
+  rollCrit,
   rollDamage,
   rolledHit,
 } from './combat-formulas.js';
@@ -143,5 +147,42 @@ describe('resolveAttack (one full attack)', () => {
     const result = resolveAttack(params, seqRng([0, 0]));
     expect(result.hit).toBe(true);
     expect(result.damage).toBe(0);
+  });
+});
+
+describe('rollCrit (deterministic with fake rng)', () => {
+  it('crits when rng() is below the chance', () => {
+    expect(rollCrit(() => 0, 0.15)).toBe(true);
+    expect(rollCrit(() => 0.149, 0.15)).toBe(true);
+  });
+
+  it('does not crit when rng() is at or above the chance', () => {
+    expect(rollCrit(() => 0.15, 0.15)).toBe(false);
+    expect(rollCrit(() => 0.9, 0.15)).toBe(false);
+  });
+
+  it('defaults to the base crit chance', () => {
+    expect(rollCrit(() => BASE_CRIT_CHANCE - 0.0001)).toBe(true);
+    expect(rollCrit(() => BASE_CRIT_CHANCE)).toBe(false);
+  });
+
+  it('never crits at 0 chance, always crits at >=1 chance', () => {
+    expect(rollCrit(() => 0, 0)).toBe(false);
+    expect(rollCrit(() => 0.999, 1)).toBe(true);
+  });
+});
+
+describe('applyCrit (multiplier on a hit)', () => {
+  it('leaves non-crit damage unchanged', () => {
+    expect(applyCrit(20, false)).toBe(20);
+  });
+
+  it('multiplies crit damage by the multiplier and rounds', () => {
+    expect(applyCrit(20, true)).toBe(20 * CRIT_MULTIPLIER);
+    expect(applyCrit(15, true, 1.5)).toBe(23); // 22.5 -> 23
+  });
+
+  it('a crit on 0 damage is still 0 (a missed swing cannot crit into damage)', () => {
+    expect(applyCrit(0, true)).toBe(0);
   });
 });

@@ -3,6 +3,7 @@ import { ClientContentStore } from './content-store.js';
 import type { TimedFx } from './draw.js';
 import { decodeServer, encode, type InputState, type ServerMessage } from '../shared/protocol.js';
 import type { AbilityId } from '../shared/combat.js';
+import type { ItemInstance } from '../shared/items.js';
 
 export interface ChatLine {
   from: string;
@@ -21,10 +22,12 @@ export interface SelfStats {
   xpNext: number;
   gold: number;
   loot: Record<string, number>;
+  gear: ItemInstance[];
   respawnIn: number;
   power: number;
-  weapon: string;
-  armor: string;
+  critChance: number;
+  equipment: Record<string, ItemInstance | null>;
+  corruption: number;
   x: number;
   y: number;
   ackSeq: number;
@@ -56,10 +59,12 @@ export class Net {
     xpNext: 100,
     gold: 0,
     loot: {},
+    gear: [],
     respawnIn: 0,
     power: 0,
-    weapon: '',
-    armor: '',
+    critChance: 0.15,
+    equipment: {},
+    corruption: 0,
     x: 0,
     y: 0,
     ackSeq: 0,
@@ -83,7 +88,11 @@ export class Net {
 
     ws.addEventListener('open', () => {
       this.connected = true;
-      ws.send(encode({ t: 'join', name: this.name }));
+      // Present our saved character token (if any) so the server reloads our progress.
+      const token = window.localStorage.getItem('bg.token') ?? undefined;
+      ws.send(
+        encode(token ? { t: 'join', name: this.name, token } : { t: 'join', name: this.name }),
+      );
     });
 
     ws.addEventListener('message', (ev) => {
@@ -93,9 +102,15 @@ export class Net {
 
     ws.addEventListener('close', () => {
       this.connected = false;
+      // Drop stale world state so the reconnect resumes cleanly (no frozen ghosts) once the
+      // server's fresh welcome + snapshots arrive.
+      this.snapshots.clear();
+      this.fx.length = 0;
       // Naive auto-reconnect — good enough for a dev foundation.
       setTimeout(() => this.connect(), 1000);
     });
+
+    ws.addEventListener('error', () => ws.close());
   }
 
   sendInput(input: InputState, seq: number): void {
@@ -114,8 +129,12 @@ export class Net {
     this.send({ t: 'interact' });
   }
 
-  sendEquip(itemId: string): void {
-    this.send({ t: 'equip', itemId });
+  sendEquip(uid: number): void {
+    this.send({ t: 'equip', uid });
+  }
+
+  sendUnequip(slot: string): void {
+    this.send({ t: 'unequip', slot });
   }
 
   private send(msg: Parameters<typeof encode>[0]): void {
@@ -133,6 +152,8 @@ export class Net {
         this.tickRate = msg.tickRate;
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
+        // Persist our character token so a reload/reconnect restores this character.
+        window.localStorage.setItem('bg.token', msg.token);
         break;
       case 'snapshot': {
         const now = performance.now();
@@ -154,10 +175,12 @@ export class Net {
           xpNext: msg.xpNext,
           gold: msg.gold,
           loot: msg.loot,
+          gear: msg.gear,
           respawnIn: msg.respawnIn,
           power: msg.power,
-          weapon: msg.weapon,
-          armor: msg.armor,
+          critChance: msg.critChance,
+          equipment: msg.equipment,
+          corruption: msg.corruption,
           x: msg.x,
           y: msg.y,
           ackSeq: msg.ackSeq,

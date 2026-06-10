@@ -81,7 +81,39 @@ body {
   line-height: 1.35;
   background: rgba(0, 0, 0, 0.35);
   border-radius: 6px;
-  pointer-events: none; /* don't steal drags meant for the joystick */
+  /* Off by default so a touch-drag over the chat still drives the movement joystick. */
+  pointer-events: none;
+  /* On-theme thin scrollbar (Firefox). */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 162, 75, 0.6) transparent;
+}
+
+/* Desktop (mouse) can grab the scrollbar and wheel-scroll the log anytime; touch keeps the
+   pass-through so drags still drive the joystick. */
+@media (pointer: fine) {
+  #chat-log {
+    pointer-events: auto;
+  }
+}
+
+/* While the chat input is focused, the log is interactive on any device (scrollbar + wheel). */
+#chat.chat-active #chat-log {
+  pointer-events: auto;
+}
+
+/* On-theme scrollbar (WebKit/Chromium). */
+#chat-log::-webkit-scrollbar {
+  width: 8px;
+}
+#chat-log::-webkit-scrollbar-track {
+  background: transparent;
+}
+#chat-log::-webkit-scrollbar-thumb {
+  background: rgba(201, 162, 75, 0.6);
+  border-radius: 4px;
+}
+#chat-log::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
 }
 
 #chat-log:empty {

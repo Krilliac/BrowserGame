@@ -155,8 +155,9 @@ function seedItems(db: Database): void {
 function seedMobs(db: Database): void {
   const mob = db.prepare(
     `INSERT INTO mob_templates
-       (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+       (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     mob.run(
@@ -170,6 +171,12 @@ function seedMobs(db: Database): void {
       t.attackRange,
       t.damage,
       t.attackCooldownMs,
+      t.behavior,
+      t.telegraphMs,
+      t.projectileSpeed ?? null,
+      t.kiteRange ?? null,
+      t.slamRadius ?? null,
+      t.dashSpeed ?? null,
     );
   }
   const am = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');
@@ -222,14 +229,10 @@ function seedLoot(db: Database): void {
 }
 
 function seedNpcs(db: Database): void {
-  db.prepare('INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)').run(
-    'town',
-    'Merchant',
-    660,
-    560,
-    45,
-    'vendor',
-  );
+  const ins = db.prepare('INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)');
+  // A town plaza: the merchant and the quest-giver stand together near the spawn/portal.
+  ins.run('town', 'Merchant', 660, 560, 45, 'vendor');
+  ins.run('town', 'Elder Maeve', 740, 560, 190, 'questgiver');
 }
 
 function seedQuests(db: Database): void {
