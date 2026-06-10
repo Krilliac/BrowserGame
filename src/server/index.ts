@@ -145,8 +145,26 @@ function contentType(path: string): string {
 // maxPayload caps frame size so a single client can't send a giant message (DoS guard).
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MESSAGE_BYTES });
 
+// Heartbeat: ping every socket periodically; a client that misses a pong (tab closed abruptly, a
+// reload, a dropped network) is terminated so its player entity is removed promptly instead of
+// lingering as an idle "ghost" until TCP times out. (This is what piled up dozens of stale players.)
+const HEARTBEAT_MS = 15_000;
+const alive = new WeakSet<WebSocket>();
+setInterval(() => {
+  for (const client of wss.clients) {
+    if (!alive.has(client)) {
+      client.terminate(); // missed the last ping → dead; terminate fires 'close' → removes player
+      continue;
+    }
+    alive.delete(client);
+    client.ping();
+  }
+}, HEARTBEAT_MS);
+
 wss.on('connection', (socket) => {
   let entityId = 0;
+  alive.add(socket);
+  socket.on('pong', () => alive.add(socket));
   socket.send(contentMessage); // hand the client the game content first
   // Per-connection rate limits. Every client is untrusted: a single socket must not be
   // able to flood the simulation or chat. Generous for input, tight for chat.
