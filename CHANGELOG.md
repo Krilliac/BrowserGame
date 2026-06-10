@@ -8,6 +8,13 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Renderer — soft directional shadows (3D-feel pass, slice 1).** Actors now cast a soft,
+  baked-radial ground shadow that's offset and skewed toward a fixed "sun" (upper-left), so
+  characters read as *planted* and lit from a consistent direction (the Diablo 2 look) instead of
+  floating over a hard symmetric ellipse. Built on a once-baked shadow texture (zero per-frame
+  cost); the local player keeps its gold ground-ring. First of the sequenced rendering slices in
+  `wiki/research/renderer-3d-feel-and-animation.md` (animation system, depth/parallax, atmosphere,
+  bloom, and asset upgrades follow).
 - **Waypoints / fast-travel (press M).** Characters now remember every area they've visited; a
   waypoint map lists discovered areas and lets you instantly travel to any of them (carrying full
   state, the same export/import as a portal). Discovery persists in the save and grandfathers in for
@@ -85,6 +92,10 @@ versioning once it stabilizes.
   bot.)
 - **`giveItem` now credits gold to the wallet** instead of stuffing it into a bag stack, so GM
   `/give gold` and quest/vendor gold flows are consistent.
+- **Windows: the prod server now serves the page.** `serveStatic` decided "site root" *after*
+  `path.normalize`, which on Windows turns `/` into `\\` — so `/` missed the index.html branch and
+  404'd (the built client never loaded; the screenshot harness showed the dev fallback text). Root
+  is now detected from the raw URL before normalization.
 - **Hardening from an adversarial bug-hunt pass** (4 confirmed findings, fixed + regression-tested):
   a dead player could `learn`/rank spells (now gated like `cast`/`buy`/`sell`); a negative
   `vendor_stock` price would *add* gold on purchase (`buy` now rejects non-positive prices); an

@@ -29,6 +29,10 @@ coverage/
 .vitest/
 tools/bots/last-run.json
 
+# Screenshot harness output
+shots-3d/
+bg-shots/
+
 # Vite cache
 .vite/
 

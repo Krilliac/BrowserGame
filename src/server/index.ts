@@ -218,8 +218,13 @@ const http = createServer(async (req, res) => {
 });
 
 async function serveStatic(url: string, res: ServerResponse): Promise<void> {
-  const safePath = normalize(url.split('?')[0] ?? '/').replace(/^(\.\.[/\\])+/, '');
-  const target = join(clientDir, safePath === '/' ? 'index.html' : safePath);
+  // Decide "is this the site root?" from the RAW url, before normalize() — on Windows
+  // normalize('/') returns '\\', so a post-normalize `=== '/'` check misses root and we'd try to
+  // read the client directory itself (404). Strip the query, then treat '/' (or empty) as index.html.
+  const raw = (url.split('?')[0] ?? '/').split('#')[0] ?? '/';
+  const isRoot = raw === '/' || raw === '';
+  const safePath = normalize(raw).replace(/^(\.\.[/\\])+/, '');
+  const target = join(clientDir, isRoot ? 'index.html' : safePath);
   try {
     const data = await readFile(target);
     res.writeHead(200, { 'content-type': contentType(target) });

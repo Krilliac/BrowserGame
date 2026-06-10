@@ -172,6 +172,8 @@ interface ActorView {
   sprite?: Sprite;
   orb?: Graphics;
   dyn?: Graphics;
+  /** Soft, directional ground shadow (leans away from a fixed sun — the D2 "planted" cue). */
+  shadow?: Sprite;
   sheet?: Sheet;
   topY: number;
   lastX: number;
@@ -180,6 +182,13 @@ interface ActorView {
   flashUntil: number;
   seen: boolean;
 }
+
+// A fixed "sun" direction (light from the upper-left) so every actor's shadow leans the same way —
+// the consistent baked-light look of Diablo 2. Offsets are fractions of the actor's foot radius.
+const SHADOW_OFFSET_X = 0.42; // shadow slides toward lower-right (away from the sun)
+const SHADOW_OFFSET_Y = 0.18;
+const SHADOW_SKEW = -0.55; // slants the ellipse so it reads as cast across the ground
+const SHADOW_ALPHA = 0.42;
 
 export class PixiRenderer {
   private readonly ground: TilingSprite;
@@ -206,6 +215,7 @@ export class PixiRenderer {
   private readonly groundTextures = new Map<string, Texture>();
   private readonly tex = new Map<string, Texture>(); // sheets + misc
   private readonly frameCache = new Map<string, Texture>();
+  private softShadow?: Texture; // shared soft-ellipse shadow, baked on first actor
 
   constructor(
     private readonly app: Application,
@@ -474,18 +484,29 @@ export class PixiRenderer {
   private makeActor(e: EntityState, isSelf: boolean): ActorView {
     const container = new Container();
     const radius = e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS;
-    const shadow = new Graphics();
-    shadow.ellipse(0, 0, radius, radius * 0.5).fill({ color: '#000000', alpha: 0.35 });
-    if (isSelf) {
-      shadow.ellipse(0, 0, radius + 3, radius * 0.5 + 2).stroke({ width: 2, color: '#c9a24b' });
-    }
+    // Soft directional shadow: a baked radial ellipse offset + skewed toward a fixed sun, so actors
+    // read as planted on the ground and lit from a consistent direction (the Diablo 2 look).
+    const shadow = new Sprite(this.softShadowTexture());
+    shadow.anchor.set(0.5, 0.5);
+    shadow.width = radius * 2.9;
+    shadow.height = radius * 1.45;
+    shadow.alpha = SHADOW_ALPHA;
+    shadow.position.set(radius * SHADOW_OFFSET_X, radius * SHADOW_OFFSET_Y);
+    shadow.skew.x = SHADOW_SKEW;
     container.addChild(shadow);
+    // The local player keeps a thin gold ground-ring so you can always pick yourself out.
+    if (isSelf) {
+      const ring = new Graphics();
+      ring.ellipse(0, 0, radius + 3, radius * 0.5 + 2).stroke({ width: 2, color: '#c9a24b' });
+      container.addChild(ring);
+    }
 
     const key = sheetKey(e);
     const sheet = key ? SHEETS[key] : undefined;
     const baseTex = key ? this.tex.get(key) : undefined;
     const view: ActorView = {
       container,
+      shadow,
       dyn: new Graphics(),
       topY: -radius * 2.6,
       lastX: e.x,
@@ -814,6 +835,34 @@ export class PixiRenderer {
     }
     c.addChild(g);
     return c;
+  }
+
+  /**
+   * A soft radial ellipse shadow texture (black, fading to transparent), baked once and shared by
+   * every actor. Soft edges read far more like a cast shadow than a hard `Graphics` ellipse, and
+   * cost nothing per frame.
+   */
+  private softShadowTexture(): Texture {
+    if (this.softShadow) return this.softShadow;
+    const w = 128;
+    const h = 64;
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d')!;
+    const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+    grad.addColorStop(0, 'rgba(0,0,0,0.9)');
+    grad.addColorStop(0.55, 'rgba(0,0,0,0.45)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.scale(1, h / w); // squash the radial gradient into a flat ellipse
+    ctx.translate(-w / 2, -h / 2);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+    this.softShadow = Texture.from(cv);
+    return this.softShadow;
   }
 
   /** Build (and cache) a tiled ground texture from the theme's base + speckle colors. */
