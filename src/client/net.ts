@@ -211,7 +211,11 @@ export class Net {
         this.authRev++;
         break;
       case 'shop':
-        this.shop = { vendor: msg.vendor, stock: msg.stock };
+        // Defensive: never trust the frame's shape. Drop a non-array stock and cap its size so a
+        // malformed/hostile 'shop' message can't crash or freeze the renderer.
+        if (Array.isArray(msg.stock)) {
+          this.shop = { vendor: String(msg.vendor ?? 'Vendor'), stock: msg.stock.slice(0, 60) };
+        }
         break;
       case 'area_changed':
         this.areaId = msg.areaId;

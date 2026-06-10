@@ -42,6 +42,13 @@ versioning once it stabilizes.
   bot.)
 - **`giveItem` now credits gold to the wallet** instead of stuffing it into a bag stack, so GM
   `/give gold` and quest/vendor gold flows are consistent.
+- **Hardening from an adversarial bug-hunt pass** (4 confirmed findings, fixed + regression-tested):
+  a dead player could `learn`/rank spells (now gated like `cast`/`buy`/`sell`); a negative
+  `vendor_stock` price would *add* gold on purchase (`buy` now rejects non-positive prices); an
+  out-of-range `giveItem` quantity could spin the tick loop forever (now clamped to 10 000); and a
+  malformed/oversized `shop` packet could crash or freeze the client (stock is now validated as an
+  array and capped at 60 rows on the client). Also grandfathers an empty learned-spells list so a
+  save can never produce a spell-less character.
 
 - **Character no longer resets when crossing a portal** — area transfers now carry the player's full
   persistent state (level, XP, HP/mana, gold, loot, equipment, quests) between instances

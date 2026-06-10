@@ -53,6 +53,55 @@ describe('spellbooks — learning + ranks', () => {
     w.learn(id, 'wolf_pelt'); // not a spellbook
     expect(Object.keys(w.playerStats(id)!.known).sort()).toEqual([...STARTER_ABILITIES].sort());
   });
+
+  it('a dead player cannot learn or rank up spells (server-authority guard)', () => {
+    const w = new World(1600, 1200, { x: 800, y: 600 }, undefined, 'crypt');
+    const id = w.spawn('Corpse', { x: 800, y: 600 });
+    w.giveItem(id, 'tome_frost', 1);
+    // Park a Crypt Lord on top of the idle player and let it slam them to death.
+    w.spawnMobAt(id, 'crypt_lord');
+    for (let t = 0; t < 300 && !w.playerStats(id)!.dead; t++) w.tick(0.1);
+    expect(w.playerStats(id)!.dead).toBe(true);
+
+    w.learn(id, 'tome_frost'); // should be rejected while dead
+    expect(w.playerStats(id)!.known.frost).toBeUndefined();
+    expect(w.playerStats(id)!.loot.tome_frost).toBe(1); // book not consumed
+  });
+
+  it('giveItem clamps an absurd quantity instead of hanging', () => {
+    const w = new World();
+    const id = w.spawn('Greedy');
+    w.giveItem(id, 'iron_sword', Number.POSITIVE_INFINITY); // would loop forever unclamped
+    expect(w.playerStats(id)!.gear.length).toBeLessThanOrEqual(10_000);
+    expect(w.playerStats(id)!.gear.length).toBeGreaterThan(0);
+  });
+});
+
+describe('spellbooks — save robustness', () => {
+  it('an empty learned-spells list grandfathers in every ability on load', () => {
+    const a = new World();
+    const id = a.spawn('Veteran');
+    const save = a.exportPlayer(id)!;
+    save.known = []; // simulate a save that somehow carries no learned spells
+    const b = new World();
+    b.importPlayer(id, save, 100, 100);
+    const known = b.playerStats(id)!.known;
+    // Every content ability is restored at rank 1 — never a spell-less character.
+    for (const a2 of STARTER_ABILITIES) expect(known[a2]).toBe(1);
+    expect(Object.keys(known).length).toBeGreaterThanOrEqual(STARTER_ABILITIES.length);
+  });
+
+  it('a pre-spellbook save (no known field) grandfathers in all abilities', () => {
+    const a = new World();
+    const id = a.spawn('Legacy');
+    const save = a.exportPlayer(id)!;
+    delete save.known;
+    const b = new World();
+    b.importPlayer(id, save, 0, 0);
+    expect(Object.keys(b.playerStats(id)!.known).length).toBeGreaterThanOrEqual(
+      STARTER_ABILITIES.length,
+    );
+  });
 });
 
 describe('spellbooks — cast gating', () => {

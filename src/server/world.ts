@@ -490,7 +490,8 @@ export class World {
     const entry = getContent()
       .vendorStock(this.areaId, npc.name)
       .find((s) => s.itemId === itemId);
-    if (!entry || player.gold < entry.price) return;
+    // Guard against a non-positive price (e.g. a bad DB edit): a negative price would *add* gold.
+    if (!entry || entry.price <= 0 || player.gold < entry.price) return;
     const def = getContent().item(itemId);
     if (!def) return;
     player.gold -= entry.price;
@@ -510,7 +511,7 @@ export class World {
    */
   learn(id: number, itemId: string): void {
     const player = this.players.get(id);
-    if (!player) return;
+    if (!player || player.dead) return;
     const have = player.loot.get(itemId) ?? 0;
     if (have <= 0) return;
     const def = getContent().item(itemId);
@@ -655,7 +656,9 @@ export class World {
     const p = this.players.get(id);
     const def = getContent().item(itemId);
     if (!p || !def) return false;
-    const n = Math.max(1, qty);
+    // Clamp the quantity at the boundary: a non-finite or absurd qty would spin the loop below
+    // forever and stall the tick. The cap is far above any legitimate single grant.
+    const n = Math.max(1, Math.min(Math.floor(qty) || 1, 10_000));
     const base = asBaseItem(def);
     if (def.kind === 'currency') {
       p.gold += n; // gold is the wallet, not a bag stack
@@ -1605,7 +1608,9 @@ function sanitizeName(name: string): string {
  */
 function restoreKnown(saved: [string, number][] | undefined): Map<AbilityId, number> {
   const content = getContent();
-  if (!saved) {
+  // Absent OR empty grandfathers in every ability: a character must never end up unable to cast
+  // anything (an empty list would otherwise wipe even the starter spells on the next load).
+  if (!saved || saved.length === 0) {
     return new Map(content.abilityOrder().map((id) => [id, 1] as [AbilityId, number]));
   }
   const known = new Map<AbilityId, number>();

@@ -521,7 +521,7 @@ function drawCharacterPanel(): void {
 /** The vendor shop window (opened by E on a vendor). Tap a row to buy; a button sells the bag. */
 function drawShopPanel(): void {
   const shop = net.shop;
-  if (!shop) return;
+  if (!shop || !Array.isArray(shop.stock)) return;
   shopRects.length = 0;
   const pw = 320;
   const rowH = 30;
