@@ -14,6 +14,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Corrupted gear (high-risk, high-reward)** — a new top rarity, **Corrupted** (sinister pink),
+  that never drops normally: it is **born from area corruption**. In a corrupted area, a
+  corruption-scaled share of gear drops (up to ~30% at full corruption) come out Corrupted — with the
+  **strongest base stats of all** plus a **corrupted affix pair**: one powerful buff (big +power,
+  +crit, or +2 projectiles) bound to a real **debuff** (`frail` −max HP, or `fragile` +% damage
+  taken). Debuffs feed `recomputeStats` (lower max HP / a damage-taken multiplier applied in
+  `damagePlayer`). This ties the loot chase to the corruption system — the deadliest places yield the
+  deadliest gear. New `rollCorruptedInstance` / `rollCorruptedAffixes` / `isDebuff` in
+  `src/shared/items.ts` (tested); the corrupted rarity color + debuff labels render through the
+  existing bag/drop paths.
 - **Invasion events** — every so often a populated, non-town area instance is raided by a sudden
   wave of 3–5 **champions** ringed around a random player, announced in chat — a spontaneous group
   fight that turns a quiet farm into an onslaught (`World.spawnInvasion`, host-driven timer in

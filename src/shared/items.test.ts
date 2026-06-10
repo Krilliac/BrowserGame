@@ -5,9 +5,11 @@ import {
   bumpRarity,
   gearSellValue,
   instanceName,
+  isDebuff,
   RARITY,
   RARITY_ORDER,
   rollAffixes,
+  rollCorruptedInstance,
   rollItemInstance,
   rollRarity,
   rollStat,
@@ -193,5 +195,31 @@ describe('affixes', () => {
       const ms = affixes.find((a) => a.stat === 'multishot');
       if (ms) expect(ms.value).toBeLessThanOrEqual(2);
     }
+  });
+});
+
+describe('corrupted items', () => {
+  it('never weighted-rolls or bumps into corrupted', () => {
+    expect(RARITY_ORDER).not.toContain('corrupted');
+    for (const r of [0, 0.5, 0.999999]) expect(rollRarity(() => r)).not.toBe('corrupted');
+    expect(bumpRarity('legendary', 9)).toBe('legendary'); // caps at legendary, not corrupted
+  });
+
+  it('rollCorruptedInstance makes a corrupted item with exactly one buff and one debuff', () => {
+    const inst = rollCorruptedInstance(5, SWORD, () => 0.3);
+    expect(inst.rarity).toBe('corrupted');
+    expect(inst.affixes).toHaveLength(2);
+    const debuffs = inst.affixes.filter(isDebuff);
+    expect(debuffs).toHaveLength(1);
+    expect(inst.affixes.filter((a) => !isDebuff(a))).toHaveLength(1);
+    expect(inst.power).toBeGreaterThan(0); // top-tier base stats
+  });
+
+  it('identifies and labels debuff affixes', () => {
+    expect(isDebuff({ stat: 'frail', value: 30 })).toBe(true);
+    expect(isDebuff({ stat: 'fragile', value: 20 })).toBe(true);
+    expect(isDebuff({ stat: 'crit', value: 10 })).toBe(false);
+    expect(affixLabel({ stat: 'frail', value: 30 })).toBe('-30 hp');
+    expect(affixLabel({ stat: 'fragile', value: 20 })).toBe('+20% dmg taken');
   });
 });

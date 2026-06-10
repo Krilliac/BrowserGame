@@ -32,6 +32,7 @@ import {
 } from './combat-formulas.js';
 import {
   gearSellValue,
+  rollCorruptedInstance,
   rollItemInstance,
   type BaseItem,
   type ItemInstance,
@@ -59,6 +60,7 @@ const CORRUPT_DECAY_PER_SEC = 0.008; // slow natural fade
 const CORRUPT_PER_DEATH = 0.15; // each player death feeds the corruption
 const CORRUPT_PER_KILL = 0.012; // each monster slain pushes it back
 const CORRUPT_MAX_DMG_BONUS = 0.6; // mob damage scales up to +60% at full corruption
+const CORRUPT_DROP_MAX = 0.3; // at full corruption, up to 30% of gear drops are corrupted
 
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
 const ELITE_CHANCE = 0.09;
@@ -97,6 +99,8 @@ interface Player {
   critChance: number;
   /** Extra projectiles per projectile cast, from equipped +multishot affixes. */
   multishot: number;
+  /** Incoming-damage multiplier (>1) from corrupted +fragile debuffs. */
+  damageTakenMult: number;
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
@@ -414,6 +418,7 @@ export class World {
     let bonusHp = player.equipment.armor?.hp ?? 0;
     let crit = BASE_CRIT_CHANCE;
     let multishot = 0;
+    let damageTaken = 1;
     for (const inst of [player.equipment.weapon, player.equipment.armor]) {
       if (!inst) continue;
       for (const a of inst.affixes ?? []) {
@@ -421,12 +426,16 @@ export class World {
         else if (a.stat === 'hp') bonusHp += a.value;
         else if (a.stat === 'crit') crit += a.value / 100;
         else if (a.stat === 'multishot') multishot += a.value;
+        else if (a.stat === 'frail')
+          bonusHp -= a.value; // corrupted debuff: less max HP
+        else if (a.stat === 'fragile') damageTaken += a.value / 100; // corrupted debuff: take more
       }
     }
     player.power = power;
     player.critChance = crit;
     player.multishot = multishot;
-    player.maxHp = maxHpForLevel(player.level) + bonusHp;
+    player.damageTakenMult = damageTaken;
+    player.maxHp = Math.max(1, maxHpForLevel(player.level) + bonusHp);
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
 
@@ -546,6 +555,7 @@ export class World {
       power: 0,
       critChance: BASE_CRIT_CHANCE,
       multishot: 0,
+      damageTakenMult: 1,
       god: false,
       quests: new Map(),
       questsDone: new Set(),
@@ -967,14 +977,13 @@ export class World {
       };
       const def = content.item(stack.item);
       if (def && def.kind === 'equip' && (def.slot === 'weapon' || def.slot === 'armor')) {
-        const base: BaseItem = {
+        item.instance = this.rollGear({
           id: def.id,
           name: def.name,
           slot: def.slot,
           power: def.power,
           hp: def.hp,
-        };
-        item.instance = rollItemInstance(this.allocId(), base);
+        });
       }
       this.items.set(id, item);
     }
@@ -1004,15 +1013,28 @@ export class World {
       .filter((i) => i.kind === 'equip' && (i.slot === 'weapon' || i.slot === 'armor'));
     const def = equips[Math.floor(Math.random() * equips.length)];
     if (!def) return;
-    const base: BaseItem = {
-      id: def.id,
-      name: def.name,
-      slot: def.slot as 'weapon' | 'armor',
-      power: def.power,
-      hp: def.hp,
-    };
     const ground = this.dropGround(def.id, 1, x, y);
-    ground.instance = rollItemInstance(this.allocId(), base, Math.random, rarityBump);
+    ground.instance = this.rollGear(
+      {
+        id: def.id,
+        name: def.name,
+        slot: def.slot as 'weapon' | 'armor',
+        power: def.power,
+        hp: def.hp,
+      },
+      rarityBump,
+    );
+  }
+
+  /**
+   * Roll a gear instance for a drop. In a corrupted area there is a corruption-scaled chance the
+   * item is born **corrupted** (a strong buff + a debuff); otherwise it's a normal rolled instance.
+   */
+  private rollGear(base: BaseItem, rarityBump = 0): ItemInstance {
+    if (Math.random() < this.corruption * CORRUPT_DROP_MAX) {
+      return rollCorruptedInstance(this.allocId(), base);
+    }
+    return rollItemInstance(this.allocId(), base, Math.random, rarityBump);
   }
 
   /** Spawn a ground item (gold or a material/gear stack) with a little scatter. Returns it. */
@@ -1128,8 +1150,9 @@ export class World {
 
   private damagePlayer(player: Player, amount: number): void {
     if (player.god) return;
-    player.hp -= amount;
-    this.events.push({ kind: 'hit', x: player.x, y: player.y, value: amount });
+    const taken = amount * player.damageTakenMult; // corrupted +fragile makes hits land harder
+    player.hp -= taken;
+    this.events.push({ kind: 'hit', x: player.x, y: player.y, value: taken });
     if (player.hp <= 0) {
       player.hp = 0;
       player.dead = true;
