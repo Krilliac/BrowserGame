@@ -45,10 +45,13 @@ export class Atmosphere {
   private lastNow = performance.now();
   private w = 0;
   private h = 0;
+  /** Fog color the current vignette texture was baked for; lets us skip needless rebuilds. */
+  private vignetteFog = '';
 
   constructor() {
     this.dot = makeSoftDot();
-    this.vignette = new Sprite(makeVignette());
+    this.vignette = new Sprite(makeVignette(DEFAULT_THEME.fogColor));
+    this.vignetteFog = DEFAULT_THEME.fogColor;
     this.screen.eventMode = 'none';
     this.particleLayer.eventMode = 'none';
     this.screen.addChild(this.tint, this.vignette);
@@ -56,7 +59,22 @@ export class Atmosphere {
 
   setArea(theme: AreaTheme): void {
     this.theme = theme;
+    this.refreshVignette();
     this.reseed(theme.particleCount);
+  }
+
+  /**
+   * Rebuild the baked vignette only when the area's fogColor actually changes. The gradient is
+   * resolution-independent (a fixed 256px sprite stretched to the viewport), so a viewport resize
+   * just re-stretches the same sprite — no texture work — and the per-fogColor cache keeps this off
+   * the per-frame path. Cheap enough for a phone.
+   */
+  private refreshVignette(): void {
+    if (this.theme.fogColor === this.vignetteFog) return;
+    const old = this.vignette.texture;
+    this.vignette.texture = makeVignette(this.theme.fogColor);
+    this.vignetteFog = this.theme.fogColor;
+    old.destroy(true);
   }
 
   /** Time-of-day darkness in [0,1] (1 = full night) — drives the lighting module's glow strength. */
@@ -170,24 +188,60 @@ function makeSoftDot(): Texture {
   return Texture.from(cv);
 }
 
-/** A radial vignette (transparent center → dark edges), stretched to the screen each frame. */
-function makeVignette(): Texture {
+/**
+ * A radial vignette baked once per fogColor and stretched to the screen. Two cues are layered into
+ * the SAME gradient so the renderer still wires only one sprite:
+ *   1. the original edge-darkening (transparent center → dark edges) that frames the scene, and
+ *   2. atmospheric perspective — the periphery washes a touch toward the (slightly desaturated)
+ *      fog color, the way distant terrain hazes out, so the screen edges read as "further away".
+ * Both are subtle ambiance; the center stays clear. Drawn as two stacked radial gradients on a
+ * fixed 256px canvas, which is then stretched — no per-pixel filter, no per-frame allocation.
+ */
+function makeVignette(fogHex: string): Texture {
   const size = 256;
   const cv = document.createElement('canvas');
   cv.width = size;
   cv.height = size;
   const ctx = cv.getContext('2d')!;
-  const grd = ctx.createRadialGradient(
-    size / 2,
-    size / 2,
-    size * 0.28,
-    size / 2,
-    size / 2,
-    size * 0.62,
-  );
-  grd.addColorStop(0, 'rgba(0,0,0,0)');
-  grd.addColorStop(1, 'rgba(0,0,0,0.55)');
-  ctx.fillStyle = grd;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  // Layer 1: the existing edge-darkening (unchanged feel).
+  const dark = ctx.createRadialGradient(cx, cy, size * 0.28, cx, cy, size * 0.62);
+  dark.addColorStop(0, 'rgba(0,0,0,0)');
+  dark.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = dark;
   ctx.fillRect(0, 0, size, size);
+
+  // Layer 2: cool, slightly-desaturated fog haze that only touches the periphery. Pulling the fog
+  // color partway toward neutral grey drops its saturation so it reads as distance-haze, not a
+  // colored filter. Kept faint (max ~0.14 alpha) — ambiance, not a wash.
+  const { r, g, b } = hexToRgb(fogHex);
+  const grey = (r + g + b) / 3;
+  const hr = Math.round(lerp(r, grey, 0.45));
+  const hg = Math.round(lerp(g, grey, 0.45));
+  const hb = Math.round(lerp(b, grey, 0.45));
+  const haze = ctx.createRadialGradient(cx, cy, size * 0.34, cx, cy, size * 0.62);
+  haze.addColorStop(0, `rgba(${hr},${hg},${hb},0)`);
+  haze.addColorStop(1, `rgba(${hr},${hg},${hb},0.14)`);
+  ctx.fillStyle = haze;
+  ctx.fillRect(0, 0, size, size);
+
   return Texture.from(cv);
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
+
+/** Parse a #rgb / #rrggbb CSS hex into 0..255 channels; falls back to mid-grey on garbage. */
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h[0]! + h[0]! + h[1]! + h[1]! + h[2]! + h[2]!;
+  if (h.length < 6 || !/^[0-9a-fA-F]{6}/.test(h)) return { r: 128, g: 128, b: 128 };
+  return {
+    r: Number.parseInt(h.slice(0, 2), 16),
+    g: Number.parseInt(h.slice(2, 4), 16),
+    b: Number.parseInt(h.slice(4, 6), 16),
+  };
 }

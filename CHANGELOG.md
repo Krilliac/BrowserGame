@@ -8,6 +8,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Renderer — depth, atmosphere & bloom (3D-feel pass, slices 3–5).** A **camera dolly** seats the
+  player below screen-center so more world shows ahead (a tilted-camera depth cue), and actors get a
+  subtle **faux-perspective scale** (closer = bigger, clamped) — the D2/D3 depth read. The vignette
+  now also washes the screen edges toward the area's **fog color, desaturated** (atmospheric
+  perspective: the periphery recedes). And a quality-gated **bloom** (`pixi-filters` AdvancedBloom at
+  half resolution) makes the torch / portal / spell glow bloom on desktop, while phones
+  (`navigator.maxTouchPoints > 0`) get it disabled for zero GPU cost. New `post-fx.ts` module; the
+  atmosphere edge-fog is baked + cached (rebuilt only when the fog color or viewport changes).
 - **Renderer — sprite animation system (3D-feel pass, slice 2).** The old "idle-vs-walk frame index"
   becomes a real state machine: **idle / walk / attack / cast / hurt / death**, driven by movement
   and the server's existing `FxEvent`s (no new wire fields). Characters now swing on a melee/slam,

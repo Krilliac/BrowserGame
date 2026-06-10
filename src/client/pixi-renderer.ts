@@ -20,6 +20,7 @@ import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
 import { Weather } from './weather.js';
 import { Lighting, type LightSource } from './lighting.js';
+import { PostFx } from './post-fx.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
   newAnimView,
@@ -37,6 +38,14 @@ import {
  * procedural fallback. Everything is y-sorted so nearer things overlap farther ones.
  */
 const PITCH = 0.64;
+// Camera dolly: the player sits a little BELOW screen-center so more of the world is visible ahead,
+// mimicking a tilted 3D camera (a D2 depth cue). The torch light follows to stay on the player.
+const CAM_DOLLY_Y = 0.58;
+// Faux-perspective: actors nearer the bottom of the view (closer to the camera) render slightly
+// bigger, farther ones slightly smaller — the depth scaling D2/D3 use. Kept subtle + clamped.
+const DEPTH_SCALE_K = 0.00035; // per world-unit of y relative to the camera
+const DEPTH_SCALE_MIN = 0.9;
+const DEPTH_SCALE_MAX = 1.12;
 const FX_DURATION = 700;
 const EXPLOSION_MS = 600;
 const WALK_FRAME_MS = 120;
@@ -218,6 +227,8 @@ export class PixiRenderer {
   private readonly atmosphere = new Atmosphere();
   private readonly weather = new Weather();
   private readonly lighting = new Lighting();
+  // Bloom on the additive light overlay (torch, portals, spell glow). Quality-gated for phones.
+  private readonly postFx = new PostFx(navigator.maxTouchPoints > 0 ? 'low' : 'high');
   private readonly grade = new ColorMatrixFilter(); // per-area color grading (one pass on the world)
   private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
@@ -230,6 +241,7 @@ export class PixiRenderer {
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
+  private camY = 0; // last camera world-y, for per-actor faux-perspective depth scaling
   private fadeAlpha = 0; // area-change fade-from-black, eases 1 -> 0 on arrival
   private lastFrameAt = performance.now();
   private readonly groundTextures = new Map<string, Texture>();
@@ -370,7 +382,8 @@ export class PixiRenderer {
     const shY = this.shakeMag > 0.05 ? (Math.random() * 2 - 1) * this.shakeMag : 0;
 
     const originX = sw / 2 - state.camX + shX;
-    const originY = sh / 2 - state.camY * PITCH + shY;
+    const originY = sh * CAM_DOLLY_Y - state.camY * PITCH + shY;
+    this.camY = state.camY; // remembered so updateActor can compute per-actor depth scale
     this.world.position.set(originX, originY);
     this.ground.width = sw;
     this.ground.height = sh;
@@ -382,7 +395,12 @@ export class PixiRenderer {
     // Dynamic lights (additive): the local player carries a torch at screen center; portals glow.
     // Strength scales with night + the area's ambient-light theme, so they matter after dark.
     const lights: LightSource[] = [
-      { x: sw / 2 + shX, y: sh / 2 + shY, radius: PLAYER_LIGHT.radius, color: PLAYER_LIGHT.color },
+      {
+        x: sw / 2 + shX,
+        y: sh * CAM_DOLLY_Y + shY,
+        radius: PLAYER_LIGHT.radius,
+        color: PLAYER_LIGHT.color,
+      },
     ];
     for (const p of this.portalCenters) {
       lights.push({
@@ -399,6 +417,8 @@ export class PixiRenderer {
       this.atmosphere.nightFactor(),
       this.currentTheme.lightAmbient,
     );
+    // Soft bloom on the light overlay so torch/portal/spell glow blooms (desktop only).
+    this.postFx.update(this.lighting.layer, sw, sh);
 
     // Area-change fade-from-black, eased toward 0.
     this.fadeAlpha = Math.max(0, this.fadeAlpha - dt / FADE_SECONDS);
@@ -558,8 +578,13 @@ export class PixiRenderer {
         color: e.kind === 'mob' ? '#cc4444' : '#4caf50',
       });
     }
-    // Champions stand bigger than their kin.
-    if (e.kind === 'mob') view.container.scale.set(e.elite ? 1.32 : 1);
+    // Faux-perspective depth scale (closer to camera = bigger), combined with the champion bump.
+    const depth = Math.max(
+      DEPTH_SCALE_MIN,
+      Math.min(DEPTH_SCALE_MAX, 1 + (e.y - this.camY) * DEPTH_SCALE_K),
+    );
+    const elite = e.kind === 'mob' && e.elite ? 1.32 : 1;
+    view.container.scale.set(depth * elite);
   }
 
   private makeActor(e: EntityState, isSelf: boolean): ActorView {
