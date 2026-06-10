@@ -14,15 +14,16 @@ function sampleSave(name = 'Hero'): PlayerSave {
     gold: 99,
     loot: [['wolf_pelt', 3]],
     gear: [{ uid: 1, baseId: 'iron_sword', rarity: 'rare', power: 21, hp: 0, affixes: [] }],
-    weapon: {
-      uid: 2,
-      baseId: 'iron_sword',
-      rarity: 'epic',
-      power: 33,
-      hp: 0,
-      affixes: [{ stat: 'crit', value: 7 }],
+    equipment: {
+      mainhand: {
+        uid: 2,
+        baseId: 'iron_sword',
+        rarity: 'epic',
+        power: 33,
+        hp: 0,
+        affixes: [{ stat: 'crit', value: 7 }],
+      },
     },
-    armor: null,
     god: false,
     quests: [['wolf_cull', 2]],
     questsDone: ['intro'],
@@ -56,7 +57,7 @@ describe('player save store', () => {
     storeSave(db, token, sampleSave());
     const loaded = loadSave(db, token);
     expect(loaded?.level).toBe(7);
-    expect(loaded?.weapon?.rarity).toBe('epic');
+    expect(loaded?.equipment.mainhand?.rarity).toBe('epic');
     expect(loaded?.gear[0]?.baseId).toBe('iron_sword');
 
     storeSave(db, token, { ...sampleSave('Hero2'), level: 12 });
@@ -91,7 +92,9 @@ describe('player save store', () => {
       '2020-01-01',
     );
     const loaded = loadSave(db, token)!;
-    expect(loaded.weapon?.affixes).toEqual([]);
+    // The legacy { weapon, armor } shape migrates into the equipment map, with affixes defaulted.
+    expect(loaded.equipment.mainhand?.baseId).toBe('iron_sword');
+    expect(loaded.equipment.mainhand?.affixes).toEqual([]);
     expect(loaded.gear[0]?.affixes).toEqual([]);
   });
 });

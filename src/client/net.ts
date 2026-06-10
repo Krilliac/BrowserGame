@@ -26,8 +26,7 @@ export interface SelfStats {
   respawnIn: number;
   power: number;
   critChance: number;
-  weapon: ItemInstance | null;
-  armor: ItemInstance | null;
+  equipment: Record<string, ItemInstance | null>;
   corruption: number;
   x: number;
   y: number;
@@ -64,8 +63,7 @@ export class Net {
     respawnIn: 0,
     power: 0,
     critChance: 0.15,
-    weapon: null,
-    armor: null,
+    equipment: {},
     corruption: 0,
     x: 0,
     y: 0,
@@ -135,6 +133,10 @@ export class Net {
     this.send({ t: 'equip', uid });
   }
 
+  sendUnequip(slot: string): void {
+    this.send({ t: 'unequip', slot });
+  }
+
   private send(msg: Parameters<typeof encode>[0]): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(msg));
   }
@@ -177,8 +179,7 @@ export class Net {
           respawnIn: msg.respawnIn,
           power: msg.power,
           critChance: msg.critChance,
-          weapon: msg.weapon,
-          armor: msg.armor,
+          equipment: msg.equipment,
           corruption: msg.corruption,
           x: msg.x,
           y: msg.y,

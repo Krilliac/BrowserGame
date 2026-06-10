@@ -25,14 +25,14 @@ function seqRng(values: number[]): () => number {
 const SWORD: BaseItem = {
   id: 'iron_sword',
   name: 'Iron Sword',
-  slot: 'weapon',
+  slot: 'mainhand',
   power: 13,
   hp: null,
 };
 const ARMOR: BaseItem = {
   id: 'iron_armor',
   name: 'Iron Armor',
-  slot: 'armor',
+  slot: 'chest',
   power: null,
   hp: 65,
 };

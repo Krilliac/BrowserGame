@@ -17,7 +17,8 @@ export interface ItemInfo {
   id: string;
   name: string;
   kind: string;
-  slot: 'weapon' | 'armor' | null;
+  /** Item slot (head/chest/mainhand/ring/…) for equippable items, else null. */
+  slot: string | null;
   power: number | null;
   hp: number | null;
   color: string | null;
@@ -95,6 +96,8 @@ export type ClientMessage =
   | { t: 'interact' }
   /** Equip a gear instance from the player's bag, by its unique id. */
   | { t: 'equip'; uid: number }
+  /** Unequip the item in a doll slot (head/chest/mainhand/ring1/…) back to the bag. */
+  | { t: 'unequip'; slot: string }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string };
 
@@ -135,9 +138,8 @@ export type ServerMessage =
       power: number;
       /** Crit chance in [0,1] (base + equipped +crit affixes). */
       critChance: number;
-      /** Equipped gear instances (null when the slot is empty). */
-      weapon: ItemInstance | null;
-      armor: ItemInstance | null;
+      /** Equipped gear by doll slot (head/chest/mainhand/ring1/… → instance or null). */
+      equipment: Record<string, ItemInstance | null>;
       /** Area corruption 0..1 (drives the client's darkening of the scene). */
       corruption: number;
       /** Authoritative position + last input the server processed (client reconciliation). */

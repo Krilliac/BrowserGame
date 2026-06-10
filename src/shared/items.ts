@@ -12,6 +12,8 @@
  * an instance is the natural place to later hang rolled affixes (e.g. +crit) and provenance.
  */
 
+import type { ItemSlot } from './equipment.js';
+
 export type Rarity = 'common' | 'magic' | 'rare' | 'epic' | 'legendary' | 'corrupted';
 
 /**
@@ -79,7 +81,7 @@ export function rollStat(base: number, rarity: Rarity, rng: () => number = Math.
 export interface BaseItem {
   id: string;
   name: string;
-  slot: 'weapon' | 'armor';
+  slot: ItemSlot;
   power?: number | null;
   hp?: number | null;
 }

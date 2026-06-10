@@ -22,7 +22,7 @@ describe('player save / transfer', () => {
     b.importPlayer(id, save!, 100, 200);
     const s = b.playerStats(id)!;
     expect(s.level).toBeGreaterThanOrEqual(5);
-    expect(s.weapon?.baseId).toBe('iron_sword');
+    expect(s.equipment.mainhand?.baseId).toBe('iron_sword');
     expect(s.loot.wolf_pelt).toBe(3);
     expect(s.power).toBe(a.playerStats(id)!.power);
     expect({ x: s.x, y: s.y }).toEqual({ x: 100, y: 200 });

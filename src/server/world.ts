@@ -38,12 +38,35 @@ import {
   type ItemInstance,
 } from '../shared/items.js';
 import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-corruption.js';
+import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../shared/equipment.js';
 import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { getContent } from './content.js';
 import { weatherModifiers } from './weather-effects.js';
 import type { WeatherKind } from '../shared/theme.js';
+
+type Equipment = Record<EquipSlot, ItemInstance | null>;
+
+/** A fresh equipment record with every doll slot empty. */
+function emptyEquipment(): Equipment {
+  const eq = {} as Equipment;
+  for (const slot of EQUIP_SLOTS) eq[slot] = null;
+  return eq;
+}
+
+/** Build the roll base from a content item, or null if it isn't equippable. */
+function asBaseItem(def: {
+  id: string;
+  name: string;
+  slot: string | null;
+  kind: string;
+  power: number | null;
+  hp: number | null;
+}): BaseItem | null {
+  if (def.kind !== 'equip' || !def.slot) return null;
+  return { id: def.id, name: def.name, slot: def.slot as ItemSlot, power: def.power, hp: def.hp };
+}
 
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
@@ -91,7 +114,7 @@ interface Player {
   loot: Map<string, number>;
   /** Unequipped gear instances in the bag (rolled rarity + stats). */
   gear: ItemInstance[];
-  equipment: { weapon: ItemInstance | null; armor: ItemInstance | null };
+  equipment: Equipment;
   power: number;
   /** Crit chance in [0,1]: base plus the sum of equipped +crit affixes. */
   critChance: number;
@@ -120,8 +143,8 @@ export interface PlayerSave {
   gold: number;
   loot: [string, number][];
   gear: ItemInstance[];
-  weapon: ItemInstance | null;
-  armor: ItemInstance | null;
+  /** Equipped gear by doll slot; partial-friendly so older saves migrate cleanly. */
+  equipment: Record<string, ItemInstance | null>;
   god: boolean;
   quests: [string, number][];
   questsDone: string[];
@@ -412,33 +435,52 @@ export class World {
     }
   }
 
-  /** Equip a gear instance (by uid) from the player's bag, returning displaced gear to the bag. */
+  /** Equip a gear instance (by uid) from the player's bag, returning any displaced gear to the bag. */
   equip(id: number, uid: number): void {
     const player = this.players.get(id);
     if (!player) return;
     const idx = player.gear.findIndex((g) => g.uid === uid);
     if (idx < 0) return;
     const inst = player.gear[idx]!;
-    const def = getContent().item(inst.baseId);
-    const slot = def?.slot;
-    if (slot !== 'weapon' && slot !== 'armor') return;
+    const itemSlot = getContent().item(inst.baseId)?.slot as ItemSlot | undefined;
+    if (!itemSlot) return;
+    const slots = dollSlotsFor(itemSlot);
+    if (slots.length === 0) return;
+    // Prefer an empty doll slot (e.g. ring1 over ring2); otherwise replace the first.
+    const target = slots.find((s) => player.equipment[s] === null) ?? slots[0]!;
 
     player.gear.splice(idx, 1);
-    const previous = player.equipment[slot];
+    const previous = player.equipment[target];
     if (previous) player.gear.push(previous);
-    player.equipment[slot] = inst;
+    player.equipment[target] = inst;
     this.recomputeStats(player);
   }
 
-  /** Derive power, max HP, and crit chance from level, equipped base stats, and affixes. */
+  /** Unequip the item in a doll slot back to the bag. */
+  unequip(id: number, slot: string): void {
+    const player = this.players.get(id);
+    if (!player) return;
+    if (!(EQUIP_SLOTS as string[]).includes(slot)) return;
+    const s = slot as EquipSlot;
+    const inst = player.equipment[s];
+    if (!inst) return;
+    player.equipment[s] = null;
+    player.gear.push(inst);
+    this.recomputeStats(player);
+  }
+
+  /** Derive power, max HP, crit, multishot, and damage-taken from level + every equipped instance. */
   private recomputeStats(player: Player): void {
-    let power = player.equipment.weapon?.power ?? 0;
-    let bonusHp = player.equipment.armor?.hp ?? 0;
+    let power = 0;
+    let bonusHp = 0;
     let crit = BASE_CRIT_CHANCE;
     let multishot = 0;
     let damageTaken = 1;
-    for (const inst of [player.equipment.weapon, player.equipment.armor]) {
+    for (const slot of EQUIP_SLOTS) {
+      const inst = player.equipment[slot];
       if (!inst) continue;
+      power += inst.power;
+      bonusHp += inst.hp;
       for (const a of inst.affixes ?? []) {
         if (a.stat === 'power') power += a.value;
         else if (a.stat === 'hp') bonusHp += a.value;
@@ -492,14 +534,8 @@ export class World {
     const def = getContent().item(itemId);
     if (!p || !def) return false;
     const n = Math.max(1, qty);
-    if (def.kind === 'equip' && (def.slot === 'weapon' || def.slot === 'armor')) {
-      const base: BaseItem = {
-        id: def.id,
-        name: def.name,
-        slot: def.slot,
-        power: def.power,
-        hp: def.hp,
-      };
+    const base = asBaseItem(def);
+    if (base) {
       for (let i = 0; i < n; i++) p.gear.push(rollItemInstance(this.allocId(), base));
     } else {
       p.loot.set(itemId, (p.loot.get(itemId) ?? 0) + n);
@@ -569,7 +605,7 @@ export class World {
       gold: 0,
       loot: new Map(),
       gear: [],
-      equipment: { weapon: null, armor: null },
+      equipment: emptyEquipment(),
       power: 0,
       critChance: BASE_CRIT_CHANCE,
       multishot: 0,
@@ -600,8 +636,7 @@ export class World {
       gold: p.gold,
       loot: [...p.loot],
       gear: [...p.gear],
-      weapon: p.equipment.weapon,
-      armor: p.equipment.armor,
+      equipment: { ...p.equipment },
       god: p.god,
       quests: [...p.quests],
       questsDone: [...p.questsDone],
@@ -618,7 +653,7 @@ export class World {
     p.gold = save.gold;
     p.loot = new Map(save.loot);
     p.gear = [...save.gear];
-    p.equipment = { weapon: save.weapon, armor: save.armor };
+    p.equipment = { ...emptyEquipment(), ...save.equipment };
     p.god = save.god;
     p.quests = new Map(save.quests);
     p.questsDone = new Set(save.questsDone);
@@ -996,12 +1031,14 @@ export class World {
         ttl: ITEM_TTL_MS,
       };
       const def = content.item(stack.item);
-      if (def && def.kind === 'equip' && (def.slot === 'weapon' || def.slot === 'armor')) {
-        item.instance = this.rollGear(
-          { id: def.id, name: def.name, slot: def.slot, power: def.power, hp: def.hp },
-          0,
-          corruptedChance,
-        );
+      if (def && def.kind === 'equip') {
+        // A gear drop rolls a *random* equippable (any slot) for full variety; the loot table just
+        // controls how often gear drops. Relabel the ground item so the glint matches the piece.
+        const base = this.randomEquipBase() ?? asBaseItem(def);
+        if (base) {
+          item.itemId = base.id;
+          item.instance = this.rollGear(base, 0, corruptedChance);
+        }
       }
       this.items.set(id, item);
     }
@@ -1024,25 +1061,21 @@ export class World {
     }
   }
 
-  /** Drop one random equipment piece as a rolled, rarity-bumped instance (elite + bounty rewards). */
-  private dropBonusGear(x: number, y: number, rarityBump: number, corruptedChance: number): void {
+  /** A random equippable base item (any slot), or null if the content has none. */
+  private randomEquipBase(): BaseItem | null {
     const equips = getContent()
       .items()
-      .filter((i) => i.kind === 'equip' && (i.slot === 'weapon' || i.slot === 'armor'));
+      .filter((i) => i.kind === 'equip');
     const def = equips[Math.floor(Math.random() * equips.length)];
-    if (!def) return;
-    const ground = this.dropGround(def.id, 1, x, y);
-    ground.instance = this.rollGear(
-      {
-        id: def.id,
-        name: def.name,
-        slot: def.slot as 'weapon' | 'armor',
-        power: def.power,
-        hp: def.hp,
-      },
-      rarityBump,
-      corruptedChance,
-    );
+    return def ? asBaseItem(def) : null;
+  }
+
+  /** Drop one random equipment piece as a rolled, rarity-bumped instance (elite + bounty rewards). */
+  private dropBonusGear(x: number, y: number, rarityBump: number, corruptedChance: number): void {
+    const base = this.randomEquipBase();
+    if (!base) return;
+    const ground = this.dropGround(base.id, 1, x, y);
+    ground.instance = this.rollGear(base, rarityBump, corruptedChance);
   }
 
   /**
@@ -1330,8 +1363,7 @@ export class World {
         respawnIn: number;
         power: number;
         critChance: number;
-        weapon: ItemInstance | null;
-        armor: ItemInstance | null;
+        equipment: Equipment;
         corruption: number;
         x: number;
         y: number;
@@ -1357,8 +1389,7 @@ export class World {
       respawnIn: p.dead ? Math.max(0, Math.ceil(p.respawnAt - this.now)) : 0,
       power: p.power,
       critChance: p.critChance,
-      weapon: p.equipment.weapon,
-      armor: p.equipment.armor,
+      equipment: p.equipment,
       corruption: this.corruption(),
       x: p.x,
       y: p.y,

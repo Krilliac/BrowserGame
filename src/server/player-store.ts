@@ -37,16 +37,25 @@ export function loadSave(db: GameDatabase, token: string): PlayerSave | null {
 }
 
 /**
- * Bring an older save up to the current shape. Saves written before gear affixes existed have
- * instances with no `affixes` field; default it to an empty array so the sim, vendor, and UI
- * (which all iterate it) stay safe across deploys.
+ * Bring an older save up to the current shape so the sim, vendor, and UI (which all iterate these)
+ * stay safe across deploys:
+ *  - instances written before affixes get an empty `affixes` array;
+ *  - saves with the old `{ weapon, armor }` shape migrate into the `equipment` doll-slot map.
  */
 function normalizeSave(save: PlayerSave): PlayerSave {
-  const fix = (i: ItemInstance | null): ItemInstance | null =>
+  const fixAffixes = (i: ItemInstance | null): ItemInstance | null =>
     i && !Array.isArray(i.affixes) ? { ...i, affixes: [] } : i;
-  save.gear = (save.gear ?? []).map((i) => (Array.isArray(i.affixes) ? i : { ...i, affixes: [] }));
-  save.weapon = fix(save.weapon);
-  save.armor = fix(save.armor);
+  save.gear = (save.gear ?? []).map((i) => fixAffixes(i) ?? i);
+
+  const legacy = save as unknown as { weapon?: ItemInstance | null; armor?: ItemInstance | null };
+  if (!save.equipment) {
+    save.equipment = {};
+    if (legacy.weapon) save.equipment.mainhand = legacy.weapon;
+    if (legacy.armor) save.equipment.chest = legacy.armor;
+  }
+  for (const slot of Object.keys(save.equipment)) {
+    save.equipment[slot] = fixAffixes(save.equipment[slot] ?? null);
+  }
   return save;
 }
 

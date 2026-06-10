@@ -9,6 +9,7 @@ import {
   type ItemInstance,
   type Rarity,
 } from '../shared/items.js';
+import { SLOT_LABELS } from '../shared/equipment.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -110,6 +111,10 @@ const bagRects: {
   w: number;
   h: number;
 }[] = [];
+// Character panel (paper doll): open with C; each slot box is a click target to unequip.
+let charOpen = false;
+const charSlotRects: { slot: string; x: number; y: number; w: number; h: number }[] = [];
+let charPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
@@ -138,6 +143,8 @@ window.addEventListener('keydown', (e) => {
     castAbility(ability);
   } else if (e.key.toLowerCase() === 'e') {
     net.sendInteract(); // server validates NPC proximity
+  } else if (e.key.toLowerCase() === 'c') {
+    charOpen = !charOpen; // toggle the character/equipment panel
   }
 });
 
@@ -148,6 +155,12 @@ function nearbyNpc(): EntityState | undefined {
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
+  // Clicks on the open character panel unequip a slot and never fall through to a cast.
+  if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
+    const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
+    if (cs) net.sendUnequip(cs.slot);
+    return;
+  }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
     net.sendEquip(bag.uid);
@@ -170,6 +183,11 @@ let touchStart: { x: number; y: number; t: number } | null = null;
 
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
+  if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
+    const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
+    if (cs) net.sendUnequip(cs.slot);
+    return;
+  }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
     net.sendEquip(bag.uid);
@@ -355,12 +373,98 @@ function frame(): void {
   sound.setArea(net.areaId);
   sound.fromFx(net.fx);
   drawHud();
+  if (charOpen) drawCharacterPanel();
   if (!net.connected) drawReconnect();
 
   const area = net.content.area(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
   popEl.textContent = `${area?.name ?? net.areaId} · players: ${entities.filter((e) => e.kind === 'player').length}`;
   syncChatLog();
+}
+
+/** Trim text with an ellipsis to fit a max pixel width (font must be set before calling). */
+function fitText(text: string, maxW: number): string {
+  if (hud.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && hud.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
+
+/** Draw one equipment slot box (and register it as an unequip click target). */
+function drawCharSlot(slot: string, bx: number, by: number, bw: number, bh: number): void {
+  const inst = net.you.equipment[slot] ?? null;
+  hud.fillStyle = 'rgba(0,0,0,0.45)';
+  hud.fillRect(bx, by, bw, bh);
+  hud.lineWidth = inst ? 2 : 1;
+  hud.strokeStyle = inst ? rarityColor(inst.rarity) : 'rgba(201,162,75,0.3)';
+  hud.strokeRect(bx, by, bw, bh);
+  hud.textAlign = 'left';
+  hud.fillStyle = '#7d828c';
+  hud.font = '9px system-ui, sans-serif';
+  hud.fillText(SLOT_LABELS[slot as keyof typeof SLOT_LABELS].toUpperCase(), bx + 6, by + 11);
+  if (inst) {
+    hud.fillStyle = rarityColor(inst.rarity);
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.fillText(fitText(instLabel(inst), bw - 12), bx + 6, by + 25);
+    hud.fillStyle = '#9fb0c0';
+    hud.font = '9px system-ui, sans-serif';
+    const stats = instStatSegments(inst)
+      .map((s) => s.text)
+      .join('  ');
+    hud.fillText(fitText(stats, bw - 12), bx + 6, by + 37);
+  } else {
+    hud.fillStyle = '#565b64';
+    hud.font = 'italic 10px system-ui, sans-serif';
+    hud.fillText('empty', bx + 6, by + 27);
+  }
+  charSlotRects.push({ slot, x: bx, y: by, w: bw, h: bh });
+}
+
+/** The Diablo-style character / equipment panel (toggled with C). Tap a slot to unequip. */
+function drawCharacterPanel(): void {
+  charSlotRects.length = 0;
+  const pw = 384;
+  const ph = 430;
+  const px = 20;
+  const py = 56;
+  charPanelRect = { x: px, y: py, w: pw, h: ph };
+
+  hud.fillStyle = 'rgba(8,9,13,0.92)';
+  hud.fillRect(px, py, pw, ph);
+  hud.strokeStyle = '#c9a24b';
+  hud.lineWidth = 2;
+  hud.strokeRect(px, py, pw, ph);
+
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 15px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText('Character', px + 14, py + 22);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#8a8f99';
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillText('C to close · tap a slot to remove', px + pw - 14, py + 22);
+
+  // Totals.
+  hud.textAlign = 'left';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.fillStyle = '#f2c14e';
+  hud.fillText(
+    `Power ${net.you.power}    Crit ${Math.round(net.you.critChance * 100)}%    Max HP ${net.you.maxHp}`,
+    px + 14,
+    py + 42,
+  );
+
+  // Two columns of slot boxes + main hand spanning the bottom.
+  const left: string[] = ['head', 'shoulders', 'chest', 'hands', 'legs', 'feet'];
+  const right: string[] = ['neck', 'waist', 'ring1', 'ring2', 'trinket', 'offhand'];
+  const bw = (pw - 14 * 2 - 12) / 2;
+  const bh = 44;
+  const gap = 7;
+  const sy = py + 54;
+  left.forEach((s, i) => drawCharSlot(s, px + 14, sy + i * (bh + gap), bw, bh));
+  right.forEach((s, i) => drawCharSlot(s, px + 14 + bw + 12, sy + i * (bh + gap), bw, bh));
+  const lastY = sy + 6 * (bh + gap);
+  drawCharSlot('mainhand', px + 14, lastY, pw - 28, bh);
 }
 
 /** Dim the scene and show an animated "Reconnecting…" overlay while the socket is down. */
@@ -630,32 +734,24 @@ function drawInventory(w: number): void {
   const px = w - pw - 8;
   let py = 44 + MINIMAP_SIZE + 8;
 
-  // Equipped panel (always shown): weapon, armor (rarity-colored), and total power.
-  const eqH = 54;
+  // Compact stat panel (always shown): totals + a hint to open the full character screen.
+  const eqH = 38;
   hud.fillStyle = 'rgba(0,0,0,0.5)';
   hud.fillRect(px, py, pw, eqH);
   hud.strokeStyle = 'rgba(201,162,75,0.6)';
   hud.lineWidth = 1;
   hud.strokeRect(px, py, pw, eqH);
-  hud.fillStyle = '#e7d9b0';
+  hud.fillStyle = '#f2c14e';
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'left';
-  hud.fillText('Equipped', px + 8, py + 15);
-  hud.textAlign = 'right';
-  hud.fillStyle = '#f2c14e';
   hud.fillText(
     `+${net.you.power} pow · ${Math.round(net.you.critChance * 100)}% crit`,
-    px + pw - 8,
+    px + 8,
     py + 15,
   );
-  hud.font = '11px system-ui, sans-serif';
-  hud.textAlign = 'left';
-  const drawSlot = (label: string, inst: ItemInstance | null, ty: number): void => {
-    hud.fillStyle = inst ? rarityColor(inst.rarity) : '#8a8f99';
-    hud.fillText(`${label}: ${inst ? instLabel(inst) : '—'}`, px + 8, ty);
-  };
-  drawSlot('Wpn', net.you.weapon, py + 32);
-  drawSlot('Arm', net.you.armor, py + 47);
+  hud.fillStyle = '#9aa3b2';
+  hud.font = '10px system-ui, sans-serif';
+  hud.fillText('Press C — character & equipment', px + 8, py + 30);
   py += eqH + 6;
 
   // Gear panel: unequipped instances, two lines each (name, then stats) so long affix lists never

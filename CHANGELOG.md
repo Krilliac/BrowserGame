@@ -14,6 +14,19 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Full equipment slots + a Diablo-style character panel** — gear expands from weapon/armor to **13
+  doll slots**: head, neck, shoulders, chest, hands, waist, legs, feet, main-hand, off-hand, **two
+  rings**, and a trinket. The model is generalized (`ItemSlot`/`EquipSlot` + `EQUIP_SLOTS` in
+  `src/shared/equipment.ts`, ~18 base items across the slots); the player's `equipment` is a slot→
+  instance map; `recomputeStats` sums power/HP/affixes from every equipped piece; equipping a ring
+  fills the first free ring slot; and a new `unequip` action returns a slot to the bag. Press **C**
+  for the character panel — a paper-doll of all slots showing each equipped item in its rarity color
+  with stats, tap a slot to remove it; the bag (tap to equip) auto-routes to the right slot. Mob
+  kills now drop a **random** equippable (any slot) for variety. The `you` packet carries the
+  equipment map; old `{ weapon, armor }` saves migrate to `equipment.mainhand`/`chest`.
+- **Ghost-player fix (WebSocket heartbeat)** — abruptly-dropped clients (tab reloads, HMR, network
+  blips) left idle "ghost" players in the world until TCP timed out (dozens piled up). The server now
+  pings every socket every 15s and terminates any that miss a pong, removing their player promptly.
 - **Corrupted gear (high-risk, high-reward)** — a new top rarity, **Corrupted** (sinister pink),
   that never drops normally: it is **born from area corruption**. In a corrupted area, a
   corruption-scaled share of gear drops (up to ~30% at full corruption) come out Corrupted — with the

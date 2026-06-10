@@ -15,7 +15,7 @@ export interface ItemDef {
   id: string;
   name: string;
   kind: string; // 'equip' | 'loot' | 'currency'
-  slot: 'weapon' | 'armor' | null;
+  slot: string | null; // item slot for equippables (head/chest/mainhand/ring/…)
   power: number | null;
   hp: number | null;
   color: string | null;

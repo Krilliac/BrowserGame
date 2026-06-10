@@ -224,6 +224,11 @@ wss.on('connection', (socket) => {
         if (p) manager.get(p.instanceId)?.world.equip(entityId, msg.uid);
         break;
       }
+      case 'unequip': {
+        const p = players.get(entityId);
+        if (p) manager.get(p.instanceId)?.world.unequip(entityId, msg.slot);
+        break;
+      }
       case 'chat': {
         const p = players.get(entityId);
         if (!p || !chatBucket.tryRemove()) return;
