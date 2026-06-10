@@ -178,4 +178,12 @@ CREATE TABLE IF NOT EXISTS player_saves (
   data       TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- Friends list: each row is one directed "owner has friend" relation, by display name. Presence
+-- (online/area/level) is resolved at runtime by the SocialRegistry; this table is just the roster.
+CREATE TABLE IF NOT EXISTS friends (
+  owner_token TEXT NOT NULL,
+  friend_name TEXT NOT NULL,
+  PRIMARY KEY (owner_token, friend_name)
+);
 `;

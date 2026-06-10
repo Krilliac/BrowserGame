@@ -42,6 +42,40 @@ export interface ItemInfo {
   teaches: string | null;
 }
 
+/** Largest party size (leader + members). */
+export const MAX_PARTY_SIZE = 5;
+
+/** One member of a player's party, as shown in the party roster. */
+export interface PartyMember {
+  id: number;
+  name: string;
+  level: number;
+  hp: number;
+  maxHp: number;
+  /** Area id the member is currently in (parties span instances/areas). */
+  areaId: string;
+  /** True while the member has a live connection. */
+  online: boolean;
+  /** True for the party leader. */
+  leader: boolean;
+}
+
+/** Maximum friends per player. */
+export const MAX_FRIENDS = 50;
+
+/** One entry in a player's friends list. */
+export interface FriendInfo {
+  name: string;
+  online: boolean;
+  /** Area the friend is in when online (empty when offline). */
+  areaId: string;
+  /** Friend's level when online (0 when offline/unknown). */
+  level: number;
+}
+
+/** Chat channel a message belongs to, so the client can color/route it. */
+export type ChatChannel = 'say' | 'system' | 'party' | 'whisper';
+
 /** Simulation tick rate in Hz. Overridable via the TICK_RATE env var on the server. */
 export const DEFAULT_TICK_RATE = 20;
 
@@ -119,6 +153,20 @@ export type ClientMessage =
   | { t: 'learn'; itemId: string }
   /** Accept an available quest from the quest-log panel. Server validates it exists + isn't taken. */
   | { t: 'accept_quest'; questId: string }
+  /** Invite another online player to a party by name (server resolves the target + caps size). */
+  | { t: 'party_invite'; targetName: string }
+  /** Accept the pending party invite (if any). */
+  | { t: 'party_accept' }
+  /** Decline the pending party invite (if any). */
+  | { t: 'party_decline' }
+  /** Leave the current party (the leader leaving disbands or promotes). */
+  | { t: 'party_leave' }
+  /** Add a player to the friends list by name. */
+  | { t: 'friend_add'; name: string }
+  /** Remove a friend by name. */
+  | { t: 'friend_remove'; name: string }
+  /** Send a private whisper to another player by name. */
+  | { t: 'whisper'; to: string; text: string }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
@@ -178,9 +226,16 @@ export type ServerMessage =
     }
   /** A nearby vendor's shop contents (sent when the player interacts with a vendor NPC). */
   | { t: 'shop'; vendor: string; stock: { itemId: string; price: number }[] }
+  /**
+   * The receiving player's full party state. `members` is empty when not in a party;
+   * `inviteFrom` is set when an unanswered invite is pending (so the client can prompt).
+   */
+  | { t: 'party'; members: PartyMember[]; inviteFrom?: string }
+  /** The receiving player's full friends list with live presence. */
+  | { t: 'friends'; list: FriendInfo[] }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
-  | { t: 'chat'; from: string; text: string }
+  | { t: 'chat'; from: string; text: string; channel?: ChatChannel }
   | { t: 'admin_result'; ok: boolean; message: string };
 
 export function encode(msg: ClientMessage | ServerMessage): string {

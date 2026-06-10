@@ -67,3 +67,32 @@ export function storeSave(db: GameDatabase, token: string, save: PlayerSave): vo
        name = excluded.name, data = excluded.data, updated_at = excluded.updated_at`,
   ).run(token, save.name, JSON.stringify(save), new Date().toISOString());
 }
+
+// --- Friends persistence (the durable side of the social system) ----------------------
+// Friends are stored per owner token as friend display-names. The SocialRegistry resolves live
+// presence at runtime; the DB only remembers who is on whose list. All params are bound, never
+// interpolated.
+
+/** Friend display-names on a player's list (empty if none). */
+export function loadFriends(db: GameDatabase, token: string): string[] {
+  const rows = db
+    .prepare('SELECT friend_name FROM friends WHERE owner_token = ? ORDER BY friend_name')
+    .all(token) as { friend_name: string }[];
+  return rows.map((r) => r.friend_name);
+}
+
+/** Add a friend (idempotent — the PK prevents duplicates). */
+export function addFriend(db: GameDatabase, token: string, name: string): void {
+  db.prepare('INSERT OR IGNORE INTO friends (owner_token, friend_name) VALUES (?, ?)').run(
+    token,
+    name,
+  );
+}
+
+/** Remove a friend by name (case-insensitive match on the stored name). */
+export function removeFriend(db: GameDatabase, token: string, name: string): void {
+  db.prepare('DELETE FROM friends WHERE owner_token = ? AND friend_name = ? COLLATE NOCASE').run(
+    token,
+    name,
+  );
+}

@@ -18,7 +18,18 @@ import { isAbilityId } from '../shared/combat.js';
 import { initGameDb, getDb, getContent, reloadContent } from './content.js';
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess } from './accounts.js';
-import { isValidToken, loadSave, newPlayerToken, storeSave } from './player-store.js';
+import {
+  isValidToken,
+  loadSave,
+  newPlayerToken,
+  storeSave,
+  loadFriends,
+  addFriend as dbAddFriend,
+  removeFriend as dbRemoveFriend,
+} from './player-store.js';
+import { PartyRegistry } from './party.js';
+import { SocialRegistry, type FriendStore } from './social.js';
+import type { PartyMember } from '../shared/protocol.js';
 import { morningDayIndex } from './area-corruption.js';
 import { SpatialGrid } from './spatial.js';
 import { THEME_KEYS, coerceThemeValue } from '../shared/theme.js';
@@ -97,6 +108,96 @@ const players = new Map<
   number,
   { socket: WebSocket; instanceId: string; accessLevel: number; token: string }
 >();
+
+// Host-level social state (parties + friends span instances, so they live above the per-instance
+// World). The party registry is in-memory (session-scoped); friends persist to the content DB.
+const parties = new PartyRegistry();
+/** Instances whose World already has the party XP-share resolver installed (set once each). */
+const resolverInstances = new Set<string>();
+const friendStore: FriendStore = {
+  load: (token) => loadFriends(getDb(), token),
+  add: (token, name) => dbAddFriend(getDb(), token, name),
+  remove: (token, name) => dbRemoveFriend(getDb(), token, name),
+};
+const social = new SocialRegistry(friendStore);
+
+/** The display name of a connected player (from their instance's World), or undefined. */
+function nameOf(id: number): string | undefined {
+  const p = players.get(id);
+  return p ? manager.get(p.instanceId)?.world.nameOf(id) : undefined;
+}
+
+/** Find a connected player's entity id by display name (case-insensitive), or undefined. */
+function findPlayerByName(name: string): number | undefined {
+  const lower = name.trim().toLowerCase();
+  if (!lower) return undefined;
+  for (const id of players.keys()) {
+    if (nameOf(id)?.toLowerCase() === lower) return id;
+  }
+  return undefined;
+}
+
+/** The connected entity id for an owner token, or undefined (for friend-presence pushes). */
+function idForToken(token: string): number | undefined {
+  for (const [id, p] of players) if (p.token === token) return id;
+  return undefined;
+}
+
+/** Build the roster entry for one party member (members are always connected — see disconnect). */
+function partyMemberInfo(memberId: number): PartyMember | null {
+  const conn = players.get(memberId);
+  if (!conn) return null;
+  const inst = manager.get(conn.instanceId);
+  const name = inst?.world.nameOf(memberId);
+  if (!name) return null;
+  const stats = inst?.world.playerStats(memberId);
+  return {
+    id: memberId,
+    name,
+    level: stats?.level ?? 1,
+    hp: stats?.hp ?? 0,
+    maxHp: stats?.maxHp ?? 1,
+    areaId: inst?.areaId ?? '',
+    online: true,
+    leader: parties.partyOf(memberId)?.leaderId === memberId,
+  };
+}
+
+/** Send a player their current party state (roster + any pending invite). */
+function sendPartyState(playerId: number): void {
+  const conn = players.get(playerId);
+  if (!conn) return;
+  const party = parties.partyOf(playerId);
+  const members = party
+    ? party.memberIds.map(partyMemberInfo).filter((m): m is PartyMember => m !== null)
+    : [];
+  const invite = parties.pendingInvite(playerId);
+  const inviteFrom = invite ? nameOf(invite.fromId) : undefined;
+  send(conn.socket, inviteFrom ? { t: 'party', members, inviteFrom } : { t: 'party', members });
+}
+
+/** Send a player their friends list with live presence. */
+function sendFriends(playerId: number): void {
+  const conn = players.get(playerId);
+  if (!conn) return;
+  send(conn.socket, { t: 'friends', list: social.friendsOf(conn.token) });
+}
+
+/** Re-push friends lists to everyone who has `name` on their list (presence just changed). */
+function notifyFriendWatchers(name: string): void {
+  for (const token of social.watchersOf(name)) {
+    const id = idForToken(token);
+    if (id !== undefined) sendFriends(id);
+  }
+}
+
+/** Send a System line on the party channel to a set of party member ids. */
+function broadcastToParty(memberIds: number[], text: string): void {
+  for (const id of memberIds) {
+    const conn = players.get(id);
+    if (conn) send(conn.socket, { t: 'chat', from: 'System', text, channel: 'party' });
+  }
+}
 
 // --- HTTP: health check + static hosting of the built client in production -----------
 const http = createServer(async (req, res) => {
@@ -207,6 +308,17 @@ wss.on('connection', (socket) => {
           instanceId: placement.instanceId,
           token,
         });
+        // Register social presence so friends see this player come online, and hand them their list.
+        const joinName = save?.name ?? msg.name;
+        social.setOnline({
+          id: entityId,
+          token,
+          name: joinName,
+          areaId: placement.areaId,
+          level: 1,
+        });
+        sendFriends(entityId);
+        notifyFriendWatchers(joinName);
         break;
       }
       case 'input': {
@@ -249,6 +361,106 @@ wss.on('connection', (socket) => {
           const world = manager.get(p.instanceId)?.world;
           const result = world?.acceptQuest(entityId, msg.questId);
           if (result) send(p.socket, { t: 'chat', from: 'System', text: result });
+        }
+        break;
+      }
+      case 'party_invite': {
+        if (!players.has(entityId) || typeof msg.targetName !== 'string') break;
+        const target = findPlayerByName(msg.targetName);
+        if (target === undefined || target === entityId) {
+          send(socket, {
+            t: 'chat',
+            from: 'System',
+            text: 'No such player online.',
+            channel: 'system',
+          });
+          break;
+        }
+        const r = parties.invite(entityId, target);
+        if (r.ok) {
+          sendPartyState(target);
+          sendPartyState(entityId);
+          const tconn = players.get(target);
+          if (tconn) {
+            send(tconn.socket, {
+              t: 'chat',
+              from: 'System',
+              text: `${nameOf(entityId) ?? 'Someone'} invited you to a party — open the party panel (P) to accept.`,
+              channel: 'party',
+            });
+          }
+        } else {
+          send(socket, {
+            t: 'chat',
+            from: 'System',
+            text: `Invite failed: ${r.reason}`,
+            channel: 'system',
+          });
+        }
+        break;
+      }
+      case 'party_accept': {
+        const r = parties.accept(entityId);
+        if (r.ok) {
+          for (const m of r.party.memberIds) sendPartyState(m);
+          broadcastToParty(r.party.memberIds, `${nameOf(entityId) ?? 'A hero'} joined the party.`);
+        } else {
+          send(socket, { t: 'chat', from: 'System', text: r.reason, channel: 'system' });
+        }
+        break;
+      }
+      case 'party_decline': {
+        parties.decline(entityId);
+        sendPartyState(entityId);
+        break;
+      }
+      case 'party_leave': {
+        const affected = parties.leave(entityId);
+        for (const m of affected) sendPartyState(m);
+        break;
+      }
+      case 'friend_add': {
+        const p = players.get(entityId);
+        if (p && typeof msg.name === 'string') {
+          const r = social.addFriend(p.token, nameOf(entityId) ?? '', msg.name);
+          send(socket, {
+            t: 'chat',
+            from: 'System',
+            text: r.ok
+              ? `Added ${msg.name.trim()} to your friends.`
+              : `Cannot add friend: ${r.reason}`,
+            channel: 'system',
+          });
+          if (r.ok) sendFriends(entityId);
+        }
+        break;
+      }
+      case 'friend_remove': {
+        const p = players.get(entityId);
+        if (p && typeof msg.name === 'string') {
+          social.removeFriend(p.token, msg.name);
+          sendFriends(entityId);
+        }
+        break;
+      }
+      case 'whisper': {
+        const p = players.get(entityId);
+        if (!p || typeof msg.to !== 'string' || typeof msg.text !== 'string') break;
+        const text = sanitizeChat(msg.text);
+        if (!text) break;
+        const fromName = nameOf(entityId) ?? 'Player';
+        const target = social.findOnline(msg.to);
+        const tconn = target ? players.get(target.id) : undefined;
+        if (target && tconn) {
+          send(tconn.socket, { t: 'chat', from: `${fromName} ▸ you`, text, channel: 'whisper' });
+          send(socket, { t: 'chat', from: `you ▸ ${target.name}`, text, channel: 'whisper' });
+        } else {
+          send(socket, {
+            t: 'chat',
+            from: 'System',
+            text: `${msg.to} is not online.`,
+            channel: 'system',
+          });
         }
         break;
       }
@@ -342,8 +554,15 @@ wss.on('connection', (socket) => {
       // Persist the character so this guest can reload it on reconnect.
       const save = manager.get(p.instanceId)?.world.exportPlayer(entityId);
       if (save) storeSave(getDb(), p.token, save);
+      const leftName = nameOf(entityId);
+      // Drop out of any party (promote/disband) and tell the remaining members; go offline so
+      // friends see it, then refresh everyone who had this player on their list.
+      const affectedParty = parties.remove(entityId);
       manager.remove(p.instanceId, entityId);
       players.delete(entityId);
+      social.setOffline(p.token);
+      for (const m of affectedParty) if (m !== entityId) sendPartyState(m);
+      if (leftName) notifyFriendWatchers(leftName);
     }
   });
 });
@@ -388,12 +607,29 @@ setInterval(() => {
     if (!p) continue;
     p.instanceId = ev.toInstanceId;
     send(p.socket, { t: 'area_changed', areaId: ev.toAreaId, instanceId: ev.toInstanceId });
+    // Presence follows the player across areas; refresh their party + friends' rosters.
+    social.updatePresence(
+      p.token,
+      ev.toAreaId,
+      manager.get(ev.toInstanceId)?.world.playerStats(ev.entityId)?.level ?? 1,
+    );
+    const name = nameOf(ev.entityId);
+    if (name) notifyFriendWatchers(name);
+    const party = parties.partyOf(ev.entityId);
+    if (party) for (const m of party.memberIds) sendPartyState(m);
   }
 
   // Each player only sees their own instance (instancing), and within it only the entities
-  // near them (interest management) — built once per instance via a spatial grid.
+  // near them (interest management) — built once per instance via a spatial grid. Each instance's
+  // World gets the host party resolver so a kill shares XP with co-members present here.
   for (const instance of manager.list()) {
     const world = instance.world;
+    if (!resolverInstances.has(instance.id)) {
+      world.setPartyResolver((id) =>
+        parties.coMembers(id).filter((m) => players.get(m)?.instanceId === instance.id),
+      );
+      resolverInstances.add(instance.id);
+    }
     const all = world.snapshot();
     const fx = world.drainEvents();
     const grid = new SpatialGrid<EntityState>(256);
@@ -437,6 +673,17 @@ setInterval(() => {
     if (save) storeSave(db, p.token, save);
   }
 }, 20_000);
+
+// Social liveness: once a second, refresh party rosters (HP/level/area move) and keep each online
+// player's presence (level) current so friends lists reflect it. Cheap — parties + friends are tiny.
+setInterval(() => {
+  for (const [id, p] of players) {
+    const lvl = manager.get(p.instanceId)?.world.playerStats(id)?.level;
+    if (lvl !== undefined)
+      social.updatePresence(p.token, manager.get(p.instanceId)?.areaId ?? '', lvl);
+    if (parties.partyOf(id)) sendPartyState(id);
+  }
+}, 1000);
 
 // Invasion events: every so often a populated, non-town instance is raided by a champion wave — a
 // spontaneous group fight that turns a quiet farm into an onslaught.

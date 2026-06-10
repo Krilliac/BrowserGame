@@ -4,7 +4,10 @@ import type { TimedFx } from './draw.js';
 import {
   decodeServer,
   encode,
+  type ChatChannel,
+  type FriendInfo,
   type InputState,
+  type PartyMember,
   type QuestState,
   type ServerMessage,
 } from '../shared/protocol.js';
@@ -14,6 +17,13 @@ import type { ItemInstance } from '../shared/items.js';
 export interface ChatLine {
   from: string;
   text: string;
+  channel?: ChatChannel;
+}
+
+/** The local player's party view (empty members = solo; inviteFrom set on a pending invite). */
+export interface PartyView {
+  members: PartyMember[];
+  inviteFrom?: string;
 }
 
 export interface SelfStats {
@@ -87,6 +97,10 @@ export class Net {
   };
   /** The currently-open vendor shop (null when no shop panel is open). */
   shop: ShopState | null = null;
+  /** The local player's party (roster + pending invite). */
+  party: PartyView = { members: [] };
+  /** The local player's friends list with live presence. */
+  friends: FriendInfo[] = [];
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
   authRev = 0;
   /** Bumped whenever a content packet arrives — drives a live re-skin (theme edits, hot reload). */
@@ -163,6 +177,34 @@ export class Net {
     this.send({ t: 'accept_quest', questId });
   }
 
+  sendPartyInvite(targetName: string): void {
+    this.send({ t: 'party_invite', targetName });
+  }
+
+  sendPartyAccept(): void {
+    this.send({ t: 'party_accept' });
+  }
+
+  sendPartyDecline(): void {
+    this.send({ t: 'party_decline' });
+  }
+
+  sendPartyLeave(): void {
+    this.send({ t: 'party_leave' });
+  }
+
+  sendFriendAdd(name: string): void {
+    this.send({ t: 'friend_add', name });
+  }
+
+  sendFriendRemove(name: string): void {
+    this.send({ t: 'friend_remove', name });
+  }
+
+  sendWhisper(to: string, text: string): void {
+    this.send({ t: 'whisper', to, text });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
@@ -230,6 +272,14 @@ export class Net {
           this.shop = { vendor: String(msg.vendor ?? 'Vendor'), stock: msg.stock.slice(0, 60) };
         }
         break;
+      case 'party':
+        this.party = Array.isArray(msg.members)
+          ? { members: msg.members, ...(msg.inviteFrom ? { inviteFrom: msg.inviteFrom } : {}) }
+          : { members: [] };
+        break;
+      case 'friends':
+        this.friends = Array.isArray(msg.list) ? msg.list : [];
+        break;
       case 'area_changed':
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
@@ -238,7 +288,11 @@ export class Net {
         this.shop = null; // close any open shop when we leave the area
         break;
       case 'chat':
-        this.chat.push({ from: msg.from, text: msg.text });
+        this.chat.push(
+          msg.channel
+            ? { from: msg.from, text: msg.text, channel: msg.channel }
+            : { from: msg.from, text: msg.text },
+        );
         if (this.chat.length > MAX_CHAT_LINES) this.chat.shift();
         break;
       case 'admin_result':

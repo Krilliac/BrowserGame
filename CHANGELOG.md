@@ -8,6 +8,20 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Player parties (press P).** Invite the nearest player (or `/invite <name>`), accept/decline,
+  and leave from a party panel showing each member's name, level, live HP bar, and area. Parties are
+  host-level so they span areas/instances; a kill **shares full XP + quest credit** with every
+  co-member present in the same instance (grouping is rewarded, not taxed). The leader leaving
+  promotes the next member; a party of one disbands. New `PartyRegistry` (server) with 19 unit
+  tests, a `setPartyResolver` hook so the pure per-instance `World` can credit teammates, and a
+  `party` packet. Cap 5.
+- **Friends list + whispers (press F).** A persistent friends list (stored in a new `friends` table,
+  per character token) with live presence — online/offline, level, and current area — plus private
+  whispers. `/friend <name>`, `/unfriend <name>`, `/w <name> <msg>` (the panel's per-friend buttons
+  prefill a whisper or remove a friend). New `SocialRegistry` (server) with 13 unit tests; presence
+  updates as players join, move between areas, and disconnect, pushing fresh lists to watchers.
+- **Chat channels.** Messages now carry a channel (`say`/`system`/`party`/`whisper`) and the client
+  tints them — whispers purple, party blue, system gold — so social chatter reads at a glance.
 - **Quest log UI (press L).** A panel listing every quest as available / active / completed, sorted
   with live objectives first: active quests show a progress bar (e.g. 3/5), available quests have an
   **Accept** button, and each row shows its gold/XP/item reward. Quest state now rides the `you`

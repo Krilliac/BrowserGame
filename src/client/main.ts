@@ -10,6 +10,8 @@ import {
   type Rarity,
 } from '../shared/items.js';
 import { SLOT_LABELS } from '../shared/equipment.js';
+import { drawPartyPanel, type PartyButton } from './party-panel.js';
+import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -127,6 +129,12 @@ let questOpen = false;
 const questAcceptRects: { id: string; x: number; y: number; w: number; h: number }[] = [];
 let questPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 
+// Party panel (P) and friends panel (F): the renderer modules return their own clickable buttons.
+let partyOpen = false;
+let socialOpen = false;
+let partyButtons: PartyButton[] = [];
+let socialButtons: SocialButton[] = [];
+
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
 
@@ -156,6 +164,11 @@ window.addEventListener('keydown', (e) => {
     questOpen = false;
     return;
   }
+  if (e.key === 'Escape' && (partyOpen || socialOpen)) {
+    partyOpen = false;
+    socialOpen = false;
+    return;
+  }
   const ability = net.content.abilityOrder().find((id) => net.content.ability(id)?.key === e.key);
   if (ability) {
     selected = ability;
@@ -166,6 +179,10 @@ window.addEventListener('keydown', (e) => {
     charOpen = !charOpen; // toggle the character/equipment panel
   } else if (e.key.toLowerCase() === 'l') {
     questOpen = !questOpen; // toggle the quest log
+  } else if (e.key.toLowerCase() === 'p') {
+    partyOpen = !partyOpen; // toggle the party panel
+  } else if (e.key.toLowerCase() === 'f') {
+    socialOpen = !socialOpen; // toggle the friends panel
   }
 });
 
@@ -180,6 +197,8 @@ window.addEventListener('pointerdown', (e) => {
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   // The quest log captures clicks (accept buttons / panel body) and never falls through to a cast.
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
+  if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
+  if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
   // Clicks on the open character panel unequip a slot and never fall through to a cast.
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
@@ -204,6 +223,53 @@ window.addEventListener('pointerdown', (e) => {
     castAbility(selected);
   }
 });
+
+/** The nearest other player entity to the local player (for "invite nearest"), or undefined. */
+function nearestPlayer(): EntityState | undefined {
+  if (!self) return undefined;
+  let best: EntityState | undefined;
+  let bestDist = Infinity;
+  for (const e of entities) {
+    if (e.kind !== 'player' || e.id === net.selfId) continue;
+    const d = Math.hypot(e.x - self.x, e.y - self.y);
+    if (d < bestDist) {
+      best = e;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+/** Route a click inside the open party panel. Returns true if it was consumed. */
+function handlePartyClick(x: number, y: number): boolean {
+  const btn = partyButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'invite-nearest') {
+    const target = nearestPlayer();
+    if (target) net.sendPartyInvite(target.name);
+  } else if (btn.action === 'accept') {
+    net.sendPartyAccept();
+  } else if (btn.action === 'decline') {
+    net.sendPartyDecline();
+  } else if (btn.action === 'leave') {
+    net.sendPartyLeave();
+  }
+  return true;
+}
+
+/** Route a click inside the open friends panel. Returns true if it was consumed. */
+function handleSocialClick(x: number, y: number): boolean {
+  const btn = socialButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'remove') {
+    net.sendFriendRemove(btn.name);
+  } else if (btn.action === 'whisper') {
+    // Prefill the chat box with a whisper command for the player to finish typing.
+    chatInputEl.value = `/w ${btn.name} `;
+    chatInputEl.focus();
+  }
+  return true;
+}
 
 /** Route a click inside the open quest log. Returns true if it was consumed. */
 function handleQuestClick(x: number, y: number): boolean {
@@ -244,6 +310,8 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
+  if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
+  if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
     if (cs) net.sendUnequip(cs.slot);
@@ -282,6 +350,46 @@ gameCanvas.addEventListener('pointerup', (e) => {
     });
   }
 });
+
+/**
+ * Intercept social slash-commands typed in chat and turn them into typed protocol messages.
+ * Returns true if the text was a social command (so it isn't also sent as public chat).
+ *   /invite <name> · /party leave (or /pleave) · /friend <name> · /unfriend <name> · /w|/whisper <name> <msg>
+ */
+function handleSocialCommand(text: string): boolean {
+  const m = /^\/(\w+)\s*(.*)$/.exec(text);
+  if (!m) return false;
+  const cmd = m[1]!.toLowerCase();
+  const rest = m[2]!.trim();
+  switch (cmd) {
+    case 'invite':
+      if (rest) net.sendPartyInvite(rest);
+      return true;
+    case 'pleave':
+      net.sendPartyLeave();
+      return true;
+    case 'party':
+      if (rest.toLowerCase() === 'leave') net.sendPartyLeave();
+      return true;
+    case 'friend':
+    case 'addfriend':
+      if (rest) net.sendFriendAdd(rest);
+      return true;
+    case 'unfriend':
+    case 'removefriend':
+      if (rest) net.sendFriendRemove(rest);
+      return true;
+    case 'w':
+    case 'whisper':
+    case 'tell': {
+      const sp = rest.indexOf(' ');
+      if (sp > 0) net.sendWhisper(rest.slice(0, sp), rest.slice(sp + 1));
+      return true;
+    }
+    default:
+      return false; // not a social command — let it through as normal chat/other commands
+  }
+}
 
 function castAbility(abilityId: AbilityId, aimOverride?: { dx: number; dy: number }): void {
   if (net.you.dead || !self) return;
@@ -350,7 +458,7 @@ window.addEventListener(
 chatInputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     const text = chatInputEl.value;
-    if (text.trim().length > 0) net.sendChat(text);
+    if (text.trim().length > 0 && !handleSocialCommand(text.trim())) net.sendChat(text);
     chatInputEl.value = '';
     chatInputEl.blur();
     e.preventDefault();
@@ -373,6 +481,15 @@ function syncChatLog(): void {
   chatLogEl.replaceChildren();
   for (const line of net.chat) {
     const div = document.createElement('div');
+    // Tint the line by channel so whispers/party/system read at a glance.
+    div.style.color =
+      line.channel === 'whisper'
+        ? '#d6a8ff'
+        : line.channel === 'party'
+          ? '#7fc4ff'
+          : line.channel === 'system'
+            ? '#e7c869'
+            : '';
     const who = document.createElement('span');
     who.className = 'chat-who';
     who.textContent = `${line.from}: `;
@@ -446,6 +563,21 @@ function frame(): void {
   else {
     questPanelRect = null;
     questAcceptRects.length = 0;
+  }
+  if (partyOpen) {
+    partyButtons = drawPartyPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      net.party,
+      net.selfId,
+    );
+  } else {
+    partyButtons = [];
+  }
+  if (socialOpen) {
+    socialButtons = drawSocialPanel(hud, { w: hudCanvas.width, h: hudCanvas.height }, net.friends);
+  } else {
+    socialButtons = [];
   }
   if (net.shop) drawShopPanel();
   else {
@@ -1041,7 +1173,7 @@ function drawInventory(w: number): void {
   );
   hud.fillStyle = '#9aa3b2';
   hud.font = '10px system-ui, sans-serif';
-  hud.fillText('C — character · L — quests', px + 8, py + 30);
+  hud.fillText('C char · L quests · P party · F friends', px + 8, py + 30);
   py += eqH + 6;
 
   // Gear panel: unequipped instances, two lines each (name, then stats) so long affix lists never

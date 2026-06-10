@@ -272,6 +272,12 @@ export class World {
   // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
   private moveScale = 1;
   private aggroScale = 1;
+  /**
+   * Returns the co-party member ids that are CURRENTLY IN THIS INSTANCE for a given player, so a
+   * kill can share XP + quest credit with present teammates. The host injects this (parties are
+   * host-level, spanning instances); solo by default.
+   */
+  private partyResolver: (playerId: number) => number[] = () => [];
   private readonly areaId: string;
   /** Area-wide corruption pool, shared across every instance of the area (host-owned). */
   private readonly areaCorruption: AreaCorruption;
@@ -290,6 +296,11 @@ export class World {
     this.allocId = allocId ?? (() => this.localId++);
     this.areaId = areaId;
     this.areaCorruption = areaCorruption ?? new AreaCorruption();
+  }
+
+  /** Inject the host's party lookup (co-members present in this instance) for shared kill credit. */
+  setPartyResolver(fn: (playerId: number) => number[]): void {
+    this.partyResolver = fn;
   }
 
   /** Current corruption (0..1) of this world's area. */
@@ -1143,15 +1154,15 @@ export class World {
     this.areaCorruption.pushBack(this.areaId);
     const killer = this.players.get(mob.lastAttacker);
     if (killer) {
-      killer.xp += xpReward(mob.level) * (mob.elite ? 3 : 1); // champions give a big XP bonus
-      const newLevel = levelForXp(killer.xp);
-      if (newLevel > killer.level) {
-        this.notify(killer.id, `You reached level ${newLevel}!`);
-        this.events.push({ kind: 'levelup', x: killer.x, y: killer.y, value: newLevel });
+      const reward = xpReward(mob.level) * (mob.elite ? 3 : 1); // champions give a big XP bonus
+      // Shared credit: the killer plus any party members present in THIS instance each get the full
+      // XP and quest progress — grouping is rewarded, not taxed (the ARPG convention).
+      const credited = new Set<number>([killer.id]);
+      for (const memberId of this.partyResolver(killer.id)) {
+        const m = this.players.get(memberId);
+        if (m && !m.dead) credited.add(memberId);
       }
-      killer.level = newLevel;
-      this.recomputeStats(killer);
-      this.progressQuests(killer, mob.templateId);
+      for (const id of credited) this.creditKill(id, reward, mob.templateId);
     }
     // Loot (materials + gear) comes from the DB-backed content drop tables. Equipment items roll a
     // rarity + stats into a unique instance; materials/currency drop as plain stacks.
@@ -1332,6 +1343,21 @@ export class World {
           rewardItem: q.rewardItem,
         };
       });
+  }
+
+  /** Award one player XP + quest progress for a kill (used for the killer and each present party member). */
+  private creditKill(playerId: number, xp: number, mobTemplateId: string): void {
+    const p = this.players.get(playerId);
+    if (!p) return;
+    p.xp += xp;
+    const newLevel = levelForXp(p.xp);
+    if (newLevel > p.level) {
+      this.notify(p.id, `You reached level ${newLevel}!`);
+      this.events.push({ kind: 'levelup', x: p.x, y: p.y, value: newLevel });
+    }
+    p.level = newLevel;
+    this.recomputeStats(p);
+    this.progressQuests(p, mobTemplateId);
   }
 
   private progressQuests(player: Player, mobTemplateId: string): void {
