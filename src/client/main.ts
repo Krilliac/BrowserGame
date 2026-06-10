@@ -321,7 +321,15 @@ app.ticker.add(() => {
     lastContentRev = net.contentRev;
   }
 
-  renderer.update({ areaId: net.areaId, entities, selfId: net.selfId, fx: net.fx, camX, camY });
+  renderer.update({
+    areaId: net.areaId,
+    entities,
+    selfId: net.selfId,
+    fx: net.fx,
+    camX,
+    camY,
+    corruption: net.you.corruption,
+  });
   sound.setArea(net.areaId);
   sound.fromFx(net.fx);
   drawHud();

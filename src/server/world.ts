@@ -53,6 +53,13 @@ const DASH_MS = 300; // how long a charger's lunge lasts
 const BOUNTY_FULL_MS = 60_000; // a minute untouched = a full bounty
 const BOUNTY_MAX_CHANCE = 0.5; // bonus-drop chance at a full bounty
 
+// Persistent corruption — an area-wide dread level (0..1) that rises when players die here and is
+// pushed back by killing monsters. High corruption darkens the area (client) and makes mobs deadlier.
+const CORRUPT_DECAY_PER_SEC = 0.008; // slow natural fade
+const CORRUPT_PER_DEATH = 0.15; // each player death feeds the corruption
+const CORRUPT_PER_KILL = 0.012; // each monster slain pushes it back
+const CORRUPT_MAX_DMG_BONUS = 0.6; // mob damage scales up to +60% at full corruption
+
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
 const ELITE_CHANCE = 0.09;
 const ELITE_MODIFIERS: { name: string; hp: number; dmg: number; spd: number }[] = [
@@ -216,6 +223,8 @@ export class World {
   // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
   private moveScale = 1;
   private aggroScale = 1;
+  /** Persistent corruption (0..1): rises on player deaths here, pushed back by kills. */
+  private corruption = 0;
 
   constructor(
     private readonly width: number = WORLD_WIDTH,
@@ -637,10 +646,16 @@ export class World {
   /** Advance the simulation by dt seconds. */
   tick(dt: number): void {
     this.now += dt * 1000;
+    this.corruption = Math.max(0, this.corruption - CORRUPT_DECAY_PER_SEC * dt);
     this.tickPlayers(dt);
     this.tickMobs(dt);
     this.tickProjectiles(dt);
     this.tickItems(dt);
+  }
+
+  /** Mob-damage multiplier from corruption (1 at calm, up to 1 + CORRUPT_MAX_DMG_BONUS at full). */
+  private corruptionDmg(): number {
+    return 1 + this.corruption * CORRUPT_MAX_DMG_BONUS;
   }
 
   private tickPlayers(dt: number): void {
@@ -701,7 +716,7 @@ export class World {
           for (const player of this.players.values()) {
             if (player.dead || mob.dashHit.has(player.id)) continue;
             if (circlesOverlap(mob.x, mob.y, MOB_RADIUS, player.x, player.y, PLAYER_RADIUS)) {
-              this.damagePlayer(player, template.damage * mob.dmgMult);
+              this.damagePlayer(player, template.damage * mob.dmgMult * this.corruptionDmg());
               mob.dashHit.add(player.id);
             }
           }
@@ -792,7 +807,7 @@ export class World {
         vx: Math.cos(mob.telegraphFacing) * speed,
         vy: Math.sin(mob.telegraphFacing) * speed,
         ttl: 2400,
-        damage: template.damage * mob.dmgMult,
+        damage: template.damage * mob.dmgMult * this.corruptionDmg(),
         radius: 8,
         ownerId: 0,
         ownerLevel: template.level,
@@ -808,7 +823,7 @@ export class World {
       for (const player of this.players.values()) {
         if (player.dead) continue;
         if (Math.hypot(player.x - mob.x, player.y - mob.y) <= template.slamRadius + PLAYER_RADIUS) {
-          this.damagePlayer(player, template.damage * mob.dmgMult);
+          this.damagePlayer(player, template.damage * mob.dmgMult * this.corruptionDmg());
         }
       }
       this.events.push({ kind: 'slam', x: mob.x, y: mob.y, radius: template.slamRadius });
@@ -817,7 +832,7 @@ export class World {
     const target = this.players.get(mob.telegraphTargetId);
     const reach = template.attackRange + PLAYER_RADIUS;
     if (target && !target.dead && Math.hypot(target.x - mob.x, target.y - mob.y) <= reach) {
-      this.damagePlayer(target, template.damage * mob.dmgMult);
+      this.damagePlayer(target, template.damage * mob.dmgMult * this.corruptionDmg());
     }
     this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
   }
@@ -896,6 +911,8 @@ export class World {
 
   /** Award XP to the killer and drop loot on the ground. */
   private onMobKilled(mob: Mob): void {
+    // Clearing monsters pushes back the area's corruption.
+    this.corruption = Math.max(0, this.corruption - CORRUPT_PER_KILL);
     const killer = this.players.get(mob.lastAttacker);
     if (killer) {
       killer.xp += xpReward(mob.level) * (mob.elite ? 3 : 1); // champions give a big XP bonus
@@ -1091,6 +1108,8 @@ export class World {
       player.dead = true;
       player.respawnAt = this.now + PLAYER_RESPAWN_MS;
       this.events.push({ kind: 'death', x: player.x, y: player.y });
+      // A death feeds the area's corruption — the place grows darker and deadlier.
+      this.corruption = Math.min(1, this.corruption + CORRUPT_PER_DEATH);
     }
   }
 
@@ -1232,6 +1251,7 @@ export class World {
         critChance: number;
         weapon: ItemInstance | null;
         armor: ItemInstance | null;
+        corruption: number;
         x: number;
         y: number;
         ackSeq: number;
@@ -1258,6 +1278,7 @@ export class World {
       critChance: p.critChance,
       weapon: p.equipment.weapon,
       armor: p.equipment.armor,
+      corruption: this.corruption,
       x: p.x,
       y: p.y,
       ackSeq: p.lastSeq,

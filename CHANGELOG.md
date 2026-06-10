@@ -14,6 +14,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Persistent corruption** — a signature twist: each area instance carries a **corruption** level
+  (0..1) that **rises when players die there** and is **pushed back by killing monsters** (decaying
+  slowly on its own). High corruption makes mobs hit harder (up to +60% damage) and visibly **darkens
+  the area** with a creeping crimson pall (the atmosphere wash, driven by a `corruption` value on the
+  `you` packet). A deadly spot spirals darker and more dangerous until players fight it back — combat
+  stakes become visible and social (`src/server/world.ts`, `src/client/atmosphere.ts`).
 - **Living loot meta — the hunting bounty** — the first of the signature twists: each monster type
   accumulates a loot "bounty" while it is left alone and **consumes it on a kill**, so the first
   kills after a lull are richer (a high chance of a bonus rarity-bumped drop) and farming one spot

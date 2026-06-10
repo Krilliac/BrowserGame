@@ -163,6 +163,8 @@ export interface RenderState {
   fx: TimedFx[];
   camX: number;
   camY: number;
+  /** Area corruption 0..1 — darkens the scene with a creeping crimson pall. */
+  corruption?: number;
 }
 
 interface ActorView {
@@ -344,7 +346,7 @@ export class PixiRenderer {
     this.ground.height = sh;
     this.ground.tilePosition.set(originX, originY);
 
-    this.atmosphere.update(now, sw, sh);
+    this.atmosphere.update(now, sw, sh, state.corruption ?? 0);
     this.weather.update(now, sw, sh);
 
     // Dynamic lights (additive): the local player carries a torch at screen center; portals glow.

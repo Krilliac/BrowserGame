@@ -28,6 +28,7 @@ export interface SelfStats {
   critChance: number;
   weapon: ItemInstance | null;
   armor: ItemInstance | null;
+  corruption: number;
   x: number;
   y: number;
   ackSeq: number;
@@ -65,6 +66,7 @@ export class Net {
     critChance: 0.15,
     weapon: null,
     armor: null,
+    corruption: 0,
     x: 0,
     y: 0,
     ackSeq: 0,
@@ -171,6 +173,7 @@ export class Net {
           critChance: msg.critChance,
           weapon: msg.weapon,
           armor: msg.armor,
+          corruption: msg.corruption,
           x: msg.x,
           y: msg.y,
           ackSeq: msg.ackSeq,

@@ -138,6 +138,8 @@ export type ServerMessage =
       /** Equipped gear instances (null when the slot is empty). */
       weapon: ItemInstance | null;
       armor: ItemInstance | null;
+      /** Area corruption 0..1 (drives the client's darkening of the scene). */
+      corruption: number;
       /** Authoritative position + last input the server processed (client reconciliation). */
       x: number;
       y: number;

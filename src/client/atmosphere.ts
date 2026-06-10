@@ -16,6 +16,7 @@ const DAY_MS = 180_000;
 const MAX_NIGHT_ALPHA = 0.45;
 const NIGHT_COLOR = 0x0a1430;
 const WARM_COLOR = 0xffae5c;
+const CORRUPT_COLOR = 0x3a0810; // deep crimson pall for area corruption
 // Indoor areas don't run the day/night cycle, but light sources should still read — treat them as
 // perpetually dusk-dark for the lighting module.
 const INDOOR_NIGHT = 0.65;
@@ -101,7 +102,7 @@ export class Atmosphere {
     return (Math.sin(phase * Math.PI * 2 - Math.PI / 2) + 1) / 2;
   }
 
-  update(now: number, w: number, h: number): void {
+  update(now: number, w: number, h: number, corruption = 0): void {
     const dt = Math.min(0.05, (now - this.lastNow) / 1000);
     this.lastNow = now;
     if (w !== this.w || h !== this.h) {
@@ -111,11 +112,11 @@ export class Atmosphere {
       this.vignette.height = h;
     }
 
-    this.drawOverlay(w, h);
+    this.drawOverlay(w, h, corruption);
     this.stepMotes(dt, now, w, h);
   }
 
-  private drawOverlay(w: number, h: number): void {
+  private drawOverlay(w: number, h: number, corruption: number): void {
     const g = this.tint;
     g.clear();
     g.rect(0, 0, w, h).fill({ color: this.theme.atmoColor, alpha: this.theme.atmoAlpha });
@@ -126,6 +127,10 @@ export class Atmosphere {
       // Warm wash peaks at dawn/dusk (daylight ≈ 0.5), fades out by noon/midnight.
       const warm = Math.max(0, 1 - Math.abs(day - 0.5) * 4) * 0.16;
       if (warm > 0.01) g.rect(0, 0, w, h).fill({ color: WARM_COLOR, alpha: warm });
+    }
+    // Persistent corruption: a creeping crimson pall that deepens as the area darkens.
+    if (corruption > 0.01) {
+      g.rect(0, 0, w, h).fill({ color: CORRUPT_COLOR, alpha: Math.min(0.55, corruption * 0.55) });
     }
   }
 
