@@ -1,6 +1,12 @@
 import { Application } from 'pixi.js';
 import { isPinnedToBottom } from './chat.js';
-import { affixLabel, instanceName, RARITY, type ItemInstance } from '../shared/items.js';
+import {
+  affixLabel,
+  instanceName,
+  RARITY,
+  type ItemInstance,
+  type Rarity,
+} from '../shared/items.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -290,7 +296,21 @@ function syncChatLog(): void {
 }
 
 // --- Frame loop: drive the Pixi scene + the HUD overlay -------------------------------
+// Wrapped so a single transient render error can never freeze the whole client (it logs, throttled,
+// and the next frame keeps going) — a render hiccup should degrade gracefully, not brick the game.
+let lastFrameError = 0;
 app.ticker.add(() => {
+  try {
+    frame();
+  } catch (err) {
+    if (performance.now() - lastFrameError > 2000) {
+      lastFrameError = performance.now();
+      console.error('[frame] render error (continuing):', err);
+    }
+  }
+});
+
+function frame(): void {
   const now = performance.now();
   entities = net.snapshots.sample(now - INTERP_DELAY_MS);
   self = entities.find((e) => e.id === net.selfId);
@@ -333,12 +353,29 @@ app.ticker.add(() => {
   sound.setArea(net.areaId);
   sound.fromFx(net.fx);
   drawHud();
+  if (!net.connected) drawReconnect();
 
   const area = net.content.area(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
   popEl.textContent = `${area?.name ?? net.areaId} · players: ${entities.filter((e) => e.kind === 'player').length}`;
   syncChatLog();
-});
+}
+
+/** Dim the scene and show an animated "Reconnecting…" overlay while the socket is down. */
+function drawReconnect(): void {
+  const w = hudCanvas.width;
+  const h = hudCanvas.height;
+  hud.fillStyle = 'rgba(0,0,0,0.55)';
+  hud.fillRect(0, 0, w, h);
+  hud.textAlign = 'center';
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 22px system-ui, sans-serif';
+  const dots = '.'.repeat(1 + (Math.floor(performance.now() / 400) % 3));
+  hud.fillText(`Reconnecting${dots}`, w / 2, h / 2 - 4);
+  hud.font = '13px system-ui, sans-serif';
+  hud.fillStyle = '#9aa3b2';
+  hud.fillText('Lost connection to the server — retrying every second', w / 2, h / 2 + 22);
+}
 
 function drawHud(): void {
   const w = hudCanvas.width;
@@ -468,6 +505,11 @@ function drawAreaBanner(w: number, h: number): void {
 
 function prettyItem(id: string): string {
   return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Rarity color, never throwing on an unknown rarity (e.g. an older client missing a new tier). */
+function rarityColor(rarity: string): string {
+  return RARITY[rarity as Rarity]?.color ?? '#cccccc';
 }
 
 /** Rarity-prefixed display name for a gear instance (e.g. "Rare Iron Sword"). */
@@ -607,7 +649,7 @@ function drawInventory(w: number): void {
   hud.font = '11px system-ui, sans-serif';
   hud.textAlign = 'left';
   const drawSlot = (label: string, inst: ItemInstance | null, ty: number): void => {
-    hud.fillStyle = inst ? RARITY[inst.rarity].color : '#8a8f99';
+    hud.fillStyle = inst ? rarityColor(inst.rarity) : '#8a8f99';
     hud.fillText(`${label}: ${inst ? instLabel(inst) : '—'}`, px + 8, ty);
   };
   drawSlot('Wpn', net.you.weapon, py + 32);
@@ -631,7 +673,7 @@ function drawInventory(w: number): void {
     gear.forEach((inst, i) => {
       const ry = py + 24 + i * 16;
       bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: 16 });
-      hud.fillStyle = RARITY[inst.rarity].color;
+      hud.fillStyle = rarityColor(inst.rarity);
       hud.textAlign = 'left';
       hud.fillText(instLabel(inst), px + 8, ry + 12);
       hud.fillStyle = '#cfd6df';

@@ -104,9 +104,15 @@ export class Net {
 
     ws.addEventListener('close', () => {
       this.connected = false;
+      // Drop stale world state so the reconnect resumes cleanly (no frozen ghosts) once the
+      // server's fresh welcome + snapshots arrive.
+      this.snapshots.clear();
+      this.fx.length = 0;
       // Naive auto-reconnect — good enough for a dev foundation.
       setTimeout(() => this.connect(), 1000);
     });
+
+    ws.addEventListener('error', () => ws.close());
   }
 
   sendInput(input: InputState, seq: number): void {
