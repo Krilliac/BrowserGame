@@ -409,7 +409,8 @@ function drawHud(): void {
 
   const npc = nearbyNpc();
   if (npc && !net.you.dead) {
-    const text = `Press E — sell loot to ${npc.name}`;
+    const action = npc.npcKind === 'questgiver' ? 'talk to' : 'sell loot to';
+    const text = `Press E — ${action} ${npc.name}`;
     hud.font = '14px system-ui, sans-serif';
     hud.textAlign = 'center';
     const tw = hud.measureText(text).width;

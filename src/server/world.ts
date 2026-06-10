@@ -185,7 +185,7 @@ interface Npc {
   x: number;
   y: number;
   hue: number;
-  kind: 'vendor';
+  kind: 'vendor' | 'questgiver';
 }
 
 /**
@@ -295,32 +295,55 @@ export class World {
   populateNpcs(areaId: string): void {
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
-      this.npcs.set(id, { id, name: npc.name, x: npc.x, y: npc.y, hue: npc.hue, kind: 'vendor' });
+      const kind = npc.kind === 'questgiver' ? 'questgiver' : 'vendor';
+      this.npcs.set(id, { id, name: npc.name, x: npc.x, y: npc.y, hue: npc.hue, kind });
     }
   }
 
-  /** Interact with the nearest in-range NPC: the vendor buys the player's loot for gold. */
+  /** Interact with the nearest in-range NPC: a vendor buys loot, a quest-giver offers quests. */
   interact(id: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
-    const content = getContent();
     for (const npc of this.npcs.values()) {
       if (Math.hypot(player.x - npc.x, player.y - npc.y) > INTERACT_RANGE) continue;
-      if (npc.kind !== 'vendor') continue;
-      let gold = 0;
-      for (const [item, qty] of player.loot) {
-        const value = content.sellValue(item);
-        if (value <= 0 || qty <= 0) continue;
-        gold += value * qty;
-        player.loot.delete(item);
-      }
-      // Sell all unequipped gear too, priced by rolled stats + rarity.
-      for (const inst of player.gear) gold += gearSellValue(inst);
-      player.gear = [];
-      if (gold <= 0) return;
-      player.gold += gold;
-      this.events.push({ kind: 'coin', x: player.x, y: player.y, value: gold });
+      if (npc.kind === 'vendor') this.sellToVendor(player);
+      else this.talkToQuestGiver(player);
       return;
+    }
+  }
+
+  /** Sell the player's whole bag (materials + gear) to a vendor for gold. */
+  private sellToVendor(player: Player): void {
+    const content = getContent();
+    let gold = 0;
+    for (const [item, qty] of player.loot) {
+      const value = content.sellValue(item);
+      if (value <= 0 || qty <= 0) continue;
+      gold += value * qty;
+      player.loot.delete(item);
+    }
+    for (const inst of player.gear) gold += gearSellValue(inst);
+    player.gear = [];
+    if (gold <= 0) return;
+    player.gold += gold;
+    this.events.push({ kind: 'coin', x: player.x, y: player.y, value: gold });
+  }
+
+  /** Offer the next un-taken quest, or report progress if there is nothing new. */
+  private talkToQuestGiver(player: Player): void {
+    const quests = getContent().quests();
+    const next = quests.find((q) => !player.quests.has(q.id) && !player.questsDone.has(q.id));
+    if (next) {
+      player.quests.set(next.id, 0);
+      this.notify(player.id, `Quest accepted: ${next.name} — ${next.description}`);
+      return;
+    }
+    const active = quests.find((q) => player.quests.has(q.id));
+    if (active) {
+      const got = player.quests.get(active.id) ?? 0;
+      this.notify(player.id, `In progress: ${active.name} (${got}/${active.targetCount})`);
+    } else {
+      this.notify(player.id, 'No new quests right now — well done, adventurer.');
     }
   }
 
@@ -1154,6 +1177,7 @@ export class World {
         hp: 0,
         maxHp: 0,
         level: 0,
+        npcKind: npc.kind,
       });
     }
     return out;

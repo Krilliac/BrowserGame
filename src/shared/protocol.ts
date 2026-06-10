@@ -71,6 +71,8 @@ export interface EntityState {
   flags?: number;
   /** Mobs only: true for an elite/champion (the client draws a marker + scales it up). */
   elite?: boolean;
+  /** NPCs only: their role, so the client shows the right prompt + marker ('vendor' | 'questgiver'). */
+  npcKind?: string;
 }
 
 /** Directional intent for one frame, normalized to -1..1 on each axis. */

@@ -14,6 +14,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Quest-giver NPC (the loop now has direction)** — a new **Elder Maeve** stands in the town plaza
+  beside the merchant; walk up and press **E** to take the next quest (or hear your progress) — no
+  more undiscoverable typed `/accept`. New `questgiver` NPC kind dispatched in `World.interact`
+  (`sellToVendor` / `talkToQuestGiver`), the NPC role rides the snapshot (`npcKind`), and the client
+  shows a context-aware prompt plus a floating gold **!** marker over the giver.
 - **Elite / champion monsters** — any non-boss mob has a small chance (~9%) to spawn as an **elite**
   with a flavor modifier (**Swift** / **Brutal** / **Vigorous**) that scales its HP, damage, and
   speed, a name prefix, a gold ground-ring marker, and a bigger body. Killing one is a real event:

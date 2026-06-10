@@ -525,6 +525,17 @@ export class PixiRenderer {
     label.anchor.set(0.5, 1);
     label.position.set(0, view.topY - 8);
     container.addChild(view.dyn!, label);
+
+    // Quest-giver marker: a gold "!" floating above so the objective source is discoverable.
+    if (e.kind === 'npc' && e.npcKind === 'questgiver') {
+      const mark = new Text({
+        text: '!',
+        style: { fontFamily: 'system-ui', fontSize: 22, fontWeight: 'bold', fill: '#ffd23f' },
+      });
+      mark.anchor.set(0.5, 1);
+      mark.position.set(0, view.topY - 22);
+      container.addChild(mark);
+    }
     return view;
   }
 

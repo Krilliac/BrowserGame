@@ -229,14 +229,10 @@ function seedLoot(db: Database): void {
 }
 
 function seedNpcs(db: Database): void {
-  db.prepare('INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)').run(
-    'town',
-    'Merchant',
-    660,
-    560,
-    45,
-    'vendor',
-  );
+  const ins = db.prepare('INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)');
+  // A town plaza: the merchant and the quest-giver stand together near the spawn/portal.
+  ins.run('town', 'Merchant', 660, 560, 45, 'vendor');
+  ins.run('town', 'Elder Maeve', 740, 560, 190, 'questgiver');
 }
 
 function seedQuests(db: Database): void {
