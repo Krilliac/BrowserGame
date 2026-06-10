@@ -1,0 +1,151 @@
+import { describe, expect, it } from 'vitest';
+import { World } from './world.js';
+import { initGameDb } from './content.js';
+import { MAX_SPELL_RANK, STARTER_ABILITIES } from '../shared/combat.js';
+
+initGameDb(':memory:');
+
+/** A town world with the Merchant placed, plus a player standing on top of the vendor. */
+function townWithShopper(): { w: World; id: number } {
+  const w = new World(1600, 1200, { x: 660, y: 560 }, undefined, 'town');
+  w.populateNpcs('town');
+  const id = w.spawn('Shopper', { x: 660, y: 560 });
+  return { w, id };
+}
+
+describe('spellbooks — learning + ranks', () => {
+  it('a fresh player only knows the starter spells', () => {
+    const w = new World();
+    const id = w.spawn('Newbie');
+    const known = w.playerStats(id)!.known;
+    expect(Object.keys(known).sort()).toEqual([...STARTER_ABILITIES].sort());
+    for (const a of STARTER_ABILITIES) expect(known[a]).toBe(1);
+  });
+
+  it('reading a spellbook learns the spell and consumes the book', () => {
+    const w = new World();
+    const id = w.spawn('Student');
+    w.giveItem(id, 'tome_frost', 1);
+    expect(w.playerStats(id)!.loot.tome_frost).toBe(1);
+
+    w.learn(id, 'tome_frost');
+    expect(w.playerStats(id)!.known.frost).toBe(1);
+    expect(w.playerStats(id)!.loot.tome_frost ?? 0).toBe(0); // consumed
+  });
+
+  it('a duplicate book ranks the spell up, capping at MAX_SPELL_RANK', () => {
+    const w = new World();
+    const id = w.spawn('Ranker');
+    w.giveItem(id, 'tome_frost', MAX_SPELL_RANK + 2);
+    // MAX_SPELL_RANK reads reach the cap (1 to learn + MAX-1 to rank up); the next is a no-op.
+    for (let i = 0; i < MAX_SPELL_RANK + 1; i++) w.learn(id, 'tome_frost');
+    expect(w.playerStats(id)!.known.frost).toBe(MAX_SPELL_RANK);
+    // Only MAX_SPELL_RANK books were consumed; the over-cap reads leave the spares as vendor fodder.
+    expect(w.playerStats(id)!.loot.tome_frost).toBe(2);
+  });
+
+  it('learning a non-book or an unowned book does nothing', () => {
+    const w = new World();
+    const id = w.spawn('Cheater');
+    w.learn(id, 'tome_frost'); // not held
+    expect(w.playerStats(id)!.known.frost).toBeUndefined();
+    w.giveItem(id, 'wolf_pelt', 1);
+    w.learn(id, 'wolf_pelt'); // not a spellbook
+    expect(Object.keys(w.playerStats(id)!.known).sort()).toEqual([...STARTER_ABILITIES].sort());
+  });
+});
+
+describe('spellbooks — cast gating', () => {
+  it('rejects casting a spell the player has not learned', () => {
+    const w = new World();
+    const id = w.spawn('Caster', { x: 800, y: 600 });
+    // 'lightning' is not a starter spell — the cast must be a no-op (no mana spent).
+    const manaBefore = w.playerStats(id)!.mana;
+    w.cast(id, 'lightning', 1, 0);
+    expect(w.playerStats(id)!.mana).toBe(manaBefore);
+
+    // After learning it, the same cast spends mana.
+    w.giveItem(id, 'tome_lightning', 1);
+    w.learn(id, 'tome_lightning');
+    w.cast(id, 'lightning', 1, 0);
+    expect(w.playerStats(id)!.mana).toBeLessThan(manaBefore);
+  });
+});
+
+describe('vendor shop — buy / sell / proximity', () => {
+  it('interacting with a vendor produces a shop offer with stock', () => {
+    const { w, id } = townWithShopper();
+    w.interact(id);
+    const offers = w.drainShopOffers();
+    expect(offers).toHaveLength(1);
+    expect(offers[0]!.vendor).toBe('Merchant');
+    expect(offers[0]!.stock.some((s) => s.itemId === 'tome_heal')).toBe(true);
+  });
+
+  it('buys a spellbook when the player can afford it', () => {
+    const { w, id } = townWithShopper();
+    w.giveItem(id, 'gold', 1000);
+    const before = w.playerStats(id)!.gold;
+    w.buy(id, 'tome_heal'); // priced 150
+    const after = w.playerStats(id)!;
+    expect(after.gold).toBe(before - 150);
+    expect(after.loot.tome_heal).toBe(1);
+  });
+
+  it('refuses a purchase the player cannot afford (no gold, no item)', () => {
+    const { w, id } = townWithShopper();
+    // Fresh player has 0 gold.
+    w.buy(id, 'tome_lightning'); // 700g
+    const s = w.playerStats(id)!;
+    expect(s.gold).toBe(0);
+    expect(s.loot.tome_lightning ?? 0).toBe(0);
+  });
+
+  it('refuses buying an item not on the vendor shelf', () => {
+    const { w, id } = townWithShopper();
+    w.giveItem(id, 'gold', 100000);
+    const before = w.playerStats(id)!.gold;
+    w.buy(id, 'wolf_pelt'); // not stocked
+    expect(w.playerStats(id)!.gold).toBe(before);
+  });
+
+  it('requires vendor proximity to buy (the open panel grants nothing)', () => {
+    const { w, id } = townWithShopper();
+    w.giveItem(id, 'gold', 1000);
+    w.teleport(id, 50, 50); // walk far from the Merchant
+    w.buy(id, 'tome_heal');
+    expect(w.playerStats(id)!.loot.tome_heal ?? 0).toBe(0);
+  });
+
+  it('sells the whole bag for gold when next to a vendor', () => {
+    const { w, id } = townWithShopper();
+    w.giveItem(id, 'wolf_pelt', 5); // 6g each = 30g
+    w.sell(id);
+    const s = w.playerStats(id)!;
+    expect(s.gold).toBe(30);
+    expect(s.loot.wolf_pelt ?? 0).toBe(0);
+  });
+});
+
+describe('quest reward items', () => {
+  it('grants the reward item on completion (wolf_cull → tome_heal)', () => {
+    // A high-level, god-mode hunter one-shots wolves with Slash; we keep a wolf next to the
+    // player and tick until the 5-kill quest completes, then assert the reward tome arrived.
+    const w = new World(1600, 1200, { x: 800, y: 600 }, undefined, 'wilderness');
+    const id = w.spawn('Hunter', { x: 800, y: 600 });
+    w.setLevel(id, 50); // big damage so each Slash kills a wolf outright
+    w.toggleGod(id); // wolves can't kill us, so the quest can't be interrupted by death
+    w.acceptQuest(id, 'wolf_cull');
+
+    for (let t = 0; t < 2000 && (w.playerStats(id)!.loot.tome_heal ?? 0) === 0; t++) {
+      // Always keep a fresh wolf within Slash range, directly to the player's right.
+      w.spawnMobAt(id, 'wolf');
+      w.cast(id, 'slash', 1, 0);
+      w.tick(0.05);
+    }
+
+    const s = w.playerStats(id)!;
+    expect(s.loot.tome_heal ?? 0).toBeGreaterThanOrEqual(1);
+    expect(s.gold).toBeGreaterThanOrEqual(150); // retuned quest gold
+  });
+});

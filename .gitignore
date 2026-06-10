@@ -27,6 +27,7 @@ Thumbs.db
 # Test / coverage
 coverage/
 .vitest/
+tools/bots/last-run.json
 
 # Vite cache
 .vite/

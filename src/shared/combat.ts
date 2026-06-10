@@ -128,6 +128,22 @@ export const ABILITY_ORDER: AbilityId[] = [
   'lightning',
 ];
 
+/**
+ * Abilities every fresh character knows. Everything else is *acquired* — learned from spellbook
+ * items that drop from monsters, reward quests, or sit on a vendor's shelf ("loot = your build").
+ */
+export const STARTER_ABILITIES: AbilityId[] = ['slash', 'fireball'];
+
+// --- Spell ranks (the Diablo 1 duplicate rule: re-reading a known book ranks the spell up) ---
+export const MAX_SPELL_RANK = 5;
+/** Effect bonus per rank above 1 (damage / healing), e.g. rank 3 = +24%. */
+export const SPELL_RANK_EFFECT = 0.12;
+
+/** Damage/heal multiplier for a spell at the given rank (rank 1 = 1.0). */
+export function spellRankMult(rank: number): number {
+  return 1 + SPELL_RANK_EFFECT * (Math.min(MAX_SPELL_RANK, Math.max(1, rank)) - 1);
+}
+
 export function isAbilityId(value: unknown): value is AbilityId {
   return typeof value === 'string' && value in ABILITIES;
 }

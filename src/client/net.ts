@@ -27,10 +27,17 @@ export interface SelfStats {
   power: number;
   critChance: number;
   equipment: Record<string, ItemInstance | null>;
+  known: Record<string, number>;
   corruption: number;
   x: number;
   y: number;
   ackSeq: number;
+}
+
+/** A vendor's shop contents, set when a `shop` packet arrives and cleared when the panel closes. */
+export interface ShopState {
+  vendor: string;
+  stock: { itemId: string; price: number }[];
 }
 
 const MAX_CHAT_LINES = 50;
@@ -64,11 +71,14 @@ export class Net {
     power: 0,
     critChance: 0.15,
     equipment: {},
+    known: {},
     corruption: 0,
     x: 0,
     y: 0,
     ackSeq: 0,
   };
+  /** The currently-open vendor shop (null when no shop panel is open). */
+  shop: ShopState | null = null;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
   authRev = 0;
   /** Bumped whenever a content packet arrives — drives a live re-skin (theme edits, hot reload). */
@@ -137,6 +147,18 @@ export class Net {
     this.send({ t: 'unequip', slot });
   }
 
+  sendLearn(itemId: string): void {
+    this.send({ t: 'learn', itemId });
+  }
+
+  sendBuy(itemId: string): void {
+    this.send({ t: 'buy', itemId });
+  }
+
+  sendSell(): void {
+    this.send({ t: 'sell' });
+  }
+
   private send(msg: Parameters<typeof encode>[0]): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(msg));
   }
@@ -180,6 +202,7 @@ export class Net {
           power: msg.power,
           critChance: msg.critChance,
           equipment: msg.equipment,
+          known: msg.known,
           corruption: msg.corruption,
           x: msg.x,
           y: msg.y,
@@ -187,11 +210,15 @@ export class Net {
         };
         this.authRev++;
         break;
+      case 'shop':
+        this.shop = { vendor: msg.vendor, stock: msg.stock };
+        break;
       case 'area_changed':
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
         this.snapshots.clear(); // forget the old area's entities immediately
         this.fx.length = 0;
+        this.shop = null; // close any open shop when we leave the area
         break;
       case 'chat':
         this.chat.push({ from: msg.from, text: msg.text });

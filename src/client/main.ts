@@ -111,6 +111,12 @@ const bagRects: {
   w: number;
   h: number;
 }[] = [];
+// Spellbook entries in the Bag (tap to read/learn) and shop rows (tap to buy) + the sell/close buttons.
+const learnRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
+const shopRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
+let shopSellRect: { x: number; y: number; w: number; h: number } | null = null;
+let shopCloseRect: { x: number; y: number; w: number; h: number } | null = null;
+let shopPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 // Character panel (paper doll): open with C; each slot box is a click target to unequip.
 let charOpen = false;
 const charSlotRects: { slot: string; x: number; y: number; w: number; h: number }[] = [];
@@ -137,6 +143,10 @@ window.addEventListener('pointermove', (e) => {
 
 window.addEventListener('keydown', (e) => {
   if (document.activeElement === chatInputEl) return;
+  if (e.key === 'Escape' && net.shop) {
+    net.shop = null; // close the shop
+    return;
+  }
   const ability = net.content.abilityOrder().find((id) => net.content.ability(id)?.key === e.key);
   if (ability) {
     selected = ability;
@@ -155,10 +165,17 @@ function nearbyNpc(): EntityState | undefined {
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
+  // An open shop captures clicks (buy / sell / close) and never falls through to a cast.
+  if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   // Clicks on the open character panel unequip a slot and never fall through to a cast.
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
     if (cs) net.sendUnequip(cs.slot);
+    return;
+  }
+  const book = learnRects.find((b) => inRect(e.clientX, e.clientY, b));
+  if (book) {
+    net.sendLearn(book.itemId);
     return;
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
@@ -175,6 +192,25 @@ window.addEventListener('pointerdown', (e) => {
   }
 });
 
+/** Route a click inside the open shop panel. Returns true if it was consumed. */
+function handleShopClick(x: number, y: number): boolean {
+  if (shopCloseRect && inRect(x, y, shopCloseRect)) {
+    net.shop = null;
+    return true;
+  }
+  if (shopSellRect && inRect(x, y, shopSellRect)) {
+    net.sendSell();
+    return true;
+  }
+  const row = shopRects.find((s) => inRect(x, y, s));
+  if (row) {
+    net.sendBuy(row.itemId);
+    return true;
+  }
+  // Clicks anywhere inside the panel are swallowed so they don't cast through it.
+  return shopPanelRect ? inRect(x, y, shopPanelRect) : false;
+}
+
 // Touch tap-vs-drag: a drag drives the move joystick (input.ts); a quick stationary tap on the
 // world casts the selected ability toward the tapped point. HUD/bag/slot taps are handled here.
 const TAP_MAX_MOVE = 18; // px of travel still counted as a tap, not a drag
@@ -183,9 +219,15 @@ let touchStart: { x: number; y: number; t: number } | null = null;
 
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
+  if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
     if (cs) net.sendUnequip(cs.slot);
+    return;
+  }
+  const book = learnRects.find((b) => inRect(e.clientX, e.clientY, b));
+  if (book) {
+    net.sendLearn(book.itemId);
     return;
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
@@ -219,6 +261,8 @@ gameCanvas.addEventListener('pointerup', (e) => {
 
 function castAbility(abilityId: AbilityId, aimOverride?: { dx: number; dy: number }): void {
   if (net.you.dead || !self) return;
+  // You can only cast spells you have learned (from a spellbook) — mirrors the server's gate.
+  if (!(abilityId in net.you.known)) return;
   const ability = net.content.ability(abilityId);
   if (!ability) return;
   if ((cooldownEnd[abilityId] ?? 0) > performance.now()) return;
@@ -374,6 +418,13 @@ function frame(): void {
   sound.fromFx(net.fx);
   drawHud();
   if (charOpen) drawCharacterPanel();
+  if (net.shop) drawShopPanel();
+  else {
+    shopPanelRect = null;
+    shopSellRect = null;
+    shopCloseRect = null;
+    shopRects.length = 0;
+  }
   if (!net.connected) drawReconnect();
 
   const area = net.content.area(net.areaId);
@@ -467,6 +518,79 @@ function drawCharacterPanel(): void {
   drawCharSlot('mainhand', px + 14, lastY, pw - 28, bh);
 }
 
+/** The vendor shop window (opened by E on a vendor). Tap a row to buy; a button sells the bag. */
+function drawShopPanel(): void {
+  const shop = net.shop;
+  if (!shop) return;
+  shopRects.length = 0;
+  const pw = 320;
+  const rowH = 30;
+  const headerH = 58;
+  const footerH = 40;
+  const ph = headerH + shop.stock.length * rowH + footerH;
+  const px = hudCanvas.width / 2 - pw / 2;
+  const py = hudCanvas.height / 2 - ph / 2;
+  shopPanelRect = { x: px, y: py, w: pw, h: ph };
+
+  hud.fillStyle = 'rgba(8,9,13,0.94)';
+  hud.fillRect(px, py, pw, ph);
+  hud.strokeStyle = '#c9a24b';
+  hud.lineWidth = 2;
+  hud.strokeRect(px, py, pw, ph);
+
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 15px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText(shop.vendor, px + 14, py + 24);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#f2c14e';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.fillText(`${net.you.gold} gold`, px + pw - 14, py + 24);
+
+  // Close button (top-right X).
+  shopCloseRect = { x: px + pw - 26, y: py + 6, w: 20, h: 20 };
+  hud.fillStyle = '#9aa3b2';
+  hud.font = 'bold 14px system-ui, sans-serif';
+  hud.textAlign = 'center';
+  hud.fillText('✕', shopCloseRect.x + 10, shopCloseRect.y + 15);
+
+  hud.fillStyle = '#8a8f99';
+  hud.font = '11px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText('Tap an item to buy · Esc to close', px + 14, py + 44);
+
+  shop.stock.forEach((entry, i) => {
+    const ry = py + headerH + i * rowH;
+    const def = net.content.item(entry.itemId);
+    const afford = net.you.gold >= entry.price;
+    shopRects.push({ itemId: entry.itemId, x: px + 8, y: ry, w: pw - 16, h: rowH - 4 });
+    hud.fillStyle = afford ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.2)';
+    hud.fillRect(px + 8, ry, pw - 16, rowH - 4);
+    hud.strokeStyle = 'rgba(201,162,75,0.25)';
+    hud.lineWidth = 1;
+    hud.strokeRect(px + 8, ry, pw - 16, rowH - 4);
+    hud.textAlign = 'left';
+    hud.fillStyle = def?.color ?? '#d7dbe3';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.fillText(fitText(def?.name ?? prettyItem(entry.itemId), pw - 90), px + 16, ry + 17);
+    hud.textAlign = 'right';
+    hud.fillStyle = afford ? '#f2c14e' : '#a05050';
+    hud.font = '12px system-ui, sans-serif';
+    hud.fillText(`${entry.price}g`, px + pw - 16, ry + 17);
+  });
+
+  // Sell-all button along the bottom (the old E-to-sell behavior, now explicit).
+  shopSellRect = { x: px + 14, y: py + ph - 32, w: pw - 28, h: 24 };
+  hud.fillStyle = 'rgba(120,60,60,0.5)';
+  hud.fillRect(shopSellRect.x, shopSellRect.y, shopSellRect.w, shopSellRect.h);
+  hud.strokeStyle = 'rgba(201,162,75,0.5)';
+  hud.strokeRect(shopSellRect.x, shopSellRect.y, shopSellRect.w, shopSellRect.h);
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.textAlign = 'center';
+  hud.fillText('Sell all loot & spare gear', px + pw / 2, shopSellRect.y + 16);
+}
+
 /** Dim the scene and show an animated "Reconnecting…" overlay while the socket is down. */
 function drawReconnect(): void {
   const w = hudCanvas.width;
@@ -523,33 +647,57 @@ function drawHud(): void {
     const ability = net.content.ability(id);
     if (!ability) return;
     const x = panelX + i * (slot + gap);
-    slotRects.push({ ability: id, x, y: slotsY, w: slot, h: slot });
+    const rank = net.you.known[id]; // undefined = not yet learned
+    const learned = rank !== undefined;
+    // Only learned spells are click-to-cast targets; locked slots show how to get them.
+    if (learned) slotRects.push({ ability: id, x, y: slotsY, w: slot, h: slot });
 
     hud.fillStyle = 'rgba(0,0,0,0.55)';
     hud.fillRect(x, slotsY, slot, slot);
-    hud.globalAlpha = net.you.mana < ability.manaCost ? 0.3 : 0.85;
+    hud.globalAlpha = !learned ? 0.18 : net.you.mana < ability.manaCost ? 0.3 : 0.85;
     hud.fillStyle = ability.color;
     hud.fillRect(x + 4, slotsY + 4, slot - 8, slot - 8);
     hud.globalAlpha = 1;
 
-    const remaining = (cooldownEnd[id] ?? 0) - now;
-    if (remaining > 0) {
-      const frac = Math.min(1, remaining / ability.cooldownMs);
-      hud.fillStyle = 'rgba(0,0,0,0.6)';
-      hud.fillRect(x, slotsY + slot * (1 - frac), slot, slot * frac);
+    if (learned) {
+      const remaining = (cooldownEnd[id] ?? 0) - now;
+      if (remaining > 0) {
+        const frac = Math.min(1, remaining / ability.cooldownMs);
+        hud.fillStyle = 'rgba(0,0,0,0.6)';
+        hud.fillRect(x, slotsY + slot * (1 - frac), slot, slot * frac);
+      }
     }
 
-    hud.strokeStyle = selected === id ? '#c9a24b' : 'rgba(255,255,255,0.25)';
-    hud.lineWidth = selected === id ? 3 : 1;
+    hud.strokeStyle = selected === id && learned ? '#c9a24b' : 'rgba(255,255,255,0.25)';
+    hud.lineWidth = selected === id && learned ? 3 : 1;
     hud.strokeRect(x, slotsY, slot, slot);
 
-    hud.fillStyle = '#fff';
-    hud.font = 'bold 12px system-ui, sans-serif';
-    hud.textAlign = 'left';
-    hud.fillText(ability.key, x + 4, slotsY + 14);
-    hud.textAlign = 'center';
-    hud.font = '10px system-ui, sans-serif';
-    hud.fillText(ability.name, x + slot / 2, slotsY + slot - 5);
+    if (learned) {
+      hud.fillStyle = '#fff';
+      hud.font = 'bold 12px system-ui, sans-serif';
+      hud.textAlign = 'left';
+      hud.fillText(ability.key, x + 4, slotsY + 14);
+      // Rank pips for a ranked-up spell (the Diablo 1 duplicate-tome reward).
+      if (rank > 1) {
+        hud.fillStyle = '#f2c14e';
+        hud.font = 'bold 10px system-ui, sans-serif';
+        hud.textAlign = 'right';
+        hud.fillText(`R${rank}`, x + slot - 4, slotsY + 14);
+      }
+      hud.textAlign = 'center';
+      hud.font = '10px system-ui, sans-serif';
+      hud.fillStyle = '#fff';
+      hud.fillText(ability.name, x + slot / 2, slotsY + slot - 5);
+    } else {
+      // Locked: a padlock glyph + the spell name dimmed, so the slot reads as "find this book".
+      hud.fillStyle = '#9aa3b2';
+      hud.font = 'bold 16px system-ui, sans-serif';
+      hud.textAlign = 'center';
+      hud.fillText('🔒', x + slot / 2, slotsY + slot / 2 + 2);
+      hud.font = '10px system-ui, sans-serif';
+      hud.fillStyle = '#6b7280';
+      hud.fillText(ability.name, x + slot / 2, slotsY + slot - 5);
+    }
   });
 
   input.hudRect = { x: panelX - 6, y: h - 108, w: panelW + 12, h: 104 };
@@ -559,8 +707,8 @@ function drawHud(): void {
   drawJoystick();
 
   const npc = nearbyNpc();
-  if (npc && !net.you.dead) {
-    const action = npc.npcKind === 'questgiver' ? 'talk to' : 'sell loot to';
+  if (npc && !net.you.dead && !net.shop) {
+    const action = npc.npcKind === 'questgiver' ? 'talk to' : 'shop with';
     const text = `Press E — ${action} ${npc.name}`;
     hud.font = '14px system-ui, sans-serif';
     hud.textAlign = 'center';
@@ -789,8 +937,35 @@ function drawInventory(w: number): void {
     py += gh + 6;
   }
 
-  // Materials panel: stackable loot sold to the vendor (not equippable).
-  const items = Object.entries(net.you.loot).filter(([, n]) => n > 0);
+  // Spellbooks panel: tomes in the bag, tappable to read (learn the spell or rank it up).
+  learnRects.length = 0;
+  const held = Object.entries(net.you.loot).filter(([, n]) => n > 0);
+  const books = held.filter(([id]) => net.content.item(id)?.kind === 'spellbook');
+  if (books.length > 0) {
+    const bh = 24 + books.length * 18;
+    hud.fillStyle = 'rgba(0,0,0,0.5)';
+    hud.fillRect(px, py, pw, bh);
+    hud.strokeStyle = 'rgba(124,252,124,0.5)';
+    hud.strokeRect(px, py, pw, bh);
+    hud.fillStyle = '#bfe8bf';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.textAlign = 'left';
+    hud.fillText('Spellbooks — tap to read', px + 8, py + 16);
+    books.forEach(([id, n], i) => {
+      const ry = py + 22 + i * 18;
+      learnRects.push({ itemId: id, x: px, y: ry, w: pw, h: 18 });
+      const teaches = net.content.item(id)?.teaches;
+      const known = teaches && teaches in net.you.known;
+      hud.font = '11px system-ui, sans-serif';
+      hud.fillStyle = known ? '#8a8f99' : '#d7dbe3'; // dim a book whose spell you already know
+      hud.textAlign = 'left';
+      hud.fillText(fitText(prettyItem(id) + (n > 1 ? ` ×${n}` : ''), pw - 16), px + 8, ry + 13);
+    });
+    py += bh + 6;
+  }
+
+  // Materials panel: stackable loot sold to the vendor (not equippable, not a spellbook).
+  const items = held.filter(([id]) => net.content.item(id)?.kind !== 'spellbook');
   if (items.length === 0) return;
   const ph = 24 + items.length * 16;
   hud.fillStyle = 'rgba(0,0,0,0.5)';

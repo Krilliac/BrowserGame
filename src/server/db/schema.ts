@@ -73,16 +73,28 @@ CREATE TABLE IF NOT EXISTS abilities (
   sort_order         INTEGER NOT NULL
 );
 
--- Items: equipment, loot materials, and currency, unified.
+-- Items: equipment, loot materials, currency, and spellbooks, unified.
 CREATE TABLE IF NOT EXISTS items (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
-  kind        TEXT NOT NULL,                   -- 'equip' | 'loot' | 'currency'
+  kind        TEXT NOT NULL,                   -- 'equip' | 'loot' | 'currency' | 'spellbook'
   slot        TEXT,                            -- equip only: 'weapon' | 'armor'
   power       REAL,
   hp          REAL,
   color       TEXT,
-  sell_value  INTEGER NOT NULL DEFAULT 0
+  sell_value  INTEGER NOT NULL DEFAULT 0,
+  teaches     TEXT                             -- spellbook only: the ability id it teaches
+);
+
+-- What a vendor NPC sells, keyed by area + NPC name (NPC row ids are autoincrement, names are
+-- the stable handle). Edit rows live (e.g. /set) to change a shop's shelf.
+CREATE TABLE IF NOT EXISTS vendor_stock (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  area_id     TEXT NOT NULL,
+  npc_name    TEXT NOT NULL,
+  item_id     TEXT NOT NULL REFERENCES items(id),
+  price       INTEGER NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS mob_templates (
@@ -142,7 +154,8 @@ CREATE TABLE IF NOT EXISTS quests (
   target_mob    TEXT,
   target_count  INTEGER NOT NULL DEFAULT 0,
   reward_gold   INTEGER NOT NULL DEFAULT 0,
-  reward_xp     INTEGER NOT NULL DEFAULT 0
+  reward_xp     INTEGER NOT NULL DEFAULT 0,
+  reward_item   TEXT                           -- optional item granted on completion (e.g. a tome)
 );
 
 -- Accounts: username -> access level (Player 0 .. Developer 4), with a salted password hash.

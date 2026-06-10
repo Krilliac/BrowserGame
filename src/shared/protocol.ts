@@ -23,6 +23,8 @@ export interface ItemInfo {
   hp: number | null;
   color: string | null;
   sellValue: number;
+  /** Spellbooks only: the ability this book teaches (null for everything else). */
+  teaches: string | null;
 }
 
 /** Simulation tick rate in Hz. Overridable via the TICK_RATE env var on the server. */
@@ -92,12 +94,18 @@ export type ClientMessage =
   /** Cast an ability aimed in direction (dx, dy); the server normalizes and validates. */
   | { t: 'cast'; ability: AbilityId; dx: number; dy: number }
   | { t: 'chat'; text: string }
-  /** Interact with a nearby NPC (e.g. sell loot to the town vendor). */
+  /** Interact with a nearby NPC (open a vendor's shop / talk to a quest-giver). */
   | { t: 'interact' }
   /** Equip a gear instance from the player's bag, by its unique id. */
   | { t: 'equip'; uid: number }
   /** Unequip the item in a doll slot (head/chest/mainhand/ring1/…) back to the bag. */
   | { t: 'unequip'; slot: string }
+  /** Read a spellbook from the bag: learn its spell (or rank it up). Server validates ownership. */
+  | { t: 'learn'; itemId: string }
+  /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
+  | { t: 'buy'; itemId: string }
+  /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
+  | { t: 'sell' }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string };
 
@@ -140,6 +148,8 @@ export type ServerMessage =
       critChance: number;
       /** Equipped gear by doll slot (head/chest/mainhand/ring1/… → instance or null). */
       equipment: Record<string, ItemInstance | null>;
+      /** Spells this character has learned: ability id → rank (1..MAX_SPELL_RANK). */
+      known: Record<string, number>;
       /** Area corruption 0..1 (drives the client's darkening of the scene). */
       corruption: number;
       /** Authoritative position + last input the server processed (client reconciliation). */
@@ -147,6 +157,8 @@ export type ServerMessage =
       y: number;
       ackSeq: number;
     }
+  /** A nearby vendor's shop contents (sent when the player interacts with a vendor NPC). */
+  | { t: 'shop'; vendor: string; stock: { itemId: string; price: number }[] }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
   | { t: 'chat'; from: string; text: string }

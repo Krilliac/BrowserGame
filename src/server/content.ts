@@ -14,12 +14,14 @@ import type { MobTemplate } from './mobs.js';
 export interface ItemDef {
   id: string;
   name: string;
-  kind: string; // 'equip' | 'loot' | 'currency'
+  kind: string; // 'equip' | 'loot' | 'currency' | 'spellbook'
   slot: string | null; // item slot for equippables (head/chest/mainhand/ring/…)
   power: number | null;
   hp: number | null;
   color: string | null;
   sellValue: number;
+  /** Spellbooks only: the ability id this book teaches. */
+  teaches: string | null;
 }
 
 export interface NpcDef {
@@ -38,6 +40,14 @@ export interface QuestDef {
   targetCount: number;
   rewardGold: number;
   rewardXp: number;
+  /** Optional item granted on completion (e.g. a spellbook). */
+  rewardItem: string | null;
+}
+
+/** One row on a vendor's shelf. */
+export interface StockEntry {
+  itemId: string;
+  price: number;
 }
 
 export interface Content {
@@ -54,6 +64,8 @@ export interface Content {
   npcs(areaId: string): NpcDef[];
   quests(): QuestDef[];
   quest(id: string): QuestDef | undefined;
+  /** What the named vendor in the given area sells (empty for non-vendors). */
+  vendorStock(areaId: string, npcName: string): StockEntry[];
   rollLoot(mobTemplateId: string, rng?: () => number): { item: string; qty: number }[];
 }
 
@@ -126,7 +138,18 @@ export function loadContent(db: GameDatabase): Content {
       hp: r.hp,
       color: r.color,
       sellValue: r.sell_value,
+      teaches: r.teaches,
     });
+  }
+
+  const stock = new Map<string, StockEntry[]>();
+  for (const r of db
+    .prepare('SELECT * FROM vendor_stock ORDER BY sort_order')
+    .all() as VendorStockRow[]) {
+    const key = `${r.area_id}/${r.npc_name}`;
+    const list = stock.get(key) ?? [];
+    list.push({ itemId: r.item_id, price: r.price });
+    stock.set(key, list);
   }
 
   const mobTemplates = new Map<string, MobTemplate>();
@@ -174,6 +197,7 @@ export function loadContent(db: GameDatabase): Content {
     targetCount: q.target_count,
     rewardGold: q.reward_gold,
     rewardXp: q.reward_xp,
+    rewardItem: q.reward_item ?? null,
   }));
 
   const loot = new Map<string, LootGroup>();
@@ -215,6 +239,7 @@ export function loadContent(db: GameDatabase): Content {
     npcs: (areaId) => npcs.get(areaId) ?? [],
     quests: () => quests,
     quest: (id) => quests.find((q) => q.id === id),
+    vendorStock: (areaId, npcName) => stock.get(`${areaId}/${npcName}`) ?? [],
     rollLoot: (mobId, rng = Math.random) => {
       const g = loot.get(mobId);
       if (!g) return [];
@@ -354,6 +379,14 @@ interface ItemRow {
   hp: number | null;
   color: string | null;
   sell_value: number;
+  teaches: string | null;
+}
+interface VendorStockRow {
+  area_id: string;
+  npc_name: string;
+  item_id: string;
+  price: number;
+  sort_order: number;
 }
 interface MobRow {
   id: string;
@@ -394,6 +427,7 @@ interface QuestRow {
   target_count: number;
   reward_gold: number;
   reward_xp: number;
+  reward_item: string | null;
 }
 interface LootRow {
   mob_template_id: string;

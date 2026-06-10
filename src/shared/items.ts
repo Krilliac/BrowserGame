@@ -225,6 +225,26 @@ export function rollItemInstance(
   };
 }
 
+/**
+ * Roll a vendor-bought instance: always **common** rarity, no affixes. Shop gear is a floor that
+ * fills equipment gaps — the jackpot rarities stay on the drop path, so killing monsters remains
+ * the exciting way to gear up.
+ */
+export function rollVendorInstance(
+  uid: number,
+  base: BaseItem,
+  rng: () => number = Math.random,
+): ItemInstance {
+  return {
+    uid,
+    baseId: base.id,
+    rarity: 'common',
+    power: rollStat(base.power ?? 0, 'common', rng),
+    hp: rollStat(base.hp ?? 0, 'common', rng),
+    affixes: [],
+  };
+}
+
 /** Build a corrupted instance: top-tier base stats plus a strong-buff/debuff corrupted affix pair. */
 export function rollCorruptedInstance(
   uid: number,

@@ -11,12 +11,15 @@ import {
 import {
   HP_REGEN_PER_SEC,
   MANA_REGEN_PER_SEC,
+  MAX_SPELL_RANK,
   MOB_RADIUS,
   MOB_RESPAWN_MS,
   PLAYER_MAX_HP,
   PLAYER_MAX_MANA,
   PLAYER_RADIUS,
   PLAYER_RESPAWN_MS,
+  STARTER_ABILITIES,
+  spellRankMult,
   type AbilityId,
   type FxEvent,
 } from '../shared/combat.js';
@@ -34,6 +37,7 @@ import {
   gearSellValue,
   rollCorruptedInstance,
   rollItemInstance,
+  rollVendorInstance,
   type BaseItem,
   type ItemInstance,
 } from '../shared/items.js';
@@ -83,6 +87,13 @@ const BOUNTY_MAX_CHANCE = 0.5; // bonus-drop chance at a full bounty
 const INVASION_CORRUPT_CHANCE = 0.08;
 const BOSS_CORRUPT_CHANCE = 0.003;
 
+// Spellbook drops: spells are loot. An independent per-kill roll (separate from gear/materials)
+// drops a random tome — the exciting acquisition path beside the deterministic vendor shelf.
+// Tuned to ~1–2 books per play-hour in level-appropriate content (PoE2 uncut-gem model).
+const SPELLBOOK_DROP_NORMAL = 0.004; // 0.4% per ordinary kill (1 in 250)
+const SPELLBOOK_DROP_ELITE = 0.03; // 3% per champion
+const SPELLBOOK_DROP_BOSS = 0.3; // 30% per area boss
+
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
 const ELITE_CHANCE = 0.09;
 const ELITE_MODIFIERS: { name: string; hp: number; dmg: number; spd: number }[] = [
@@ -125,6 +136,8 @@ interface Player {
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
+  /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
+  known: Map<AbilityId, number>;
   input: InputState;
   lastSeq: number;
   cooldowns: Map<AbilityId, number>;
@@ -148,6 +161,8 @@ export interface PlayerSave {
   god: boolean;
   quests: [string, number][];
   questsDone: string[];
+  /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
+  known?: [string, number][];
 }
 
 interface Mob {
@@ -245,6 +260,12 @@ export class World {
   private readonly npcs = new Map<number, Npc>();
   private events: FxEvent[] = [];
   private notices: { playerId: number; text: string }[] = [];
+  /** Pending shop windows to deliver: a vendor's stock for a player who just interacted with it. */
+  private shopOffers: {
+    playerId: number;
+    vendor: string;
+    stock: { itemId: string; price: number }[];
+  }[] = [];
   /** Living-loot meta: sim time (ms) each monster type was last killed, for the hunting bounty. */
   private readonly lastKillAt = new Map<string, number>();
   // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
@@ -392,16 +413,54 @@ export class World {
   interact(id: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
-    for (const npc of this.npcs.values()) {
-      if (Math.hypot(player.x - npc.x, player.y - npc.y) > INTERACT_RANGE) continue;
-      if (npc.kind === 'vendor') this.sellToVendor(player);
-      else this.talkToQuestGiver(player);
-      return;
+    const npc = this.nearbyNpc(player);
+    if (!npc) return;
+    if (npc.kind === 'vendor') {
+      // Open the shop; selling is now an explicit button, never a destructive side effect of E.
+      this.shopOffers.push({
+        playerId: player.id,
+        vendor: npc.name,
+        stock: getContent().vendorStock(this.areaId, npc.name),
+      });
+    } else {
+      this.talkToQuestGiver(player);
     }
   }
 
-  /** Sell the player's whole bag (materials + gear) to a vendor for gold. */
-  private sellToVendor(player: Player): void {
+  /** The interactable NPC within range of a player (the nearest), or undefined. */
+  private nearbyNpc(player: Player): Npc | undefined {
+    let best: Npc | undefined;
+    let bestDist = INTERACT_RANGE;
+    for (const npc of this.npcs.values()) {
+      const d = Math.hypot(player.x - npc.x, player.y - npc.y);
+      if (d <= bestDist) {
+        best = npc;
+        bestDist = d;
+      }
+    }
+    return best;
+  }
+
+  /** Drain pending shop windows for the host to deliver as `shop` packets. */
+  drainShopOffers(): {
+    playerId: number;
+    vendor: string;
+    stock: { itemId: string; price: number }[];
+  }[] {
+    const drained = this.shopOffers;
+    this.shopOffers = [];
+    return drained;
+  }
+
+  /**
+   * Sell the player's whole bag (materials + gear) to a vendor for gold. Requires being next to a
+   * vendor — the open shop panel on a client grants nothing; proximity is re-checked here.
+   */
+  sell(id: number): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    const npc = this.nearbyNpc(player);
+    if (!npc || npc.kind !== 'vendor') return;
     const content = getContent();
     let gold = 0;
     for (const [item, qty] of player.loot) {
@@ -415,6 +474,69 @@ export class World {
     if (gold <= 0) return;
     player.gold += gold;
     this.events.push({ kind: 'coin', x: player.x, y: player.y, value: gold });
+  }
+
+  /**
+   * Buy one item from a nearby vendor. Re-validates everything server-side: the player is next to a
+   * vendor, the item is actually on that vendor's shelf, and the player can afford it. Gear is
+   * rolled as a plain **common** instance (the shop is a floor; drops stay the jackpot); spellbooks
+   * and materials stack in the bag.
+   */
+  buy(id: number, itemId: string): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    const npc = this.nearbyNpc(player);
+    if (!npc || npc.kind !== 'vendor') return;
+    const entry = getContent()
+      .vendorStock(this.areaId, npc.name)
+      .find((s) => s.itemId === itemId);
+    if (!entry || player.gold < entry.price) return;
+    const def = getContent().item(itemId);
+    if (!def) return;
+    player.gold -= entry.price;
+    const base = asBaseItem(def);
+    if (base) {
+      player.gear.push(rollVendorInstance(this.allocId(), base));
+    } else {
+      player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + 1);
+    }
+    this.notify(player.id, `Bought ${def.name} for ${entry.price}g.`);
+  }
+
+  /**
+   * Read a spellbook from the bag: learn the spell, or rank it up if already known (the Diablo 1
+   * duplicate rule). Consumes one book. A mastered spell (rank {@link MAX_SPELL_RANK}) leaves the
+   * book in the bag as vendor fodder.
+   */
+  learn(id: number, itemId: string): void {
+    const player = this.players.get(id);
+    if (!player) return;
+    const have = player.loot.get(itemId) ?? 0;
+    if (have <= 0) return;
+    const def = getContent().item(itemId);
+    if (!def || def.kind !== 'spellbook' || !def.teaches) return;
+    const ability = getContent().ability(def.teaches);
+    if (!ability) return;
+    const spell = def.teaches as AbilityId;
+    const current = player.known.get(spell);
+    if (current === undefined) {
+      this.consumeLoot(player, itemId);
+      player.known.set(spell, 1);
+      this.notify(player.id, `You learn ${ability.name}!`);
+    } else if (current < MAX_SPELL_RANK) {
+      this.consumeLoot(player, itemId);
+      player.known.set(spell, current + 1);
+      this.notify(player.id, `${ability.name} is now rank ${current + 1}.`);
+    } else {
+      this.notify(player.id, `${ability.name} is already mastered (rank ${MAX_SPELL_RANK}).`);
+    }
+  }
+
+  /** Remove one unit of a stackable loot item, deleting the stack when it hits zero. */
+  private consumeLoot(player: Player, itemId: string): void {
+    const n = (player.loot.get(itemId) ?? 0) - 1;
+    if (n > 0) player.loot.set(itemId, n);
+    else player.loot.delete(itemId);
   }
 
   /** Offer the next un-taken quest, or report progress if there is nothing new. */
@@ -535,7 +657,9 @@ export class World {
     if (!p || !def) return false;
     const n = Math.max(1, qty);
     const base = asBaseItem(def);
-    if (base) {
+    if (def.kind === 'currency') {
+      p.gold += n; // gold is the wallet, not a bag stack
+    } else if (base) {
       for (let i = 0; i < n; i++) p.gear.push(rollItemInstance(this.allocId(), base));
     } else {
       p.loot.set(itemId, (p.loot.get(itemId) ?? 0) + n);
@@ -613,6 +737,7 @@ export class World {
       god: false,
       quests: new Map(),
       questsDone: new Set(),
+      known: new Map(STARTER_ABILITIES.map((a) => [a, 1])),
       input: { up: false, down: false, left: false, right: false },
       lastSeq: 0,
       cooldowns: new Map(),
@@ -640,6 +765,7 @@ export class World {
       god: p.god,
       quests: [...p.quests],
       questsDone: [...p.questsDone],
+      known: [...p.known],
     };
   }
 
@@ -657,6 +783,7 @@ export class World {
     p.god = save.god;
     p.quests = new Map(save.quests);
     p.questsDone = new Set(save.questsDone);
+    p.known = restoreKnown(save.known);
     this.recomputeStats(p);
     p.hp = Math.min(save.hp, p.maxHp);
     p.mana = save.mana;
@@ -684,6 +811,10 @@ export class World {
     if (!player || player.dead) return;
     const ability = getContent().ability(abilityId);
     if (!ability) return;
+    // Loot = your build: you can only cast spells you have learned (from a spellbook). A hostile
+    // client cannot cast what it never learned — this is validated server-side, never on the wire.
+    const rank = player.known.get(abilityId);
+    if (rank === undefined) return;
     if ((player.cooldowns.get(abilityId) ?? 0) > 0 || player.mana < ability.manaCost) return;
 
     const facing = aimAngle(dx, dy, player.facing);
@@ -691,15 +822,18 @@ export class World {
     player.mana -= ability.manaCost;
     player.cooldowns.set(abilityId, ability.cooldownMs);
     this.events.push({ kind: 'cast', x: player.x, y: player.y, facing, abilityId });
+    // Each spell rank above 1 boosts the effect (the Diablo 1 duplicate-tome rule).
+    const rankMult = spellRankMult(rank);
 
     if (ability.kind === 'heal') {
-      player.hp = Math.min(player.maxHp, player.hp + ability.damage);
+      player.hp = Math.min(player.maxHp, player.hp + ability.damage * rankMult);
     } else if (ability.kind === 'melee') {
       const halfAngle = ability.meleeHalfAngle ?? 0.6;
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
-          const base = rollAbilityDamage(player.level, mob.level, ability.damage + player.power);
+          const power = (ability.damage + player.power) * rankMult;
+          const base = rollAbilityDamage(player.level, mob.level, power);
           const crit = base > 0 && rollCrit(Math.random, player.critChance);
           const dmg = applyCrit(base, crit);
           this.damageMob(mob, dmg, abilityId, player.id, crit);
@@ -722,7 +856,7 @@ export class World {
           vx: Math.cos(a) * speed,
           vy: Math.sin(a) * speed,
           ttl: ability.projectileTtlMs ?? 1200,
-          damage: ability.damage + player.power,
+          damage: (ability.damage + player.power) * rankMult,
           radius: ability.radius,
           ownerId: player.id,
           ownerLevel: player.level,
@@ -1049,6 +1183,14 @@ export class World {
       this.dropBonusGear(mob.x, mob.y, 2, corruptedChance);
     }
 
+    // Spells are loot: an independent book-drop roll, richer from elites and bosses.
+    const bookChance = isBoss
+      ? SPELLBOOK_DROP_BOSS
+      : mob.elite
+        ? SPELLBOOK_DROP_ELITE
+        : SPELLBOOK_DROP_NORMAL;
+    if (Math.random() < bookChance) this.dropSpellbook(mob.x, mob.y);
+
     // Living loot meta: consume this monster type's accumulated hunting bounty. A long lull since the
     // last kill (or a never-farmed type) means a high chance of a bonus rarity-bumped drop; the kill
     // resets the timer, so farming the same spot quickly depletes it back to base loot.
@@ -1059,6 +1201,15 @@ export class World {
       this.dropBonusGear(mob.x, mob.y, 1, corruptedChance);
       if (killer) this.notify(killer.id, 'A hunting bounty! Fresh quarry yields richer loot.');
     }
+  }
+
+  /** Drop a random spellbook as a ground stack (picked up into the bag, then read to learn). */
+  private dropSpellbook(x: number, y: number): void {
+    const books = getContent()
+      .items()
+      .filter((i) => i.kind === 'spellbook');
+    const book = books[Math.floor(Math.random() * books.length)];
+    if (book) this.dropGround(book.id, 1, x, y);
   }
 
   /** A random equippable base item (any slot), or null if the content has none. */
@@ -1168,9 +1319,14 @@ export class World {
         player.xp += quest.rewardXp;
         player.level = levelForXp(player.xp);
         this.recomputeStats(player);
+        let extra = '';
+        if (quest.rewardItem) {
+          this.giveItem(player.id, quest.rewardItem, 1);
+          extra = ` + ${getContent().item(quest.rewardItem)?.name ?? quest.rewardItem}`;
+        }
         this.notify(
           player.id,
-          `Quest complete: ${quest.name}! +${quest.rewardGold}g +${quest.rewardXp}xp`,
+          `Quest complete: ${quest.name}! +${quest.rewardGold}g +${quest.rewardXp}xp${extra}`,
         );
       } else {
         player.quests.set(questId, next);
@@ -1364,6 +1520,7 @@ export class World {
         power: number;
         critChance: number;
         equipment: Equipment;
+        known: Record<string, number>;
         corruption: number;
         x: number;
         y: number;
@@ -1390,6 +1547,7 @@ export class World {
       power: p.power,
       critChance: p.critChance,
       equipment: p.equipment,
+      known: Object.fromEntries(p.known),
       corruption: this.corruption(),
       x: p.x,
       y: p.y,
@@ -1438,4 +1596,22 @@ function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
 function sanitizeName(name: string): string {
   const trimmed = (name ?? '').trim().slice(0, MAX_NAME_LENGTH);
   return trimmed.length > 0 ? trimmed : 'Adventurer';
+}
+
+/**
+ * Rebuild a player's learned-spells map from a save. A pre-spellbook save (no `known`) grandfathers
+ * in **every ability the content defines** at rank 1 — nobody loses a button they had before the
+ * spellbook system. A modern save is filtered to abilities that still exist, with ranks clamped.
+ */
+function restoreKnown(saved: [string, number][] | undefined): Map<AbilityId, number> {
+  const content = getContent();
+  if (!saved) {
+    return new Map(content.abilityOrder().map((id) => [id, 1] as [AbilityId, number]));
+  }
+  const known = new Map<AbilityId, number>();
+  for (const [id, rank] of saved) {
+    if (!content.ability(id)) continue; // ability removed from content since the save
+    known.set(id as AbilityId, clamp(Math.round(rank), 1, MAX_SPELL_RANK));
+  }
+  return known;
 }

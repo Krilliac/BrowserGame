@@ -17,6 +17,34 @@ const MATERIALS: Record<string, { name: string; color: string }> = {
   rune_shard: { name: 'Rune Shard', color: '#5fb0e0' },
 };
 
+/**
+ * Spellbooks: one tome per ability. Reading one learns the spell (or ranks it up — the Diablo 1
+ * duplicate rule). The starter spells' tomes (slash/fireball) are deliberately *not* on the vendor
+ * shelf — they only drop, as chase rank-up books. Prices ≈ 25× a level-appropriate kill's gold EV;
+ * sell values ≈ 40% of price. Design: wiki/research/spell-acquisition-design.md.
+ */
+const SPELLBOOKS: Record<string, { name: string; color: string; teaches: string; sell: number }> = {
+  tome_slash: { name: 'Tome of the Blade', color: '#e8e8e8', teaches: 'slash', sell: 100 },
+  tome_fireball: { name: 'Tome of Fire', color: '#ff7a33', teaches: 'fireball', sell: 100 },
+  tome_arrow: { name: 'Tome of the Hunt', color: '#d9c08a', teaches: 'arrow', sell: 120 },
+  tome_frost: { name: 'Tome of Frost', color: '#7fd4ff', teaches: 'frost', sell: 120 },
+  tome_heal: { name: 'Tome of Mending', color: '#7cfc7c', teaches: 'heal', sell: 60 },
+  tome_lightning: { name: 'Tome of Storms', color: '#b388ff', teaches: 'lightning', sell: 280 },
+};
+
+/** The town Merchant's shelf: the deterministic acquisition path (drops are the exciting one). */
+const MERCHANT_STOCK: { item: string; price: number }[] = [
+  { item: 'tome_heal', price: 150 },
+  { item: 'tome_arrow', price: 300 },
+  { item: 'tome_frost', price: 300 },
+  { item: 'tome_lightning', price: 700 },
+  { item: 'rusty_sword', price: 20 },
+  { item: 'wooden_shield', price: 45 },
+  { item: 'leather_armor', price: 55 },
+  { item: 'iron_sword', price: 90 },
+  { item: 'iron_helm', price: 70 },
+];
+
 /** Equipment a slain monster can drop, by tier, with the group trigger chance. */
 const GEAR_DROPS: Record<string, { chance: number; items: string[] }> = {
   wolf: { chance: 0.15, items: ['rusty_sword', 'leather_armor'] },
@@ -41,6 +69,35 @@ export function seed(db: Database): void {
     tx();
   }
   seedAccounts(db); // separate so existing content DBs still get the default account
+  ensureSpellbookContent(db); // separate so pre-spellbook DBs gain the new rows without a wipe
+}
+
+/**
+ * Upsert the spellbook-era content into a DB seeded before it existed: the tome items, the
+ * Merchant's shelf, and the wolf_cull quest reward retune. Idempotent — INSERT OR IGNORE plus
+ * guarded UPDATEs — so it is safe to run on every boot (fresh DBs no-op).
+ */
+function ensureSpellbookContent(db: Database): void {
+  const insItem = db.prepare(
+    'INSERT OR IGNORE INTO items (id,name,kind,slot,power,hp,color,sell_value,teaches) VALUES (?,?,?,?,?,?,?,?,?)',
+  );
+  for (const [id, b] of Object.entries(SPELLBOOKS)) {
+    insItem.run(id, b.name, 'spellbook', null, null, null, b.color, b.sell, b.teaches);
+  }
+  const stocked = db.prepare('SELECT COUNT(*) AS n FROM vendor_stock').get() as { n: number };
+  if (stocked.n === 0) {
+    const ins = db.prepare(
+      'INSERT INTO vendor_stock (area_id,npc_name,item_id,price,sort_order) VALUES (?,?,?,?,?)',
+    );
+    MERCHANT_STOCK.forEach((s, i) => ins.run('town', 'Merchant', s.item, s.price, i));
+  }
+  // The guaranteed third spell ~15 minutes in, and quest gold at ~12× the area's per-kill EV.
+  db.prepare(
+    "UPDATE quests SET reward_item = 'tome_heal' WHERE id = 'wolf_cull' AND reward_item IS NULL",
+  ).run();
+  db.prepare(
+    "UPDATE quests SET reward_gold = 150 WHERE id = 'wolf_cull' AND reward_gold = 50",
+  ).run();
 }
 
 /** Seed a default developer account if none exists. Password from DEV_PASSWORD (default insecure). */
@@ -139,17 +196,18 @@ function seedAbilities(db: Database): void {
 
 function seedItems(db: Database): void {
   const ins = db.prepare(
-    'INSERT INTO items (id,name,kind,slot,power,hp,color,sell_value) VALUES (?,?,?,?,?,?,?,?)',
+    'INSERT INTO items (id,name,kind,slot,power,hp,color,sell_value,teaches) VALUES (?,?,?,?,?,?,?,?,?)',
   );
   // Equipment.
   for (const e of Object.values(EQUIPMENT)) {
-    ins.run(e.id, e.name, 'equip', e.slot, e.power ?? null, e.hp ?? null, e.color, 0);
+    ins.run(e.id, e.name, 'equip', e.slot, e.power ?? null, e.hp ?? null, e.color, 0, null);
   }
   // Materials + currency.
   for (const [id, m] of Object.entries(MATERIALS)) {
     const kind = id === 'gold' ? 'currency' : 'loot';
-    ins.run(id, m.name, kind, null, null, null, m.color, SELL_VALUES[id] ?? 0);
+    ins.run(id, m.name, kind, null, null, null, m.color, SELL_VALUES[id] ?? 0, null);
   }
+  // Spellbooks land via ensureSpellbookContent (shared with the existing-DB upgrade path).
 }
 
 function seedMobs(db: Database): void {
@@ -237,6 +295,15 @@ function seedNpcs(db: Database): void {
 
 function seedQuests(db: Database): void {
   db.prepare(
-    'INSERT INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp) VALUES (?,?,?,?,?,?,?)',
-  ).run('wolf_cull', 'Wolf Cull', 'Slay 5 Gloom Wolves prowling Gloomwood.', 'wolf', 5, 50, 80);
+    'INSERT INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item) VALUES (?,?,?,?,?,?,?,?)',
+  ).run(
+    'wolf_cull',
+    'Wolf Cull',
+    'Slay 5 Gloom Wolves prowling Gloomwood.',
+    'wolf',
+    5,
+    150,
+    80,
+    'tome_heal',
+  );
 }

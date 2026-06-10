@@ -25,6 +25,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "stress": "tsx tools/bots/stress.ts",
+    "chaos": "tsx tools/bots/chaos.ts",
     "screenshot": "node scripts/screenshot.mjs",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test"
   },

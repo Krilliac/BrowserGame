@@ -165,6 +165,13 @@ wss.on('connection', (socket) => {
   let entityId = 0;
   alive.add(socket);
   socket.on('pong', () => alive.add(socket));
+  // A per-socket error (e.g. `ws` rejecting an oversized inbound frame past maxPayload) is emitted
+  // as an 'error' event; with no handler Node rethrows it and the whole process dies. A single
+  // hostile client must never crash the server — log and drop just that connection.
+  socket.on('error', (err) => {
+    console.warn('[ws] socket error, terminating connection:', (err as Error).message);
+    socket.terminate();
+  });
   socket.send(contentMessage); // hand the client the game content first
   // Per-connection rate limits. Every client is untrusted: a single socket must not be
   // able to flood the simulation or chat. Generous for input, tight for chat.
@@ -227,6 +234,25 @@ wss.on('connection', (socket) => {
       case 'unequip': {
         const p = players.get(entityId);
         if (p) manager.get(p.instanceId)?.world.unequip(entityId, msg.slot);
+        break;
+      }
+      case 'learn': {
+        const p = players.get(entityId);
+        if (p && typeof msg.itemId === 'string') {
+          manager.get(p.instanceId)?.world.learn(entityId, msg.itemId);
+        }
+        break;
+      }
+      case 'buy': {
+        const p = players.get(entityId);
+        if (p && typeof msg.itemId === 'string') {
+          manager.get(p.instanceId)?.world.buy(entityId, msg.itemId);
+        }
+        break;
+      }
+      case 'sell': {
+        const p = players.get(entityId);
+        if (p) manager.get(p.instanceId)?.world.sell(entityId);
         break;
       }
       case 'chat': {
@@ -380,6 +406,14 @@ setInterval(() => {
       const socket = players.get(notice.playerId)?.socket;
       if (socket && socket.readyState === socket.OPEN) {
         send(socket, { t: 'chat', from: 'System', text: notice.text });
+      }
+    }
+
+    // Deliver shop windows to players who just interacted with a vendor.
+    for (const offer of world.drainShopOffers()) {
+      const socket = players.get(offer.playerId)?.socket;
+      if (socket && socket.readyState === socket.OPEN) {
+        send(socket, { t: 'shop', vendor: offer.vendor, stock: offer.stock });
       }
     }
   }

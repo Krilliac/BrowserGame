@@ -39,10 +39,16 @@ const MOB_TEMPLATE_COLUMNS: Record<string, string> = {
   dash_speed: 'REAL',
 };
 
+/** Spellbook era: items can teach an ability; quests can reward an item. */
+const ITEMS_COLUMNS: Record<string, string> = { teaches: 'TEXT' };
+const QUESTS_COLUMNS: Record<string, string> = { reward_item: 'TEXT' };
+
 export function migrate(db: Database): void {
   // Tables may not exist yet on a brand-new DB — SCHEMA creates them; skip a table if absent.
   if (hasTable(db, 'area_theme')) ensureColumns(db, 'area_theme', AREA_THEME_COLUMNS);
   if (hasTable(db, 'mob_templates')) ensureColumns(db, 'mob_templates', MOB_TEMPLATE_COLUMNS);
+  if (hasTable(db, 'items')) ensureColumns(db, 'items', ITEMS_COLUMNS);
+  if (hasTable(db, 'quests')) ensureColumns(db, 'quests', QUESTS_COLUMNS);
 }
 
 function hasTable(db: Database, name: string): boolean {
