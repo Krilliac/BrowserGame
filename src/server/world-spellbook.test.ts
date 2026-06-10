@@ -176,6 +176,36 @@ describe('vendor shop — buy / sell / proximity', () => {
   });
 });
 
+describe('quest log state (the wire data for the quest-log UI)', () => {
+  it('reports available → active → done with progress', () => {
+    const w = new World(1600, 1200, { x: 800, y: 600 }, undefined, 'wilderness');
+    const id = w.spawn('Logger', { x: 800, y: 600 });
+
+    // Every content quest starts as 'available'.
+    let wolf = w.playerStats(id)!.quests.find((q) => q.id === 'wolf_cull')!;
+    expect(wolf.status).toBe('available');
+    expect(wolf.progress).toBe(0);
+    expect(wolf.targetCount).toBe(5);
+
+    // Accepting moves it to 'active'.
+    w.acceptQuest(id, 'wolf_cull');
+    wolf = w.playerStats(id)!.quests.find((q) => q.id === 'wolf_cull')!;
+    expect(wolf.status).toBe('active');
+
+    // Completing it (high-level god-mode wolf cull) moves it to 'done'.
+    w.setLevel(id, 50);
+    w.toggleGod(id);
+    for (let t = 0; t < 2000; t++) {
+      const q = w.playerStats(id)!.quests.find((x) => x.id === 'wolf_cull')!;
+      if (q.status === 'done') break;
+      w.spawnMobAt(id, 'wolf');
+      w.cast(id, 'slash', 1, 0);
+      w.tick(0.05);
+    }
+    expect(w.playerStats(id)!.quests.find((q) => q.id === 'wolf_cull')!.status).toBe('done');
+  });
+});
+
 describe('quest reward items', () => {
   it('grants the reward item on completion (wolf_cull → tome_heal)', () => {
     // A high-level, god-mode hunter one-shots wolves with Slash; we keep a wolf next to the

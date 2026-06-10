@@ -7,6 +7,7 @@ import {
   WORLD_WIDTH,
   type EntityState,
   type InputState,
+  type QuestState,
 } from '../shared/protocol.js';
 import {
   HP_REGEN_PER_SEC,
@@ -1309,6 +1310,30 @@ export class World {
       });
   }
 
+  /** Structured quest states for the client quest-log panel (available + active + done). */
+  private questStates(player: Player): QuestState[] {
+    return getContent()
+      .quests()
+      .map((q) => {
+        const status: QuestState['status'] = player.questsDone.has(q.id)
+          ? 'done'
+          : player.quests.has(q.id)
+            ? 'active'
+            : 'available';
+        return {
+          id: q.id,
+          name: q.name,
+          description: q.description,
+          targetCount: q.targetCount,
+          progress: player.quests.get(q.id) ?? 0,
+          status,
+          rewardGold: q.rewardGold,
+          rewardXp: q.rewardXp,
+          rewardItem: q.rewardItem,
+        };
+      });
+  }
+
   private progressQuests(player: Player, mobTemplateId: string): void {
     const content = getContent();
     for (const [questId, kills] of player.quests) {
@@ -1524,6 +1549,7 @@ export class World {
         critChance: number;
         equipment: Equipment;
         known: Record<string, number>;
+        quests: QuestState[];
         corruption: number;
         x: number;
         y: number;
@@ -1551,6 +1577,7 @@ export class World {
       critChance: p.critChance,
       equipment: p.equipment,
       known: Object.fromEntries(p.known),
+      quests: this.questStates(p),
       corruption: this.corruption(),
       x: p.x,
       y: p.y,

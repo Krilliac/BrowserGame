@@ -122,6 +122,11 @@ let charOpen = false;
 const charSlotRects: { slot: string; x: number; y: number; w: number; h: number }[] = [];
 let charPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 
+// Quest log panel: open with L; available quests have an "Accept" click target.
+let questOpen = false;
+const questAcceptRects: { id: string; x: number; y: number; w: number; h: number }[] = [];
+let questPanelRect: { x: number; y: number; w: number; h: number } | null = null;
+
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
 
@@ -147,6 +152,10 @@ window.addEventListener('keydown', (e) => {
     net.shop = null; // close the shop
     return;
   }
+  if (e.key === 'Escape' && questOpen) {
+    questOpen = false;
+    return;
+  }
   const ability = net.content.abilityOrder().find((id) => net.content.ability(id)?.key === e.key);
   if (ability) {
     selected = ability;
@@ -155,6 +164,8 @@ window.addEventListener('keydown', (e) => {
     net.sendInteract(); // server validates NPC proximity
   } else if (e.key.toLowerCase() === 'c') {
     charOpen = !charOpen; // toggle the character/equipment panel
+  } else if (e.key.toLowerCase() === 'l') {
+    questOpen = !questOpen; // toggle the quest log
   }
 });
 
@@ -167,6 +178,8 @@ window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
   // An open shop captures clicks (buy / sell / close) and never falls through to a cast.
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
+  // The quest log captures clicks (accept buttons / panel body) and never falls through to a cast.
+  if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   // Clicks on the open character panel unequip a slot and never fall through to a cast.
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
@@ -191,6 +204,16 @@ window.addEventListener('pointerdown', (e) => {
     castAbility(selected);
   }
 });
+
+/** Route a click inside the open quest log. Returns true if it was consumed. */
+function handleQuestClick(x: number, y: number): boolean {
+  const accept = questAcceptRects.find((r) => inRect(x, y, r));
+  if (accept) {
+    net.sendAcceptQuest(accept.id);
+    return true;
+  }
+  return questPanelRect ? inRect(x, y, questPanelRect) : false;
+}
 
 /** Route a click inside the open shop panel. Returns true if it was consumed. */
 function handleShopClick(x: number, y: number): boolean {
@@ -220,6 +243,7 @@ let touchStart: { x: number; y: number; t: number } | null = null;
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
+  if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
     if (cs) net.sendUnequip(cs.slot);
@@ -418,6 +442,11 @@ function frame(): void {
   sound.fromFx(net.fx);
   drawHud();
   if (charOpen) drawCharacterPanel();
+  if (questOpen) drawQuestPanel();
+  else {
+    questPanelRect = null;
+    questAcceptRects.length = 0;
+  }
   if (net.shop) drawShopPanel();
   else {
     shopPanelRect = null;
@@ -516,6 +545,119 @@ function drawCharacterPanel(): void {
   right.forEach((s, i) => drawCharSlot(s, px + 14 + bw + 12, sy + i * (bh + gap), bw, bh));
   const lastY = sy + 6 * (bh + gap);
   drawCharSlot('mainhand', px + 14, lastY, pw - 28, bh);
+}
+
+/** The quest log (toggle with L). Active quests show progress bars; available ones an Accept button. */
+function drawQuestPanel(): void {
+  questAcceptRects.length = 0;
+  const quests = net.you.quests ?? [];
+  // Order: active first, then available, then done — the player's eye goes to live objectives.
+  const rank = (s: string): number => (s === 'active' ? 0 : s === 'available' ? 1 : 2);
+  const sorted = [...quests].sort((a, b) => rank(a.status) - rank(b.status));
+
+  const pw = 420;
+  const rowH = 58;
+  const headerH = 44;
+  const ph = Math.min(hudCanvas.height - 80, headerH + Math.max(1, sorted.length) * rowH + 12);
+  const px = hudCanvas.width / 2 - pw / 2;
+  const py = 56;
+  questPanelRect = { x: px, y: py, w: pw, h: ph };
+
+  hud.fillStyle = 'rgba(8,9,13,0.93)';
+  hud.fillRect(px, py, pw, ph);
+  hud.strokeStyle = '#c9a24b';
+  hud.lineWidth = 2;
+  hud.strokeRect(px, py, pw, ph);
+
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 15px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText('Quest Log', px + 14, py + 24);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#8a8f99';
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillText('L or Esc to close', px + pw - 14, py + 24);
+
+  if (sorted.length === 0) {
+    hud.textAlign = 'center';
+    hud.fillStyle = '#8a8f99';
+    hud.font = 'italic 12px system-ui, sans-serif';
+    hud.fillText(
+      'No quests yet — talk to a quest-giver (the gold ! markers).',
+      px + pw / 2,
+      py + 74,
+    );
+    return;
+  }
+
+  const statusColor: Record<string, string> = {
+    active: '#f2c14e',
+    available: '#9fb0c0',
+    done: '#6b9a5a',
+  };
+  sorted.forEach((q, i) => {
+    const ry = py + headerH + i * rowH;
+    hud.textAlign = 'left';
+    hud.fillStyle = statusColor[q.status] ?? '#d7dbe3';
+    hud.font = 'bold 13px system-ui, sans-serif';
+    const tag = q.status === 'done' ? '✓ ' : q.status === 'active' ? '▸ ' : '· ';
+    hud.fillText(fitText(tag + q.name, pw - 120), px + 14, ry + 14);
+
+    hud.fillStyle = '#9aa3b2';
+    hud.font = '10px system-ui, sans-serif';
+    hud.fillText(fitText(q.description, pw - 28), px + 14, ry + 30);
+
+    // Reward line.
+    const rewardItemName = q.rewardItem
+      ? (net.content.item(q.rewardItem)?.name ?? q.rewardItem)
+      : '';
+    const reward = `+${q.rewardGold}g +${q.rewardXp}xp${rewardItemName ? ` · ${rewardItemName}` : ''}`;
+    hud.fillStyle = '#7d828c';
+    hud.font = '10px system-ui, sans-serif';
+    hud.fillText(fitText(reward, pw - 120), px + 14, ry + 44);
+
+    if (q.status === 'active') {
+      // Progress bar on the right.
+      const bw = 90;
+      const bx = px + pw - bw - 14;
+      const frac = q.targetCount > 0 ? Math.min(1, q.progress / q.targetCount) : 0;
+      hud.fillStyle = 'rgba(0,0,0,0.5)';
+      hud.fillRect(bx, ry + 18, bw, 12);
+      hud.fillStyle = '#8ac34a';
+      hud.fillRect(bx, ry + 18, bw * frac, 12);
+      hud.strokeStyle = 'rgba(201,162,75,0.5)';
+      hud.lineWidth = 1;
+      hud.strokeRect(bx, ry + 18, bw, 12);
+      hud.fillStyle = '#fff';
+      hud.font = '9px system-ui, sans-serif';
+      hud.textAlign = 'center';
+      hud.fillText(`${q.progress}/${q.targetCount}`, bx + bw / 2, ry + 27);
+    } else if (q.status === 'available') {
+      // Accept button.
+      const bw = 78;
+      const bx = px + pw - bw - 14;
+      const rect = { id: q.id, x: bx, y: ry + 14, w: bw, h: 22 };
+      questAcceptRects.push(rect);
+      hud.fillStyle = 'rgba(60,90,60,0.6)';
+      hud.fillRect(rect.x, rect.y, rect.w, rect.h);
+      hud.strokeStyle = 'rgba(201,162,75,0.6)';
+      hud.lineWidth = 1;
+      hud.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      hud.fillStyle = '#e7d9b0';
+      hud.font = 'bold 11px system-ui, sans-serif';
+      hud.textAlign = 'center';
+      hud.fillText('Accept', rect.x + rect.w / 2, rect.y + 15);
+    }
+
+    if (i < sorted.length - 1) {
+      hud.strokeStyle = 'rgba(255,255,255,0.06)';
+      hud.lineWidth = 1;
+      hud.beginPath();
+      hud.moveTo(px + 10, ry + rowH - 4);
+      hud.lineTo(px + pw - 10, ry + rowH - 4);
+      hud.stroke();
+    }
+  });
 }
 
 /** The vendor shop window (opened by E on a vendor). Tap a row to buy; a button sells the bag. */
@@ -899,7 +1041,7 @@ function drawInventory(w: number): void {
   );
   hud.fillStyle = '#9aa3b2';
   hud.font = '10px system-ui, sans-serif';
-  hud.fillText('Press C — character & equipment', px + 8, py + 30);
+  hud.fillText('C — character · L — quests', px + 8, py + 30);
   py += eqH + 6;
 
   // Gear panel: unequipped instances, two lines each (name, then stats) so long affix lists never

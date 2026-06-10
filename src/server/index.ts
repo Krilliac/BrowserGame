@@ -243,6 +243,15 @@ wss.on('connection', (socket) => {
         }
         break;
       }
+      case 'accept_quest': {
+        const p = players.get(entityId);
+        if (p && typeof msg.questId === 'string') {
+          const world = manager.get(p.instanceId)?.world;
+          const result = world?.acceptQuest(entityId, msg.questId);
+          if (result) send(p.socket, { t: 'chat', from: 'System', text: result });
+        }
+        break;
+      }
       case 'buy': {
         const p = players.get(entityId);
         if (p && typeof msg.itemId === 'string') {

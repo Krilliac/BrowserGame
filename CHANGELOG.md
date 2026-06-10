@@ -8,6 +8,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Quest log UI (press L).** A panel listing every quest as available / active / completed, sorted
+  with live objectives first: active quests show a progress bar (e.g. 3/5), available quests have an
+  **Accept** button, and each row shows its gold/XP/item reward. Quest state now rides the `you`
+  packet (`QuestState[]`), and a new `accept_quest` message lets the panel accept a quest directly
+  (server validates it exists and isn't already taken). Turn-in stays automatic on the killing blow.
 - **Spells are loot — the spellbook system.** Abilities are no longer all free at spawn. Fresh
   characters know only **Slash + Fireball**; the rest are learned from **spellbook items** that drop
   from monsters (0.4% normal / 3% elite / 30% boss), are awarded by quests (Wolf Cull now grants the

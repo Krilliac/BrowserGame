@@ -12,6 +12,21 @@ import type { AbilityId, Ability, EntityKind, FxEvent } from './combat.js';
 import type { AreaDef } from './areas.js';
 import type { ItemInstance } from './items.js';
 
+/** One quest's state for the client quest log. */
+export interface QuestState {
+  id: string;
+  name: string;
+  description: string;
+  targetCount: number;
+  /** Kills so far (0 for available/done). */
+  progress: number;
+  status: 'available' | 'active' | 'done';
+  /** Reward summary for the log (gold/xp + optional item name). */
+  rewardGold: number;
+  rewardXp: number;
+  rewardItem: string | null;
+}
+
 /** Item display/stat info sent to the client (mirrors the server's content DB items). */
 export interface ItemInfo {
   id: string;
@@ -102,6 +117,8 @@ export type ClientMessage =
   | { t: 'unequip'; slot: string }
   /** Read a spellbook from the bag: learn its spell (or rank it up). Server validates ownership. */
   | { t: 'learn'; itemId: string }
+  /** Accept an available quest from the quest-log panel. Server validates it exists + isn't taken. */
+  | { t: 'accept_quest'; questId: string }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
@@ -150,6 +167,8 @@ export type ServerMessage =
       equipment: Record<string, ItemInstance | null>;
       /** Spells this character has learned: ability id → rank (1..MAX_SPELL_RANK). */
       known: Record<string, number>;
+      /** Quest log: available + active (with progress) + completed quests. */
+      quests: QuestState[];
       /** Area corruption 0..1 (drives the client's darkening of the scene). */
       corruption: number;
       /** Authoritative position + last input the server processed (client reconciliation). */

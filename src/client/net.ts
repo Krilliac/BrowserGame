@@ -1,7 +1,13 @@
 import { SnapshotBuffer } from './interp.js';
 import { ClientContentStore } from './content-store.js';
 import type { TimedFx } from './draw.js';
-import { decodeServer, encode, type InputState, type ServerMessage } from '../shared/protocol.js';
+import {
+  decodeServer,
+  encode,
+  type InputState,
+  type QuestState,
+  type ServerMessage,
+} from '../shared/protocol.js';
 import type { AbilityId } from '../shared/combat.js';
 import type { ItemInstance } from '../shared/items.js';
 
@@ -28,6 +34,7 @@ export interface SelfStats {
   critChance: number;
   equipment: Record<string, ItemInstance | null>;
   known: Record<string, number>;
+  quests: QuestState[];
   corruption: number;
   x: number;
   y: number;
@@ -72,6 +79,7 @@ export class Net {
     critChance: 0.15,
     equipment: {},
     known: {},
+    quests: [],
     corruption: 0,
     x: 0,
     y: 0,
@@ -151,6 +159,10 @@ export class Net {
     this.send({ t: 'learn', itemId });
   }
 
+  sendAcceptQuest(questId: string): void {
+    this.send({ t: 'accept_quest', questId });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
@@ -203,6 +215,7 @@ export class Net {
           critChance: msg.critChance,
           equipment: msg.equipment,
           known: msg.known,
+          quests: msg.quests,
           corruption: msg.corruption,
           x: msg.x,
           y: msg.y,
