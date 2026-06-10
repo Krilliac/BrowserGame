@@ -3,7 +3,9 @@ import { isPinnedToBottom } from './chat.js';
 import {
   affixLabel,
   instanceName,
+  isDebuff,
   RARITY,
+  type Affix,
   type ItemInstance,
   type Rarity,
 } from '../shared/items.js';
@@ -517,13 +519,13 @@ function instLabel(inst: ItemInstance): string {
   return instanceName(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
 }
 
-/** Short stat line for a gear instance: base stat then any rolled affixes. */
-function instStat(inst: ItemInstance): string {
-  const parts: string[] = [];
-  if (inst.power > 0) parts.push(`+${inst.power} pow`);
-  if (inst.hp > 0) parts.push(`+${inst.hp} hp`);
-  for (const a of inst.affixes) parts.push(affixLabel(a));
-  return parts.join(' · ');
+/** Stat segments for a gear instance: base stat(s) then affixes, flagging debuffs for red text. */
+function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean }[] {
+  const segs: { text: string; debuff: boolean }[] = [];
+  if (inst.power > 0) segs.push({ text: `+${inst.power} pow`, debuff: false });
+  if (inst.hp > 0) segs.push({ text: `+${inst.hp} hp`, debuff: false });
+  for (const a of inst.affixes) segs.push({ text: affixLabel(a as Affix), debuff: isDebuff(a) });
+  return segs;
 }
 
 const MINIMAP_SIZE = 160;
@@ -656,11 +658,13 @@ function drawInventory(w: number): void {
   drawSlot('Arm', net.you.armor, py + 47);
   py += eqH + 6;
 
-  // Gear panel: unequipped instances, rarity-colored and clickable to equip.
+  // Gear panel: unequipped instances, two lines each (name, then stats) so long affix lists never
+  // overlap the name. Rarity-colored, clickable to equip; debuff affixes shown in red.
   bagRects.length = 0;
   const gear = net.you.gear;
   if (gear.length > 0) {
-    const gh = 24 + gear.length * 16;
+    const rowH = 28;
+    const gh = 22 + gear.length * rowH;
     hud.fillStyle = 'rgba(0,0,0,0.5)';
     hud.fillRect(px, py, pw, gh);
     hud.strokeStyle = 'rgba(201,162,75,0.6)';
@@ -668,17 +672,23 @@ function drawInventory(w: number): void {
     hud.fillStyle = '#e7d9b0';
     hud.font = 'bold 12px system-ui, sans-serif';
     hud.textAlign = 'left';
-    hud.fillText('Gear — tap to equip', px + 8, py + 16);
-    hud.font = '11px system-ui, sans-serif';
+    hud.fillText('Gear — tap to equip', px + 8, py + 15);
     gear.forEach((inst, i) => {
-      const ry = py + 24 + i * 16;
-      bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: 16 });
+      const ry = py + 22 + i * rowH;
+      bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: rowH });
+      // Line 1: the item name, in its rarity color.
+      hud.font = 'bold 11px system-ui, sans-serif';
       hud.fillStyle = rarityColor(inst.rarity);
       hud.textAlign = 'left';
-      hud.fillText(instLabel(inst), px + 8, ry + 12);
-      hud.fillStyle = '#cfd6df';
-      hud.textAlign = 'right';
-      hud.fillText(instStat(inst), px + pw - 8, ry + 12);
+      hud.fillText(instLabel(inst), px + 8, ry + 11);
+      // Line 2: stat segments laid out left-to-right (debuffs in red), no overlap with the name.
+      hud.font = '10px system-ui, sans-serif';
+      let sx = px + 8;
+      for (const seg of instStatSegments(inst)) {
+        hud.fillStyle = seg.debuff ? '#ff6b6b' : '#9fb0c0';
+        hud.fillText(seg.text, sx, ry + 23);
+        sx += hud.measureText(seg.text).width + 7;
+      }
     });
     py += gh + 6;
   }
