@@ -88,7 +88,11 @@
 - [x] **Quest log UI** (L) — available/active/completed with progress bars + accept buttons.
 - [x] **Gems + sockets** — gem drops, sockets rolled on gear, tap-to-socket, stat folding,
       socket pips in the character panel. `shared/gems.ts` + tests.
+- [x] **Healer + Gambler NPCs** — Sister Oona (free full restore) and Lucky Marn (slot-targeted
+      gold gamble, cost 50+30×level). `shared/gamble.ts` + tests.
 - [ ] **Enchanting NPC (Artificer)** — reroll/add affixes for gold + materials; gem unsocketing.
+- [ ] **Waypoints** — fast-travel between discovered areas from town.
+- [ ] **Quest types** — collect/turn-in (consume items), explore/discover.
 - [ ] Banking; guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.

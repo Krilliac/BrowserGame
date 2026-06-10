@@ -12,6 +12,7 @@ import {
 import { SLOT_LABELS } from '../shared/equipment.js';
 import { drawPartyPanel, type PartyButton } from './party-panel.js';
 import { drawSocialPanel, type SocialButton } from './social-panel.js';
+import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -136,6 +137,7 @@ let partyOpen = false;
 let socialOpen = false;
 let partyButtons: PartyButton[] = [];
 let socialButtons: SocialButton[] = [];
+let gambleButtons: GambleButton[] = [];
 
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
@@ -160,6 +162,10 @@ window.addEventListener('keydown', (e) => {
   if (document.activeElement === chatInputEl) return;
   if (e.key === 'Escape' && net.shop) {
     net.shop = null; // close the shop
+    return;
+  }
+  if (e.key === 'Escape' && net.gamble) {
+    net.gamble = null;
     return;
   }
   if (e.key === 'Escape' && questOpen) {
@@ -197,6 +203,7 @@ window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
   // An open shop captures clicks (buy / sell / close) and never falls through to a cast.
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
+  if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   // The quest log captures clicks (accept buttons / panel body) and never falls through to a cast.
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
@@ -288,6 +295,15 @@ function handleQuestClick(x: number, y: number): boolean {
   return questPanelRect ? inRect(x, y, questPanelRect) : false;
 }
 
+/** Route a click inside the open gambling panel. Returns true if it was consumed. */
+function handleGambleClick(x: number, y: number): boolean {
+  const btn = gambleButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.gamble = null;
+  else if (btn.action === 'gamble' && btn.slot) net.sendGamble(btn.slot);
+  return true;
+}
+
 /** Route a click inside the open shop panel. Returns true if it was consumed. */
 function handleShopClick(x: number, y: number): boolean {
   if (shopCloseRect && inRect(x, y, shopCloseRect)) {
@@ -316,6 +332,7 @@ let touchStart: { x: number; y: number; t: number } | null = null;
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
+  if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
   if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
@@ -590,6 +607,16 @@ function frame(): void {
     socialButtons = drawSocialPanel(hud, { w: hudCanvas.width, h: hudCanvas.height }, net.friends);
   } else {
     socialButtons = [];
+  }
+  if (net.gamble) {
+    gambleButtons = drawGamblePanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      net.gamble.cost,
+      net.you.gold,
+    );
+  } else {
+    gambleButtons = [];
   }
   if (net.shop) drawShopPanel();
   else {
@@ -1009,8 +1036,15 @@ function drawHud(): void {
   drawJoystick();
 
   const npc = nearbyNpc();
-  if (npc && !net.you.dead && !net.shop) {
-    const action = npc.npcKind === 'questgiver' ? 'talk to' : 'shop with';
+  if (npc && !net.you.dead && !net.shop && !net.gamble) {
+    const action =
+      npc.npcKind === 'questgiver'
+        ? 'talk to'
+        : npc.npcKind === 'healer'
+          ? 'rest at'
+          : npc.npcKind === 'gambler'
+            ? 'gamble with'
+            : 'shop with';
     const text = `Press E — ${action} ${npc.name}`;
     hud.font = '14px system-ui, sans-serif';
     hud.textAlign = 'center';

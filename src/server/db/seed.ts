@@ -120,6 +120,22 @@ function ensureSpellbookContent(db: Database): void {
   for (const g of Object.values(GEMS)) {
     insItem.run(g.id, g.name, 'gem', null, null, null, g.color, g.tier * 10, null);
   }
+
+  // Town service NPCs added after the original seed — insert by name only if missing.
+  const npcExists = db.prepare('SELECT 1 FROM npcs WHERE area_id = ? AND name = ?');
+  const npcIns = db.prepare('INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)');
+  const ensureNpc = (
+    area: string,
+    name: string,
+    x: number,
+    y: number,
+    hue: number,
+    kind: string,
+  ): void => {
+    if (!npcExists.get(area, name)) npcIns.run(area, name, x, y, hue, kind);
+  };
+  ensureNpc('town', 'Sister Oona', 860, 560, 140, 'healer');
+  ensureNpc('town', 'Lucky Marn', 940, 560, 300, 'gambler');
 }
 
 /** Seed a default developer account if none exists. Password from DEV_PASSWORD (default insecure). */
@@ -313,9 +329,12 @@ function seedLoot(db: Database): void {
 
 function seedNpcs(db: Database): void {
   const ins = db.prepare('INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)');
-  // A town plaza: the merchant and the quest-giver stand together near the spawn/portal.
+  // A town plaza: the merchant and the quest-giver stand together near the spawn/portal,
+  // flanked by a healer and a gambler — the minimum-viable ARPG town services.
   ins.run('town', 'Merchant', 660, 560, 45, 'vendor');
   ins.run('town', 'Elder Maeve', 740, 560, 190, 'questgiver');
+  ins.run('town', 'Sister Oona', 860, 560, 140, 'healer');
+  ins.run('town', 'Lucky Marn', 940, 560, 300, 'gambler');
   // A quest-giver near the arrival point of each new area, so the content is discoverable.
   ins.run('marsh', 'Bogged Pilgrim', 1100, 280, 95, 'questgiver');
   ins.run('mines', 'Stranded Miner', 900, 280, 18, 'questgiver');

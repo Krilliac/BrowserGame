@@ -101,6 +101,8 @@ export class Net {
   party: PartyView = { members: [] };
   /** The local player's friends list with live presence. */
   friends: FriendInfo[] = [];
+  /** Open gambling window (per-pull cost), or null when no gambler panel is open. */
+  gamble: { cost: number } | null = null;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
   authRev = 0;
   /** Bumped whenever a content packet arrives — drives a live re-skin (theme edits, hot reload). */
@@ -209,6 +211,10 @@ export class Net {
     this.send({ t: 'socket_gem', gemId });
   }
 
+  sendGamble(slot: string): void {
+    this.send({ t: 'gamble', slot });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
@@ -284,12 +290,16 @@ export class Net {
       case 'friends':
         this.friends = Array.isArray(msg.list) ? msg.list : [];
         break;
+      case 'gamble_open':
+        this.gamble = { cost: typeof msg.cost === 'number' ? msg.cost : 0 };
+        break;
       case 'area_changed':
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
         this.snapshots.clear(); // forget the old area's entities immediately
         this.fx.length = 0;
         this.shop = null; // close any open shop when we leave the area
+        this.gamble = null;
         break;
       case 'chat':
         this.chat.push(

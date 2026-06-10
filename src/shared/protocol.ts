@@ -169,6 +169,8 @@ export type ClientMessage =
   | { t: 'whisper'; to: string; text: string }
   /** Socket a held gem into the first open socket on your equipped gear. */
   | { t: 'socket_gem'; gemId: string }
+  /** Gamble gold for a random item of the given equip slot (at a nearby gambler NPC). */
+  | { t: 'gamble'; slot: string }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
@@ -235,6 +237,8 @@ export type ServerMessage =
   | { t: 'party'; members: PartyMember[]; inviteFrom?: string }
   /** The receiving player's full friends list with live presence. */
   | { t: 'friends'; list: FriendInfo[] }
+  /** Open the gambling window (sent when interacting with a gambler NPC); `cost` is per pull. */
+  | { t: 'gamble_open'; cost: number }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
   | { t: 'chat'; from: string; text: string; channel?: ChatChannel }

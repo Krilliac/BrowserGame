@@ -43,6 +43,7 @@ import {
   type ItemInstance,
 } from '../shared/items.js';
 import { gemBonuses, isGem, rollGemDrop } from '../shared/gems.js';
+import { gambleCost, isGambleSlot, rollGamble } from '../shared/gamble.js';
 import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-corruption.js';
 import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../shared/equipment.js';
 import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
@@ -240,13 +241,15 @@ interface GroundItem {
   instance?: ItemInstance;
 }
 
+type NpcKind = 'vendor' | 'questgiver' | 'healer' | 'gambler';
+
 interface Npc {
   id: number;
   name: string;
   x: number;
   y: number;
   hue: number;
-  kind: 'vendor' | 'questgiver';
+  kind: NpcKind;
 }
 
 /**
@@ -273,6 +276,8 @@ export class World {
     vendor: string;
     stock: { itemId: string; price: number }[];
   }[] = [];
+  /** Pending gambling windows to deliver (player just interacted with a gambler NPC). */
+  private gambleOffers: { playerId: number; cost: number }[] = [];
   /** Living-loot meta: sim time (ms) each monster type was last killed, for the hunting bounty. */
   private readonly lastKillAt = new Map<string, number>();
   // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
@@ -420,14 +425,15 @@ export class World {
 
   /** Place static NPCs for the area (from the content DB). Called once after construction. */
   populateNpcs(areaId: string): void {
+    const KINDS: NpcKind[] = ['vendor', 'questgiver', 'healer', 'gambler'];
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
-      const kind = npc.kind === 'questgiver' ? 'questgiver' : 'vendor';
+      const kind = (KINDS as string[]).includes(npc.kind) ? (npc.kind as NpcKind) : 'vendor';
       this.npcs.set(id, { id, name: npc.name, x: npc.x, y: npc.y, hue: npc.hue, kind });
     }
   }
 
-  /** Interact with the nearest in-range NPC: a vendor buys loot, a quest-giver offers quests. */
+  /** Interact with the nearest in-range NPC: vendor shop, quest-giver, healer, or gambler. */
   interact(id: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
@@ -440,9 +446,43 @@ export class World {
         vendor: npc.name,
         stock: getContent().vendorStock(this.areaId, npc.name),
       });
+    } else if (npc.kind === 'healer') {
+      this.healAtNpc(player, npc.name);
+    } else if (npc.kind === 'gambler') {
+      this.gambleOffers.push({ playerId: player.id, cost: gambleCost(player.level) });
     } else {
       this.talkToQuestGiver(player);
     }
+  }
+
+  /** A healer NPC fully restores HP + mana and clears status effects (a free QoL service). */
+  private healAtNpc(player: Player, npcName: string): void {
+    player.hp = player.maxHp;
+    player.mana = PLAYER_MAX_MANA;
+    this.events.push({ kind: 'levelup', x: player.x, y: player.y, value: player.level });
+    this.notify(player.id, `${npcName} mends your wounds — fully restored.`);
+  }
+
+  /**
+   * Gamble gold for a random item of an equip slot (the D3-Kadala gold sink). Re-validates the
+   * gambler is in range, the slot is real, and the player can afford the per-level cost.
+   */
+  gamble(id: number, slot: string): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    const npc = this.nearbyNpc(player);
+    if (!npc || npc.kind !== 'gambler') return;
+    if (!isGambleSlot(slot)) return;
+    const cost = gambleCost(player.level);
+    if (player.gold < cost) return;
+    const inst = rollGamble(this.allocId(), slot);
+    if (!inst) return;
+    player.gold -= cost;
+    player.gear.push(inst);
+    this.notify(
+      player.id,
+      `You gamble ${cost}g and receive a ${getContent().item(inst.baseId)?.name ?? inst.baseId}.`,
+    );
   }
 
   /** The interactable NPC within range of a player (the nearest), or undefined. */
@@ -467,6 +507,13 @@ export class World {
   }[] {
     const drained = this.shopOffers;
     this.shopOffers = [];
+    return drained;
+  }
+
+  /** Drain pending gambling windows for the host to deliver as `gamble_open` packets. */
+  drainGambleOffers(): { playerId: number; cost: number }[] {
+    const drained = this.gambleOffers;
+    this.gambleOffers = [];
     return drained;
   }
 

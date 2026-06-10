@@ -8,6 +8,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Town services — Healer + Gambler NPCs.** **Sister Oona** (healer) fully restores HP/mana on
+  interact — a free QoL stop. **Lucky Marn** (gambler, the D3-Kadala pattern) opens a window where
+  you spend gold for a **random item of a chosen equip slot** (cost `50 + 30 × level`, scaling
+  forever as a gold sink) — could be junk, could be rare. New `gamble`/`gamble_open` messages,
+  `shared/gamble.ts` (11 tests), a `gamble-panel.ts` renderer, and two seeded NPCs (added
+  idempotently to existing DBs). `npc.kind` now includes `healer`/`gambler`.
 - **Gems + sockets (Diablo-style).** Gear now rolls **gem sockets** by rarity (magic/rare 1, epic/
   legendary 2, corrupted 1). Gems drop from monsters (2%/12%/60% normal/elite/boss) as their own
   stackable item kind — three families × three tiers (Ruby→power, Sapphire→hp, Topaz→crit) plus a

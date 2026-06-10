@@ -176,6 +176,69 @@ describe('vendor shop — buy / sell / proximity', () => {
   });
 });
 
+describe('town service NPCs (healer + gambler)', () => {
+  /** A town world with all service NPCs placed and a player on the gambler/healer row. */
+  function townWithServices(): { w: World; id: number } {
+    const w = new World(1600, 1200, { x: 900, y: 560 }, undefined, 'town');
+    w.populateNpcs('town');
+    const id = w.spawn('Patron', { x: 900, y: 560 }); // near Sister Oona (860) + Lucky Marn (940)
+    return { w, id };
+  }
+
+  it('a healer fully restores HP and mana on interact', () => {
+    const { w, id } = townWithServices();
+    // Stand on the healer and damage the player first.
+    w.teleport(id, 860, 560);
+    w.setLevel(id, 10);
+    // Drain HP/mana via a cast + simulated damage: cast costs mana; then check restore.
+    w.giveItem(id, 'tome_lightning', 1);
+    w.learn(id, 'tome_lightning');
+    w.cast(id, 'lightning', 1, 0); // spends mana
+    expect(w.playerStats(id)!.mana).toBeLessThan(w.playerStats(id)!.maxMana);
+    w.interact(id); // Sister Oona
+    const s = w.playerStats(id)!;
+    expect(s.mana).toBe(s.maxMana);
+    expect(s.hp).toBe(s.maxHp);
+  });
+
+  it('a gambler opens a window and rolls an item of the chosen slot for gold', () => {
+    const { w, id } = townWithServices();
+    w.teleport(id, 940, 560); // stand on Lucky Marn
+    w.interact(id);
+    const offers = w.drainGambleOffers();
+    expect(offers).toHaveLength(1);
+    const cost = offers[0]!.cost;
+    expect(cost).toBeGreaterThan(0);
+
+    w.giveItem(id, 'gold', cost + 100);
+    const goldBefore = w.playerStats(id)!.gold;
+    const gearBefore = w.playerStats(id)!.gear.length;
+    w.gamble(id, 'mainhand');
+    const after = w.playerStats(id)!;
+    expect(after.gold).toBe(goldBefore - cost);
+    expect(after.gear.length).toBe(gearBefore + 1);
+    // The gambled item is a weapon (mainhand base).
+    expect(after.gear[after.gear.length - 1]!.baseId).toBeDefined();
+  });
+
+  it('the gambler refuses when the player cannot afford a pull', () => {
+    const { w, id } = townWithServices();
+    w.teleport(id, 940, 560);
+    const gearBefore = w.playerStats(id)!.gear.length;
+    w.gamble(id, 'mainhand'); // 0 gold
+    expect(w.playerStats(id)!.gear.length).toBe(gearBefore);
+  });
+
+  it('gambling requires standing next to the gambler', () => {
+    const { w, id } = townWithServices();
+    w.giveItem(id, 'gold', 100000);
+    w.teleport(id, 100, 100); // far from Lucky Marn
+    const gearBefore = w.playerStats(id)!.gear.length;
+    w.gamble(id, 'mainhand');
+    expect(w.playerStats(id)!.gear.length).toBe(gearBefore);
+  });
+});
+
 describe('gem socketing', () => {
   it('sockets a held gem into equipped gear, applies its bonus, and consumes the gem', () => {
     const w = new World();

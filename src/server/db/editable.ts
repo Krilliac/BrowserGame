@@ -192,7 +192,7 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       x: { type: 'int', min: 0, max: 100000 },
       y: { type: 'int', min: 0, max: 100000 },
       hue: { type: 'real', min: 0, max: 360 },
-      kind: { type: 'enum', values: ['vendor', 'questgiver'] },
+      kind: { type: 'enum', values: ['vendor', 'questgiver', 'healer', 'gambler'] },
     },
   },
 

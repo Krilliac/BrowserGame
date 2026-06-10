@@ -371,6 +371,13 @@ wss.on('connection', (socket) => {
         }
         break;
       }
+      case 'gamble': {
+        const p = players.get(entityId);
+        if (p && typeof msg.slot === 'string') {
+          manager.get(p.instanceId)?.world.gamble(entityId, msg.slot);
+        }
+        break;
+      }
       case 'party_invite': {
         if (!players.has(entityId) || typeof msg.targetName !== 'string') break;
         const target = findPlayerByName(msg.targetName);
@@ -666,6 +673,14 @@ setInterval(() => {
       const socket = players.get(offer.playerId)?.socket;
       if (socket && socket.readyState === socket.OPEN) {
         send(socket, { t: 'shop', vendor: offer.vendor, stock: offer.stock });
+      }
+    }
+
+    // Deliver gambling windows to players who just interacted with a gambler.
+    for (const offer of world.drainGambleOffers()) {
+      const socket = players.get(offer.playerId)?.socket;
+      if (socket && socket.readyState === socket.OPEN) {
+        send(socket, { t: 'gamble_open', cost: offer.cost });
       }
     }
   }
