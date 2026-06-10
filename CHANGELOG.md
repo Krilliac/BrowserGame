@@ -21,21 +21,24 @@ versioning once it stabilizes.
   +crit, or +2 projectiles) bound to a real **debuff** (`frail` −max HP, or `fragile` +% damage
   taken). Debuffs feed `recomputeStats` (lower max HP / a damage-taken multiplier applied in
   `damagePlayer`). This ties the loot chase to the corruption system — the deadliest places yield the
-  deadliest gear. New `rollCorruptedInstance` / `rollCorruptedAffixes` / `isDebuff` in
-  `src/shared/items.ts` (tested); the corrupted rarity color + debuff labels render through the
-  existing bag/drop paths.
+  deadliest gear. Beyond area corruption, corrupted gear also drops on a **slim chance from invasion
+  champions** and an **even slimmer chance from bosses** (below the legendary rate). New
+  `rollCorruptedInstance` / `rollCorruptedAffixes` / `isDebuff` in `src/shared/items.ts` (tested); the
+  corrupted rarity color + debuff labels render through the existing bag/drop paths.
 - **Invasion events** — every so often a populated, non-town area instance is raided by a sudden
   wave of 3–5 **champions** ringed around a random player, announced in chat — a spontaneous group
   fight that turns a quiet farm into an onslaught (`World.spawnInvasion`, host-driven timer in
   `src/server/index.ts`). This is the gameplay of the "spontaneous raid" twist; literal
   *cross-instance portal-linking* (joining separate instances into one raid) remains a deliberate
   future step — it needs coordination across the otherwise-pure instance manager.
-- **Persistent corruption** — a signature twist: each area instance carries a **corruption** level
-  (0..1) that **rises when players die there** and is **pushed back by killing monsters** (decaying
-  slowly on its own). High corruption makes mobs hit harder (up to +60% damage) and visibly **darkens
-  the area** with a creeping crimson pall (the atmosphere wash, driven by a `corruption` value on the
-  `you` packet). A deadly spot spirals darker and more dangerous until players fight it back — combat
-  stakes become visible and social (`src/server/world.ts`, `src/client/atmosphere.ts`).
+- **Persistent corruption** — a signature twist: each **area** carries a shared **corruption** level
+  (0..1) — **every player's death in the area** feeds the same pool (across all its instances) — that
+  is **pushed back by killing monsters**, fades slowly, and **resets every morning** (06:00 local).
+  High corruption makes mobs hit harder (up to +60% damage) and visibly **darkens the area** with a
+  crimson pall. Rather than a numeric meter, the world announces threshold crossings **Diablo-style**
+  ("The forces of darkness grow stronger/weaker in …"). Area-wide pool + 06:00 daily reset live in
+  `src/server/area-corruption.ts` (tested); the host drives decay, the daily rollover, and the tier
+  announcements (`src/server/index.ts`); the darkening rides a `corruption` value on the `you` packet.
 - **Living loot meta — the hunting bounty** — the first of the signature twists: each monster type
   accumulates a loot "bounty" while it is left alone and **consumes it on a kill**, so the first
   kills after a lull are richer (a high chance of a bonus rarity-bumped drop) and farming one spot

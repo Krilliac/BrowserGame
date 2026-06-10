@@ -37,6 +37,7 @@ import {
   type BaseItem,
   type ItemInstance,
 } from '../shared/items.js';
+import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-corruption.js';
 import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
@@ -54,13 +55,10 @@ const DASH_MS = 300; // how long a charger's lunge lasts
 const BOUNTY_FULL_MS = 60_000; // a minute untouched = a full bounty
 const BOUNTY_MAX_CHANCE = 0.5; // bonus-drop chance at a full bounty
 
-// Persistent corruption — an area-wide dread level (0..1) that rises when players die here and is
-// pushed back by killing monsters. High corruption darkens the area (client) and makes mobs deadlier.
-const CORRUPT_DECAY_PER_SEC = 0.008; // slow natural fade
-const CORRUPT_PER_DEATH = 0.15; // each player death feeds the corruption
-const CORRUPT_PER_KILL = 0.012; // each monster slain pushes it back
-const CORRUPT_MAX_DMG_BONUS = 0.6; // mob damage scales up to +60% at full corruption
-const CORRUPT_DROP_MAX = 0.3; // at full corruption, up to 30% of gear drops are corrupted
+// Extra corrupted-gear sources independent of the area's corruption level: a slim chance from
+// invasion champions, and an even slimmer chance from bosses (below the ~0.43% legendary rate).
+const INVASION_CORRUPT_CHANCE = 0.08;
+const BOSS_CORRUPT_CHANCE = 0.003;
 
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
 const ELITE_CHANCE = 0.09;
@@ -164,6 +162,8 @@ interface Mob {
   elite: boolean;
   dmgMult: number;
   spdMult: number;
+  /** Spawned by an invasion event — its drops carry a slim corrupted-gear chance. */
+  invader: boolean;
 }
 
 interface Projectile {
@@ -227,8 +227,9 @@ export class World {
   // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
   private moveScale = 1;
   private aggroScale = 1;
-  /** Persistent corruption (0..1): rises on player deaths here, pushed back by kills. */
-  private corruption = 0;
+  private readonly areaId: string;
+  /** Area-wide corruption pool, shared across every instance of the area (host-owned). */
+  private readonly areaCorruption: AreaCorruption;
 
   constructor(
     private readonly width: number = WORLD_WIDTH,
@@ -238,8 +239,17 @@ export class World {
       y: WORLD_HEIGHT / 2,
     },
     allocId?: () => number,
+    areaId = 'world',
+    areaCorruption?: AreaCorruption,
   ) {
     this.allocId = allocId ?? (() => this.localId++);
+    this.areaId = areaId;
+    this.areaCorruption = areaCorruption ?? new AreaCorruption();
+  }
+
+  /** Current corruption (0..1) of this world's area. */
+  private corruption(): number {
+    return this.areaCorruption.get(this.areaId);
   }
 
   /**
@@ -289,13 +299,20 @@ export class World {
         t,
         clamp(anchor.x + Math.cos(ang) * r, 0, this.width),
         clamp(anchor.y + Math.sin(ang) * r, 0, this.height),
-        true,
+        true, // forced elite
+        true, // invader → slim corrupted-drop chance
       );
     }
     return true;
   }
 
-  private createMob(template: MobTemplate, x: number, y: number, forceElite = false): void {
+  private createMob(
+    template: MobTemplate,
+    x: number,
+    y: number,
+    forceElite = false,
+    invader = false,
+  ): void {
     const id = this.allocId();
     // Elite ("champion") roll: a rare, beefed-up variant with a modifier prefix. Bosses (very high
     // HP) never roll elite — they are already special. Invasions force the elite flag.
@@ -335,6 +352,7 @@ export class World {
       elite,
       dmgMult: mod ? mod.dmg : 1,
       spdMult: mod ? mod.spd : 1,
+      invader,
     });
   }
 
@@ -683,7 +701,7 @@ export class World {
   /** Advance the simulation by dt seconds. */
   tick(dt: number): void {
     this.now += dt * 1000;
-    this.corruption = Math.max(0, this.corruption - CORRUPT_DECAY_PER_SEC * dt);
+    // Corruption decay is driven once by the host on the shared registry, not per-instance here.
     this.tickPlayers(dt);
     this.tickMobs(dt);
     this.tickProjectiles(dt);
@@ -692,7 +710,7 @@ export class World {
 
   /** Mob-damage multiplier from corruption (1 at calm, up to 1 + CORRUPT_MAX_DMG_BONUS at full). */
   private corruptionDmg(): number {
-    return 1 + this.corruption * CORRUPT_MAX_DMG_BONUS;
+    return 1 + this.corruption() * CORRUPT_MAX_DMG_BONUS;
   }
 
   private tickPlayers(dt: number): void {
@@ -949,7 +967,7 @@ export class World {
   /** Award XP to the killer and drop loot on the ground. */
   private onMobKilled(mob: Mob): void {
     // Clearing monsters pushes back the area's corruption.
-    this.corruption = Math.max(0, this.corruption - CORRUPT_PER_KILL);
+    this.areaCorruption.pushBack(this.areaId);
     const killer = this.players.get(mob.lastAttacker);
     if (killer) {
       killer.xp += xpReward(mob.level) * (mob.elite ? 3 : 1); // champions give a big XP bonus
@@ -965,6 +983,8 @@ export class World {
     // Loot (materials + gear) comes from the DB-backed content drop tables. Equipment items roll a
     // rarity + stats into a unique instance; materials/currency drop as plain stacks.
     const content = getContent();
+    const isBoss = (content.mobTemplate(mob.templateId)?.hp ?? 0) >= 200;
+    const corruptedChance = this.corruptedDropChance(mob, isBoss);
     for (const stack of content.rollLoot(mob.templateId)) {
       const id = this.allocId();
       const item: GroundItem = {
@@ -977,13 +997,11 @@ export class World {
       };
       const def = content.item(stack.item);
       if (def && def.kind === 'equip' && (def.slot === 'weapon' || def.slot === 'armor')) {
-        item.instance = this.rollGear({
-          id: def.id,
-          name: def.name,
-          slot: def.slot,
-          power: def.power,
-          hp: def.hp,
-        });
+        item.instance = this.rollGear(
+          { id: def.id, name: def.name, slot: def.slot, power: def.power, hp: def.hp },
+          0,
+          corruptedChance,
+        );
       }
       this.items.set(id, item);
     }
@@ -991,7 +1009,7 @@ export class World {
     // Champion bonus: a pile of gold + one guaranteed, rarity-bumped piece of gear.
     if (mob.elite) {
       this.dropGround('gold', 30 + Math.floor(Math.random() * 50), mob.x, mob.y);
-      this.dropBonusGear(mob.x, mob.y, 2);
+      this.dropBonusGear(mob.x, mob.y, 2, corruptedChance);
     }
 
     // Living loot meta: consume this monster type's accumulated hunting bounty. A long lull since the
@@ -1001,13 +1019,13 @@ export class World {
     const bounty = last === undefined ? 1 : Math.min(1, (this.now - last) / BOUNTY_FULL_MS);
     this.lastKillAt.set(mob.templateId, this.now);
     if (Math.random() < bounty * BOUNTY_MAX_CHANCE) {
-      this.dropBonusGear(mob.x, mob.y, 1);
+      this.dropBonusGear(mob.x, mob.y, 1, corruptedChance);
       if (killer) this.notify(killer.id, 'A hunting bounty! Fresh quarry yields richer loot.');
     }
   }
 
   /** Drop one random equipment piece as a rolled, rarity-bumped instance (elite + bounty rewards). */
-  private dropBonusGear(x: number, y: number, rarityBump: number): void {
+  private dropBonusGear(x: number, y: number, rarityBump: number, corruptedChance: number): void {
     const equips = getContent()
       .items()
       .filter((i) => i.kind === 'equip' && (i.slot === 'weapon' || i.slot === 'armor'));
@@ -1023,18 +1041,30 @@ export class World {
         hp: def.hp,
       },
       rarityBump,
+      corruptedChance,
     );
   }
 
   /**
-   * Roll a gear instance for a drop. In a corrupted area there is a corruption-scaled chance the
-   * item is born **corrupted** (a strong buff + a debuff); otherwise it's a normal rolled instance.
+   * Roll a gear instance for a drop. With probability `corruptedChance` the item is born
+   * **corrupted** (a strong buff + a debuff); otherwise it's a normal rolled instance.
    */
-  private rollGear(base: BaseItem, rarityBump = 0): ItemInstance {
-    if (Math.random() < this.corruption * CORRUPT_DROP_MAX) {
+  private rollGear(base: BaseItem, rarityBump: number, corruptedChance: number): ItemInstance {
+    if (Math.random() < corruptedChance) {
       return rollCorruptedInstance(this.allocId(), base);
     }
     return rollItemInstance(this.allocId(), base, Math.random, rarityBump);
+  }
+
+  /**
+   * Combined corrupted-drop chance for a slain mob: the area's corruption (scaled), plus a slim flat
+   * bonus for invasion champions and an even slimmer one for bosses.
+   */
+  private corruptedDropChance(mob: Mob, isBoss: boolean): number {
+    let chance = this.corruption() * CORRUPT_DROP_MAX;
+    if (mob.invader) chance += INVASION_CORRUPT_CHANCE;
+    if (isBoss) chance += BOSS_CORRUPT_CHANCE;
+    return chance;
   }
 
   /** Spawn a ground item (gold or a material/gear stack) with a little scatter. Returns it. */
@@ -1158,8 +1188,8 @@ export class World {
       player.dead = true;
       player.respawnAt = this.now + PLAYER_RESPAWN_MS;
       this.events.push({ kind: 'death', x: player.x, y: player.y });
-      // A death feeds the area's corruption — the place grows darker and deadlier.
-      this.corruption = Math.min(1, this.corruption + CORRUPT_PER_DEATH);
+      // Every player's death feeds the shared area-wide corruption — darker and deadlier for all.
+      this.areaCorruption.addDeath(this.areaId);
     }
   }
 
@@ -1328,7 +1358,7 @@ export class World {
       critChance: p.critChance,
       weapon: p.equipment.weapon,
       armor: p.equipment.armor,
-      corruption: this.corruption,
+      corruption: this.corruption(),
       x: p.x,
       y: p.y,
       ackSeq: p.lastSeq,

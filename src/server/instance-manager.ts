@@ -1,6 +1,7 @@
 import { World, type PlayerSave } from './world.js';
 import { pointInRect, START_AREA, type AreaDef } from '../shared/areas.js';
 import { getContent } from './content.js';
+import { AreaCorruption } from './area-corruption.js';
 
 /** One running area instance — conceptually its own "area server", here in-process. */
 export interface Instance {
@@ -41,7 +42,11 @@ export class InstanceManager {
   private nextEntityId = 1;
   private instanceSeq = 0;
 
-  constructor(private readonly mode: InstancingMode = 'auto') {}
+  constructor(
+    private readonly mode: InstancingMode = 'auto',
+    /** Shared area-wide corruption pool (host-owned), handed to every World by area id. */
+    readonly corruption: AreaCorruption = new AreaCorruption(),
+  ) {}
 
   /**
    * Place a new player into an area (the start area by default). If a `save` is given (a returning
@@ -105,7 +110,14 @@ export class InstanceManager {
 
   private spawnInstance(area: AreaDef): Instance {
     const id = `${area.id}#${++this.instanceSeq}`;
-    const world = new World(area.width, area.height, area.spawn, () => this.nextEntityId++);
+    const world = new World(
+      area.width,
+      area.height,
+      area.spawn,
+      () => this.nextEntityId++,
+      area.id,
+      this.corruption,
+    );
     world.populateMobs(area.id);
     world.populateNpcs(area.id);
     world.applyWeather(area.theme?.weather ?? 'none');

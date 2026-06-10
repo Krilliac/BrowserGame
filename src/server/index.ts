@@ -19,6 +19,7 @@ import { initGameDb, getDb, getContent, reloadContent } from './content.js';
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess } from './accounts.js';
 import { isValidToken, loadSave, newPlayerToken, storeSave } from './player-store.js';
+import { morningDayIndex } from './area-corruption.js';
 import { SpatialGrid } from './spatial.js';
 import { THEME_KEYS, coerceThemeValue } from '../shared/theme.js';
 import { listTables, listColumns, listRows, getRow, editContent } from './content-edit.js';
@@ -309,6 +310,20 @@ setInterval(() => {
   const transfers = manager.tick(dt);
   tick++;
 
+  // Area corruption: fade it once on the shared pool, and reset it every morning (06:00 local).
+  manager.corruption.decay(dt);
+  if (
+    manager.corruption.rolloverIfNewDay(morningDayIndex(Date.now(), new Date().getTimezoneOffset()))
+  ) {
+    for (const instance of manager.list()) {
+      broadcastToInstance(instance.id, {
+        t: 'chat',
+        from: 'System',
+        text: 'Dawn breaks. The corruption of yesterday fades from the land.',
+      });
+    }
+  }
+
   // Apply portal crossings: update routing and tell the player their area changed.
   for (const ev of transfers) {
     const p = players.get(ev.entityId);
@@ -375,6 +390,37 @@ setInterval(() => {
     }
   }
 }, INVASION_INTERVAL_MS);
+
+// "The forces of darkness grow stronger/weaker" — announce per-area corruption tier crossings
+// (no numeric meter), broadcast to every instance of the area whose darkness shifted.
+setInterval(() => {
+  const seen = new Set<string>();
+  for (const instance of manager.list()) {
+    if (instance.areaId === 'town' || seen.has(instance.areaId)) continue;
+    seen.add(instance.areaId);
+    const change = manager.corruption.pollTierChange(instance.areaId);
+    if (!change) continue;
+    const area = getContent().area(instance.areaId);
+    const text = corruptionFlavor(area?.name ?? instance.areaId, change.tier, change.dir);
+    for (const inst of manager.list()) {
+      if (inst.areaId === instance.areaId) {
+        broadcastToInstance(inst.id, { t: 'chat', from: 'System', text });
+      }
+    }
+  }
+}, 4000);
+
+/** Diablo-style flavor for a corruption tier crossing — louder as the darkness deepens. */
+function corruptionFlavor(area: string, tier: number, dir: 'up' | 'down'): string {
+  if (dir === 'up') {
+    if (tier >= 3) return `The forces of darkness are rampant in ${area} — tread carefully.`;
+    if (tier === 2) return `The forces of darkness grow stronger in ${area}.`;
+    return `The forces of darkness stir in ${area}.`;
+  }
+  if (tier <= 0) return `${area} is cleansed; the darkness recedes.`;
+  if (tier === 1) return `The forces of darkness grow weaker in ${area}.`;
+  return `The darkness loosens its grip on ${area}.`;
+}
 
 http.listen(PORT, () => {
   console.log(`[browsergame] world server on :${PORT} @ ${TICK_RATE}Hz · instancing=${INSTANCING}`);
