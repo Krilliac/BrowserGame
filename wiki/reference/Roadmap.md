@@ -67,7 +67,21 @@
 - [x] Quests wired into gameplay (/accept, kill-tracking, rewards + notices); area-transfer
       persistence fix (character keeps progression across portals).
 - [ ] More chat channels (global/party/guild/whisper) + moderation (/mute /kick /ignore).
-- [ ] Shop to *buy* gear; banking; gear rarity/affixes; parties/guilds/trade.
+- [x] **Spells are loot (spellbook system)** — abilities acquired from drops/quests/vendor as tomes;
+      duplicate-reads rank a spell up; casting gated server-side on learned spells; starter loadout
+      Slash+Fireball; legacy saves grandfathered. Design: `wiki/research/spell-acquisition-design.md`.
+- [x] **Shop to *buy* gear** — vendors open a buy/sell shop (E); `vendor_stock` table; common-rolled
+      vendor gear; explicit sell. (Gear rarity/affixes already shipped.)
+- [x] **3 new areas** — Rotfen Marsh (L8–12), Emberdeep Mines (L12–16), Frostpeak Pass (L15–20):
+      13 new mobs, steel+mithril gear tiers, themes, drop tables, bosses, quest-givers. World graph
+      now 6 areas (spine + marsh spur). Integrity-tested (`world-graph.test.ts`).
+- [x] **Bot stress harness** (`tools/bots/`) — headless FSM bots, stress runner with metrics +
+      thresholds, protocol-fuzzing chaos client. `npm run stress` / `npm run chaos`.
+- [ ] **Deferred from the ARPG research** (`wiki/research/arpg-design-research.md`): collect/turn-in
+      & named-elite quest *types*; gambler / healer / crafter (Artificer) NPCs + gold sinks;
+      area-scoped quest offers; hard portal gates (boss-kill / quest-key); waypoints; biome hazard
+      gimmicks (poison pools, lava cracks, death-explosions); vendor stock rotation + sealed-tome gamble.
+- [ ] Banking; parties/guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
 - [ ] Tilemap ground from hand-authored Tiled maps (the bundled tiles suit authored maps better

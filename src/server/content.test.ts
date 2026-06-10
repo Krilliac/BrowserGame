@@ -10,7 +10,7 @@ describe('content (SQLite-backed)', () => {
         .areas()
         .map((a) => a.id)
         .sort(),
-    ).toEqual(['crypt', 'town', 'wilderness']);
+    ).toEqual(['crypt', 'frostpeak', 'marsh', 'mines', 'town', 'wilderness']);
     expect(c.abilityOrder()).toEqual(['slash', 'fireball', 'arrow', 'frost', 'heal', 'lightning']);
     expect(c.area('town')?.name).toBe('Aldermere');
     expect(c.area('town')?.portals.length).toBeGreaterThan(0);
@@ -19,6 +19,9 @@ describe('content (SQLite-backed)', () => {
     expect(c.sellValue('rune_shard')).toBe(250);
     expect(c.npcs('town').some((n) => n.kind === 'vendor')).toBe(true);
     expect(c.quests().some((q) => q.id === 'wolf_cull')).toBe(true);
+    // Spellbook era: tomes are items that teach, and the Merchant stocks them.
+    expect(c.item('tome_frost')?.teaches).toBe('frost');
+    expect(c.vendorStock('town', 'Merchant').length).toBeGreaterThan(0);
   });
 
   it('rolls loot from the database drop tables', () => {

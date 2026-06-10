@@ -15,6 +15,9 @@ const MATERIALS: Record<string, { name: string; color: string }> = {
   bone: { name: 'Bone', color: '#e8e2d0' },
   bat_wing: { name: 'Bat Wing', color: '#7a5a8a' },
   rune_shard: { name: 'Rune Shard', color: '#5fb0e0' },
+  venom_gland: { name: 'Venom Gland', color: '#9fd86a' },
+  ember_ore: { name: 'Ember Ore', color: '#ff8a3a' },
+  frost_core: { name: 'Frost Core', color: '#a8e0ff' },
 };
 
 /**
@@ -51,6 +54,17 @@ const GEAR_DROPS: Record<string, { chance: number; items: string[] }> = {
   bat: { chance: 0.15, items: ['rusty_sword', 'leather_armor'] },
   skeleton: { chance: 0.15, items: ['iron_sword', 'iron_armor'] },
   crypt_lord: { chance: 0.3, items: ['iron_sword', 'iron_armor'] },
+  // Marsh drops steel; the Fenwitch is a near-guaranteed upgrade source.
+  bog_shambler: { chance: 0.18, items: ['steel_sword', 'steel_armor', 'steel_helm'] },
+  fen_strangler: { chance: 0.2, items: ['steel_sword', 'steel_armor', 'tower_shield'] },
+  fenwitch: { chance: 0.6, items: ['steel_sword', 'steel_armor', 'steel_helm', 'tower_shield'] },
+  // Mines deepen the steel tier; the Forge Tyrant starts mixing in mithril.
+  magma_crawler: { chance: 0.2, items: ['steel_sword', 'steel_armor', 'steel_helm'] },
+  forge_tyrant: { chance: 0.6, items: ['steel_sword', 'mithril_blade', 'mithril_armor'] },
+  // Frostpeak is the mithril tier; the Pale King is the jackpot.
+  avalanche_shade: { chance: 0.22, items: ['mithril_blade', 'mithril_armor', 'runed_band'] },
+  tundra_behemoth: { chance: 0.25, items: ['mithril_blade', 'mithril_armor', 'tower_shield'] },
+  pale_king: { chance: 0.7, items: ['mithril_blade', 'mithril_armor', 'runed_band'] },
 };
 
 /** Seed the database from the built-in content if it is empty. Idempotent. Parametrized. */
@@ -278,8 +292,11 @@ function seedLoot(db: Database): void {
       }
     }
   }
-  // The boss has no LOOT_TABLES entry; give it a gold drop directly.
+  // Bosses have no LOOT_TABLES entry; give them a fat gold drop directly.
   ins.run('crypt_lord', 'always', 'gold', 1, 50, 150, 0, 0);
+  ins.run('fenwitch', 'always', 'gold', 1, 80, 220, 0, 0);
+  ins.run('forge_tyrant', 'always', 'gold', 1, 150, 400, 0, 0);
+  ins.run('pale_king', 'always', 'gold', 1, 300, 700, 0, 0);
   // Equipment ("gear") drops.
   for (const [mobId, gear] of Object.entries(GEAR_DROPS)) {
     for (const item of gear.items) ins.run(mobId, 'gear', item, 1, 1, 1, 0, gear.chance);
@@ -291,19 +308,89 @@ function seedNpcs(db: Database): void {
   // A town plaza: the merchant and the quest-giver stand together near the spawn/portal.
   ins.run('town', 'Merchant', 660, 560, 45, 'vendor');
   ins.run('town', 'Elder Maeve', 740, 560, 190, 'questgiver');
+  // A quest-giver near the arrival point of each new area, so the content is discoverable.
+  ins.run('marsh', 'Bogged Pilgrim', 1100, 280, 95, 'questgiver');
+  ins.run('mines', 'Stranded Miner', 900, 280, 18, 'questgiver');
+  ins.run('frostpeak', 'Frostbound Warden', 1000, 300, 205, 'questgiver');
 }
 
+/** Quests, keyed by area. Kill-N for now (the implemented type); each new area's boss rewards a tome. */
+const QUESTS: {
+  id: string;
+  name: string;
+  description: string;
+  targetMob: string;
+  targetCount: number;
+  rewardGold: number;
+  rewardXp: number;
+  rewardItem: string | null;
+}[] = [
+  {
+    id: 'wolf_cull',
+    name: 'Wolf Cull',
+    description: 'Slay 5 Gloom Wolves prowling Gloomwood.',
+    targetMob: 'wolf',
+    targetCount: 5,
+    rewardGold: 150,
+    rewardXp: 80,
+    rewardItem: 'tome_heal',
+  },
+  {
+    id: 'crypt_cleanse',
+    name: 'Still the Bones',
+    description: 'Put 8 Crypt Skeletons back to rest in the Shadow Crypt.',
+    targetMob: 'skeleton',
+    targetCount: 8,
+    rewardGold: 260,
+    rewardXp: 220,
+    rewardItem: 'tome_lightning',
+  },
+  {
+    id: 'marsh_witch',
+    name: 'The Fenwitch',
+    description: 'Hunt down the Fenwitch haunting Rotfen Marsh.',
+    targetMob: 'fenwitch',
+    targetCount: 1,
+    rewardGold: 400,
+    rewardXp: 500,
+    rewardItem: 'tome_frost',
+  },
+  {
+    id: 'mines_tyrant',
+    name: 'Break the Forge',
+    description: 'Destroy the Forge Tyrant deep in the Emberdeep Mines.',
+    targetMob: 'forge_tyrant',
+    targetCount: 1,
+    rewardGold: 700,
+    rewardXp: 900,
+    rewardItem: 'tome_arrow',
+  },
+  {
+    id: 'frost_king',
+    name: 'The Pale King',
+    description: 'End the reign of the Pale King atop Frostpeak Pass.',
+    targetMob: 'pale_king',
+    targetCount: 1,
+    rewardGold: 1200,
+    rewardXp: 1800,
+    rewardItem: null,
+  },
+];
+
 function seedQuests(db: Database): void {
-  db.prepare(
+  const ins = db.prepare(
     'INSERT INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item) VALUES (?,?,?,?,?,?,?,?)',
-  ).run(
-    'wolf_cull',
-    'Wolf Cull',
-    'Slay 5 Gloom Wolves prowling Gloomwood.',
-    'wolf',
-    5,
-    150,
-    80,
-    'tome_heal',
   );
+  for (const q of QUESTS) {
+    ins.run(
+      q.id,
+      q.name,
+      q.description,
+      q.targetMob,
+      q.targetCount,
+      q.rewardGold,
+      q.rewardXp,
+      q.rewardItem,
+    );
+  }
 }

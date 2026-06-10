@@ -6,7 +6,42 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Added
+
+- **Spells are loot — the spellbook system.** Abilities are no longer all free at spawn. Fresh
+  characters know only **Slash + Fireball**; the rest are learned from **spellbook items** that drop
+  from monsters (0.4% normal / 3% elite / 30% boss), are awarded by quests (Wolf Cull now grants the
+  *Tome of Mending*), or are bought from the town Merchant. Re-reading a known tome **ranks the spell
+  up** (Diablo 1 rule: +12% effect per rank, to rank 5). Casting is gated server-side on learned
+  spells — a client can't cast what it never learned. The hotbar shows locked slots with a padlock
+  and rank pips on learned ones. New `items.teaches` column + `STARTER_ABILITIES`/`MAX_SPELL_RANK`;
+  pre-spellbook saves grandfather in all six spells at rank 1. Design:
+  `wiki/research/spell-acquisition-design.md`.
+- **Vendor shops — buy as well as sell.** Pressing **E** on a vendor now opens a **shop window**
+  (buy gear + tomes for gold; an explicit *Sell all* button; Esc closes) instead of instantly
+  dumping your bag. Server-side `buy`/`sell` re-validate proximity, stock membership, and gold every
+  time; vendor gear rolls **common** (a floor, so drops stay the jackpot). New `vendor_stock` table.
+- **Three new areas — the spine grows from 3 zones to 6.** **Rotfen Marsh** (L8–12, a poison-themed
+  branch off Gloomwood), **Emberdeep Mines** (L12–16, volcanic, past the Crypt), and **Frostpeak
+  Pass** (L15–20, ice highlands, ending at the Pale King). 13 new monster templates across the
+  fodder/tank/ranged/charger/boss roles (reusing the existing AI behaviors), each area with its own
+  data-driven theme, drop tables, and a boss; two new gear tiers (**steel**, **mithril**) and three
+  new materials give each zone a loot identity. Quest-givers stand at each new area's arrival point.
+- **More quests.** Boss-hunt quests for the Fenwitch, Forge Tyrant, and Pale King (plus a crypt
+  skeleton cull), each rewarding gold, XP, and a spellbook — a natural progression chain.
+- **Bot stress harness (`tools/bots/`).** Headless clients that speak the real wire protocol: a
+  `WANDER/FIGHT/LOOT/VENDOR/PORTAL_HOP` state machine, a `stress` runner that ramps N bots and
+  reports tick/snapshot metrics against pass/fail thresholds, and a `chaos` client that fuzzes the
+  protocol boundary. Wired into `npm test`; `npm run stress` / `npm run chaos` to drive it.
+
 ### Fixed
+
+- **Oversized-frame server crash (DoS).** A single inbound WebSocket frame larger than the 4 KB cap
+  raised an unhandled per-socket `error` event that killed the **whole** server process. The
+  connection callback now handles `error` and terminates just that socket. (Found by the new chaos
+  bot.)
+- **`giveItem` now credits gold to the wallet** instead of stuffing it into a bag stack, so GM
+  `/give gold` and quest/vendor gold flows are consistent.
 
 - **Character no longer resets when crossing a portal** — area transfers now carry the player's full
   persistent state (level, XP, HP/mana, gold, loot, equipment, quests) between instances

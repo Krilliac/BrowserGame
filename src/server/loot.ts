@@ -8,7 +8,15 @@ import { rollDropTable, type DropTable } from './drop-table.js';
  */
 
 /** A droppable item type. Keep ids short and lowercase. */
-export type ItemId = 'gold' | 'wolf_pelt' | 'bone' | 'bat_wing' | 'rune_shard';
+export type ItemId =
+  | 'gold'
+  | 'wolf_pelt'
+  | 'bone'
+  | 'bat_wing'
+  | 'rune_shard'
+  | 'venom_gland' // Rotfen Marsh
+  | 'ember_ore' // Emberdeep Mines
+  | 'frost_core'; // Frostpeak Pass
 
 /** A stack of items produced by a drop roll. */
 export interface ItemStack {
@@ -39,6 +47,94 @@ export const LOOT_TABLES: Record<string, DropTable<ItemId>> = {
       { value: 'bat_wing', weight: 50, min: 1, max: 2 },
       { value: 'gold', weight: 50, nothing: true },
     ],
+  },
+
+  // --- Rotfen Marsh (L8–12) ---
+  marsh_leech: {
+    always: [{ value: 'gold', weight: 1, min: 6, max: 18 }],
+    main: [
+      { value: 'venom_gland', weight: 55, min: 1, max: 2 },
+      { value: 'gold', weight: 45, nothing: true },
+    ],
+  },
+  bog_shambler: {
+    always: [{ value: 'gold', weight: 1, min: 12, max: 30 }],
+    main: [
+      { value: 'venom_gland', weight: 60, min: 1, max: 3 },
+      { value: 'gold', weight: 40, nothing: true },
+    ],
+    rare: { chance: 0.06, table: [{ value: 'rune_shard', weight: 1, min: 1, max: 1 }] },
+  },
+  mire_spitter: {
+    always: [{ value: 'gold', weight: 1, min: 10, max: 24 }],
+    main: [
+      { value: 'venom_gland', weight: 65, min: 1, max: 2 },
+      { value: 'gold', weight: 35, nothing: true },
+    ],
+  },
+  fen_strangler: {
+    always: [{ value: 'gold', weight: 1, min: 16, max: 36 }],
+    main: [
+      { value: 'venom_gland', weight: 50, min: 1, max: 3 },
+      { value: 'gold', weight: 50, nothing: true },
+    ],
+    rare: { chance: 0.08, table: [{ value: 'rune_shard', weight: 1, min: 1, max: 1 }] },
+  },
+
+  // --- Emberdeep Mines (L12–16) ---
+  cinder_imp: {
+    always: [{ value: 'gold', weight: 1, min: 10, max: 26 }],
+    main: [
+      { value: 'ember_ore', weight: 55, min: 1, max: 2 },
+      { value: 'gold', weight: 45, nothing: true },
+    ],
+  },
+  magma_crawler: {
+    always: [{ value: 'gold', weight: 1, min: 18, max: 40 }],
+    main: [
+      { value: 'ember_ore', weight: 60, min: 1, max: 3 },
+      { value: 'gold', weight: 40, nothing: true },
+    ],
+    rare: { chance: 0.08, table: [{ value: 'rune_shard', weight: 1, min: 1, max: 2 }] },
+  },
+  deep_cultist: {
+    always: [{ value: 'gold', weight: 1, min: 14, max: 32 }],
+    main: [
+      { value: 'ember_ore', weight: 55, min: 1, max: 2 },
+      { value: 'gold', weight: 45, nothing: true },
+    ],
+  },
+
+  // --- Frostpeak Pass (L15–20) ---
+  frost_wolf: {
+    always: [{ value: 'gold', weight: 1, min: 16, max: 34 }],
+    main: [
+      { value: 'frost_core', weight: 50, min: 1, max: 2 },
+      { value: 'gold', weight: 50, nothing: true },
+    ],
+  },
+  rime_archer: {
+    always: [{ value: 'gold', weight: 1, min: 18, max: 38 }],
+    main: [
+      { value: 'frost_core', weight: 55, min: 1, max: 2 },
+      { value: 'gold', weight: 45, nothing: true },
+    ],
+  },
+  avalanche_shade: {
+    always: [{ value: 'gold', weight: 1, min: 22, max: 46 }],
+    main: [
+      { value: 'frost_core', weight: 55, min: 1, max: 3 },
+      { value: 'gold', weight: 45, nothing: true },
+    ],
+    rare: { chance: 0.1, table: [{ value: 'rune_shard', weight: 1, min: 1, max: 2 }] },
+  },
+  tundra_behemoth: {
+    always: [{ value: 'gold', weight: 1, min: 28, max: 60 }],
+    main: [
+      { value: 'frost_core', weight: 60, min: 2, max: 4 },
+      { value: 'gold', weight: 40, nothing: true },
+    ],
+    rare: { chance: 0.12, table: [{ value: 'rune_shard', weight: 1, min: 1, max: 3 }] },
   },
 };
 

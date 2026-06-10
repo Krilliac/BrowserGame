@@ -47,9 +47,15 @@ describe('rollLoot (drop tables)', () => {
     }
   });
 
-  it('only drops rune_shard from the skeleton (rare sub-table is scoped)', () => {
+  it('only drops rune_shard from tables that declare it in their rare sub-table', () => {
+    // Derive the allowed set from the data so this stays correct as content grows.
+    const allowed = new Set(
+      Object.entries(LOOT_TABLES)
+        .filter(([, t]) => t.rare?.table.some((r) => r.value === 'rune_shard'))
+        .map(([id]) => id),
+    );
     for (const templateId of Object.keys(LOOT_TABLES)) {
-      if (templateId === 'skeleton') continue;
+      if (allowed.has(templateId)) continue;
       for (let trial = 0; trial < 100; trial++) {
         expect(rollLoot(templateId).some((s) => s.item === 'rune_shard')).toBe(false);
       }
@@ -57,11 +63,13 @@ describe('rollLoot (drop tables)', () => {
   });
 
   it('produces only positive quantities within sane bounds', () => {
+    // The cap allows for high-area gold piles (e.g. the Tundra Behemoth) while still catching
+    // a runaway quantity bug.
     for (const templateId of Object.keys(LOOT_TABLES)) {
       for (let trial = 0; trial < 200; trial++) {
         for (const stack of rollLoot(templateId)) {
           expect(stack.qty).toBeGreaterThanOrEqual(1);
-          expect(stack.qty).toBeLessThanOrEqual(20);
+          expect(stack.qty).toBeLessThanOrEqual(100);
         }
       }
     }

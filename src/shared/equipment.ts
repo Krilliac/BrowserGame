@@ -177,6 +177,41 @@ export const EQUIPMENT: Record<string, EquipDef> = {
   copper_ring: { id: 'copper_ring', name: 'Copper Ring', slot: 'ring', hp: 4, color: '#c08040' },
   silver_ring: { id: 'silver_ring', name: 'Silver Ring', slot: 'ring', hp: 6, color: '#d8d8e0' },
   charm: { id: 'charm', name: 'Charm', slot: 'trinket', hp: 8, color: '#8fd0ff' },
+
+  // --- Higher tiers, the loot identity of the new areas (marsh → mines → frostpeak) ---
+  // Steel (Rotfen Marsh / Emberdeep): a clear step over iron.
+  steel_sword: {
+    id: 'steel_sword',
+    name: 'Steel Sword',
+    slot: 'mainhand',
+    power: 22,
+    color: '#c0c8d4',
+  },
+  steel_armor: { id: 'steel_armor', name: 'Steel Armor', slot: 'chest', hp: 95, color: '#b8c0cc' },
+  steel_helm: { id: 'steel_helm', name: 'Steel Helm', slot: 'head', hp: 42, color: '#b8c0cc' },
+  tower_shield: {
+    id: 'tower_shield',
+    name: 'Tower Shield',
+    slot: 'offhand',
+    hp: 48,
+    color: '#8a8f99',
+  },
+  // Mithril (Frostpeak): the current endgame base tier.
+  mithril_blade: {
+    id: 'mithril_blade',
+    name: 'Mithril Blade',
+    slot: 'mainhand',
+    power: 34,
+    color: '#9fe6e0',
+  },
+  mithril_armor: {
+    id: 'mithril_armor',
+    name: 'Mithril Armor',
+    slot: 'chest',
+    hp: 140,
+    color: '#9fe6e0',
+  },
+  runed_band: { id: 'runed_band', name: 'Runed Band', slot: 'ring', hp: 10, color: '#b388ff' },
 };
 
 export function isEquip(id: string): boolean {

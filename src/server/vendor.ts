@@ -13,6 +13,9 @@ export const SELL_VALUES: Record<string, number> = {
   bone: 2,
   bat_wing: 4,
   rune_shard: 250,
+  venom_gland: 9, // Rotfen Marsh
+  ember_ore: 14, // Emberdeep Mines
+  frost_core: 22, // Frostpeak Pass
 } satisfies Partial<Record<ItemId, number>>;
 
 /** Total gold for selling an entire loot bag, plus the list of items actually sold. */
