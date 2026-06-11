@@ -11,6 +11,7 @@ describe('content (SQLite-backed)', () => {
         .map((a) => a.id)
         .sort(),
     ).toEqual([
+      'blighted_spire',
       'crypt',
       'forgotten_catacombs',
       'frostpeak',

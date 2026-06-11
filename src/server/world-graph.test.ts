@@ -14,8 +14,9 @@ describe('world graph integrity', () => {
   const areas = c.areas();
   const ids = new Set(areas.map((a) => a.id));
 
-  it('ships the seven overworld areas plus the four dungeons', () => {
+  it('ships the eight overworld areas plus the four dungeons', () => {
     expect([...ids].sort()).toEqual([
+      'blighted_spire',
       'crypt',
       'forgotten_catacombs',
       'frostpeak',
@@ -91,5 +92,8 @@ describe('world graph integrity', () => {
     // Act 2 (the Sundered Wastes) raises the ceiling: the Unmaker is its quest boss.
     expect(questMobs.has('xalthirun')).toBe(true);
     expect(c.mobTemplate('xalthirun')!.level).toBe(26);
+    // Act 3 (the Blighted Spire) is the current ceiling: the Throne-Tyrant.
+    expect(questMobs.has('throne_tyrant')).toBe(true);
+    expect(c.mobTemplate('throne_tyrant')!.level).toBe(32);
   });
 });

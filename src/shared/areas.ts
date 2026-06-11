@@ -292,6 +292,30 @@ export const AREAS: Record<string, AreaDef> = {
         toSpawn: { x: 2080, y: 1000 },
         label: '← Back to Frostpeak',
       },
+      {
+        rect: { x: 2350, y: 900, w: 50, h: 300 },
+        toArea: 'blighted_spire',
+        toSpawn: { x: 160, y: 1000 },
+        label: 'The Blighted Spire →',
+      },
+    ],
+  },
+
+  // Act 3: a corrupted citadel beyond the Wastes — the new level ceiling (L27-32).
+  blighted_spire: {
+    id: 'blighted_spire',
+    name: 'The Blighted Spire',
+    width: 2400,
+    height: 2000,
+    spawn: { x: 160, y: 1000 },
+    playerCap: 12,
+    portals: [
+      {
+        rect: { x: 0, y: 850, w: 50, h: 300 },
+        toArea: 'sundered_wastes',
+        toSpawn: { x: 2280, y: 1000 },
+        label: '← Back to the Wastes',
+      },
     ],
   },
 };
@@ -516,6 +540,28 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
     gradeBrightness: 0.95,
     gradeContrast: 1.1,
     spriteTint: '#cfe0ff',
+  },
+  // Blight-choked citadel: black-green stone, drifting spores, an oppressive ruined grandeur.
+  blighted_spire: {
+    groundBase: '#1a221a',
+    groundSpeck: '#283326',
+    prop: 'pillar',
+    propDensity: 0.12,
+    atmoColor: '#14260e',
+    atmoAlpha: 0.32,
+    outdoor: false,
+    particleColor: '#aef07a',
+    particleCount: 60,
+    particleRise: -6,
+    particleFlicker: true,
+    weather: 'fog',
+    weatherIntensity: 0.5,
+    fogColor: '#0a120a',
+    lightAmbient: 0.5,
+    gradeSaturation: 0.95,
+    gradeBrightness: 0.9,
+    gradeContrast: 1.12,
+    spriteTint: '#cfe6b8',
   },
   // Void-scarred highland: bruised violet ground, drifting void-motes, a wrongness in the air.
   sundered_wastes: {

@@ -725,6 +725,68 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     telegraphMs: 820,
     slamRadius: 140,
   },
+
+  // --- The Blighted Spire (act 3, L27-32): a corrupted citadel, the new endgame ceiling ---
+  blight_knight: {
+    id: 'blight_knight',
+    name: 'Blight Knight',
+    hp: 240,
+    level: 27,
+    hue: 110,
+    speed: 100,
+    aggroRange: 400,
+    attackRange: 54,
+    damage: 30,
+    attackCooldownMs: 1000,
+    behavior: 'melee',
+    telegraphMs: 280,
+  },
+  pyre_caster: {
+    id: 'pyre_caster',
+    name: 'Pyre Caster',
+    hp: 180,
+    level: 28,
+    hue: 18,
+    speed: 84,
+    aggroRange: 540,
+    attackRange: 440,
+    damage: 30,
+    attackCooldownMs: 1600,
+    behavior: 'ranged', // hurls Meteor (see MOB_SPELLS) — burns on hit
+    telegraphMs: 680,
+    projectileSpeed: 320,
+    kiteRange: 280,
+  },
+  ruin_colossus: {
+    id: 'ruin_colossus',
+    name: 'Ruin Colossus',
+    hp: 420,
+    level: 29,
+    hue: 30,
+    speed: 56,
+    aggroRange: 460,
+    attackRange: 84,
+    damage: 36,
+    attackCooldownMs: 1700,
+    behavior: 'melee',
+    telegraphMs: 760,
+    slamRadius: 130,
+  },
+  throne_tyrant: {
+    id: 'throne_tyrant',
+    name: 'Vorzel, the Throne-Tyrant',
+    hp: 1500,
+    level: 32,
+    hue: 320,
+    speed: 68,
+    aggroRange: 560,
+    attackRange: 94,
+    damage: 48,
+    attackCooldownMs: 1500,
+    behavior: 'melee', // the act-3 boss
+    telegraphMs: 840,
+    slamRadius: 150,
+  },
 };
 
 export interface AreaMobSpawn {
@@ -773,6 +835,12 @@ export const AREA_MOBS: Record<string, AreaMobSpawn[]> = {
     { templateId: 'hollow_runeseer', count: 2 },
     { templateId: 'xalthirun', count: 1 },
   ],
+  blighted_spire: [
+    { templateId: 'blight_knight', count: 7 },
+    { templateId: 'pyre_caster', count: 3 },
+    { templateId: 'ruin_colossus', count: 3 },
+    { templateId: 'throne_tyrant', count: 1 },
+  ],
 };
 
 /**
@@ -792,6 +860,7 @@ export const MOB_SPELLS: Record<string, AbilityId> = {
   rime_archer: 'frost',
   ashen_warlock: 'cinderorb',
   hollow_runeseer: 'arcane_orb',
+  pyre_caster: 'meteor',
 };
 
 /**

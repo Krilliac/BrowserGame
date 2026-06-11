@@ -51,6 +51,11 @@ versioning once it stabilizes.
   gem families drop and slot in: **Emerald** (life steal), **Amethyst** (attack speed), **Jade**
   (move speed), **Onyx** (armor), and **Opal** (vigor regen), each across three tiers. Combined with
   the new Armor/Vigor affixes, socketing is now a real lever for any build, not just raw damage.
+- **New act-3 zone — The Blighted Spire (L27–32).** A blight-choked citadel opens off the east edge
+  of the Sundered Wastes, raising the ceiling again. Blight Knights, **Pyre Casters** (who hurl
+  Meteor — burning you, via the monster-spell system), and Ruin Colossi guard it, with the act boss
+  **Vorzel, the Throne-Tyrant** (L32) and a bounty quest rewarding the Tome of Cataclysm. The Last
+  Warden gives quests at the entrance. Four new monster templates; all seeded idempotently.
 - **New act-2 zone — The Sundered Wastes (L20–26).** A void-scarred highland opens off the east edge
   of Frostpeak Pass, raising the level ceiling past the Pale King. It's stalked by Void Revenants,
   Ashen Warlocks, Obsidian Juggernauts and Hollow Runeseers, and ruled by a new act boss —

@@ -426,17 +426,25 @@ function ensureWorldExpansion(db: Database): void {
   const bossGoldIns = db.prepare(
     'INSERT INTO loot_entry (mob_template_id,grp,item_id,weight,min_qty,max_qty,is_nothing,chance) VALUES (?,?,?,?,?,?,?,?)',
   );
-  if (!bossGoldExists.get('xalthirun')) {
-    bossGoldIns.run('xalthirun', 'always', 'gold', 1, 400, 900, 0, 0);
+  const actBossGold: [string, number, number][] = [
+    ['xalthirun', 400, 900],
+    ['throne_tyrant', 700, 1500],
+  ];
+  for (const [mob, min, max] of actBossGold) {
+    if (!bossGoldExists.get(mob)) bossGoldIns.run(mob, 'always', 'gold', 1, min, max, 0, 0);
   }
 
-  // Quest-giver NPC for the new overworld zone (idempotent by area + name), matching the other zones.
-  const wastesNpcExists = db.prepare('SELECT 1 FROM npcs WHERE area_id = ? AND name = ?');
-  const wastesNpcIns = db.prepare(
+  // Quest-giver NPCs for the new overworld zones (idempotent by area + name), like the other zones.
+  const zoneNpcExists = db.prepare('SELECT 1 FROM npcs WHERE area_id = ? AND name = ?');
+  const zoneNpcIns = db.prepare(
     'INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)',
   );
-  if (!wastesNpcExists.get('sundered_wastes', 'The Exiled Seer')) {
-    wastesNpcIns.run('sundered_wastes', 'The Exiled Seer', 280, 1000, 285, 'questgiver');
+  const zoneNpcs: [string, string, number, number, number][] = [
+    ['sundered_wastes', 'The Exiled Seer', 280, 1000, 285],
+    ['blighted_spire', 'The Last Warden', 280, 1000, 110],
+  ];
+  for (const [area, name, x, y, hue] of zoneNpcs) {
+    if (!zoneNpcExists.get(area, name)) zoneNpcIns.run(area, name, x, y, hue, 'questgiver');
   }
 }
 
@@ -755,6 +763,7 @@ function seedNpcs(db: Database): void {
   ins.run('mines', 'Stranded Miner', 900, 280, 18, 'questgiver');
   ins.run('frostpeak', 'Frostbound Warden', 1000, 300, 205, 'questgiver');
   ins.run('sundered_wastes', 'The Exiled Seer', 280, 1000, 285, 'questgiver');
+  ins.run('blighted_spire', 'The Last Warden', 280, 1000, 110, 'questgiver');
 }
 
 /** Quests, keyed by area. Kill-N for now (the implemented type); each new area's boss rewards a tome. */
@@ -904,6 +913,16 @@ const QUESTS: {
     rewardGold: 900,
     rewardXp: 1200,
     rewardItem: 'tome_chainspark',
+  },
+  {
+    id: 'act3_tyrant',
+    name: 'The Throne-Tyrant',
+    description: 'Scale the Blighted Spire and cast down Vorzel, the Throne-Tyrant.',
+    targetMob: 'throne_tyrant',
+    targetCount: 1,
+    rewardGold: 3000,
+    rewardXp: 4500,
+    rewardItem: 'tome_meteor',
   },
 ];
 
