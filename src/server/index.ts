@@ -398,6 +398,11 @@ wss.on('connection', (socket) => {
         }
         break;
       }
+      case 'combine_gems': {
+        const p = players.get(entityId);
+        if (p) manager.get(p.instanceId)?.world.combineGems(entityId);
+        break;
+      }
       case 'waypoint': {
         const p = players.get(entityId);
         if (!p || typeof msg.areaId !== 'string') break;

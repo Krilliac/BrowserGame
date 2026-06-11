@@ -93,6 +93,22 @@ export function gemDef(id: string): GemDef | undefined {
   return GEMS[id];
 }
 
+/** How many same-kind gems fuse into one of the next tier (the Diablo cube rule). */
+export const GEMS_PER_COMBINE = 3;
+
+/**
+ * The next-tier gem id in the same family (e.g. `ruby_t1` → `ruby_t2`), or undefined if the gem is
+ * unknown or already top tier. Gem ids are `<family>_t<tier>`, so the family is the part before the
+ * final `_t`.
+ */
+export function nextGemTier(id: string): string | undefined {
+  const def = GEMS[id];
+  if (!def || def.tier >= 3) return undefined;
+  const family = id.slice(0, id.lastIndexOf('_t'));
+  const next = `${family}_t${def.tier + 1}`;
+  return GEMS[next] ? next : undefined;
+}
+
 /** The stats a gem can grant (the gem-able subset of {@link AffixStat} — every buff stat). */
 export interface GemBonuses {
   power: number;

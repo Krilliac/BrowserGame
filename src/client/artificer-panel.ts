@@ -10,7 +10,7 @@ import { affixLabel, isDebuff, RARITY } from '../shared/items.js';
 import { EQUIP_SLOTS, SLOT_LABELS } from '../shared/equipment.js';
 
 export interface ArtificerButton {
-  action: 'reroll' | 'unsocket' | 'close';
+  action: 'reroll' | 'unsocket' | 'close' | 'combine';
   uid?: number; // reroll: the bag instance uid
   slot?: string; // unsocket: the equipped doll slot
   index?: number; // unsocket: the socket index within that item
@@ -66,11 +66,12 @@ export function drawArtificerPanel(
   const headerH = 58;
   const sectionH = 22;
   const footerH = 14;
+  const combineH = rowH; // a single fixed "combine gems" button row at the top
   const px = view.w / 2 - pw / 2;
 
   // Clamp total height to the viewport, capping how many rows of each section we draw.
   const maxPh = Math.min(view.h - 16, 620);
-  const fixed = headerH + footerH + sectionH * 2;
+  const fixed = headerH + footerH + sectionH * 2 + combineH;
   let rerollCap = rerollItems.length || 1;
   let gemCap = gemRows.length || 1;
   const heightFor = (r: number, g: number): number => fixed + (r + g) * rowH;
@@ -119,6 +120,19 @@ export function drawArtificerPanel(
   hud.fillText('Reforge your gear · Esc to close', px + 14, py + 44);
 
   let y = py + headerH;
+
+  // --- Combine gems (free; consumes 3 matching gems) ---
+  const combineRect: ArtificerButton = { action: 'combine', x: px + 8, y, w: pw - 16, h: rowH - 4 };
+  buttons.push(combineRect);
+  drawRow(hud, px, y, pw, rowH, true);
+  hud.textAlign = 'left';
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.fillText('Combine gems', px + 16, y + 14);
+  hud.fillStyle = '#9aa3b2';
+  hud.font = '10px system-ui, sans-serif';
+  hud.fillText('Fuse 3 matching gems into one of the next tier (free)', px + 16, y + 27);
+  y += combineH;
 
   // --- Section: reroll affixes ---
   hud.fillStyle = '#c9a24b';

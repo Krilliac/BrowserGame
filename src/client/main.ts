@@ -393,6 +393,7 @@ function handleArtificerClick(x: number, y: number): boolean {
   if (!btn) return false;
   if (btn.action === 'close') net.artificer = null;
   else if (btn.action === 'reroll' && btn.uid !== undefined) net.sendEnchant(btn.uid);
+  else if (btn.action === 'combine') net.sendCombineGems();
   else if (btn.action === 'unsocket' && btn.slot && btn.index !== undefined) {
     net.sendUnsocketGem(btn.slot, btn.index);
   }

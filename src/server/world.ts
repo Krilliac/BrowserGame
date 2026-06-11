@@ -44,7 +44,14 @@ import {
   type BaseItem,
   type ItemInstance,
 } from '../shared/items.js';
-import { gemBonuses, isGem, rollGemDrop } from '../shared/gems.js';
+import {
+  GEMS,
+  GEMS_PER_COMBINE,
+  gemBonuses,
+  isGem,
+  nextGemTier,
+  rollGemDrop,
+} from '../shared/gems.js';
 import { gambleCost, isGambleSlot, rollGamble } from '../shared/gamble.js';
 import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-corruption.js';
 import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../shared/equipment.js';
@@ -486,7 +493,7 @@ export class World {
 
   /** Place static NPCs for the area (from the content DB). Called once after construction. */
   populateNpcs(areaId: string): void {
-    const KINDS: NpcKind[] = ['vendor', 'questgiver', 'healer', 'gambler'];
+    const KINDS: NpcKind[] = ['vendor', 'questgiver', 'healer', 'gambler', 'artificer'];
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
       const kind = (KINDS as string[]).includes(npc.kind) ? (npc.kind as NpcKind) : 'vendor';
@@ -628,6 +635,32 @@ export class World {
       player.id,
       `The Artificer frees a gem from your ${getContent().item(inst.baseId)?.name ?? slot}.`,
     );
+  }
+
+  /**
+   * Artificer: fuse GEMS_PER_COMBINE held gems of one kind into a single gem of the next tier (the
+   * Diablo gem-cube). Free — the gems are the cost. Upgrades the first eligible stack (stable order),
+   * so repeated clicks work through a hoard. Re-validates artificer proximity server-side.
+   */
+  combineGems(id: number): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    const npc = this.nearbyNpc(player);
+    if (!npc || npc.kind !== 'artificer') return;
+    for (const gemId of Object.keys(GEMS)) {
+      const have = player.loot.get(gemId) ?? 0;
+      const next = nextGemTier(gemId);
+      if (have >= GEMS_PER_COMBINE && next) {
+        for (let i = 0; i < GEMS_PER_COMBINE; i++) this.consumeLoot(player, gemId);
+        player.loot.set(next, (player.loot.get(next) ?? 0) + 1);
+        this.notify(
+          player.id,
+          `The Artificer fuses ${GEMS_PER_COMBINE} ${GEMS[gemId]!.name} into a ${GEMS[next]!.name}.`,
+        );
+        return;
+      }
+    }
+    this.notify(player.id, 'You need 3 matching gems of the same kind to fuse a stronger one.');
   }
 
   /**

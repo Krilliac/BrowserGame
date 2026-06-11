@@ -6,6 +6,20 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Artificer was non-functional.** Its NPC kind fell back to `vendor` when an area was
+  populated (the runtime kind allowlist omitted `artificer`), so Coalhand opened a shop and every
+  artificer action (reroll / unsocket / combine) silently failed its proximity check. The allowlist
+  now includes `artificer`, restoring the whole crafting window. (Found by the new gem-combine tests.)
+
+### Added
+
+- **Gem combining at the Artificer.** Fuse **3 matching gems into one of the next tier** (the Diablo
+  cube), free — the gems are the cost. A "Combine gems" button in the Artificer window upgrades your
+  first eligible stack each click, giving the flood of chipped gems a purpose. Server-authoritative
+  (re-validates artificer proximity); new `combine_gems` message + `nextGemTier` helper.
+
 ### Changed
 
 - **Controls — click-to-move + targeting + remappable hotbar (ARPG redesign).** Movement is now

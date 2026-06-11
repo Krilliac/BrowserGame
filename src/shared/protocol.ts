@@ -182,6 +182,8 @@ export type ClientMessage =
   | { t: 'enchant'; uid: number }
   /** Artificer: pop the gem out of an equipped item's socket back into the bag for gold. */
   | { t: 'unsocket_gem'; slot: string; index: number }
+  /** Artificer: fuse 3 held gems of one kind into one of the next tier. */
+  | { t: 'combine_gems' }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */

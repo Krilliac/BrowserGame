@@ -231,6 +231,10 @@ export class Net {
     this.send({ t: 'unsocket_gem', slot, index });
   }
 
+  sendCombineGems(): void {
+    this.send({ t: 'combine_gems' });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }

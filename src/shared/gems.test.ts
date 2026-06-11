@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GEMS, gemBonuses, gemDef, isGem, rollGemDrop } from './gems.js';
+import { GEMS, gemBonuses, gemDef, isGem, nextGemTier, rollGemDrop } from './gems.js';
 
 const VALID_STATS = new Set([
   'power',
@@ -110,6 +110,19 @@ describe('gemBonuses', () => {
   it('ignores unknown gem ids without throwing', () => {
     expect(() => gemBonuses(['mystery', 'ruby_t1', 'toString'])).not.toThrow();
     expect(gemBonuses(['mystery', 'ruby_t1', 'toString'])).toEqual({ ...ZERO_BONUSES, power: 3 });
+  });
+});
+
+describe('nextGemTier', () => {
+  it('returns the next tier within the same family', () => {
+    expect(nextGemTier('ruby_t1')).toBe('ruby_t2');
+    expect(nextGemTier('ruby_t2')).toBe('ruby_t3');
+    expect(nextGemTier('emerald_t1')).toBe('emerald_t2');
+  });
+  it('returns undefined at the top tier or for unknown ids', () => {
+    expect(nextGemTier('ruby_t3')).toBeUndefined();
+    expect(nextGemTier('diamond_t3')).toBeUndefined();
+    expect(nextGemTier('not_a_gem')).toBeUndefined();
   });
 });
 
