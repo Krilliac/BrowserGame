@@ -95,7 +95,7 @@ setInterval(() => {
   }
   const area = net.content.area(net.areaId);
   if (area) predictor.setBounds(area.width, area.height);
-  const seq = predictor.ready ? predictor.step(sample, STEP_DT) : 0;
+  const seq = predictor.ready ? predictor.step(sample, STEP_DT, net.you.moveMul) : 0;
   net.sendInput(sample, seq);
 
   // Auto-attack the selected target with your primary attack when it's in range. A melee primary

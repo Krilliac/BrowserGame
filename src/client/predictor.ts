@@ -21,7 +21,9 @@ export class Predictor {
   private seq = 0;
   private width = 2000;
   private height = 2000;
-  private pending: { seq: number; input: InputState }[] = [];
+  // Each pending input records the speed multiplier active when it was sent, so replaying it during
+  // reconciliation integrates exactly like the server did (which scales by weather/affix/buff/slow).
+  private pending: { seq: number; input: InputState; moveMul: number }[] = [];
 
   setBounds(width: number, height: number): void {
     this.width = width;
@@ -34,14 +36,18 @@ export class Predictor {
     this.pending = [];
   }
 
-  /** Advance the local prediction by one fixed step and record the input. Returns its seq. */
-  step(input: InputState, dt: number): number {
+  /**
+   * Advance the local prediction by one fixed step and record the input. `moveMul` is the server's
+   * current effective move multiplier (weather × +move affix × haste × slow), so prediction matches
+   * the authoritative integration; defaults to 1 if the server hasn't reported one yet.
+   */
+  step(input: InputState, dt: number, moveMul = 1): number {
     this.seq++;
     const p = { x: this.x, y: this.y };
-    this.apply(input, dt, p);
+    this.apply(input, dt, p, moveMul);
     this.x = p.x;
     this.y = p.y;
-    this.pending.push({ seq: this.seq, input });
+    this.pending.push({ seq: this.seq, input, moveMul });
     if (this.pending.length > 240) this.pending.shift();
     return this.seq;
   }
@@ -57,7 +63,7 @@ export class Predictor {
     }
     while (this.pending.length && this.pending[0]!.seq <= ackSeq) this.pending.shift();
     const p = { x: ax, y: ay };
-    for (const cmd of this.pending) this.apply(cmd.input, dt, p);
+    for (const cmd of this.pending) this.apply(cmd.input, dt, p, cmd.moveMul);
     const err = Math.hypot(p.x - this.x, p.y - this.y);
     if (err > SNAP_DIST) {
       this.x = p.x;
@@ -68,9 +74,15 @@ export class Predictor {
     }
   }
 
-  private apply(input: InputState, dt: number, target: { x: number; y: number }): void {
+  private apply(
+    input: InputState,
+    dt: number,
+    target: { x: number; y: number },
+    moveMul: number,
+  ): void {
     const { dx, dy } = moveVector(input);
-    target.x = clamp(target.x + dx * PLAYER_SPEED * dt, 0, this.width);
-    target.y = clamp(target.y + dy * PLAYER_SPEED * dt, 0, this.height);
+    const speed = PLAYER_SPEED * moveMul;
+    target.x = clamp(target.x + dx * speed * dt, 0, this.width);
+    target.y = clamp(target.y + dy * speed * dt, 0, this.height);
   }
 }

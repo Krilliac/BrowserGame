@@ -131,13 +131,23 @@ describe('vendor shop — buy / sell / proximity', () => {
     expect(offers[0]!.stock.some((s) => s.itemId === 'tome_heal')).toBe(true);
   });
 
+  it('caps the shelf to a few items and scales prices, so the panel never overflows', () => {
+    const { w, id } = townWithShopper();
+    w.interact(id);
+    const stock = w.drainShopOffers()[0]!.stock;
+    expect(stock.length).toBeLessThanOrEqual(10); // capped; the full catalog is far larger
+    expect(stock.some((s) => !s.itemId.startsWith('tome_'))).toBe(true); // basic gear always shown
+    const heal = stock.find((s) => s.itemId === 'tome_heal');
+    if (heal) expect(heal.price).toBe(240); // base 150 × 1.6 (prices scaled up)
+  });
+
   it('buys a spellbook when the player can afford it', () => {
     const { w, id } = townWithShopper();
     w.giveItem(id, 'gold', 1000);
     const before = w.playerStats(id)!.gold;
-    w.buy(id, 'tome_heal'); // priced 150
+    w.buy(id, 'tome_heal'); // base 150, charged at the scaled vendor price
     const after = w.playerStats(id)!;
-    expect(after.gold).toBe(before - 150);
+    expect(after.gold).toBe(before - Math.round(150 * 1.6)); // 240
     expect(after.loot.tome_heal).toBe(1);
   });
 

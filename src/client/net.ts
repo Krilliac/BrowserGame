@@ -50,6 +50,8 @@ export interface SelfStats {
   x: number;
   y: number;
   ackSeq: number;
+  /** Effective move multiplier — fed to the predictor so prediction matches the server. */
+  moveMul: number;
 }
 
 /** A vendor's shop contents, set when a `shop` packet arrives and cleared when the panel closes. */
@@ -96,6 +98,7 @@ export class Net {
     x: 0,
     y: 0,
     ackSeq: 0,
+    moveMul: 1,
   };
   /** The currently-open vendor shop (null when no shop panel is open). */
   shop: ShopState | null = null;
@@ -293,6 +296,7 @@ export class Net {
           x: msg.x,
           y: msg.y,
           ackSeq: msg.ackSeq,
+          moveMul: msg.moveMul,
         };
         this.authRev++;
         break;

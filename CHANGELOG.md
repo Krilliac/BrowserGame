@@ -8,13 +8,13 @@ versioning once it stabilizes.
 
 ### Fixed
 
-- **Movement rubber-banding from enemy slows / haste.** Player move speed was being scaled by the
-  HASTE buff and enemy SLOW debuff on the server, but the client-side predictor integrates raw
-  PLAYER_SPEED — so being slowed (now common, with spellcasting monsters) made the predicted
-  position race ahead of the server and snap back, badly. Player movement no longer applies those
-  multipliers (haste still speeds *attacks*; slow still affects monsters and still burns/weakens
-  you) — keeping prediction in sync. (Re-enabling move-slow/haste cleanly needs the predictor to
-  read the same multiplier; tracked as follow-up.)
+- **Movement rubber-banding (now fixed properly, predictor-aware).** Player move speed scaled by
+  weather, +move affixes/gems, the Haste buff, and enemy Slow debuff — but the client predictor
+  integrated raw `PLAYER_SPEED`, so any of those (especially the now-common monster Slow) made the
+  predicted position race ahead and snap back. The server now sends the player's **effective move
+  multiplier** in the `you` packet, and the predictor integrates with it (recording it per input so
+  reconciliation replays exactly) — so move-slow / haste / +move gear all work with **no
+  rubber-banding**.
 - **Ranged/spell auto-attack from range.** Clicking a monster now auto-attacks with your *selected*
   attack at *its* range — a ranged or spell primary fires from a distance instead of walking you
   into melee; the chase stops just inside that range. Basic Slash still closes to melee.
@@ -32,6 +32,11 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **Spell merchant — rotating, capped shelf + higher prices.** The Merchant no longer dumps its
+  whole catalog (which overflowed the panel): it shows its basic gear plus a **rotating window of a
+  few spell tomes**, cycling the selection every few minutes, and **tome prices are scaled up** (a
+  gold sink that keeps drops the exciting acquisition path). Display and the buy check share one
+  source, so you can only buy what's currently on the shelf, at the shown price.
 - **Renderer — trailing follow camera + a more oblique tilt (toward the Diablo III / RuneScape
   look).** The camera now eases toward the player each frame instead of being bolted to it, so the
   view *follows* like RuneScape/Diablo (large jumps through portals still snap). The world plane is

@@ -242,6 +242,8 @@ export type ServerMessage =
       x: number;
       y: number;
       ackSeq: number;
+      /** Effective move multiplier (weather × affix × haste × slow) for the client predictor. */
+      moveMul: number;
     }
   /** A nearby vendor's shop contents (sent when the player interacts with a vendor NPC). */
   | { t: 'shop'; vendor: string; stock: { itemId: string; price: number }[] }

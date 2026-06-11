@@ -129,6 +129,13 @@ const GEM_DROP_BOSS = 0.6; // 60% per area boss
 // How often a support-caster monster may re-cast its self-buff/heal (War Cry / Sprint / Renew).
 const MOB_SUPPORT_COOLDOWN_MS = 7000;
 
+// Vendor stock: spell prices are scaled up (a gold sink that keeps drops the exciting path), and a
+// vendor shows only a rotating WINDOW of its tomes so the shop never overflows the UI. The window
+// advances on a sim-time bucket, so the spell selection rotates over the session.
+const VENDOR_PRICE_MULT = 1.6;
+const VENDOR_STOCK_CAP = 10;
+const VENDOR_ROTATE_MS = 240_000; // ~4 minutes per rotation
+
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
 const ELITE_CHANCE = 0.09;
 const ELITE_MODIFIERS: { name: string; hp: number; dmg: number; spd: number }[] = [
@@ -527,7 +534,7 @@ export class World {
       this.shopOffers.push({
         playerId: player.id,
         vendor: npc.name,
-        stock: getContent().vendorStock(this.areaId, npc.name),
+        stock: this.vendorStockFor(npc.name),
       });
     } else if (npc.kind === 'healer') {
       this.healAtNpc(player, npc.name);
@@ -713,9 +720,9 @@ export class World {
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
     if (!npc || npc.kind !== 'vendor') return;
-    const entry = getContent()
-      .vendorStock(this.areaId, npc.name)
-      .find((s) => s.itemId === itemId);
+    // Validate against the SHOWN (rotated + repriced) stock, so you can only buy what's currently on
+    // the shelf and at the displayed price.
+    const entry = this.vendorStockFor(npc.name).find((s) => s.itemId === itemId);
     // Guard against a non-positive price (e.g. a bad DB edit): a negative price would *add* gold.
     if (!entry || entry.price <= 0 || player.gold < entry.price) return;
     const def = getContent().item(itemId);
@@ -728,6 +735,30 @@ export class World {
       player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + 1);
     }
     this.notify(player.id, `Bought ${def.name} for ${entry.price}g.`);
+  }
+
+  /**
+   * A vendor's shown stock: its basic gear always, plus a rotating window of its spell tomes (so the
+   * shop never overflows), with prices scaled up. The window advances on a sim-time bucket — the
+   * spell selection rotates over the session. Used for BOTH the shop panel and the buy check, so
+   * what you see is exactly what you can buy, at that price.
+   */
+  private vendorStockFor(npcName: string): { itemId: string; price: number }[] {
+    const full = getContent().vendorStock(this.areaId, npcName);
+    const gear = full.filter((s) => !s.itemId.startsWith('tome_'));
+    const tomes = full.filter((s) => s.itemId.startsWith('tome_'));
+    const slots = Math.max(0, VENDOR_STOCK_CAP - gear.length);
+    const shown = [...gear];
+    if (tomes.length > 0 && slots > 0) {
+      const start = (Math.floor(this.now / VENDOR_ROTATE_MS) * slots) % tomes.length;
+      for (let i = 0; i < Math.min(slots, tomes.length); i++) {
+        shown.push(tomes[(start + i) % tomes.length]!);
+      }
+    }
+    return shown.map((s) => ({
+      itemId: s.itemId,
+      price: Math.max(1, Math.round(s.price * VENDOR_PRICE_MULT)),
+    }));
   }
 
   /**
@@ -1226,6 +1257,17 @@ export class World {
   }
 
   /**
+   * A player's effective movement multiplier: weather × +move affix/gem × HASTE buff × enemy SLOW
+   * debuff. The same value is sent in the `you` packet so the client predictor integrates exactly
+   * like this, keeping movement in sync (no rubber-banding) even when slowed/hasted/move-buffed.
+   */
+  private playerMoveMul(player: Player): number {
+    return (
+      this.moveScale * player.moveMult * player.buffs.moveFactor() * player.debuffs.slowFactor()
+    );
+  }
+
+  /**
    * A monster's outgoing hit damage: base × elite mult × area corruption, scaled by its own status
    * effects — a WEAKEN debuff cuts it, a MIGHT self-buff (from a War Cry support cast) raises it.
    */
@@ -1263,12 +1305,9 @@ export class World {
 
       const { dx, dy } = moveVector(player.input);
       if (dx !== 0 || dy !== 0) {
-        // Player speed must match what the client PREDICTOR integrates (raw PLAYER_SPEED), or the two
-        // desync and the view rubber-bands. So move speed stays as just weather × +move affix here;
-        // HASTE (buff) and SLOW (enemy debuff) do NOT scale player movement (they would desync the
-        // predictor). Haste still speeds attacks via cooldownFactor; slow still affects monsters.
-        // (Re-enabling move-slow/haste needs the predictor to read the same multiplier — see net.)
-        const speed = PLAYER_SPEED * this.moveScale * player.moveMult;
+        // Full effective speed (weather × affix × haste × slow). The client predictor receives this
+        // same multiplier in the `you` packet, so the two stay in sync — no rubber-banding.
+        const speed = PLAYER_SPEED * this.playerMoveMul(player);
         player.x = clamp(player.x + dx * speed * dt, 0, this.width);
         player.y = clamp(player.y + dy * speed * dt, 0, this.height);
         player.facing = Math.atan2(dy, dx);
@@ -2048,6 +2087,8 @@ export class World {
         x: number;
         y: number;
         ackSeq: number;
+        /** Effective move multiplier — the client predictor integrates with this to stay in sync. */
+        moveMul: number;
       }
     | undefined {
     const p = this.players.get(id);
@@ -2077,6 +2118,7 @@ export class World {
       x: p.x,
       y: p.y,
       ackSeq: p.lastSeq,
+      moveMul: this.playerMoveMul(p),
     };
   }
 
