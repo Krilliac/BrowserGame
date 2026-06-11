@@ -15,6 +15,7 @@ import {
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import { RARITY, type Rarity } from '../shared/items.js';
 import type { EntityState } from '../shared/protocol.js';
+import type { DecorProp } from '../shared/areas.js';
 import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
@@ -22,7 +23,6 @@ import { Weather } from './weather.js';
 import { Lighting, type LightSource } from './lighting.js';
 import { PostFx } from './post-fx.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
-import { TOWN_AREA_ID, TOWN_PALETTE, TOWN_PLAZA, TOWN_PROPS, type TownProp } from './town-decor.js';
 import {
   newAnimView,
   resolveAnim,
@@ -62,6 +62,29 @@ const WALK_FRAME_MS = 120;
 // Light sources for the lighting overlay: the local player carries a warm torch, and portals glow.
 const PLAYER_LIGHT = { radius: 190, color: 0xffd9a0 };
 const PORTAL_LIGHT = { radius: 130, color: 0xc9a24b };
+// Warm campfire light tint (0xRRGGBB) the bonfire + torches add to the additive bloom layer.
+const FIRE_LIGHT = 0xffb25a;
+
+/**
+ * Warm wood/cloth/iron palette for the town's Rogue-Encampment set-dressing. Used by the decor
+ * draw routines (palisade, tents, wagon, anvil, crates…). Colors a prop carries in its `color`
+ * field (canvas/wood tints) override the defaults; these are the shared structural hues.
+ */
+const DECOR_PALETTE = {
+  wood: '#6b4a2c',
+  woodDark: '#4a3219',
+  woodLight: '#84603a',
+  rope: '#8a7350',
+  canvas: '#cbbfa3', // default tent/wagon canvas if a prop gives no color
+  iron: '#3a3a40',
+  ironLight: '#5a5a64',
+  stone: '#6b665c',
+  hay: '#b9952f',
+  hayDark: '#8a6c22',
+  emberCore: '#fff2c0', // hottest center of a flame
+  ember: '#ff8a2a', // mid flame
+  emberDeep: '#d4471a', // outer flame
+} as const;
 
 const ITEM_COLORS: Record<string, string> = {
   gold: '#f2c14e',
@@ -281,9 +304,14 @@ export class PixiRenderer {
   private currentArea = '';
   private currentTheme: AreaTheme = DEFAULT_THEME;
   private portalCenters: { x: number; y: number }[] = []; // world-space, for portal glow lights
-  // World-space warm lights cast by town lamp posts (and the well). Built once per area, projected
-  // to screen each frame like portal lights so they bloom on the additive overlay at night.
-  private townLights: { x: number; y: number; radius: number }[] = [];
+  // World-space warm lights cast by the camp's bonfire + torches. Built once per area entry, then
+  // projected to screen each frame like the portal lights so they bloom on the additive overlay at
+  // night. `flicker` lights re-jitter their radius per frame from the animation clock (live fire).
+  private decorLights: { x: number; y: number; radius: number; color: number; flicker: boolean }[] =
+    [];
+  // Cached fire flames (bonfire/torch). Their flame Graphics is redrawn each frame from the shared
+  // animation clock so the camp visibly flickers — without rebuilding the whole decor container.
+  private fireFlames: { gfx: Graphics; scale: number; seed: number }[] = [];
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
@@ -389,7 +417,8 @@ export class PixiRenderer {
     for (const child of this.propLayer.removeChildren()) child.destroy();
 
     this.portalCenters = [];
-    this.townLights = [];
+    this.decorLights = [];
+    this.fireFlames = [];
     for (const portal of area.portals) {
       const cx = portal.rect.x + portal.rect.w / 2;
       const cy = portal.rect.y + portal.rect.h / 2;
@@ -424,66 +453,71 @@ export class PixiRenderer {
       }
     }
 
-    if (areaId === TOWN_AREA_ID) this.buildTownDecor();
+    // Server-authoritative set-dressing (the `decor` SQL table, delivered on the AreaDef). Built
+    // ONCE per area entry into the cached prop layer; only when the area actually has decor.
+    if (area.decor && area.decor.length > 0) this.buildDecor(area.decor);
   }
 
   /**
-   * Build the town's hand-placed set-dressing into the (cached) prop layer: a cobblestone plaza
-   * patch beneath the spawn square, then each prop with the same 2.5D projection, y-sorting and
-   * soft shadow the actors use, so props occlude/sort with players. Lamp/well glow positions are
-   * recorded in townLights and projected to screen each frame on the additive light overlay.
-   * Built ONCE per area entry (in setArea) — never per frame.
+   * Build the area's server-authoritative set-dressing (the `decor` SQL rows) into the cached prop
+   * layer. Each prop becomes a y-sorted, soft-shadowed Container drawn with the same 2.5D projection
+   * the actors use, so a player can stand in front of / behind a tent. Bonfire + torch glow lights
+   * are recorded in decorLights and projected to screen each frame on the additive light overlay;
+   * their flames are cached in fireFlames and re-drawn each frame so the camp flickers. Built ONCE
+   * per area entry (in setArea) — never rebuilt per frame.
    */
-  private buildTownDecor(): void {
-    // The plaza paving: a warmer, lighter ground patch under the square. zIndex below props/actors
-    // (its back edge y) but above the portal pads, so it reads as the floor of the settlement.
-    const plaza = new Graphics();
-    plaza
-      .roundRect(TOWN_PLAZA.x, TOWN_PLAZA.y * PITCH, TOWN_PLAZA.w, TOWN_PLAZA.h * PITCH, 26)
-      .fill({ color: TOWN_PALETTE.cobbleBase });
-    // A scatter of cobble highlights + mortar flecks so the paving reads as stones, not a flat slab.
-    for (let i = 0; i < 120; i++) {
-      const cx = TOWN_PLAZA.x + hash2(i * 3 + 1, i * 7 + 2) * TOWN_PLAZA.w;
-      const cy = (TOWN_PLAZA.y + hash2(i * 5 + 3, i * 11 + 4) * TOWN_PLAZA.h) * PITCH;
-      const light = hash2(i * 13, i * 17) > 0.5;
-      plaza
-        .ellipse(cx, cy, 7, 4)
-        .fill({ color: light ? TOWN_PALETTE.cobbleSpeck : TOWN_PALETTE.cobbleEdge, alpha: 0.5 });
-    }
-    plaza.zIndex = TOWN_PLAZA.y - 50000; // under every prop/actor, over the portal pad
-    this.propLayer.addChild(plaza);
-
-    for (const prop of TOWN_PROPS) this.propLayer.addChild(this.makeTownProp(prop));
+  private buildDecor(decor: readonly DecorProp[]): void {
+    // Draw line props (the palisade) first so point props layer over their bases naturally; the
+    // y-sort handles final ordering regardless, but this keeps the back wall reading as a backdrop.
+    for (const prop of decor) this.propLayer.addChild(this.makeDecorProp(prop));
   }
 
-  /** Build one town prop as a y-sorted, shadowed Container at its world position. */
-  private makeTownProp(prop: TownProp): Container {
+  /** Build one decor prop as a y-sorted, shadowed Container at its world position. */
+  private makeDecorProp(prop: DecorProp): Container {
     const c = new Container();
-    // Fences span two points; everything else is a point prop placed at (x,y).
-    const ax = prop.kind === 'fence' ? (prop.x1 + prop.x2) / 2 : prop.x;
-    const ay = prop.kind === 'fence' ? (prop.y1 + prop.y2) / 2 : prop.y;
+    // Line props (palisade) anchor at their midpoint; point props at (x,y). The container's zIndex
+    // is the world y of its anchor, so props sort against actors by depth (the back wall sits high).
+    const line = prop.x2 !== undefined && prop.y2 !== undefined;
+    const ax = line ? (prop.x + prop.x2!) / 2 : prop.x;
+    const ay = line ? (prop.y + prop.y2!) / 2 : prop.y;
     c.position.set(ax, ay * PITCH);
     c.zIndex = ay;
+    const scale = prop.scale ?? 1;
     switch (prop.kind) {
-      case 'well':
-        this.drawWell(c);
-        this.townLights.push({ x: prop.x, y: prop.y, radius: 90 });
+      case 'palisade':
+        this.drawPalisade(c, prop.x, prop.y, prop.x2!, prop.y2!, ax, ay);
         break;
-      case 'lamp':
-        this.drawLamp(c);
-        this.townLights.push({ x: prop.x, y: prop.y - 36, radius: 120 });
+      case 'gate':
+        this.drawGate(c, scale);
         break;
-      case 'stall':
-        this.drawStall(c, prop.color);
+      case 'bonfire':
+        this.drawBonfire(c, prop.x, prop.y);
         break;
-      case 'banner':
-        this.drawBanner(c, prop.color);
+      case 'tent':
+        this.drawTent(c, prop.color ?? DECOR_PALETTE.canvas, scale);
         break;
-      case 'planter':
-        this.drawPlanter(c);
+      case 'wagon':
+        this.drawWagon(c, prop.color ?? DECOR_PALETTE.wood);
         break;
-      case 'fence':
-        this.drawFence(c, prop.x1, prop.y1, prop.x2, prop.y2, ax, ay);
+      case 'anvil':
+        this.drawAnvil(c);
+        break;
+      case 'crate':
+        this.drawCrate(c, scale);
+        break;
+      case 'barrel':
+        this.drawBarrel(c);
+        break;
+      case 'hay':
+        this.drawHay(c);
+        break;
+      case 'torch':
+        this.drawTorch(c, prop.x, prop.y);
+        break;
+      default:
+        // Unknown kind: a low stone marker so bad data fails visibly but harmlessly.
+        this.propShadow(c, 10, 5);
+        c.addChild(new Graphics().ellipse(0, -6, 10, 8).fill({ color: DECOR_PALETTE.stone }));
         break;
     }
     return c;
@@ -501,87 +535,11 @@ export class PixiRenderer {
     c.addChildAt(s, 0);
   }
 
-  private drawWell(c: Container): void {
-    this.propShadow(c, 26, 13);
-    const g = new Graphics();
-    // Round stone rim seen at the tilted pitch (a flattened ellipse), with water inside.
-    g.ellipse(0, 0, 26, 26 * PITCH).fill({ color: TOWN_PALETTE.stoneDark });
-    g.ellipse(0, 0, 22, 22 * PITCH).fill({ color: TOWN_PALETTE.stone });
-    g.ellipse(0, -2, 16, 16 * PITCH).fill({ color: TOWN_PALETTE.water });
-    g.ellipse(0, -3, 16, 16 * PITCH).stroke({ width: 1.5, color: '#bfe0ee', alpha: 0.4 });
-    // Two posts + a peaked roof over the well (a classic wishing-well silhouette), lifted upward.
-    g.rect(-20, -44, 5, 44).fill({ color: TOWN_PALETTE.wood });
-    g.rect(15, -44, 5, 44).fill({ color: TOWN_PALETTE.wood });
-    g.poly([-26, -44, 26, -44, 14, -60, -14, -60]).fill({ color: TOWN_PALETTE.thatch });
-    g.poly([-26, -44, 26, -44, 14, -60, -14, -60]).stroke({
-      width: 1,
-      color: TOWN_PALETTE.woodDark,
-      alpha: 0.6,
-    });
-    c.addChild(g);
-  }
-
-  private drawLamp(c: Container): void {
-    this.propShadow(c, 8, 5);
-    const g = new Graphics();
-    g.rect(-2, -48, 4, 48).fill({ color: TOWN_PALETTE.woodDark }); // iron post
-    g.rect(-5, -2, 10, 3).fill({ color: TOWN_PALETTE.woodDark }); // base
-    // Lantern head: a warm glowing pane in an iron cage, lifted to the top of the post.
-    g.roundRect(-6, -60, 12, 14, 2).fill({ color: '#2a2620' });
-    g.roundRect(-4, -58, 8, 10, 1).fill({ color: '#ffd98a' });
-    g.circle(0, -53, 8).fill({ color: TOWN_PALETTE.lampGlow, alpha: 0.22 }); // local soft halo
-    c.addChild(g);
-  }
-
-  private drawStall(c: Container, color: string): void {
-    this.propShadow(c, 30, 12);
-    const g = new Graphics();
-    // Counter + corner posts.
-    g.rect(-30, -22, 60, 10).fill({ color: TOWN_PALETTE.woodDark });
-    g.rect(-30, -34, 4, 34).fill({ color: TOWN_PALETTE.wood });
-    g.rect(26, -34, 4, 34).fill({ color: TOWN_PALETTE.wood });
-    // Striped awning sloping toward the shopper.
-    g.poly([-34, -34, 34, -34, 30, -46, -30, -46]).fill({ color });
-    for (let i = -30; i < 30; i += 12) {
-      g.poly([i, -34, i + 6, -34, i + 5, -46, i - 1, -46]).fill({ color: '#f0e6d2', alpha: 0.5 });
-    }
-    // A few wares on the counter for life.
-    g.circle(-16, -24, 3).fill({ color: '#c64f3a' });
-    g.circle(-6, -24, 3).fill({ color: '#c89b2a' });
-    g.circle(6, -24, 3).fill({ color: '#5a8a4a' });
-    c.addChild(g);
-  }
-
-  private drawBanner(c: Container, color: string): void {
-    this.propShadow(c, 6, 4);
-    const g = new Graphics();
-    g.rect(-2, -64, 4, 64).fill({ color: TOWN_PALETTE.woodDark }); // pole
-    g.circle(0, -64, 3).fill({ color: '#d9c27a' }); // gold finial
-    // Hanging cloth with a notched (swallowtail) hem.
-    g.poly([2, -60, 22, -60, 22, -30, 16, -36, 12, -30, 8, -36, 2, -30]).fill({ color });
-    g.poly([2, -60, 22, -60, 22, -30, 16, -36, 12, -30, 8, -36, 2, -30]).stroke({
-      width: 1,
-      color: '#00000040',
-    });
-    g.poly([8, -56, 16, -56, 12, -48]).fill({ color: '#e7d9a0', alpha: 0.85 }); // emblem
-    c.addChild(g);
-  }
-
-  private drawPlanter(c: Container): void {
-    this.propShadow(c, 12, 6);
-    const g = new Graphics();
-    g.rect(-11, -12, 22, 12).fill({ color: TOWN_PALETTE.stoneDark });
-    g.rect(-11, -12, 22, 4).fill({ color: TOWN_PALETTE.stone });
-    g.circle(-5, -14, 6).fill({ color: TOWN_PALETTE.leaf });
-    g.circle(5, -14, 6).fill({ color: '#46663f' });
-    g.circle(0, -18, 6).fill({ color: '#4f7046' });
-    g.circle(-4, -17, 1.6).fill({ color: '#d98a9a' }); // a couple of blossoms
-    g.circle(4, -16, 1.6).fill({ color: '#e0c060' });
-    c.addChild(g);
-  }
-
-  /** A fence run: posts at each end with two rails between, drawn in the container's local space. */
-  private drawFence(
+  /**
+   * A spiked palisade wall: a run of pointed vertical stakes from (x1,y1) to (x2,y2), lashed with a
+   * rope rail. Billboarded upward so the stakes stand against the ground (the camp's defensive ring).
+   */
+  private drawPalisade(
     c: Container,
     x1: number,
     y1: number,
@@ -590,29 +548,265 @@ export class PixiRenderer {
     ax: number,
     ay: number,
   ): void {
-    const g = new Graphics();
     // Endpoints relative to the container origin (the run's midpoint), projected to the pitch.
     const lx1 = x1 - ax;
     const ly1 = (y1 - ay) * PITCH;
     const lx2 = x2 - ax;
     const ly2 = (y2 - ay) * PITCH;
-    // Two horizontal rails between the posts (drawn before posts so posts overlap them).
-    for (const railY of [-16, -28]) {
-      g.moveTo(lx1, ly1 + railY)
-        .lineTo(lx2, ly2 + railY)
-        .stroke({ width: 4, color: TOWN_PALETTE.wood });
-    }
-    // Posts along the run (including both ends) at a fixed spacing.
     const len = Math.hypot(lx2 - lx1, ly2 - ly1);
-    const steps = Math.max(1, Math.round(len / 34));
+    const steps = Math.max(1, Math.round(len / 16)); // a stake roughly every 16px along the run
+
+    // A soft strip shadow under the whole run (a stretched ellipse along the segment).
+    const sh = new Sprite(this.softShadowTexture());
+    sh.anchor.set(0.5, 0.5);
+    sh.width = len + 24;
+    sh.height = 16;
+    sh.alpha = SHADOW_ALPHA * 0.8;
+    sh.rotation = Math.atan2(ly2 - ly1, lx2 - lx1);
+    sh.position.set((lx1 + lx2) / 2 + 6, (ly1 + ly2) / 2 + 4);
+    sh.skew.x = SHADOW_SKEW;
+    c.addChild(sh);
+
+    const g = new Graphics();
+    const stakeH = 40;
+    // A back rope/rail lashing the stakes together, drawn first so the stakes overlap it.
+    g.moveTo(lx1, ly1 - stakeH * 0.6)
+      .lineTo(lx2, ly2 - stakeH * 0.6)
+      .stroke({ width: 2, color: DECOR_PALETTE.rope, alpha: 0.8 });
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const px = lx1 + (lx2 - lx1) * t;
       const py = ly1 + (ly2 - ly1) * t;
-      g.rect(px - 2.5, py - 32, 5, 32).fill({ color: TOWN_PALETTE.woodDark });
-      g.rect(px - 3.5, py - 34, 7, 4).fill({ color: TOWN_PALETTE.wood });
+      const w = 5;
+      // The stake body, then a sharpened point on top, with a darker shaded side for round logs.
+      g.rect(px - w / 2, py - stakeH, w, stakeH).fill({ color: DECOR_PALETTE.wood });
+      g.rect(px - w / 2, py - stakeH, 2, stakeH).fill({ color: DECOR_PALETTE.woodDark });
+      g.poly([px - w / 2, py - stakeH, px + w / 2, py - stakeH, px, py - stakeH - 7]).fill({
+        color: DECOR_PALETTE.woodLight,
+      });
     }
     c.addChild(g);
+  }
+
+  /** A camp gate: two heavy posts and a lintel framing an open doorway. Billboarded upward. */
+  private drawGate(c: Container, scale: number): void {
+    this.propShadow(c, 40 * scale, 12 * scale);
+    const g = new Graphics();
+    g.scale.set(scale);
+    const h = 76;
+    // Two posts.
+    for (const px of [-34, 30]) {
+      g.rect(px, -h, 8, h).fill({ color: DECOR_PALETTE.wood });
+      g.rect(px, -h, 3, h).fill({ color: DECOR_PALETTE.woodDark });
+      g.poly([px, -h, px + 8, -h, px + 4, -h - 8]).fill({ color: DECOR_PALETTE.woodLight }); // capped point
+    }
+    // Lintel across the top + a second cross-beam, lashed with rope ties.
+    g.rect(-40, -h, 80, 9).fill({ color: DECOR_PALETTE.woodDark });
+    g.rect(-40, -h + 2, 80, 3).fill({ color: DECOR_PALETTE.woodLight, alpha: 0.5 });
+    g.rect(-34, -h + 18, 68, 5).fill({ color: DECOR_PALETTE.wood });
+    for (const px of [-30, 34]) g.circle(px, -h + 6, 2.5).fill({ color: DECOR_PALETTE.rope });
+    c.addChild(g);
+  }
+
+  /**
+   * The big central campfire: a stacked log pile, a stone ring, and animated flames with a warm
+   * glow. The flame Graphics is registered in fireFlames so update() redraws it each frame (live
+   * flicker); the glow light is registered in decorLights as the camp's brightest, flickering light.
+   */
+  private drawBonfire(c: Container, wx: number, wy: number): void {
+    this.propShadow(c, 30, 15);
+    const base = new Graphics();
+    // Stone ring at the tilted pitch.
+    base.ellipse(0, 0, 30, 30 * PITCH).fill({ color: DECOR_PALETTE.stone });
+    base.ellipse(0, 0, 24, 24 * PITCH).fill({ color: '#241c16' }); // charred pit
+    // Crossed log pile.
+    base.poly([-22, -2, -8, -14, -4, -10, -18, 2]).fill({ color: DECOR_PALETTE.wood });
+    base.poly([22, -2, 8, -14, 4, -10, 18, 2]).fill({ color: DECOR_PALETTE.woodDark });
+    base.poly([-16, -10, 16, -10, 14, -4, -14, -4]).fill({ color: DECOR_PALETTE.woodLight });
+    c.addChild(base);
+
+    const flame = new Graphics();
+    c.addChild(flame);
+    this.fireFlames.push({ gfx: flame, scale: 1, seed: hash2(wx | 0, wy | 0) * 6.28 });
+    // The camp's brightest, flickering light — drawn a touch above the pit so it haloes the fire.
+    this.decorLights.push({ x: wx, y: wy - 8, radius: 230, color: FIRE_LIGHT, flicker: true });
+  }
+
+  /**
+   * A canvas A-frame tent: a triangular ridge of cloth (the `color` tint) with a shaded side, a dark
+   * door slit, and guy-ropes. Billboarded upward; `scale` sizes it (the central tent is bigger).
+   */
+  private drawTent(c: Container, color: string, scale: number): void {
+    this.propShadow(c, 38 * scale, 16 * scale);
+    const g = new Graphics();
+    g.scale.set(scale);
+    const w = 40; // half-width at the base
+    const h = 56; // ridge height
+    // Lit front slope, then a shaded right slope for a little form.
+    g.poly([-w, 0, w, 0, 0, -h]).fill({ color });
+    g.poly([0, 0, w, 0, 0, -h]).fill({ color: '#000000', alpha: 0.18 });
+    // Ridge line + a hem strip along the bottom for weight.
+    g.moveTo(0, -h).lineTo(0, 0).stroke({ width: 2, color: '#000000', alpha: 0.2 });
+    g.rect(-w, -4, w * 2, 4).fill({ color: '#000000', alpha: 0.22 });
+    // A dark triangular door flap at the front.
+    g.poly([-9, 0, 9, 0, 0, -h * 0.62]).fill({ color: '#241b12' });
+    // Guy-ropes to two pegs.
+    g.moveTo(-w + 4, -2)
+      .lineTo(-w - 12, 2)
+      .stroke({ width: 1.5, color: DECOR_PALETTE.rope });
+    g.moveTo(w - 4, -2)
+      .lineTo(w + 12, 2)
+      .stroke({ width: 1.5, color: DECOR_PALETTE.rope });
+    c.addChild(g);
+  }
+
+  /**
+   * A merchant's caravan: a wooden cart bed on two wheels under an arched cloth cover (`color` is
+   * the wood tint). Billboarded upward — the camp's trader.
+   */
+  private drawWagon(c: Container, wood: string): void {
+    this.propShadow(c, 46, 16);
+    const g = new Graphics();
+    // Wheels (seen edge-on at the pitch).
+    for (const wx of [-30, 26]) {
+      g.ellipse(wx, -8, 11, 11 * PITCH + 4).fill({ color: DECOR_PALETTE.woodDark });
+      g.ellipse(wx, -8, 6, 6 * PITCH + 2).fill({ color: wood });
+    }
+    // Cart bed.
+    g.rect(-40, -30, 80, 18).fill({ color: wood });
+    g.rect(-40, -16, 80, 4).fill({ color: DECOR_PALETTE.woodDark });
+    // Arched canvas cover.
+    g.moveTo(-38, -30).arc(0, -30, 38, Math.PI, 0).fill({ color: DECOR_PALETTE.canvas });
+    // Vertical hoop-rib shading lines following the arch.
+    for (const rx of [-24, -8, 8, 24]) {
+      const ry = -30 - Math.sqrt(Math.max(0, 38 * 38 - rx * rx));
+      g.moveTo(rx, -30).lineTo(rx, ry).stroke({ width: 1.5, color: '#000000', alpha: 0.12 });
+    }
+    c.addChild(g);
+  }
+
+  /** A blacksmith's anvil on a wooden stump. */
+  private drawAnvil(c: Container): void {
+    this.propShadow(c, 18, 9);
+    const g = new Graphics();
+    // Stump.
+    g.ellipse(0, 0, 14, 14 * PITCH).fill({ color: DECOR_PALETTE.woodDark });
+    g.rect(-12, -14, 24, 14).fill({ color: DECOR_PALETTE.wood });
+    g.ellipse(0, -14, 12, 12 * PITCH).fill({ color: DECOR_PALETTE.woodLight });
+    // Iron anvil: waist + horned top.
+    g.rect(-4, -26, 8, 12).fill({ color: DECOR_PALETTE.iron });
+    g.poly([-14, -34, 12, -34, 16, -28, -10, -28]).fill({ color: DECOR_PALETTE.iron });
+    g.poly([12, -34, 22, -33, 16, -30, 12, -31]).fill({ color: DECOR_PALETTE.iron }); // horn
+    g.rect(-14, -34, 26, 2).fill({ color: DECOR_PALETTE.ironLight }); // top highlight
+    c.addChild(g);
+  }
+
+  /** A wooden supply crate (plank box with cross-braces). */
+  private drawCrate(c: Container, scale: number): void {
+    this.propShadow(c, 16 * scale, 8 * scale);
+    const g = new Graphics();
+    g.scale.set(scale);
+    g.rect(-14, -28, 28, 28).fill({ color: DECOR_PALETTE.wood });
+    g.rect(-14, -28, 28, 28).stroke({ width: 2, color: DECOR_PALETTE.woodDark });
+    g.moveTo(-14, -28)
+      .lineTo(14, 0)
+      .stroke({ width: 2, color: DECOR_PALETTE.woodDark, alpha: 0.7 });
+    g.moveTo(14, -28)
+      .lineTo(-14, 0)
+      .stroke({ width: 2, color: DECOR_PALETTE.woodDark, alpha: 0.7 });
+    g.rect(-14, -28, 28, 5).fill({ color: DECOR_PALETTE.woodLight, alpha: 0.5 }); // lit top edge
+    c.addChild(g);
+  }
+
+  /** A wooden barrel with iron hoops. */
+  private drawBarrel(c: Container): void {
+    this.propShadow(c, 12, 6);
+    const g = new Graphics();
+    g.roundRect(-11, -30, 22, 30, 6).fill({ color: DECOR_PALETTE.wood });
+    g.rect(-11, -25, 22, 3).fill({ color: DECOR_PALETTE.iron }); // upper hoop
+    g.rect(-11, -10, 22, 3).fill({ color: DECOR_PALETTE.iron }); // lower hoop
+    g.ellipse(0, -30, 11, 11 * PITCH).fill({ color: DECOR_PALETTE.woodLight }); // lid
+    g.rect(-3, -30, 1.5, 30).fill({ color: '#000000', alpha: 0.15 }); // stave seams
+    g.rect(4, -30, 1.5, 30).fill({ color: '#000000', alpha: 0.15 });
+    c.addChild(g);
+  }
+
+  /** A hay bale (a rounded straw block with binding twine). */
+  private drawHay(c: Container): void {
+    this.propShadow(c, 18, 9);
+    const g = new Graphics();
+    g.roundRect(-18, -20, 36, 20, 6).fill({ color: DECOR_PALETTE.hay });
+    g.roundRect(-18, -20, 36, 20, 6).stroke({ width: 1.5, color: DECOR_PALETTE.hayDark });
+    // A few straw strokes + two binding twines.
+    for (let i = -14; i <= 14; i += 4) {
+      g.moveTo(i, -18)
+        .lineTo(i + 2, -2)
+        .stroke({ width: 1, color: DECOR_PALETTE.hayDark, alpha: 0.5 });
+    }
+    g.moveTo(-7, -20).lineTo(-7, 0).stroke({ width: 1.5, color: '#6a5418' });
+    g.moveTo(7, -20).lineTo(7, 0).stroke({ width: 1.5, color: '#6a5418' });
+    c.addChild(g);
+  }
+
+  /**
+   * A tall torch/brazier pole with a flame casting a soft warm glow (smaller than the bonfire). The
+   * flame is registered in fireFlames for per-frame flicker and a (smaller) flickering decorLight.
+   */
+  private drawTorch(c: Container, wx: number, wy: number): void {
+    this.propShadow(c, 7, 4);
+    const g = new Graphics();
+    const h = 58;
+    g.rect(-2.5, -h, 5, h).fill({ color: DECOR_PALETTE.woodDark }); // pole
+    g.rect(-2.5, -h, 2, h).fill({ color: '#000000', alpha: 0.25 });
+    // Iron basket at the top holding the fuel.
+    g.poly([-7, -h, 7, -h, 5, -h + 10, -5, -h + 10]).fill({ color: DECOR_PALETTE.iron });
+    g.rect(-7, -h, 14, 2).fill({ color: DECOR_PALETTE.ironLight });
+    c.addChild(g);
+
+    const flame = new Graphics();
+    flame.position.set(0, -h); // flame sits in the basket at the pole top
+    c.addChild(flame);
+    this.fireFlames.push({ gfx: flame, scale: 0.5, seed: hash2(wx | 0, (wy | 0) + 7) * 6.28 });
+    this.decorLights.push({
+      x: wx,
+      y: wy - h * 0.7,
+      radius: 120,
+      color: FIRE_LIGHT,
+      flicker: true,
+    });
+  }
+
+  /**
+   * Redraw every cached fire flame for this frame from the shared animation clock — a few stacked,
+   * jittering teardrops (deep ember → mid → hot core). Cheap (a handful of polys per fire) and keyed
+   * off `now` so the whole camp flickers in sync with the renderer's clock, never Date.now/random.
+   */
+  private updateFireFlames(now: number): void {
+    for (const { gfx, scale, seed } of this.fireFlames) {
+      const t = now / 1000;
+      // Two out-of-phase sines give an organic, non-repeating sway/height per fire (seeded).
+      const sway = Math.sin(t * 7 + seed) * 3 + Math.sin(t * 13 + seed * 2) * 1.5;
+      const lift = 1 + Math.sin(t * 9 + seed * 1.3) * 0.16;
+      gfx.clear();
+      const s = scale;
+      // Outer → inner flame, each a teardrop swaying at the tip; the core burns brightest.
+      this.flameTeardrop(gfx, sway * s, 30 * s * lift, 13 * s, DECOR_PALETTE.emberDeep, 0.85);
+      this.flameTeardrop(gfx, sway * 0.7 * s, 22 * s * lift, 9 * s, DECOR_PALETTE.ember, 0.95);
+      this.flameTeardrop(gfx, sway * 0.4 * s, 14 * s * lift, 5 * s, DECOR_PALETTE.emberCore, 1);
+    }
+  }
+
+  /** One flame teardrop: a base ellipse pulled to a swaying point at height `h`. */
+  private flameTeardrop(
+    g: Graphics,
+    tipX: number,
+    h: number,
+    w: number,
+    color: string,
+    alpha: number,
+  ): void {
+    g.poly([-w, -4, w, -4, tipX + w * 0.2, -h * 0.55, tipX, -h]).fill({ color, alpha });
+    g.ellipse(0, -4, w, w * 0.7).fill({ color, alpha });
   }
 
   /** Configure the per-area color grade (saturation/brightness/contrast) as one filter pass. */
@@ -692,16 +886,20 @@ export class PixiRenderer {
         color: PORTAL_LIGHT.color,
       });
     }
-    // Town lamp posts + the well cast a warm glow, projected to screen like the portal lights so
-    // they bloom on the additive overlay (strongest after dark). Empty outside the town.
-    for (const t of this.townLights) {
+    // The camp's bonfire + torches cast a warm glow, projected to screen like the portal lights so
+    // they bloom on the additive overlay (strongest after dark). Fire lights flicker their radius
+    // off the animation clock so the firelight breathes. Empty outside a decorated area (the town).
+    for (const t of this.decorLights) {
+      const r = t.flicker ? t.radius * (0.9 + 0.1 * Math.sin(now / 90 + t.x)) : t.radius;
       lights.push({
         x: t.x * z + originX,
         y: t.y * PITCH * z + originY,
-        radius: t.radius,
-        color: TOWN_PALETTE.lampGlow,
+        radius: r,
+        color: t.color,
       });
     }
+    // Live flicker for the cached campfire/torch flames (drawn from this same clock — never random).
+    this.updateFireFlames(now);
     this.lighting.update(
       lights,
       sw,

@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import { AREAS, AREA_THEMES } from '../../shared/areas.js';
+import { AREAS, AREA_THEMES, type DecorProp } from '../../shared/areas.js';
 import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
 import { EQUIPMENT } from '../../shared/equipment.js';
@@ -289,6 +289,7 @@ export function seed(db: Database): void {
       seedMobs(db);
       seedLoot(db);
       seedNpcs(db);
+      seedDecor(db);
       seedQuests(db);
     });
     tx();
@@ -296,6 +297,7 @@ export function seed(db: Database): void {
   seedAccounts(db); // separate so existing content DBs still get the default account
   ensureSpellbookContent(db); // separate so pre-spellbook DBs gain the new rows without a wipe
   ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
+  ensureTownDecor(db); // town set-dressing props (idempotent: no-op once the town has decor)
 }
 
 /**
@@ -749,6 +751,77 @@ function seedLoot(db: Database): void {
   for (const [mobId, gear] of Object.entries(GEAR_DROPS)) {
     for (const item of gear.items) ins.run(mobId, 'gear', item, 1, 1, 1, 0, gear.chance);
   }
+}
+
+// Canvas/wood tints reused across the camp props.
+const CANVAS = '#c8b48a'; // tent / awning canvas
+const WAGON_WOOD = '#6b4a2c';
+
+/**
+ * The starting town as a Diablo-II-style Rogue-Encampment camp: a spiked wooden PALISADE ring with
+ * a gate on the east road, a central BONFIRE, canvas TENTS behind the service NPCs, a merchant
+ * WAGON, a blacksmith ANVIL, scattered CRATES/BARRELS/HAY, and TORCH poles around the perimeter.
+ * World coords (town is 1600×1200; spawn (800,600); NPC line y≈560, x580..1020; east portal road
+ * around y600). Placements keep the NPC strip, the spawn, and the gate road clear.
+ */
+const TOWN_DECOR: readonly DecorProp[] = [
+  // --- Palisade ring (spiked stake wall), with a gate gap on the east toward the Gloomwood road. ---
+  { kind: 'palisade', x: 470, y: 440, x2: 1130, y2: 440 }, // north
+  { kind: 'palisade', x: 470, y: 440, x2: 470, y2: 820 }, // west
+  { kind: 'palisade', x: 470, y: 820, x2: 1130, y2: 820 }, // south
+  { kind: 'palisade', x: 1130, y: 440, x2: 1130, y2: 555 }, // east (above the gate)
+  { kind: 'palisade', x: 1130, y: 645, x2: 1130, y2: 820 }, // east (below the gate)
+  { kind: 'gate', x: 1130, y: 600 }, // the camp gate, on the road east
+
+  // --- Central bonfire: the camp's heart, south of the spawn/NPC line. ---
+  { kind: 'bonfire', x: 800, y: 712 },
+
+  // --- Canvas tents behind the service NPCs (the camp's residents). ---
+  { kind: 'tent', x: 560, y: 478, color: CANVAS },
+  { kind: 'tent', x: 690, y: 466, color: CANVAS },
+  { kind: 'tent', x: 800, y: 460, color: CANVAS, scale: 1.15 }, // the big central tent (Akara's)
+  { kind: 'tent', x: 910, y: 466, color: CANVAS },
+  { kind: 'tent', x: 1040, y: 478, color: CANVAS },
+
+  // --- Blacksmith anvil (by the Artificer) + the merchant's wagon (by the gambler/merchant). ---
+  { kind: 'anvil', x: 520, y: 520 },
+  { kind: 'wagon', x: 1050, y: 516, color: WAGON_WOOD },
+
+  // --- Supplies: crates, barrels, hay bales tucked along the camp edges (clear of the NPC walk). ---
+  { kind: 'crate', x: 512, y: 700 },
+  { kind: 'crate', x: 556, y: 742 },
+  { kind: 'crate', x: 1058, y: 700 },
+  { kind: 'barrel', x: 600, y: 752 },
+  { kind: 'barrel', x: 980, y: 752 },
+  { kind: 'barrel', x: 1024, y: 726 },
+  { kind: 'hay', x: 648, y: 690 },
+  { kind: 'hay', x: 956, y: 690 },
+
+  // --- Torch poles ringing the camp + flanking the gate (warm light at night). ---
+  { kind: 'torch', x: 486, y: 452 },
+  { kind: 'torch', x: 1114, y: 452 },
+  { kind: 'torch', x: 486, y: 808 },
+  { kind: 'torch', x: 1114, y: 808 },
+  { kind: 'torch', x: 1120, y: 556 }, // gate, north post
+  { kind: 'torch', x: 1120, y: 644 }, // gate, south post
+];
+
+/** Insert every town decor prop. Called inside the fresh-DB seed transaction. */
+function seedDecor(db: Database): void {
+  const ins = db.prepare(
+    'INSERT INTO decor (area_id,kind,x,y,x2,y2,color,scale) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  for (const d of TOWN_DECOR) {
+    ins.run('town', d.kind, d.x, d.y, d.x2 ?? null, d.y2 ?? null, d.color ?? null, d.scale ?? null);
+  }
+}
+
+/** Idempotently add the town decor to an already-seeded DB (no-op once the town has props). */
+function ensureTownDecor(db: Database): void {
+  const n = db.prepare("SELECT COUNT(*) AS n FROM decor WHERE area_id = 'town'").get() as {
+    n: number;
+  };
+  if (n.n === 0) seedDecor(db);
 }
 
 function seedNpcs(db: Database): void {

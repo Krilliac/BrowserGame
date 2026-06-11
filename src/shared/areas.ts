@@ -20,6 +20,25 @@ export interface Rect {
   h: number;
 }
 
+/**
+ * One static set-dressing prop, placed in world coordinates. Loaded from the `decor` SQL table and
+ * sent to the client inside the area's content, so the town's look is server-defined data rather
+ * than client-hardcoded. The renderer owns HOW each `kind` is drawn; this is purely WHAT + WHERE.
+ */
+export interface DecorProp {
+  /** Visual kind, e.g. 'palisade' | 'gate' | 'bonfire' | 'tent' | 'wagon' | 'torch' | 'crate'. */
+  kind: string;
+  x: number;
+  y: number;
+  /** Line props (palisade/fence): the far endpoint. */
+  x2?: number;
+  y2?: number;
+  /** Optional cloth/wood tint (CSS hex). */
+  color?: string;
+  /** Optional size multiplier (1 = renderer default). */
+  scale?: number;
+}
+
 export interface Portal {
   /** The trigger region in this area; stepping into it transfers the player. */
   rect: Rect;
@@ -43,6 +62,8 @@ export interface AreaDef {
   portals: Portal[];
   /** Data-driven environment look, loaded from the area_theme DB table (DEFAULT_THEME if absent). */
   theme?: AreaTheme;
+  /** Static set-dressing props, loaded from the `decor` DB table (empty when the area has none). */
+  decor?: DecorProp[];
 }
 
 export const START_AREA = 'town';

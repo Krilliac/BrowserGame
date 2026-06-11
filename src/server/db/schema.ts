@@ -147,6 +147,23 @@ CREATE TABLE IF NOT EXISTS npcs (
   kind     TEXT NOT NULL                       -- 'vendor'
 );
 
+-- Static set-dressing PROPS per area: cosmetic objects (tents, wagons, a palisade wall, a bonfire,
+-- torches, crates…) the client renders with the same 2.5D projection as actors. The placements are
+-- authoritative SQL data so the town is SERVER-defined, not hardcoded in the client — edit these
+-- rows (or add rows for other areas) to redress the world. Line props (palisade/fence) use the
+-- optional x2/y2 second endpoint; color/scale are optional per-prop overrides (NULL = renderer default).
+CREATE TABLE IF NOT EXISTS decor (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  area_id  TEXT NOT NULL,
+  kind     TEXT NOT NULL,                      -- 'palisade'|'gate'|'bonfire'|'tent'|'wagon'|'anvil'|'crate'|'barrel'|'torch'|'hay'
+  x        REAL NOT NULL,
+  y        REAL NOT NULL,
+  x2       REAL,                               -- line props (palisade/fence): far endpoint
+  y2       REAL,
+  color    TEXT,                               -- optional cloth/wood tint (CSS hex)
+  scale    REAL                                -- optional size multiplier (1 = default)
+);
+
 -- A quest is either a KILL quest (target_mob + target_count, auto-progresses on kills) or a
 -- COLLECT quest (turn_in_item + turn_in_count, completed by turning items in to a quest-giver).
 CREATE TABLE IF NOT EXISTS quests (

@@ -1,6 +1,6 @@
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
-import type { AreaDef } from '../shared/areas.js';
+import type { AreaDef, DecorProp } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
 import type { MobTemplate } from './mobs.js';
@@ -87,6 +87,20 @@ export function loadContent(db: GameDatabase): Content {
     themes.set(r.area_id, rowToTheme(r));
   }
 
+  // Static set-dressing props per area (tents, palisade, bonfire…). Optional columns map to optional
+  // fields only when non-null, so exactOptionalPropertyTypes stays happy.
+  const decor = new Map<string, DecorProp[]>();
+  for (const r of db.prepare('SELECT * FROM decor').all() as DecorRow[]) {
+    const prop: DecorProp = { kind: r.kind, x: r.x, y: r.y };
+    if (r.x2 !== null) prop.x2 = r.x2;
+    if (r.y2 !== null) prop.y2 = r.y2;
+    if (r.color !== null) prop.color = r.color;
+    if (r.scale !== null) prop.scale = r.scale;
+    const list = decor.get(r.area_id) ?? [];
+    list.push(prop);
+    decor.set(r.area_id, list);
+  }
+
   const areas = new Map<string, AreaDef>();
   for (const a of db.prepare('SELECT * FROM areas').all() as AreaRow[]) {
     const portals = (
@@ -106,6 +120,7 @@ export function loadContent(db: GameDatabase): Content {
       playerCap: a.player_cap,
       portals,
       theme: themes.get(a.id) ?? DEFAULT_THEME,
+      decor: decor.get(a.id) ?? [],
     });
   }
 
@@ -350,6 +365,16 @@ interface AreaThemeRow {
   grade_brightness: number;
   grade_contrast: number;
   sprite_tint: string;
+}
+interface DecorRow {
+  area_id: string;
+  kind: string;
+  x: number;
+  y: number;
+  x2: number | null;
+  y2: number | null;
+  color: string | null;
+  scale: number | null;
 }
 interface PortalRow {
   rect_x: number;
