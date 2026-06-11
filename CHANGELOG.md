@@ -24,6 +24,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Temporary buffs & a curse debuff.** Three self-cast buff spells join the book: **War Cry**
+  (+30% damage), **Sprint** (+35% attack speed & movement), and **Renew** (a heal-over-time) — each a
+  timed buff that stacks on top of your gear. Monsters can now be **weakened** (their outgoing damage
+  cut) by curse spells — Curse of Decay both slows *and* weakens, and Draining Touch / Shadow Nova
+  sap a monster's bite. All run through the existing timed-status engine (now extended with
+  weaken/might/haste/regen and floored so nothing zeroes out). The HUD shows active buff pips, and
+  weakened monsters take a sickly violet tint. Surfaced via the existing entity status-flags (no new
+  wire fields). The three new tomes drop in-world and sell on the Merchant.
 - **Procedural Diablo-style dungeons + tougher spawns.** Four instanced **dungeons** now hang off the
   overworld via portals — **The Forgotten Catacombs** (off Gloomwood, L4–9), **The Writhing Hive**
   (off Rotfen Marsh, L9–15), **The Infernal Forge** (off Emberdeep Mines, L15–20), and **The Frozen

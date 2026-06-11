@@ -167,6 +167,8 @@ interface Player {
   input: InputState;
   lastSeq: number;
   cooldowns: Map<AbilityId, number>;
+  /** Active temporary self-buffs (might / haste / regen) from buff spells. */
+  buffs: StatusSet;
   dead: boolean;
   respawnAt: number;
 }
@@ -1005,6 +1007,7 @@ export class World {
       input: { up: false, down: false, left: false, right: false },
       lastSeq: 0,
       cooldowns: new Map(),
+      buffs: new StatusSet(),
       dead: false,
       respawnAt: 0,
     });
@@ -1088,10 +1091,19 @@ export class World {
     const facing = aimAngle(dx, dy, player.facing);
     player.facing = facing;
     player.mana -= ability.manaCost;
-    player.cooldowns.set(abilityId, ability.cooldownMs * player.cooldownMult); // +swift = faster
+    // Cooldown is shortened by the +swift affix and by an active HASTE buff.
+    player.cooldowns.set(
+      abilityId,
+      ability.cooldownMs * player.cooldownMult * player.buffs.cooldownFactor(),
+    );
     this.events.push({ kind: 'cast', x: player.x, y: player.y, facing, abilityId });
     // Each spell rank above 1 boosts the effect (the Diablo 1 duplicate-tome rule).
     const rankMult = spellRankMult(rank);
+    // Self-buff spells apply their timed buff to the caster (might / haste / regen).
+    const buff = BUFF_ON_CAST[abilityId];
+    if (buff) player.buffs.apply(buff.id, buff.ms, buff.magnitude);
+    // An active MIGHT buff scales all outgoing ability damage this cast.
+    const mightMult = player.buffs.damageFactor();
 
     if (ability.kind === 'heal') {
       player.hp = Math.min(player.maxHp, player.hp + ability.damage * rankMult);
@@ -1100,7 +1112,7 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
-          const power = (ability.damage + player.power) * rankMult;
+          const power = (ability.damage + player.power) * rankMult * mightMult;
           const base = rollAbilityDamage(player.level, mob.level, power);
           const crit = base > 0 && rollCrit(Math.random, player.critChance);
           const dmg = applyCrit(base, crit);
@@ -1124,7 +1136,7 @@ export class World {
           vx: Math.cos(a) * speed,
           vy: Math.sin(a) * speed,
           ttl: ability.projectileTtlMs ?? 1200,
-          damage: (ability.damage + player.power) * rankMult,
+          damage: (ability.damage + player.power) * rankMult * mightMult,
           radius: ability.radius,
           ownerId: player.id,
           ownerLevel: player.level,
@@ -1150,6 +1162,11 @@ export class World {
     return 1 + this.corruption() * CORRUPT_MAX_DMG_BONUS;
   }
 
+  /** A monster's outgoing hit damage: base × elite mult × area corruption × its own WEAKEN debuff. */
+  private mobOutgoing(mob: Mob, template: MobTemplate): number {
+    return template.damage * mob.dmgMult * this.corruptionDmg() * mob.statuses.weakenFactor();
+  }
+
   private tickPlayers(dt: number): void {
     for (const player of this.players.values()) {
       if (player.dead) {
@@ -1158,6 +1175,9 @@ export class World {
       }
       player.mana = Math.min(PLAYER_MAX_MANA, player.mana + MANA_REGEN_PER_SEC * dt);
       player.hp = Math.min(player.maxHp, player.hp + HP_REGEN_PER_SEC * dt);
+      // Advance self-buffs; an active REGEN buff heals over time on top of base regen.
+      const { regenHeal } = player.buffs.tick(dt * 1000);
+      if (regenHeal > 0) player.hp = Math.min(player.maxHp, player.hp + regenHeal);
       for (const [ability, remaining] of player.cooldowns) {
         const next = remaining - dt * 1000;
         if (next <= 0) player.cooldowns.delete(ability);
@@ -1166,7 +1186,8 @@ export class World {
 
       const { dx, dy } = moveVector(player.input);
       if (dx !== 0 || dy !== 0) {
-        const speed = PLAYER_SPEED * this.moveScale * player.moveMult; // weather slows; +move affix speeds
+        // weather slows; +move affix and an active HASTE buff speed you up.
+        const speed = PLAYER_SPEED * this.moveScale * player.moveMult * player.buffs.moveFactor();
         player.x = clamp(player.x + dx * speed * dt, 0, this.width);
         player.y = clamp(player.y + dy * speed * dt, 0, this.height);
         player.facing = Math.atan2(dy, dx);
@@ -1208,7 +1229,7 @@ export class World {
           for (const player of this.players.values()) {
             if (player.dead || mob.dashHit.has(player.id)) continue;
             if (circlesOverlap(mob.x, mob.y, MOB_RADIUS, player.x, player.y, PLAYER_RADIUS)) {
-              this.damagePlayer(player, template.damage * mob.dmgMult * this.corruptionDmg());
+              this.damagePlayer(player, this.mobOutgoing(mob, template));
               mob.dashHit.add(player.id);
             }
           }
@@ -1299,7 +1320,7 @@ export class World {
         vx: Math.cos(mob.telegraphFacing) * speed,
         vy: Math.sin(mob.telegraphFacing) * speed,
         ttl: 2400,
-        damage: template.damage * mob.dmgMult * this.corruptionDmg(),
+        damage: this.mobOutgoing(mob, template),
         radius: 8,
         ownerId: 0,
         ownerLevel: template.level,
@@ -1315,7 +1336,7 @@ export class World {
       for (const player of this.players.values()) {
         if (player.dead) continue;
         if (Math.hypot(player.x - mob.x, player.y - mob.y) <= template.slamRadius + PLAYER_RADIUS) {
-          this.damagePlayer(player, template.damage * mob.dmgMult * this.corruptionDmg());
+          this.damagePlayer(player, this.mobOutgoing(mob, template));
         }
       }
       this.events.push({ kind: 'slam', x: mob.x, y: mob.y, radius: template.slamRadius });
@@ -1324,7 +1345,7 @@ export class World {
     const target = this.players.get(mob.telegraphTargetId);
     const reach = template.attackRange + PLAYER_RADIUS;
     if (target && !target.dead && Math.hypot(target.x - mob.x, target.y - mob.y) <= reach) {
-      this.damagePlayer(target, template.damage * mob.dmgMult * this.corruptionDmg());
+      this.damagePlayer(target, this.mobOutgoing(mob, template));
     }
     this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
   }
@@ -1720,6 +1741,12 @@ export class World {
     const out: EntityState[] = [];
     for (const p of this.players.values()) {
       if (p.dead) continue;
+      // Buff bits (might=8, haste=16, regen=32) sit above the monster debuff bits (slow/burn/weaken)
+      // so the client can show buff pips for the local player from the same flags field.
+      const flags =
+        (p.buffs.has('might') ? 8 : 0) |
+        (p.buffs.has('haste') ? 16 : 0) |
+        (p.buffs.has('regen') ? 32 : 0);
       out.push({
         id: p.id,
         x: p.x,
@@ -1731,11 +1758,15 @@ export class World {
         hp: Math.ceil(p.hp),
         maxHp: p.maxHp,
         level: p.level,
+        ...(flags ? { flags } : {}),
       });
     }
     for (const m of this.mobs.values()) {
       if (m.dead) continue;
-      const flags = (m.statuses.has('slow') ? 1 : 0) | (m.statuses.has('burn') ? 2 : 0);
+      const flags =
+        (m.statuses.has('slow') ? 1 : 0) |
+        (m.statuses.has('burn') ? 2 : 0) |
+        (m.statuses.has('weaken') ? 4 : 0);
       const mob: EntityState = {
         id: m.id,
         x: m.x,
@@ -1929,15 +1960,33 @@ const BURN_ON_HIT: Partial<Record<AbilityId, { ms: number; dmg: number }>> = {
   rend: { ms: 2400, dmg: 5 },
 };
 
-/** Map an ability's on-hit effect onto a monster: chilling spells slow, fire/poison/bleed burn. */
+/** Curse spells that weaken a monster's outgoing damage on hit: id → {duration ms, dmg-reduction}. */
+const WEAKEN_ON_HIT: Partial<Record<AbilityId, { ms: number; factor: number }>> = {
+  curse_of_decay: { ms: 3000, factor: 0.4 }, // the curse both slows and saps its bite
+  draining_touch: { ms: 2500, factor: 0.3 },
+  shadow_nova: { ms: 2500, factor: 0.3 },
+};
+
+/** Self-buff spells: which timed buff they grant the caster. */
+const BUFF_ON_CAST: Partial<
+  Record<AbilityId, { id: 'might' | 'haste' | 'regen'; ms: number; magnitude: number }>
+> = {
+  warcry: { id: 'might', ms: 8000, magnitude: 0.3 }, // +30% damage
+  sprint: { id: 'haste', ms: 6000, magnitude: 0.35 }, // +35% attack speed & move
+  renew: { id: 'regen', ms: 6000, magnitude: 10 }, // 10 hp/sec
+};
+
+/**
+ * Map an ability's on-hit effect onto a monster. A spell may appear in several maps (e.g. a curse
+ * that both slows and weakens), so each is applied independently rather than first-match-wins.
+ */
 function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
   const slow = SLOW_ON_HIT[abilityId];
-  if (slow) {
-    mob.statuses.apply('slow', slow.ms, slow.factor);
-    return;
-  }
+  if (slow) mob.statuses.apply('slow', slow.ms, slow.factor);
   const burn = BURN_ON_HIT[abilityId];
   if (burn) mob.statuses.apply('burn', burn.ms, burn.dmg);
+  const weaken = WEAKEN_ON_HIT[abilityId];
+  if (weaken) mob.statuses.apply('weaken', weaken.ms, weaken.factor);
 }
 
 function sanitizeName(name: string): string {

@@ -121,7 +121,10 @@ export interface EntityState {
   qty?: number;
   /** Gear drops only: rarity tier, so the client can color the ground glint. */
   rarity?: string;
-  /** Status bitflags for rendering tints (1 = slowed, 2 = burning). */
+  /**
+   * Status bitflags for rendering tints / buff pips. Monster debuffs: 1 = slowed, 2 = burning,
+   * 4 = weakened. Local-player buffs: 8 = might, 16 = haste, 32 = regen.
+   */
   flags?: number;
   /** Mobs only: true for an elite/champion (the client draws a marker + scales it up). */
   elite?: boolean;

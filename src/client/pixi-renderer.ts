@@ -162,6 +162,7 @@ const FLASH_MS = 150;
 const TINT_FLASH = 0xff5555;
 const TINT_BURN = 0xffaa55;
 const TINT_SLOW = 0x88bbff;
+const TINT_WEAKEN = 0xb088c0; // sickly violet — a cursed/weakened monster
 
 function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) | 0;
@@ -588,7 +589,9 @@ export class PixiRenderer {
               ? TINT_BURN
               : flags & 1
                 ? TINT_SLOW
-                : (this.currentTheme.spriteTint as ColorSource);
+                : flags & 4
+                  ? TINT_WEAKEN
+                  : (this.currentTheme.spriteTint as ColorSource);
     }
 
     if (view.dyn && e.maxHp > 0) {

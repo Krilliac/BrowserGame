@@ -622,6 +622,47 @@ const ABILITY_DEFS = {
     projectileTtlMs: 900,
     radius: 14,
   },
+
+  // --- Self-buff spells (kind 'heal' = instant self-cast; the buff is applied server-side) ---
+  // War Cry: temporary outgoing-damage boost (MIGHT).
+  warcry: {
+    id: 'warcry',
+    name: 'War Cry',
+    key: '',
+    kind: 'heal',
+    damage: 0,
+    range: 0,
+    cooldownMs: 9000,
+    manaCost: 16,
+    color: '#ffb347',
+    radius: 0,
+  },
+  // Sprint: temporary attack-speed + movement boost (HASTE).
+  sprint: {
+    id: 'sprint',
+    name: 'Sprint',
+    key: '',
+    kind: 'heal',
+    damage: 0,
+    range: 0,
+    cooldownMs: 8000,
+    manaCost: 12,
+    color: '#7cf0ff',
+    radius: 0,
+  },
+  // Renew: a heal-over-time (REGEN), distinct from the instant Heal.
+  renew: {
+    id: 'renew',
+    name: 'Renew',
+    key: '',
+    kind: 'heal',
+    damage: 0,
+    range: 0,
+    cooldownMs: 7000,
+    manaCost: 18,
+    color: '#9be8a0',
+    radius: 0,
+  },
 } satisfies Record<string, Ability>;
 
 /** Every ability id — derived from the table so adding a spell above extends the type for free. */

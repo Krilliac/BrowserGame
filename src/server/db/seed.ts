@@ -224,6 +224,9 @@ const SPELLBOOKS: Record<string, { name: string; color: string; teaches: string;
     teaches: 'throwing_axe',
     sell: 110,
   },
+  tome_warcry: { name: 'Tome of the War Cry', color: '#ffb347', teaches: 'warcry', sell: 200 },
+  tome_sprint: { name: 'Tome of Sprinting', color: '#7cf0ff', teaches: 'sprint', sell: 180 },
+  tome_renew: { name: 'Tome of Renewal', color: '#9be8a0', teaches: 'renew', sell: 200 },
 };
 
 /** The town Merchant's shelf: the deterministic acquisition path (drops are the exciting one). */
@@ -251,6 +254,9 @@ const MERCHANT_STOCK: { item: string; price: number }[] = [
   { item: 'tome_hamstring', price: 300 },
   { item: 'tome_poison_spit', price: 300 },
   { item: 'tome_entangling_vines', price: 320 },
+  { item: 'tome_sprint', price: 380 },
+  { item: 'tome_warcry', price: 420 },
+  { item: 'tome_renew', price: 440 },
 ];
 
 /** Equipment a slain monster can drop, by tier, with the group trigger chance. */
