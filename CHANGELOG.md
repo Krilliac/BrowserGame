@@ -36,6 +36,8 @@ versioning once it stabilizes.
   their position when they respawn**, so cleared ground refills somewhere new instead of the same
   spots. All of it seeds idempotently into an existing DB (areas, themes, portals, monsters — no
   wipe). The drop pool widening from the previous entry means dungeon kills surface the full loot set.
+  Each dungeon also has a **boss-bounty quest** (clear Maggath / Vorraxia / Bal'thuzar / Kaldris) that
+  rewards a spell tome, giving the descent a goal.
 - **Huge content drop — 34 new spells + 74 new gear bases.** The spellbook grows from 9 to **43
   abilities**: a full elemental line (ember/frost/spark bolts, frost & inferno **novas**, chain
   spark, glacier spike, thunder lance…), an occult & nature line (shadow bolt, poison spit, arcane

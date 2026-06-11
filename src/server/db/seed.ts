@@ -382,6 +382,26 @@ function ensureWorldExpansion(db: Database): void {
       );
     }
   }
+
+  // Quests (incl. the dungeon boss bounties) — INSERT OR IGNORE on the id PK, with full kill-quest
+  // fields so an existing DB gains them correctly (the spellbook path only handled collect quests).
+  const insQuestFull = db.prepare(
+    'INSERT OR IGNORE INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item,turn_in_item,turn_in_count) VALUES (?,?,?,?,?,?,?,?,?,?)',
+  );
+  for (const q of QUESTS) {
+    insQuestFull.run(
+      q.id,
+      q.name,
+      q.description,
+      q.targetMob,
+      q.targetCount,
+      q.rewardGold,
+      q.rewardXp,
+      q.rewardItem,
+      q.turnInItem ?? null,
+      q.turnInCount ?? 0,
+    );
+  }
 }
 
 /**
@@ -786,6 +806,47 @@ const QUESTS: {
     rewardGold: 1200,
     rewardXp: 1800,
     rewardItem: null,
+  },
+  // --- Dungeon boss bounties: clear each dungeon's end-boss for a spell-tome reward ---
+  {
+    id: 'dungeon_catacombs',
+    name: 'Silence the Bonecaller',
+    description: 'Descend into the Forgotten Catacombs and destroy Maggath, the Bonecaller.',
+    targetMob: 'maggath',
+    targetCount: 1,
+    rewardGold: 500,
+    rewardXp: 600,
+    rewardItem: 'tome_shadow_bolt',
+  },
+  {
+    id: 'dungeon_hive',
+    name: 'Burn the Brood',
+    description: 'Cleanse the Writhing Hive and slay Vorraxia, the Brood Mother.',
+    targetMob: 'vorraxia',
+    targetCount: 1,
+    rewardGold: 800,
+    rewardXp: 1000,
+    rewardItem: 'tome_poison_spit',
+  },
+  {
+    id: 'dungeon_forge',
+    name: 'Quench the Forge',
+    description: "Break into the Infernal Forge and end Bal'thuzar, the Forgemaster.",
+    targetMob: 'balthuzar',
+    targetCount: 1,
+    rewardGold: 1100,
+    rewardXp: 1500,
+    rewardItem: 'tome_infernonova',
+  },
+  {
+    id: 'dungeon_vault',
+    name: 'The Warden Eternal',
+    description: 'Breach the Frozen Vault and shatter Kaldris, the Warden Eternal.',
+    targetMob: 'kaldris',
+    targetCount: 1,
+    rewardGold: 1600,
+    rewardXp: 2200,
+    rewardItem: 'tome_glacierspike',
   },
 ];
 
