@@ -265,6 +265,26 @@ describe('town service NPCs (healer + gambler)', () => {
   });
 });
 
+describe('gear bag cap', () => {
+  it('caps the unequipped-gear bag at 30, evicting the oldest pieces', () => {
+    const w = new World();
+    const id = w.spawn('Hoarder');
+    for (let i = 0; i < 40; i++) w.giveItem(id, 'iron_sword', 1);
+    expect(w.playerStats(id)!.gear.length).toBe(30);
+  });
+
+  it('keeps the newest pickups when the bag overflows', () => {
+    const w = new World();
+    const id = w.spawn('Picky');
+    // Fill the bag, then add one more of a different base — the newest must survive, an old one drop.
+    for (let i = 0; i < 30; i++) w.giveItem(id, 'iron_sword', 1);
+    w.giveItem(id, 'mithril_blade', 1);
+    const gear = w.playerStats(id)!.gear;
+    expect(gear.length).toBe(30);
+    expect(gear[gear.length - 1]!.baseId).toBe('mithril_blade'); // newest retained
+  });
+});
+
 describe('gem socketing', () => {
   it('sockets a held gem into equipped gear, applies its bonus, and consumes the gem', () => {
     const w = new World();

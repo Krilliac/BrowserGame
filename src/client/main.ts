@@ -15,6 +15,7 @@ import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
 import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
+import { drawInventoryPanel, type InventoryButton } from './inventory-panel.js';
 import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
@@ -144,6 +145,9 @@ let gambleButtons: GambleButton[] = [];
 let waypointOpen = false;
 let waypointButtons: WaypointButton[] = [];
 let artificerButtons: ArtificerButton[] = [];
+// Inventory panel (I): the full bag of unequipped gear (up to 30), tap to equip.
+let inventoryOpen = false;
+let inventoryButtons: InventoryButton[] = [];
 
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
@@ -182,10 +186,11 @@ window.addEventListener('keydown', (e) => {
     questOpen = false;
     return;
   }
-  if (e.key === 'Escape' && (partyOpen || socialOpen || waypointOpen)) {
+  if (e.key === 'Escape' && (partyOpen || socialOpen || waypointOpen || inventoryOpen)) {
     partyOpen = false;
     socialOpen = false;
     waypointOpen = false;
+    inventoryOpen = false;
     return;
   }
   const ability = net.content.abilityOrder().find((id) => net.content.ability(id)?.key === e.key);
@@ -204,6 +209,8 @@ window.addEventListener('keydown', (e) => {
     socialOpen = !socialOpen; // toggle the friends panel
   } else if (e.key.toLowerCase() === 'm') {
     waypointOpen = !waypointOpen; // toggle the waypoint / fast-travel map
+  } else if (e.key.toLowerCase() === 'i') {
+    inventoryOpen = !inventoryOpen; // toggle the full inventory
   }
 });
 
@@ -218,6 +225,7 @@ window.addEventListener('pointerdown', (e) => {
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
+  if (inventoryOpen && handleInventoryClick(e.clientX, e.clientY)) return;
   // The quest log captures clicks (accept buttons / panel body) and never falls through to a cast.
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
@@ -322,6 +330,15 @@ function handleWaypointClick(x: number, y: number): boolean {
   return true;
 }
 
+/** Route a click inside the open inventory panel. Returns true if it was consumed. */
+function handleInventoryClick(x: number, y: number): boolean {
+  const btn = inventoryButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') inventoryOpen = false;
+  else if (btn.action === 'equip' && btn.uid !== undefined) net.sendEquip(btn.uid);
+  return true;
+}
+
 /** Route a click inside the open Artificer panel. Returns true if it was consumed. */
 function handleArtificerClick(x: number, y: number): boolean {
   const btn = artificerButtons.find((b) => inRect(x, y, b));
@@ -373,6 +390,7 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
+  if (inventoryOpen && handleInventoryClick(e.clientX, e.clientY)) return;
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
   if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
@@ -662,6 +680,15 @@ function frame(): void {
     );
   } else {
     waypointButtons = [];
+  }
+  if (inventoryOpen) {
+    inventoryButtons = drawInventoryPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      { gear: net.you.gear, nameOf: instLabel, statSegments: instStatSegments },
+    );
+  } else {
+    inventoryButtons = [];
   }
   if (net.artificer) {
     artificerButtons = drawArtificerPanel(
@@ -1314,16 +1341,18 @@ function drawInventory(w: number): void {
   );
   hud.fillStyle = '#9aa3b2';
   hud.font = '10px system-ui, sans-serif';
-  hud.fillText('C char·L quests·P party·F friends·M map', px + 8, py + 30);
+  hud.fillText('C char·I bag·L quests·P party·F friends·M map', px + 8, py + 30);
   py += eqH + 6;
 
-  // Gear panel: unequipped instances, two lines each (name, then stats) so long affix lists never
-  // overlap the name. Rarity-colored, clickable to equip; debuff affixes shown in red.
+  // Gear panel: only the NEWEST few unequipped pieces, so a full bag never shoves the rest of the
+  // HUD off-screen. The whole bag (up to 30) lives in the inventory panel (I). Two lines each.
   bagRects.length = 0;
-  const gear = net.you.gear;
+  const HUD_GEAR_SHOWN = 5;
+  const total = net.you.gear.length;
+  const gear = net.you.gear.slice(-HUD_GEAR_SHOWN); // newest at the end of the array
   if (gear.length > 0) {
     const rowH = 28;
-    const gh = 22 + gear.length * rowH;
+    const gh = 24 + gear.length * rowH;
     hud.fillStyle = 'rgba(0,0,0,0.5)';
     hud.fillRect(px, py, pw, gh);
     hud.strokeStyle = 'rgba(201,162,75,0.6)';
@@ -1331,7 +1360,11 @@ function drawInventory(w: number): void {
     hud.fillStyle = '#e7d9b0';
     hud.font = 'bold 12px system-ui, sans-serif';
     hud.textAlign = 'left';
-    hud.fillText('Gear — tap to equip', px + 8, py + 15);
+    const title =
+      total > HUD_GEAR_SHOWN
+        ? `Gear · +${total - HUD_GEAR_SHOWN} in bag (I)`
+        : 'Gear — tap to equip';
+    hud.fillText(title, px + 8, py + 15);
     gear.forEach((inst, i) => {
       const ry = py + 22 + i * rowH;
       bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: rowH });

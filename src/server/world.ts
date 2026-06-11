@@ -80,6 +80,9 @@ function asBaseItem(def: {
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
 const INTERACT_RANGE = 70;
+// The unequipped-gear bag holds up to this many pieces; a new piece beyond the cap evicts the oldest
+// (sell or equip to keep the good stuff). The HUD only shows the newest few — see the client.
+const MAX_BAG_GEAR = 30;
 // Artificer service costs (flat, predictable): reroll an item's affixes for gold + a rune shard;
 // pop a socketed gem back to the bag for gold.
 export const ARTIFICER_REROLL_GOLD = 250;
@@ -492,7 +495,7 @@ export class World {
     const inst = rollGamble(this.allocId(), slot);
     if (!inst) return;
     player.gold -= cost;
-    player.gear.push(inst);
+    this.addGear(player, inst);
     this.notify(
       player.id,
       `You gamble ${cost}g and receive a ${getContent().item(inst.baseId)?.name ?? inst.baseId}.`,
@@ -626,7 +629,7 @@ export class World {
     player.gold -= entry.price;
     const base = asBaseItem(def);
     if (base) {
-      player.gear.push(rollVendorInstance(this.allocId(), base));
+      this.addGear(player, rollVendorInstance(this.allocId(), base));
     } else {
       player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + 1);
     }
@@ -688,6 +691,12 @@ export class World {
       }
     }
     this.notify(player.id, 'No open sockets on your equipped gear.');
+  }
+
+  /** Add a gear instance to the bag, capping at MAX_BAG_GEAR by evicting the oldest piece. */
+  private addGear(player: Player, inst: ItemInstance): void {
+    player.gear.push(inst);
+    while (player.gear.length > MAX_BAG_GEAR) player.gear.shift();
   }
 
   /** Remove one unit of a stackable loot item, deleting the stack when it hits zero. */
@@ -765,7 +774,7 @@ export class World {
 
     player.gear.splice(idx, 1);
     const previous = player.equipment[target];
-    if (previous) player.gear.push(previous);
+    if (previous) this.addGear(player, previous);
     player.equipment[target] = inst;
     this.recomputeStats(player);
   }
@@ -779,7 +788,7 @@ export class World {
     const inst = player.equipment[s];
     if (!inst) return;
     player.equipment[s] = null;
-    player.gear.push(inst);
+    this.addGear(player, inst);
     this.recomputeStats(player);
   }
 
@@ -860,7 +869,7 @@ export class World {
     if (def.kind === 'currency') {
       p.gold += n; // gold is the wallet, not a bag stack
     } else if (base) {
-      for (let i = 0; i < n; i++) p.gear.push(rollItemInstance(this.allocId(), base));
+      for (let i = 0; i < n; i++) this.addGear(p, rollItemInstance(this.allocId(), base));
     } else {
       p.loot.set(itemId, (p.loot.get(itemId) ?? 0) + n);
     }
@@ -1588,7 +1597,7 @@ export class World {
             player.gold += item.qty;
             this.events.push({ kind: 'coin', x: item.x, y: item.y, value: item.qty });
           } else if (item.instance) {
-            player.gear.push(item.instance);
+            this.addGear(player, item.instance);
             this.events.push({
               kind: 'pickup',
               x: item.x,
