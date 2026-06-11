@@ -13,9 +13,10 @@ versioning once it stabilizes.
   there, left-click a monster to **select + chase** it. A selected monster is **auto-attacked**
   with your basic Slash whenever it's in reach — no key needed. Spells stay **manual** and
   **auto-aim at the selected target** (no manual aiming): fire them from the **6-slot hotbar**
-  (keys `1`–`6`, or click a slot). The hotbar is **remappable** — `Shift`+scroll or `Shift`+click a
-  slot cycles its spell — and **locks during combat** (for ~4s after you deal or take damage) so you
-  can't re-plan your rotation mid-fight. Newly-learned spells auto-fill empty slots. Movement is
+  (keys `1`–`6`, or click a slot). The hotbar is a **sliding window over your known spells** —
+  **scroll the wheel over the bar to rotate every spell through it at once**, lining up your
+  rotation in the 1–6 positions — and scrolling **locks during combat** (for ~4s after you deal or
+  take damage) so you can't re-plan mid-fight. Newly-learned spells appear automatically. Movement is
   synthesized client-side into the existing 8-direction input, so the authoritative server,
   prediction, and reconciliation are untouched (no protocol change). Fresh characters start knowing
   **only the Slash auto-attack** — every spell is acquired loot. Added `PixiRenderer.screenToWorld`

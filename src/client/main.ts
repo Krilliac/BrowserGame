@@ -122,15 +122,18 @@ let targetId: number | null = null;
 const PICK_RADIUS = 26; // world px of slop around a mob when picking a click target
 const MOVE_STOP_RADIUS = 8; // stop this close to a ground move-target (avoids 8-dir jitter)
 
-// --- Remappable 6-slot hotbar ---------------------------------------------------------
-// Slots map to keys 1-6. Empty slots auto-fill from newly-learned spells; shift+scroll or
-// shift+click a slot to cycle its spell. Remapping is locked for COMBAT_LOCK_MS after any
-// damage dealt or taken, so you can't re-plan your rotation mid-fight.
+// --- Scrolling 6-slot hotbar ----------------------------------------------------------
+// The bar is a sliding window over your known spells: keys 1-6 cast the spells currently shown.
+// Scroll the wheel over the bar to rotate ALL spells through it at once (so you can line up your
+// rotation in the 1-6 positions). Scrolling is locked for COMBAT_LOCK_MS after any damage dealt
+// or taken, so you can't re-plan mid-fight.
 const HOTBAR_SIZE = 6;
-const hotbar: (AbilityId | null)[] = [null, null, null, null, null, null];
+let hotbarOffset = 0; // rotation of the known-spell window across the 6 slots
 const COMBAT_LOCK_MS = 4000;
 let lastCombatT = -Infinity; // performance.now() of the last damage dealt/taken
 let lastKnownHp = 0; // tracks net.you.hp to detect "took damage" (enters combat)
+// Whole-bar bounds, refreshed each draw, so the wheel handler knows when the cursor is over it.
+let hotbarRect: { x: number; y: number; w: number; h: number } | null = null;
 
 const slotRects: {
   slot: number;
@@ -197,15 +200,13 @@ window.addEventListener('pointermove', (e) => {
   }
 });
 
-// Shift+scroll over a hotbar slot cycles its spell (out of combat only) — rotation building.
+// Scroll the wheel over the hotbar to rotate every spell through it at once (out of combat only).
 window.addEventListener(
   'wheel',
   (e) => {
-    if (!e.shiftKey) return;
-    const slot = slotRects.find((s) => inRect(mouseX, mouseY, s));
-    if (!slot) return;
+    if (!hotbarRect || !inRect(mouseX, mouseY, hotbarRect)) return;
     e.preventDefault();
-    cycleSlot(slot.slot, e.deltaY > 0 ? 1 : -1);
+    scrollHotbar(e.deltaY > 0 ? 1 : -1);
   },
   { passive: false },
 );
@@ -237,7 +238,7 @@ window.addEventListener('keydown', (e) => {
   }
   const slotIdx = '123456'.indexOf(e.key);
   if (slotIdx >= 0) {
-    const ab = hotbar[slotIdx];
+    const ab = displayedAbility(slotIdx);
     if (ab) {
       selected = ab;
       castAbility(ab);
@@ -299,9 +300,7 @@ window.addEventListener('pointerdown', (e) => {
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
-    // Shift+click cycles the slot's spell (rotation building); a plain click casts it.
-    if (e.shiftKey) cycleSlot(slot.slot, 1);
-    else if (slot.ability) {
+    if (slot.ability) {
       selected = slot.ability;
       castAbility(slot.ability);
     }
@@ -640,7 +639,7 @@ function moveSample(): InputState {
 }
 
 // --- Hotbar helpers -------------------------------------------------------------------
-/** Hotbar remapping is locked for a few seconds after dealing or taking damage. */
+/** Scrolling the hotbar is locked for a few seconds after dealing or taking damage. */
 function inCombat(): boolean {
   return performance.now() - lastCombatT < COMBAT_LOCK_MS;
 }
@@ -650,32 +649,23 @@ function knownAbilityIds(): AbilityId[] {
   return net.content.abilityOrder().filter((id) => id in net.you.known);
 }
 
-/** Drop unknown spells from the bar and auto-fill empty slots with newly-learned spells. */
-function syncHotbar(): void {
-  const known = new Set(knownAbilityIds());
-  for (let i = 0; i < hotbar.length; i++) {
-    const id = hotbar[i];
-    if (id && !known.has(id)) hotbar[i] = null;
-  }
-  for (const id of knownAbilityIds()) {
-    if (hotbar.includes(id)) continue;
-    const empty = hotbar.indexOf(null);
-    if (empty === -1) break;
-    hotbar[empty] = id;
-  }
+/**
+ * The spell shown in hotbar slot `i` — a sliding window over the known spells, rotated by
+ * `hotbarOffset`. Slots past the number of known spells are empty (null).
+ */
+function displayedAbility(i: number): AbilityId | null {
+  const known = knownAbilityIds();
+  const n = known.length;
+  if (n === 0 || i >= n) return null;
+  return known[(((hotbarOffset + i) % n) + n) % n] ?? null;
 }
 
-/** Cycle a hotbar slot to the next/prev known spell (skipping ones already on other slots). */
-function cycleSlot(i: number, dir: number): void {
+/** Rotate the whole bar by one (every slot shifts together). Locked in combat. */
+function scrollHotbar(dir: number): void {
   if (inCombat()) return; // can't re-plan your rotation mid-fight
-  const used = new Set(hotbar.filter((a, j) => a && j !== i));
-  const cur = hotbar[i];
-  const list = knownAbilityIds().filter((a) => !used.has(a));
-  if (cur && !list.includes(cur)) list.unshift(cur);
-  if (list.length === 0) return;
-  const idx = cur ? list.indexOf(cur) : -1;
-  const n = list.length;
-  hotbar[i] = list[(((idx + dir) % n) + n) % n] ?? null;
+  const n = knownAbilityIds().length;
+  if (n <= 1) return; // nothing to rotate
+  hotbarOffset = (((hotbarOffset + dir) % n) + n) % n;
 }
 
 function nearestMob(): EntityState | undefined {
@@ -1226,7 +1216,6 @@ function drawHud(): void {
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
 
-  syncHotbar();
   const slot = 52;
   const gap = 10;
   const count = HOTBAR_SIZE;
@@ -1259,9 +1248,9 @@ function drawHud(): void {
 
   slotRects.length = 0;
   for (let i = 0; i < count; i++) {
-    const id = hotbar[i] ?? null;
+    const id = displayedAbility(i);
     const x = panelX + i * (slot + gap);
-    // Every slot (even empty) is a click/scroll target so it can be remapped.
+    // Each slot casts on click; scrolling anywhere over the bar rotates the whole window.
     slotRects.push({ slot: i, ability: id, x, y: slotsY, w: slot, h: slot });
     const ability = id ? net.content.ability(id) : undefined;
 
@@ -1298,14 +1287,11 @@ function drawHud(): void {
       hud.fillStyle = '#fff';
       hud.fillText(fitText(ability.name, slot - 6), x + slot / 2, slotsY + slot - 6);
     } else {
-      // Empty slot: a "+" invites remapping a known spell into it (shift+scroll / shift+click).
+      // Empty slot: dim key number, no spell learned yet for this position.
       hud.fillStyle = '#6b7280';
       hud.font = 'bold 12px system-ui, sans-serif';
       hud.textAlign = 'left';
       hud.fillText(String(i + 1), x + 4, slotsY + 14);
-      hud.textAlign = 'center';
-      hud.font = '18px system-ui, sans-serif';
-      hud.fillText('+', x + slot / 2, slotsY + slot / 2 + 6);
     }
 
     hud.strokeStyle = id && selected === id ? '#c9a24b' : 'rgba(255,255,255,0.25)';
@@ -1313,12 +1299,19 @@ function drawHud(): void {
     hud.strokeRect(x, slotsY, slot, slot);
   }
 
-  // Combat-lock / remap hint under the bar.
+  hotbarRect = { x: panelX, y: slotsY, w: panelW, h: slot };
+
+  // Scroll hint / combat lock. Only invite scrolling when there's more than one spell to rotate.
+  const canScroll = knownAbilityIds().length > 1;
   hud.font = '10px system-ui, sans-serif';
   hud.textAlign = 'center';
   hud.fillStyle = locked ? 'rgba(220,90,90,0.9)' : 'rgba(201,162,75,0.7)';
   hud.fillText(
-    locked ? '⚔ In combat — hotbar locked' : '⇧ scroll or ⇧ click a slot to swap spells',
+    locked
+      ? '⚔ In combat — hotbar locked'
+      : canScroll
+        ? '↕ scroll over the bar to rotate your spells'
+        : 'find spellbooks to fill your bar',
     w / 2,
     slotsY + slot + 13,
   );
