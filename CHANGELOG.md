@@ -38,6 +38,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Monsters cast spells.** Caster monsters now hurl real abilities instead of generic bolts — a
+  Hooded Cultist throws a **Shadow Bolt** that burns you, a Rime Archer a **Frostbolt** that slows
+  you, a Mire Spitter **Poison Spit**, the Fenwitch **Venom**, deep/ashen casters fire/cinder, and so
+  on — and the spell's on-hit effect now **debuffs the player** (you can be slowed, burned, or
+  weakened, shown as red HUD chips and a tint). Other monsters are **support casters**: War Cry
+  enrages them (more damage), Sprint hastes them, Renew self-heals — enraged mobs glow hot orange.
+  Built on the same status engine as player buffs: a generic mob-cast dispatches by spell kind
+  (projectile / melee-nova / heal / self-buff), so any ability can be handed to a monster. Player
+  debuffs clear on death. Config lives in code (`MOB_SPELLS` / `MOB_SUPPORT`), so no DB migration.
 - **Gems for every build stat.** Sockets are no longer limited to power/HP/crit/multishot — five new
   gem families drop and slot in: **Emerald** (life steal), **Amethyst** (attack speed), **Jade**
   (move speed), **Onyx** (armor), and **Opal** (vigor regen), each across three tiers. Combined with

@@ -163,6 +163,7 @@ const TINT_FLASH = 0xff5555;
 const TINT_BURN = 0xffaa55;
 const TINT_SLOW = 0x88bbff;
 const TINT_WEAKEN = 0xb088c0; // sickly violet — a cursed/weakened monster
+const TINT_ENRAGE = 0xff7b5a; // hot orange-red — a self-buffed (enraged/hasted) monster
 
 function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) | 0;
@@ -591,7 +592,9 @@ export class PixiRenderer {
                 ? TINT_SLOW
                 : flags & 4
                   ? TINT_WEAKEN
-                  : (this.currentTheme.spriteTint as ColorSource);
+                  : flags & 64
+                    ? TINT_ENRAGE
+                    : (this.currentTheme.spriteTint as ColorSource);
     }
 
     if (view.dyn && e.maxHp > 0) {

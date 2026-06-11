@@ -4,6 +4,8 @@
  * unit-tested (mobs.test.ts). The World owns mob state and applies the returned intent.
  */
 
+import type { AbilityId } from '../shared/combat.js';
+
 /**
  * How a monster fights:
  *  - melee   : closes in and strikes at short range.
@@ -771,6 +773,38 @@ export const AREA_MOBS: Record<string, AreaMobSpawn[]> = {
     { templateId: 'hollow_runeseer', count: 2 },
     { templateId: 'xalthirun', count: 1 },
   ],
+};
+
+/**
+ * Spellcaster monsters: the ability a mob casts *in place of* its basic attack (on its normal attack
+ * cadence). Projectile spells suit ranged mobs (fired along the aim); melee/nova spells suit melee
+ * mobs (cone around the mob). The spell's on-hit status (frost slows, fire burns, curses weaken) is
+ * applied to the *player* it hits — this is how monsters debuff you.
+ */
+export const MOB_SPELLS: Record<string, AbilityId> = {
+  sprite: 'frostshard', // gloom sprites lob chilling shards
+  cultist: 'shadow_bolt',
+  thornling_archer: 'entangling_vines',
+  mire_spitter: 'poison_spit',
+  fenwitch: 'venom',
+  deep_cultist: 'fireball',
+  shardspine_hurler: 'frostlance',
+  rime_archer: 'frost',
+  ashen_warlock: 'cinderorb',
+  hollow_runeseer: 'arcane_orb',
+};
+
+/**
+ * Support-caster monsters: a buff or heal a mob casts on *itself* periodically while in a fight
+ * (separate from its basic attack). War Cry enrages (more damage), Sprint hastes (faster), Renew is
+ * a self heal-over-time — monsters using the buff/heal spells.
+ */
+export const MOB_SUPPORT: Record<string, AbilityId> = {
+  ember_acolyte: 'warcry',
+  bog_shambler: 'renew',
+  magma_crawler: 'warcry',
+  avalanche_shade: 'sprint',
+  fen_strangler: 'sprint',
 };
 
 export interface MobView {

@@ -1407,13 +1407,19 @@ function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean }
   return segs;
 }
 
-/** Buff chips for the local player's active self-buffs, right-aligned to `rightX` at vertical `y`. */
+/**
+ * Status chips for the local player, right-aligned to `rightX`: enemy debuffs (slow/burn/weaken,
+ * red label) and active self-buffs (might/haste/regen, white label), read from the status flags.
+ */
 function drawBuffPips(rightX: number, y: number): void {
   const flags = self?.flags ?? 0;
   const defs = [
-    { bit: 8, label: 'Might', color: '#ffb347' },
-    { bit: 16, label: 'Haste', color: '#7cf0ff' },
-    { bit: 32, label: 'Regen', color: '#9be8a0' },
+    { bit: 1, label: 'Slowed', color: '#88bbff', bad: true },
+    { bit: 2, label: 'Burning', color: '#ff8a4d', bad: true },
+    { bit: 4, label: 'Weakened', color: '#c08adf', bad: true },
+    { bit: 8, label: 'Might', color: '#ffb347', bad: false },
+    { bit: 16, label: 'Haste', color: '#7cf0ff', bad: false },
+    { bit: 32, label: 'Regen', color: '#9be8a0', bad: false },
   ];
   const active = defs.filter((d) => (flags & d.bit) !== 0);
   if (active.length === 0) return;
@@ -1430,7 +1436,7 @@ function drawBuffPips(rightX: number, y: number): void {
     hud.beginPath();
     hud.arc(x + 9, y, 4, 0, Math.PI * 2);
     hud.fill();
-    hud.fillStyle = '#fff';
+    hud.fillStyle = d.bad ? '#e88' : '#fff';
     hud.textAlign = 'left';
     hud.fillText(d.label, x + 16, y);
     x -= 6; // gap between chips

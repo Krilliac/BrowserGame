@@ -55,7 +55,14 @@ import {
 import { gambleCost, isGambleSlot, rollGamble } from '../shared/gamble.js';
 import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-corruption.js';
 import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../shared/equipment.js';
-import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
+import {
+  stepMob,
+  MOB_SPELLS,
+  MOB_SUPPORT,
+  type MobTemplate,
+  type MobView,
+  type PlayerView,
+} from './mobs.js';
 import { DUNGEONS, type DungeonDef } from '../shared/areas.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
@@ -119,6 +126,9 @@ const GEM_DROP_NORMAL = 0.02; // 2% per ordinary kill
 const GEM_DROP_ELITE = 0.12; // 12% per champion
 const GEM_DROP_BOSS = 0.6; // 60% per area boss
 
+// How often a support-caster monster may re-cast its self-buff/heal (War Cry / Sprint / Renew).
+const MOB_SUPPORT_COOLDOWN_MS = 7000;
+
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
 const ELITE_CHANCE = 0.09;
 const ELITE_MODIFIERS: { name: string; hp: number; dmg: number; spd: number }[] = [
@@ -178,6 +188,8 @@ interface Player {
   cooldowns: Map<AbilityId, number>;
   /** Active temporary self-buffs (might / haste / regen) from buff spells. */
   buffs: StatusSet;
+  /** Active debuffs applied by enemy spells (slow / burn / weaken). */
+  debuffs: StatusSet;
   dead: boolean;
   respawnAt: number;
 }
@@ -222,6 +234,8 @@ interface Mob {
   wanderUntil: number;
   statuses: StatusSet;
   lastAttacker: number;
+  /** Support-caster cooldown (ms) until this mob may self-buff/heal again (0 = ready). */
+  supportCd: number;
   dead: boolean;
   respawnAt: number;
   /** Attack wind-up: sim time (ms) the telegraphed strike lands at (0 = not winding up). */
@@ -475,6 +489,7 @@ export class World {
       wanderUntil: 0,
       statuses: new StatusSet(),
       lastAttacker: 0,
+      supportCd: 2000, // first self-buff/heal a couple seconds into a fight, not instantly
       dead: false,
       respawnAt: 0,
       telegraphUntil: 0,
@@ -1055,6 +1070,7 @@ export class World {
       lastSeq: 0,
       cooldowns: new Map(),
       buffs: new StatusSet(),
+      debuffs: new StatusSet(),
       dead: false,
       respawnAt: 0,
     });
@@ -1149,8 +1165,8 @@ export class World {
     // Self-buff spells apply their timed buff to the caster (might / haste / regen).
     const buff = BUFF_ON_CAST[abilityId];
     if (buff) player.buffs.apply(buff.id, buff.ms, buff.magnitude);
-    // An active MIGHT buff scales all outgoing ability damage this cast.
-    const mightMult = player.buffs.damageFactor();
+    // Outgoing damage this cast: boosted by an active MIGHT buff, cut by an enemy WEAKEN debuff.
+    const mightMult = player.buffs.damageFactor() * player.debuffs.weakenFactor();
 
     if (ability.kind === 'heal') {
       player.hp = Math.min(player.maxHp, player.hp + ability.damage * rankMult);
@@ -1209,9 +1225,18 @@ export class World {
     return 1 + this.corruption() * CORRUPT_MAX_DMG_BONUS;
   }
 
-  /** A monster's outgoing hit damage: base × elite mult × area corruption × its own WEAKEN debuff. */
+  /**
+   * A monster's outgoing hit damage: base × elite mult × area corruption, scaled by its own status
+   * effects — a WEAKEN debuff cuts it, a MIGHT self-buff (from a War Cry support cast) raises it.
+   */
   private mobOutgoing(mob: Mob, template: MobTemplate): number {
-    return template.damage * mob.dmgMult * this.corruptionDmg() * mob.statuses.weakenFactor();
+    return (
+      template.damage *
+      mob.dmgMult *
+      this.corruptionDmg() *
+      mob.statuses.weakenFactor() *
+      mob.statuses.damageFactor()
+    );
   }
 
   private tickPlayers(dt: number): void {
@@ -1226,6 +1251,10 @@ export class World {
       // Advance self-buffs; an active REGEN buff heals over time on top of base regen.
       const { regenHeal } = player.buffs.tick(dt * 1000);
       if (regenHeal > 0) player.hp = Math.min(player.maxHp, player.hp + regenHeal);
+      // Advance enemy debuffs; a BURN debuff (from an enemy fire spell) chips HP over time.
+      const { burnDamage } = player.debuffs.tick(dt * 1000);
+      if (burnDamage > 0) this.damagePlayer(player, burnDamage, true);
+      if (player.dead) continue;
       for (const [ability, remaining] of player.cooldowns) {
         const next = remaining - dt * 1000;
         if (next <= 0) player.cooldowns.delete(ability);
@@ -1234,8 +1263,13 @@ export class World {
 
       const { dx, dy } = moveVector(player.input);
       if (dx !== 0 || dy !== 0) {
-        // weather slows; +move affix and an active HASTE buff speed you up.
-        const speed = PLAYER_SPEED * this.moveScale * player.moveMult * player.buffs.moveFactor();
+        // weather slows; +move affix and an active HASTE buff speed you up; an enemy SLOW debuff drags.
+        const speed =
+          PLAYER_SPEED *
+          this.moveScale *
+          player.moveMult *
+          player.buffs.moveFactor() *
+          player.debuffs.slowFactor();
         player.x = clamp(player.x + dx * speed * dt, 0, this.width);
         player.y = clamp(player.y + dy * speed * dt, 0, this.height);
         player.facing = Math.atan2(dy, dx);
@@ -1257,14 +1291,23 @@ export class World {
         continue;
       }
       if (mob.attackCd > 0) mob.attackCd -= dt * 1000;
+      if (mob.supportCd > 0) mob.supportCd -= dt * 1000;
 
-      // Status effects: burn deals DoT (attributed to the last attacker), slow scales movement.
-      const burn = mob.statuses.tick(dt * 1000).burnDamage;
-      if (burn > 0) this.damageMob(mob, burn, undefined, mob.lastAttacker);
+      // Status effects: burn (debuff) chips HP, regen (self-buff) heals; slow/haste scale movement.
+      const { burnDamage, regenHeal } = mob.statuses.tick(dt * 1000);
+      if (burnDamage > 0) this.damageMob(mob, burnDamage, undefined, mob.lastAttacker);
       if (mob.dead) continue;
-      const slow = mob.statuses.slowFactor();
+      if (regenHeal > 0) mob.hp = Math.min(mob.maxHp, mob.hp + regenHeal);
+      const moveMul = mob.statuses.slowFactor() * mob.statuses.moveFactor();
 
       const template = getContent().mobTemplate(mob.templateId)!;
+
+      // Support casters periodically buff/heal themselves while a player is in the fight.
+      const support = MOB_SUPPORT[mob.templateId];
+      if (support && mob.supportCd <= 0 && this.anyLivingPlayerWithin(mob, template.aggroRange)) {
+        this.castMobSpell(mob, template, support);
+        mob.supportCd = MOB_SUPPORT_COOLDOWN_MS;
+      }
 
       // Charger lunge: while dashing, the mob barrels along its locked aim, striking each player it
       // passes through once. Overrides normal movement/attack until the dash ends.
@@ -1292,7 +1335,7 @@ export class World {
         if (this.now >= mob.telegraphUntil) {
           mob.telegraphUntil = 0;
           this.executeMobAttack(mob, template);
-          mob.attackCd = template.attackCooldownMs;
+          mob.attackCd = template.attackCooldownMs * mob.statuses.cooldownFactor();
         }
         continue;
       }
@@ -1328,15 +1371,15 @@ export class World {
             this.events.push(tele);
           } else {
             this.executeMobAttack(mob, template);
-            mob.attackCd = template.attackCooldownMs;
+            mob.attackCd = template.attackCooldownMs * mob.statuses.cooldownFactor();
           }
         }
       } else if (intent.vx !== 0 || intent.vy !== 0) {
-        mob.x = clamp(mob.x + intent.vx * slow * mob.spdMult * dt, 0, this.width);
-        mob.y = clamp(mob.y + intent.vy * slow * mob.spdMult * dt, 0, this.height);
+        mob.x = clamp(mob.x + intent.vx * moveMul * mob.spdMult * dt, 0, this.width);
+        mob.y = clamp(mob.y + intent.vy * moveMul * mob.spdMult * dt, 0, this.height);
         if (intent.facing !== null) mob.facing = intent.facing;
       } else {
-        this.wander(mob, dt, template.speed * slow * mob.spdMult);
+        this.wander(mob, dt, template.speed * moveMul * mob.spdMult);
       }
     }
   }
@@ -1347,6 +1390,13 @@ export class World {
    * along the locked aim (so side-stepping the line dodges it).
    */
   private executeMobAttack(mob: Mob, template: MobTemplate): void {
+    // Spellcaster monsters cast a real ability in place of their basic ranged/melee attack (the
+    // charger keeps its signature lunge). The spell's projectile/cone debuffs the player it hits.
+    const spell = MOB_SPELLS[mob.templateId];
+    if (spell && template.behavior !== 'charger') {
+      this.castMobSpell(mob, template, spell);
+      return;
+    }
     if (template.behavior === 'charger') {
       // Begin the lunge along the locked aim; contact damage is applied during the dash ticks.
       mob.dashUntil = this.now + DASH_MS;
@@ -1398,6 +1448,77 @@ export class World {
     this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
   }
 
+  /**
+   * A monster casts one of the player abilities, dispatched by kind:
+   *  - heal: a self-buff (might/haste/regen, from a buff spell) or a flat self-heal.
+   *  - melee: a cone/nova around the mob; every player in reach is hit and debuffed.
+   *  - projectile: a hostile bolt along the locked aim that debuffs the player it strikes.
+   * Damage uses the mob's own scaled output; the ability supplies the shape, visuals, and on-hit
+   * status. Used both for offensive casts (in place of the basic attack) and periodic self-support.
+   */
+  private castMobSpell(mob: Mob, template: MobTemplate, abilityId: AbilityId): void {
+    const ability = getContent().ability(abilityId);
+    if (!ability) return;
+    this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing, abilityId });
+
+    if (ability.kind === 'heal') {
+      const buff = BUFF_ON_CAST[abilityId];
+      if (buff) mob.statuses.apply(buff.id, buff.ms, buff.magnitude);
+      else mob.hp = Math.min(mob.maxHp, mob.hp + ability.damage);
+      return;
+    }
+
+    const dmg = this.mobOutgoing(mob, template);
+    if (ability.kind === 'melee') {
+      const halfAngle = ability.meleeHalfAngle ?? 0.6;
+      for (const player of this.players.values()) {
+        if (player.dead) continue;
+        const hit = inMeleeCone(
+          mob.x,
+          mob.y,
+          mob.telegraphFacing,
+          player.x,
+          player.y,
+          ability.range,
+          halfAngle,
+        );
+        if (hit) {
+          this.damagePlayer(player, dmg);
+          applyPlayerDebuff(player, abilityId);
+        }
+      }
+      this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
+      return;
+    }
+
+    // Projectile: tagged with abilityId so the client colors it and its hit applies the debuff.
+    const speed = ability.projectileSpeed ?? 300;
+    const pid = this.allocId();
+    this.projectiles.set(pid, {
+      id: pid,
+      abilityId,
+      x: mob.x,
+      y: mob.y,
+      vx: Math.cos(mob.telegraphFacing) * speed,
+      vy: Math.sin(mob.telegraphFacing) * speed,
+      ttl: ability.projectileTtlMs ?? 1800,
+      damage: dmg,
+      radius: ability.radius,
+      ownerId: 0,
+      ownerLevel: template.level,
+      critChance: 0,
+      hostile: true,
+    });
+  }
+
+  /** True if any living player is within `range` of the mob (cheap aggro gate, no allocation). */
+  private anyLivingPlayerWithin(mob: Mob, range: number): boolean {
+    for (const p of this.players.values()) {
+      if (!p.dead && Math.hypot(p.x - mob.x, p.y - mob.y) <= range) return true;
+    }
+    return false;
+  }
+
   private tickProjectiles(dt: number): void {
     for (const proj of this.projectiles.values()) {
       proj.x += proj.vx * dt;
@@ -1411,6 +1532,9 @@ export class World {
           if (player.dead) continue;
           if (circlesOverlap(proj.x, proj.y, proj.radius, player.x, player.y, PLAYER_RADIUS)) {
             this.damagePlayer(player, proj.damage);
+            // Spell projectiles debuff on hit (frost slows, fire burns, curses weaken); a plain
+            // 'arrow' has no mapping, so this is a no-op for non-caster mobs.
+            applyPlayerDebuff(player, proj.abilityId);
             consumed = true;
             break;
           }
@@ -1743,12 +1867,14 @@ export class World {
     }
   }
 
-  private damagePlayer(player: Player, amount: number): void {
+  private damagePlayer(player: Player, amount: number, silent = false): void {
     if (player.god) return;
     const taken = amount * player.damageTakenMult; // corrupted +fragile makes hits land harder
     player.hp -= taken;
-    // Round the floating damage (mult'd by corruption/fragile) for a clean floating number.
-    this.events.push({ kind: 'hit', x: player.x, y: player.y, value: Math.ceil(taken) });
+    // Round the floating damage (mult'd by corruption/fragile) for a clean floating number. Burn
+    // (damage-over-time) ticks pass silent=true so they don't spew a number every server tick.
+    if (!silent)
+      this.events.push({ kind: 'hit', x: player.x, y: player.y, value: Math.ceil(taken) });
     if (player.hp <= 0) {
       player.hp = 0;
       player.dead = true;
@@ -1767,6 +1893,7 @@ export class World {
     player.y = this.spawnPoint.y;
     player.cooldowns.clear();
     player.buffs.clear(); // don't carry a War Cry / Sprint / Renew through death
+    player.debuffs.clear(); // and shed any enemy slow / burn / weaken on respawn
   }
 
   private respawnMob(mob: Mob): void {
@@ -1790,9 +1917,12 @@ export class World {
     const out: EntityState[] = [];
     for (const p of this.players.values()) {
       if (p.dead) continue;
-      // Buff bits (might=8, haste=16, regen=32) sit above the monster debuff bits (slow/burn/weaken)
-      // so the client can show buff pips for the local player from the same flags field.
+      // Debuff bits (slow=1, burn=2, weaken=4) match the monster tint bits — so a slowed/burning
+      // player tints like a monster — while buff bits (might=8, haste=16, regen=32) drive HUD pips.
       const flags =
+        (p.debuffs.has('slow') ? 1 : 0) |
+        (p.debuffs.has('burn') ? 2 : 0) |
+        (p.debuffs.has('weaken') ? 4 : 0) |
         (p.buffs.has('might') ? 8 : 0) |
         (p.buffs.has('haste') ? 16 : 0) |
         (p.buffs.has('regen') ? 32 : 0);
@@ -1815,7 +1945,8 @@ export class World {
       const flags =
         (m.statuses.has('slow') ? 1 : 0) |
         (m.statuses.has('burn') ? 2 : 0) |
-        (m.statuses.has('weaken') ? 4 : 0);
+        (m.statuses.has('weaken') ? 4 : 0) |
+        (m.statuses.has('might') || m.statuses.has('haste') ? 64 : 0); // enraged/hasted self-buff
       const mob: EntityState = {
         id: m.id,
         x: m.x,
@@ -2036,6 +2167,16 @@ function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
   if (burn) mob.statuses.apply('burn', burn.ms, burn.dmg);
   const weaken = WEAKEN_ON_HIT[abilityId];
   if (weaken) mob.statuses.apply('weaken', weaken.ms, weaken.factor);
+}
+
+/** Map an enemy spell's on-hit effect onto a PLAYER (so monster spells slow/burn/weaken you too). */
+function applyPlayerDebuff(player: { debuffs: StatusSet }, abilityId: AbilityId): void {
+  const slow = SLOW_ON_HIT[abilityId];
+  if (slow) player.debuffs.apply('slow', slow.ms, slow.factor);
+  const burn = BURN_ON_HIT[abilityId];
+  if (burn) player.debuffs.apply('burn', burn.ms, burn.dmg);
+  const weaken = WEAKEN_ON_HIT[abilityId];
+  if (weaken) player.debuffs.apply('weaken', weaken.ms, weaken.factor);
 }
 
 function sanitizeName(name: string): string {
