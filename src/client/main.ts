@@ -15,18 +15,26 @@ import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
 import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
+import { drawStashPanel, type StashButton } from './stash-panel.js';
 import { drawInventoryPanel, type InventoryButton } from './inventory-panel.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
 import { Predictor } from './predictor.js';
+import { installErrorTrap, getLatestError } from './error-trap.js';
+import { clampPanelRect } from './ui-guard.js';
 import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
 import type { EntityState, InputState } from '../shared/protocol.js';
 
 const gameCanvas = document.getElementById('game') as HTMLCanvasElement;
 const hudCanvas = document.getElementById('hud') as HTMLCanvasElement;
 const hud = hudCanvas.getContext('2d')!;
+
+// Trap uncaught errors/rejections so a stray throw flashes a HUD badge instead of a blank screen.
+let lastErrorAt = 0;
+installErrorTrap({ onError: () => (lastErrorAt = performance.now()) });
+
 const statusEl = document.getElementById('status')!;
 const popEl = document.getElementById('pop')!;
 const chatEl = document.getElementById('chat')!;
@@ -181,6 +189,9 @@ let gambleButtons: GambleButton[] = [];
 let waypointOpen = false;
 let waypointButtons: WaypointButton[] = [];
 let artificerButtons: ArtificerButton[] = [];
+let stashButtons: StashButton[] = [];
+// Mirrors the server's MAX_BAG_GEAR (src/server/world.ts) — the bag/stash panel shows bag fullness.
+const MAX_BAG_GEAR = 30;
 // Inventory panel (I): the full bag of unequipped gear (up to 30), tap to equip.
 let inventoryOpen = false;
 let inventoryButtons: InventoryButton[] = [];
@@ -226,6 +237,10 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && net.artificer) {
     net.artificer = null;
+    return;
+  }
+  if (e.key === 'Escape' && net.stash) {
+    net.stash = null;
     return;
   }
   if (e.key === 'Escape' && questOpen) {
@@ -278,6 +293,7 @@ window.addEventListener('pointerdown', (e) => {
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
+  if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
   if (inventoryOpen && handleInventoryClick(e.clientX, e.clientY)) return;
   // The quest log captures clicks (accept buttons / panel body) and never falls through to a cast.
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
@@ -407,6 +423,16 @@ function handleArtificerClick(x: number, y: number): boolean {
   return true;
 }
 
+/** Route a click inside the open Vault (stash) panel. Returns true if it was consumed. */
+function handleStashClick(x: number, y: number): boolean {
+  const btn = stashButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.stash = null;
+  else if (btn.action === 'deposit' && btn.uid !== undefined) net.sendStashDeposit(btn.uid);
+  else if (btn.action === 'withdraw' && btn.uid !== undefined) net.sendStashWithdraw(btn.uid);
+  return true;
+}
+
 /** Route a click inside the open gambling panel. Returns true if it was consumed. */
 function handleGambleClick(x: number, y: number): boolean {
   const btn = gambleButtons.find((b) => inRect(x, y, b));
@@ -446,6 +472,7 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
+  if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
   if (inventoryOpen && handleInventoryClick(e.clientX, e.clientY)) return;
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
@@ -903,6 +930,21 @@ function frame(): void {
   } else {
     artificerButtons = [];
   }
+  if (net.stash) {
+    stashButtons = drawStashPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      {
+        bag: net.you.gear,
+        stash: net.stash.items,
+        cap: net.stash.cap,
+        bagCap: MAX_BAG_GEAR,
+        nameOf: instLabel,
+      },
+    );
+  } else {
+    stashButtons = [];
+  }
   if (net.gamble) {
     gambleButtons = drawGamblePanel(
       hud,
@@ -921,6 +963,7 @@ function frame(): void {
     shopRects.length = 0;
   }
   if (!net.connected) drawReconnect();
+  drawErrorBadge();
 
   const area = net.content.area(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
@@ -1156,8 +1199,14 @@ function drawShopPanel(): void {
   const headerH = 58;
   const footerH = 40;
   const ph = headerH + shop.stock.length * rowH + footerH;
-  const px = hudCanvas.width / 2 - pw / 2;
-  const py = hudCanvas.height / 2 - ph / 2;
+  // Center, then clamp on-screen so a tall stock list on a short/rotated phone can't run off-edge.
+  const view = { w: hudCanvas.width, h: hudCanvas.height };
+  const clamped = clampPanelRect(
+    { x: view.w / 2 - pw / 2, y: view.h / 2 - ph / 2, w: pw, h: ph },
+    view,
+  );
+  const px = clamped.x;
+  const py = clamped.y;
   shopPanelRect = { x: px, y: py, w: pw, h: ph };
 
   hud.fillStyle = 'rgba(8,9,13,0.94)';
@@ -1233,6 +1282,21 @@ function drawReconnect(): void {
   hud.font = '13px system-ui, sans-serif';
   hud.fillStyle = '#9aa3b2';
   hud.fillText('Lost connection to the server — retrying every second', w / 2, h / 2 + 22);
+}
+
+/** A small corner badge shown for a few seconds after the error trap catches an uncaught throw. */
+function drawErrorBadge(): void {
+  if (lastErrorAt === 0 || performance.now() - lastErrorAt > 6000) return;
+  const err = getLatestError();
+  hud.fillStyle = 'rgba(120,20,20,0.85)';
+  hud.fillRect(8, 8, 240, 22);
+  hud.strokeStyle = '#e06a6a';
+  hud.lineWidth = 1;
+  hud.strokeRect(8, 8, 240, 22);
+  hud.fillStyle = '#ffd7d7';
+  hud.font = '11px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText(`⚠ ${(err?.message ?? 'error').slice(0, 34)}`, 14, 23);
 }
 
 function drawHud(): void {

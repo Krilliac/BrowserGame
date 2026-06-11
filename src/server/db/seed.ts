@@ -539,6 +539,7 @@ function ensureSpellbookContent(db: Database): void {
   ensureNpc('town', 'Sister Oona', 860, 560, 140, 'healer');
   ensureNpc('town', 'Lucky Marn', 940, 560, 300, 'gambler');
   ensureNpc('town', 'Coalhand the Artificer', 580, 560, 25, 'artificer');
+  ensureNpc('town', 'Vault Keeper', 1020, 560, 40, 'banker');
 
   // Collect/turn-in quests added after the original seed (id is the PK, so OR IGNORE dedups).
   const insQuest = db.prepare(
@@ -758,6 +759,7 @@ function seedNpcs(db: Database): void {
   ins.run('town', 'Elder Maeve', 740, 560, 190, 'questgiver');
   ins.run('town', 'Sister Oona', 860, 560, 140, 'healer');
   ins.run('town', 'Lucky Marn', 940, 560, 300, 'gambler');
+  ins.run('town', 'Vault Keeper', 1020, 560, 40, 'banker');
   // A quest-giver near the arrival point of each new area, so the content is discoverable.
   ins.run('marsh', 'Bogged Pilgrim', 1100, 280, 95, 'questgiver');
   ins.run('mines', 'Stranded Miner', 900, 280, 18, 'questgiver');

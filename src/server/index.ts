@@ -6,6 +6,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { InstanceManager, type InstancingMode } from './instance-manager.js';
 import { sanitizeChat } from './chat.js';
 import { TokenBucket } from './rate-limit.js';
+import { runGuarded, GuardStats } from './resilience.js';
 import {
   DEFAULT_TICK_RATE,
   MAX_MESSAGE_BYTES,
@@ -211,6 +212,8 @@ const http = createServer(async (req, res) => {
         instances: manager.instanceCount,
         instancing: INSTANCING,
         tickRate: TICK_RATE,
+        guardErrors: guardStats.total(),
+        guards: guardStats.top(5),
       }),
     );
     return;
@@ -268,6 +271,9 @@ setInterval(() => {
   }
 }, HEARTBEAT_MS);
 
+// Tracks how often each guarded unit of work throws, for the /health readout.
+const guardStats = new GuardStats();
+
 wss.on('connection', (socket) => {
   let entityId = 0;
   alive.add(socket);
@@ -287,324 +293,362 @@ wss.on('connection', (socket) => {
 
   socket.on('message', (raw) => {
     if (!messageBucket.tryRemove()) return; // rate-limited: silently drop
-    const msg = decodeClient(raw.toString());
-    if (!msg) return;
+    // Guard the whole dispatch so one malformed-but-decodable message hitting a buggy handler can't
+    // throw out of the ws 'message' callback and crash the server for everyone.
+    runGuarded(
+      'client-message',
+      () => {
+        const msg = decodeClient(raw.toString());
+        if (!msg) return;
 
-    switch (msg.t) {
-      case 'join': {
-        if (entityId !== 0) return; // already joined
-        // Returning guests present an opaque token; load their save if we recognize it, else mint
-        // a fresh token. The token is validated before it ever touches the DB (bound param anyway).
-        const presented = isValidToken(msg.token) ? msg.token : undefined;
-        const token = presented ?? newPlayerToken();
-        const save = presented ? (loadSave(getDb(), presented) ?? undefined) : undefined;
-        const placement = manager.join(save?.name ?? msg.name, undefined, save);
-        entityId = placement.entityId;
-        players.set(entityId, {
-          socket,
-          instanceId: placement.instanceId,
-          accessLevel: 0,
-          token,
-        });
-        send(socket, {
-          t: 'welcome',
-          id: entityId,
-          tickRate: TICK_RATE,
-          areaId: placement.areaId,
-          instanceId: placement.instanceId,
-          token,
-        });
-        // Register social presence so friends see this player come online, and hand them their list.
-        const joinName = save?.name ?? msg.name;
-        social.setOnline({
-          id: entityId,
-          token,
-          name: joinName,
-          areaId: placement.areaId,
-          level: 1,
-        });
-        sendFriends(entityId);
-        notifyFriendWatchers(joinName);
-        break;
-      }
-      case 'input': {
-        const p = players.get(entityId);
-        if (p) manager.get(p.instanceId)?.world.setInput(entityId, msg.input, msg.seq);
-        break;
-      }
-      case 'cast': {
-        const p = players.get(entityId);
-        if (p && isAbilityId(msg.ability)) {
-          manager.get(p.instanceId)?.world.cast(entityId, msg.ability, msg.dx, msg.dy);
-        }
-        break;
-      }
-      case 'interact': {
-        const p = players.get(entityId);
-        if (p) manager.get(p.instanceId)?.world.interact(entityId);
-        break;
-      }
-      case 'equip': {
-        const p = players.get(entityId);
-        if (p) manager.get(p.instanceId)?.world.equip(entityId, msg.uid);
-        break;
-      }
-      case 'unequip': {
-        const p = players.get(entityId);
-        if (p) manager.get(p.instanceId)?.world.unequip(entityId, msg.slot);
-        break;
-      }
-      case 'learn': {
-        const p = players.get(entityId);
-        if (p && typeof msg.itemId === 'string') {
-          manager.get(p.instanceId)?.world.learn(entityId, msg.itemId);
-        }
-        break;
-      }
-      case 'accept_quest': {
-        const p = players.get(entityId);
-        if (p && typeof msg.questId === 'string') {
-          const world = manager.get(p.instanceId)?.world;
-          const result = world?.acceptQuest(entityId, msg.questId);
-          if (result) send(p.socket, { t: 'chat', from: 'System', text: result });
-        }
-        break;
-      }
-      case 'socket_gem': {
-        const p = players.get(entityId);
-        if (p && typeof msg.gemId === 'string') {
-          manager.get(p.instanceId)?.world.socketGem(entityId, msg.gemId);
-        }
-        break;
-      }
-      case 'gamble': {
-        const p = players.get(entityId);
-        if (p && typeof msg.slot === 'string') {
-          manager.get(p.instanceId)?.world.gamble(entityId, msg.slot);
-        }
-        break;
-      }
-      case 'enchant': {
-        const p = players.get(entityId);
-        if (p && typeof msg.uid === 'number') {
-          manager.get(p.instanceId)?.world.enchant(entityId, msg.uid);
-        }
-        break;
-      }
-      case 'unsocket_gem': {
-        const p = players.get(entityId);
-        if (p && typeof msg.slot === 'string' && typeof msg.index === 'number') {
-          manager.get(p.instanceId)?.world.unsocketGem(entityId, msg.slot, msg.index);
-        }
-        break;
-      }
-      case 'combine_gems': {
-        const p = players.get(entityId);
-        if (p) manager.get(p.instanceId)?.world.combineGems(entityId);
-        break;
-      }
-      case 'waypoint': {
-        const p = players.get(entityId);
-        if (!p || typeof msg.areaId !== 'string') break;
-        const world = manager.get(p.instanceId)?.world;
-        const stats = world?.playerStats(entityId);
-        // Only travel to a discovered area, and never to the one you're already in.
-        if (!stats || !stats.discovered.includes(msg.areaId)) break;
-        if (manager.get(p.instanceId)?.areaId === msg.areaId) break;
-        const ev = manager.teleport(p.instanceId, entityId, msg.areaId);
-        if (ev) {
-          p.instanceId = ev.toInstanceId;
-          send(p.socket, { t: 'area_changed', areaId: ev.toAreaId, instanceId: ev.toInstanceId });
-          social.updatePresence(p.token, ev.toAreaId, stats.level);
-          const name = nameOf(entityId);
-          if (name) notifyFriendWatchers(name);
-          const party = parties.partyOf(entityId);
-          if (party) for (const m of party.memberIds) sendPartyState(m);
-        }
-        break;
-      }
-      case 'party_invite': {
-        if (!players.has(entityId) || typeof msg.targetName !== 'string') break;
-        const target = findPlayerByName(msg.targetName);
-        if (target === undefined || target === entityId) {
-          send(socket, {
-            t: 'chat',
-            from: 'System',
-            text: 'No such player online.',
-            channel: 'system',
-          });
-          break;
-        }
-        const r = parties.invite(entityId, target);
-        if (r.ok) {
-          sendPartyState(target);
-          sendPartyState(entityId);
-          const tconn = players.get(target);
-          if (tconn) {
-            send(tconn.socket, {
-              t: 'chat',
-              from: 'System',
-              text: `${nameOf(entityId) ?? 'Someone'} invited you to a party — open the party panel (P) to accept.`,
-              channel: 'party',
+        switch (msg.t) {
+          case 'join': {
+            if (entityId !== 0) return; // already joined
+            // Returning guests present an opaque token; load their save if we recognize it, else mint
+            // a fresh token. The token is validated before it ever touches the DB (bound param anyway).
+            const presented = isValidToken(msg.token) ? msg.token : undefined;
+            const token = presented ?? newPlayerToken();
+            const save = presented ? (loadSave(getDb(), presented) ?? undefined) : undefined;
+            const placement = manager.join(save?.name ?? msg.name, undefined, save);
+            entityId = placement.entityId;
+            players.set(entityId, {
+              socket,
+              instanceId: placement.instanceId,
+              accessLevel: 0,
+              token,
             });
+            send(socket, {
+              t: 'welcome',
+              id: entityId,
+              tickRate: TICK_RATE,
+              areaId: placement.areaId,
+              instanceId: placement.instanceId,
+              token,
+            });
+            // Register social presence so friends see this player come online, and hand them their list.
+            const joinName = save?.name ?? msg.name;
+            social.setOnline({
+              id: entityId,
+              token,
+              name: joinName,
+              areaId: placement.areaId,
+              level: 1,
+            });
+            sendFriends(entityId);
+            notifyFriendWatchers(joinName);
+            break;
           }
-        } else {
-          send(socket, {
-            t: 'chat',
-            from: 'System',
-            text: `Invite failed: ${r.reason}`,
-            channel: 'system',
-          });
-        }
-        break;
-      }
-      case 'party_accept': {
-        const r = parties.accept(entityId);
-        if (r.ok) {
-          for (const m of r.party.memberIds) sendPartyState(m);
-          broadcastToParty(r.party.memberIds, `${nameOf(entityId) ?? 'A hero'} joined the party.`);
-        } else {
-          send(socket, { t: 'chat', from: 'System', text: r.reason, channel: 'system' });
-        }
-        break;
-      }
-      case 'party_decline': {
-        parties.decline(entityId);
-        sendPartyState(entityId);
-        break;
-      }
-      case 'party_leave': {
-        const affected = parties.leave(entityId);
-        for (const m of affected) sendPartyState(m);
-        break;
-      }
-      case 'friend_add': {
-        const p = players.get(entityId);
-        if (p && typeof msg.name === 'string') {
-          const r = social.addFriend(p.token, nameOf(entityId) ?? '', msg.name);
-          send(socket, {
-            t: 'chat',
-            from: 'System',
-            text: r.ok
-              ? `Added ${msg.name.trim()} to your friends.`
-              : `Cannot add friend: ${r.reason}`,
-            channel: 'system',
-          });
-          if (r.ok) sendFriends(entityId);
-        }
-        break;
-      }
-      case 'friend_remove': {
-        const p = players.get(entityId);
-        if (p && typeof msg.name === 'string') {
-          social.removeFriend(p.token, msg.name);
-          sendFriends(entityId);
-        }
-        break;
-      }
-      case 'whisper': {
-        const p = players.get(entityId);
-        if (!p || typeof msg.to !== 'string' || typeof msg.text !== 'string') break;
-        const text = sanitizeChat(msg.text);
-        if (!text) break;
-        const fromName = nameOf(entityId) ?? 'Player';
-        const target = social.findOnline(msg.to);
-        const tconn = target ? players.get(target.id) : undefined;
-        if (target && tconn) {
-          send(tconn.socket, { t: 'chat', from: `${fromName} ▸ you`, text, channel: 'whisper' });
-          send(socket, { t: 'chat', from: `you ▸ ${target.name}`, text, channel: 'whisper' });
-        } else {
-          send(socket, {
-            t: 'chat',
-            from: 'System',
-            text: `${msg.to} is not online.`,
-            channel: 'system',
-          });
-        }
-        break;
-      }
-      case 'buy': {
-        const p = players.get(entityId);
-        if (p && typeof msg.itemId === 'string') {
-          manager.get(p.instanceId)?.world.buy(entityId, msg.itemId);
-        }
-        break;
-      }
-      case 'sell': {
-        const p = players.get(entityId);
-        if (p) manager.get(p.instanceId)?.world.sell(entityId);
-        break;
-      }
-      case 'chat': {
-        const p = players.get(entityId);
-        if (!p || !chatBucket.tryRemove()) return;
-        const text = sanitizeChat(msg.text);
-        const instance = manager.get(p.instanceId);
-        if (!text || !instance) return;
-        const world = instance.world;
-        const from = world.nameOf(entityId) ?? 'Player';
+          case 'input': {
+            const p = players.get(entityId);
+            if (p) manager.get(p.instanceId)?.world.setInput(entityId, msg.input, msg.seq);
+            break;
+          }
+          case 'cast': {
+            const p = players.get(entityId);
+            if (p && isAbilityId(msg.ability)) {
+              manager.get(p.instanceId)?.world.cast(entityId, msg.ability, msg.dx, msg.dy);
+            }
+            break;
+          }
+          case 'interact': {
+            const p = players.get(entityId);
+            if (p) manager.get(p.instanceId)?.world.interact(entityId);
+            break;
+          }
+          case 'equip': {
+            const p = players.get(entityId);
+            if (p) manager.get(p.instanceId)?.world.equip(entityId, msg.uid);
+            break;
+          }
+          case 'unequip': {
+            const p = players.get(entityId);
+            if (p) manager.get(p.instanceId)?.world.unequip(entityId, msg.slot);
+            break;
+          }
+          case 'learn': {
+            const p = players.get(entityId);
+            if (p && typeof msg.itemId === 'string') {
+              manager.get(p.instanceId)?.world.learn(entityId, msg.itemId);
+            }
+            break;
+          }
+          case 'accept_quest': {
+            const p = players.get(entityId);
+            if (p && typeof msg.questId === 'string') {
+              const world = manager.get(p.instanceId)?.world;
+              const result = world?.acceptQuest(entityId, msg.questId);
+              if (result) send(p.socket, { t: 'chat', from: 'System', text: result });
+            }
+            break;
+          }
+          case 'socket_gem': {
+            const p = players.get(entityId);
+            if (p && typeof msg.gemId === 'string') {
+              manager.get(p.instanceId)?.world.socketGem(entityId, msg.gemId);
+            }
+            break;
+          }
+          case 'gamble': {
+            const p = players.get(entityId);
+            if (p && typeof msg.slot === 'string') {
+              manager.get(p.instanceId)?.world.gamble(entityId, msg.slot);
+            }
+            break;
+          }
+          case 'enchant': {
+            const p = players.get(entityId);
+            if (p && typeof msg.uid === 'number') {
+              manager.get(p.instanceId)?.world.enchant(entityId, msg.uid);
+            }
+            break;
+          }
+          case 'unsocket_gem': {
+            const p = players.get(entityId);
+            if (p && typeof msg.slot === 'string' && typeof msg.index === 'number') {
+              manager.get(p.instanceId)?.world.unsocketGem(entityId, msg.slot, msg.index);
+            }
+            break;
+          }
+          case 'combine_gems': {
+            const p = players.get(entityId);
+            if (p) manager.get(p.instanceId)?.world.combineGems(entityId);
+            break;
+          }
+          case 'stash_deposit': {
+            const p = players.get(entityId);
+            if (p && typeof msg.uid === 'number') {
+              manager.get(p.instanceId)?.world.depositToStash(entityId, msg.uid);
+            }
+            break;
+          }
+          case 'stash_withdraw': {
+            const p = players.get(entityId);
+            if (p && typeof msg.uid === 'number') {
+              manager.get(p.instanceId)?.world.withdrawFromStash(entityId, msg.uid);
+            }
+            break;
+          }
+          case 'waypoint': {
+            const p = players.get(entityId);
+            if (!p || typeof msg.areaId !== 'string') break;
+            const world = manager.get(p.instanceId)?.world;
+            const stats = world?.playerStats(entityId);
+            // Only travel to a discovered area, and never to the one you're already in.
+            if (!stats || !stats.discovered.includes(msg.areaId)) break;
+            if (manager.get(p.instanceId)?.areaId === msg.areaId) break;
+            const ev = manager.teleport(p.instanceId, entityId, msg.areaId);
+            if (ev) {
+              p.instanceId = ev.toInstanceId;
+              send(p.socket, {
+                t: 'area_changed',
+                areaId: ev.toAreaId,
+                instanceId: ev.toInstanceId,
+              });
+              social.updatePresence(p.token, ev.toAreaId, stats.level);
+              const name = nameOf(entityId);
+              if (name) notifyFriendWatchers(name);
+              const party = parties.partyOf(entityId);
+              if (party) for (const m of party.memberIds) sendPartyState(m);
+            }
+            break;
+          }
+          case 'party_invite': {
+            if (!players.has(entityId) || typeof msg.targetName !== 'string') break;
+            const target = findPlayerByName(msg.targetName);
+            if (target === undefined || target === entityId) {
+              send(socket, {
+                t: 'chat',
+                from: 'System',
+                text: 'No such player online.',
+                channel: 'system',
+              });
+              break;
+            }
+            const r = parties.invite(entityId, target);
+            if (r.ok) {
+              sendPartyState(target);
+              sendPartyState(entityId);
+              const tconn = players.get(target);
+              if (tconn) {
+                send(tconn.socket, {
+                  t: 'chat',
+                  from: 'System',
+                  text: `${nameOf(entityId) ?? 'Someone'} invited you to a party — open the party panel (P) to accept.`,
+                  channel: 'party',
+                });
+              }
+            } else {
+              send(socket, {
+                t: 'chat',
+                from: 'System',
+                text: `Invite failed: ${r.reason}`,
+                channel: 'system',
+              });
+            }
+            break;
+          }
+          case 'party_accept': {
+            const r = parties.accept(entityId);
+            if (r.ok) {
+              for (const m of r.party.memberIds) sendPartyState(m);
+              broadcastToParty(
+                r.party.memberIds,
+                `${nameOf(entityId) ?? 'A hero'} joined the party.`,
+              );
+            } else {
+              send(socket, { t: 'chat', from: 'System', text: r.reason, channel: 'system' });
+            }
+            break;
+          }
+          case 'party_decline': {
+            parties.decline(entityId);
+            sendPartyState(entityId);
+            break;
+          }
+          case 'party_leave': {
+            const affected = parties.leave(entityId);
+            for (const m of affected) sendPartyState(m);
+            break;
+          }
+          case 'friend_add': {
+            const p = players.get(entityId);
+            if (p && typeof msg.name === 'string') {
+              const r = social.addFriend(p.token, nameOf(entityId) ?? '', msg.name);
+              send(socket, {
+                t: 'chat',
+                from: 'System',
+                text: r.ok
+                  ? `Added ${msg.name.trim()} to your friends.`
+                  : `Cannot add friend: ${r.reason}`,
+                channel: 'system',
+              });
+              if (r.ok) sendFriends(entityId);
+            }
+            break;
+          }
+          case 'friend_remove': {
+            const p = players.get(entityId);
+            if (p && typeof msg.name === 'string') {
+              social.removeFriend(p.token, msg.name);
+              sendFriends(entityId);
+            }
+            break;
+          }
+          case 'whisper': {
+            const p = players.get(entityId);
+            if (!p || typeof msg.to !== 'string' || typeof msg.text !== 'string') break;
+            const text = sanitizeChat(msg.text);
+            if (!text) break;
+            const fromName = nameOf(entityId) ?? 'Player';
+            const target = social.findOnline(msg.to);
+            const tconn = target ? players.get(target.id) : undefined;
+            if (target && tconn) {
+              send(tconn.socket, {
+                t: 'chat',
+                from: `${fromName} ▸ you`,
+                text,
+                channel: 'whisper',
+              });
+              send(socket, { t: 'chat', from: `you ▸ ${target.name}`, text, channel: 'whisper' });
+            } else {
+              send(socket, {
+                t: 'chat',
+                from: 'System',
+                text: `${msg.to} is not online.`,
+                channel: 'system',
+              });
+            }
+            break;
+          }
+          case 'buy': {
+            const p = players.get(entityId);
+            if (p && typeof msg.itemId === 'string') {
+              manager.get(p.instanceId)?.world.buy(entityId, msg.itemId);
+            }
+            break;
+          }
+          case 'sell': {
+            const p = players.get(entityId);
+            if (p) manager.get(p.instanceId)?.world.sell(entityId);
+            break;
+          }
+          case 'chat': {
+            const p = players.get(entityId);
+            if (!p || !chatBucket.tryRemove()) return;
+            const text = sanitizeChat(msg.text);
+            const instance = manager.get(p.instanceId);
+            if (!text || !instance) return;
+            const world = instance.world;
+            const from = world.nameOf(entityId) ?? 'Player';
 
-        if (isCommand(text)) {
-          // A command handler must never crash the server — every client is untrusted, and a bad
-          // input or DB error is the issuer's problem, not the whole world's.
-          try {
-            runCommand(text, {
-              accessLevel: p.accessLevel,
-              args: [],
-              playerId: entityId,
-              areaId: instance.areaId,
-              world,
-              reply: (t) => send(p.socket, { t: 'chat', from: 'System', text: t }),
-              broadcast: (t) =>
-                broadcastToInstance(p.instanceId, { t: 'chat', from: 'System', text: t }),
-              name: () => from,
-              login: (u, pw) => verifyLogin(getDb(), u, pw),
-              setAccessLevel: (lvl) => {
-                p.accessLevel = lvl;
-              },
-              listPlayers: () => world.playerNames(),
-              setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),
-              areaIds: () =>
-                getContent()
-                  .areas()
-                  .map((a) => a.id),
-              areaTheme: (areaId) => getContent().area(areaId)?.theme,
-              setTheme: (areaId, key, value) => applyThemeEdit(areaId, key, value),
-              reloadContent: () =>
-                `Reloaded content from DB — re-skinned ${rebroadcastContent()} areas.`,
-              contentTables: () => listTables(),
-              contentColumns: (table) => listColumns(table),
-              contentRows: (table) => listRows(table),
-              contentRow: (table, id) => getRow(table, id),
-              setContent: (table, id, column, value) => {
-                const r = editContent(table, id, column, value);
-                if (r.ok) rebroadcastContent(); // reload + push to all clients, re-apply weather
-                return r.message;
-              },
-            });
-          } catch (err) {
-            console.error('[command] failed:', err);
-            send(p.socket, { t: 'chat', from: 'System', text: 'Command failed (server error).' });
+            if (isCommand(text)) {
+              // A command handler must never crash the server — every client is untrusted, and a bad
+              // input or DB error is the issuer's problem, not the whole world's.
+              try {
+                runCommand(text, {
+                  accessLevel: p.accessLevel,
+                  args: [],
+                  playerId: entityId,
+                  areaId: instance.areaId,
+                  world,
+                  reply: (t) => send(p.socket, { t: 'chat', from: 'System', text: t }),
+                  broadcast: (t) =>
+                    broadcastToInstance(p.instanceId, { t: 'chat', from: 'System', text: t }),
+                  name: () => from,
+                  login: (u, pw) => verifyLogin(getDb(), u, pw),
+                  setAccessLevel: (lvl) => {
+                    p.accessLevel = lvl;
+                  },
+                  listPlayers: () => world.playerNames(),
+                  setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),
+                  areaIds: () =>
+                    getContent()
+                      .areas()
+                      .map((a) => a.id),
+                  areaTheme: (areaId) => getContent().area(areaId)?.theme,
+                  setTheme: (areaId, key, value) => applyThemeEdit(areaId, key, value),
+                  reloadContent: () =>
+                    `Reloaded content from DB — re-skinned ${rebroadcastContent()} areas.`,
+                  contentTables: () => listTables(),
+                  contentColumns: (table) => listColumns(table),
+                  contentRows: (table) => listRows(table),
+                  contentRow: (table, id) => getRow(table, id),
+                  setContent: (table, id, column, value) => {
+                    const r = editContent(table, id, column, value);
+                    if (r.ok) rebroadcastContent(); // reload + push to all clients, re-apply weather
+                    return r.message;
+                  },
+                });
+              } catch (err) {
+                console.error('[command] failed:', err);
+                send(p.socket, {
+                  t: 'chat',
+                  from: 'System',
+                  text: 'Command failed (server error).',
+                });
+              }
+            } else {
+              broadcastToInstance(p.instanceId, { t: 'chat', from, text });
+            }
+            break;
           }
-        } else {
-          broadcastToInstance(p.instanceId, { t: 'chat', from, text });
+          case 'admin': {
+            // Privileged "in-game engine" surface — the foundation of the live-editing
+            // feature. Gated by a server-side token; unauthenticated callers get nothing.
+            const ok = ENGINE_ADMIN_TOKEN !== '' && msg.token === ENGINE_ADMIN_TOKEN;
+            send(socket, {
+              t: 'admin_result',
+              ok,
+              message: ok
+                ? `accepted: ${msg.command} (engine commands land here)`
+                : 'denied: invalid or unset ENGINE_ADMIN_TOKEN',
+            });
+            break;
+          }
         }
-        break;
-      }
-      case 'admin': {
-        // Privileged "in-game engine" surface — the foundation of the live-editing
-        // feature. Gated by a server-side token; unauthenticated callers get nothing.
-        const ok = ENGINE_ADMIN_TOKEN !== '' && msg.token === ENGINE_ADMIN_TOKEN;
-        send(socket, {
-          t: 'admin_result',
-          ok,
-          message: ok
-            ? `accepted: ${msg.command} (engine commands land here)`
-            : 'denied: invalid or unset ENGINE_ADMIN_TOKEN',
-        });
-        break;
-      }
-    }
+      },
+      (label) => guardStats.record(label),
+    );
   });
 
   socket.on('close', () => {
@@ -643,104 +687,122 @@ function broadcastToInstance(instanceId: string, msg: ServerMessage): void {
 const dt = 1 / TICK_RATE;
 let tick = 0;
 setInterval(() => {
-  const transfers = manager.tick(dt);
-  tick++;
+  // Guard the whole tick: a throw from one corrupt entity/instance must not kill the interval and
+  // freeze the world for everyone. On throw we skip this tick and carry on next frame.
+  runGuarded(
+    'tick',
+    () => {
+      const transfers = manager.tick(dt);
+      tick++;
 
-  // Area corruption: fade it once on the shared pool, and reset it every morning (06:00 local).
-  manager.corruption.decay(dt);
-  if (
-    manager.corruption.rolloverIfNewDay(morningDayIndex(Date.now(), new Date().getTimezoneOffset()))
-  ) {
-    for (const instance of manager.list()) {
-      broadcastToInstance(instance.id, {
-        t: 'chat',
-        from: 'System',
-        text: 'Dawn breaks. The corruption of yesterday fades from the land.',
-      });
-    }
-  }
-
-  // Apply portal crossings: update routing and tell the player their area changed.
-  for (const ev of transfers) {
-    const p = players.get(ev.entityId);
-    if (!p) continue;
-    p.instanceId = ev.toInstanceId;
-    send(p.socket, { t: 'area_changed', areaId: ev.toAreaId, instanceId: ev.toInstanceId });
-    // Presence follows the player across areas; refresh their party + friends' rosters.
-    social.updatePresence(
-      p.token,
-      ev.toAreaId,
-      manager.get(ev.toInstanceId)?.world.playerStats(ev.entityId)?.level ?? 1,
-    );
-    const name = nameOf(ev.entityId);
-    if (name) notifyFriendWatchers(name);
-    const party = parties.partyOf(ev.entityId);
-    if (party) for (const m of party.memberIds) sendPartyState(m);
-  }
-
-  // Each player only sees their own instance (instancing), and within it only the entities
-  // near them (interest management) — built once per instance via a spatial grid. Each instance's
-  // World gets the host party resolver so a kill shares XP with co-members present here.
-  for (const instance of manager.list()) {
-    const world = instance.world;
-    if (!resolverInstances.has(instance.id)) {
-      world.setPartyResolver((id) =>
-        parties.coMembers(id).filter((m) => players.get(m)?.instanceId === instance.id),
-      );
-      resolverInstances.add(instance.id);
-    }
-    const all = world.snapshot();
-    const fx = world.drainEvents();
-    const grid = new SpatialGrid<EntityState>(256);
-    for (const e of all) grid.insert(e);
-
-    for (const id of manager.playerIdsIn(instance.id)) {
-      const socket = players.get(id)?.socket;
-      if (!socket || socket.readyState !== socket.OPEN) continue;
-      const me = all.find((e) => e.id === id);
-      const entities = me ? grid.queryRect(me.x, me.y, AOI_HALF_W, AOI_HALF_H) : all;
-      socket.send(encode({ t: 'snapshot', tick, entities, fx }));
-      // Personal stats (hp/mana/xp/gold/dead) are kept off the shared snapshot.
-      const stats = world.playerStats(id);
-      if (stats) send(socket, { t: 'you', ...stats });
-    }
-
-    // Deliver per-player system notices (quest completions, level-ups) as System chat.
-    for (const notice of world.drainNotices()) {
-      const socket = players.get(notice.playerId)?.socket;
-      if (socket && socket.readyState === socket.OPEN) {
-        send(socket, { t: 'chat', from: 'System', text: notice.text });
+      // Area corruption: fade it once on the shared pool, and reset it every morning (06:00 local).
+      manager.corruption.decay(dt);
+      if (
+        manager.corruption.rolloverIfNewDay(
+          morningDayIndex(Date.now(), new Date().getTimezoneOffset()),
+        )
+      ) {
+        for (const instance of manager.list()) {
+          broadcastToInstance(instance.id, {
+            t: 'chat',
+            from: 'System',
+            text: 'Dawn breaks. The corruption of yesterday fades from the land.',
+          });
+        }
       }
-    }
 
-    // Deliver shop windows to players who just interacted with a vendor.
-    for (const offer of world.drainShopOffers()) {
-      const socket = players.get(offer.playerId)?.socket;
-      if (socket && socket.readyState === socket.OPEN) {
-        send(socket, { t: 'shop', vendor: offer.vendor, stock: offer.stock });
+      // Apply portal crossings: update routing and tell the player their area changed.
+      for (const ev of transfers) {
+        const p = players.get(ev.entityId);
+        if (!p) continue;
+        p.instanceId = ev.toInstanceId;
+        send(p.socket, { t: 'area_changed', areaId: ev.toAreaId, instanceId: ev.toInstanceId });
+        // Presence follows the player across areas; refresh their party + friends' rosters.
+        social.updatePresence(
+          p.token,
+          ev.toAreaId,
+          manager.get(ev.toInstanceId)?.world.playerStats(ev.entityId)?.level ?? 1,
+        );
+        const name = nameOf(ev.entityId);
+        if (name) notifyFriendWatchers(name);
+        const party = parties.partyOf(ev.entityId);
+        if (party) for (const m of party.memberIds) sendPartyState(m);
       }
-    }
 
-    // Deliver gambling windows to players who just interacted with a gambler.
-    for (const offer of world.drainGambleOffers()) {
-      const socket = players.get(offer.playerId)?.socket;
-      if (socket && socket.readyState === socket.OPEN) {
-        send(socket, { t: 'gamble_open', cost: offer.cost });
-      }
-    }
+      // Each player only sees their own instance (instancing), and within it only the entities
+      // near them (interest management) — built once per instance via a spatial grid. Each instance's
+      // World gets the host party resolver so a kill shares XP with co-members present here.
+      for (const instance of manager.list()) {
+        const world = instance.world;
+        if (!resolverInstances.has(instance.id)) {
+          world.setPartyResolver((id) =>
+            parties.coMembers(id).filter((m) => players.get(m)?.instanceId === instance.id),
+          );
+          resolverInstances.add(instance.id);
+        }
+        const all = world.snapshot();
+        const fx = world.drainEvents();
+        const grid = new SpatialGrid<EntityState>(256);
+        for (const e of all) grid.insert(e);
 
-    // Deliver Artificer windows to players who just interacted with an artificer.
-    for (const offer of world.drainArtificerOffers()) {
-      const socket = players.get(offer.playerId)?.socket;
-      if (socket && socket.readyState === socket.OPEN) {
-        send(socket, {
-          t: 'artificer_open',
-          rerollCost: ARTIFICER_REROLL_GOLD,
-          unsocketCost: ARTIFICER_UNSOCKET_GOLD,
-        });
+        for (const id of manager.playerIdsIn(instance.id)) {
+          const socket = players.get(id)?.socket;
+          if (!socket || socket.readyState !== socket.OPEN) continue;
+          const me = all.find((e) => e.id === id);
+          const entities = me ? grid.queryRect(me.x, me.y, AOI_HALF_W, AOI_HALF_H) : all;
+          socket.send(encode({ t: 'snapshot', tick, entities, fx }));
+          // Personal stats (hp/mana/xp/gold/dead) are kept off the shared snapshot.
+          const stats = world.playerStats(id);
+          if (stats) send(socket, { t: 'you', ...stats });
+        }
+
+        // Deliver per-player system notices (quest completions, level-ups) as System chat.
+        for (const notice of world.drainNotices()) {
+          const socket = players.get(notice.playerId)?.socket;
+          if (socket && socket.readyState === socket.OPEN) {
+            send(socket, { t: 'chat', from: 'System', text: notice.text });
+          }
+        }
+
+        // Deliver shop windows to players who just interacted with a vendor.
+        for (const offer of world.drainShopOffers()) {
+          const socket = players.get(offer.playerId)?.socket;
+          if (socket && socket.readyState === socket.OPEN) {
+            send(socket, { t: 'shop', vendor: offer.vendor, stock: offer.stock });
+          }
+        }
+
+        // Deliver gambling windows to players who just interacted with a gambler.
+        for (const offer of world.drainGambleOffers()) {
+          const socket = players.get(offer.playerId)?.socket;
+          if (socket && socket.readyState === socket.OPEN) {
+            send(socket, { t: 'gamble_open', cost: offer.cost });
+          }
+        }
+
+        // Deliver Artificer windows to players who just interacted with an artificer.
+        for (const offer of world.drainArtificerOffers()) {
+          const socket = players.get(offer.playerId)?.socket;
+          if (socket && socket.readyState === socket.OPEN) {
+            send(socket, {
+              t: 'artificer_open',
+              rerollCost: ARTIFICER_REROLL_GOLD,
+              unsocketCost: ARTIFICER_UNSOCKET_GOLD,
+            });
+          }
+        }
+
+        // Deliver stash windows (on open + after each deposit/withdraw) to refresh the bank panel.
+        for (const offer of world.drainStashOffers()) {
+          const socket = players.get(offer.playerId)?.socket;
+          if (socket && socket.readyState === socket.OPEN) {
+            send(socket, { t: 'stash', items: offer.items, cap: offer.cap });
+          }
+        }
       }
-    }
-  }
+    },
+    (label) => guardStats.record(label),
+  );
 }, 1000 / TICK_RATE);
 
 // Periodic autosave: persist every connected character so progress survives a server crash, not

@@ -116,3 +116,55 @@ describe('Artificer enchant + unsocket', () => {
     expect(after.gold).toBe(1000 - 120); // ARTIFICER_UNSOCKET_GOLD
   });
 });
+
+describe('banker stash', () => {
+  const sword: ItemInstance = {
+    uid: 7001,
+    baseId: 'iron_sword',
+    rarity: 'rare',
+    power: 18,
+    hp: 0,
+    affixes: [],
+    sockets: [],
+  };
+
+  /** Read a player's current stash contents via the host drain path. */
+  const stashOf = (w: World, playerId: number): ItemInstance[] =>
+    w.drainStashOffers().find((o) => o.playerId === playerId)?.items ?? [];
+
+  it('deposit moves a bag item into the stash next to the banker', () => {
+    const w = new World();
+    w.populateNpcs('town'); // Vault Keeper (banker) stands at (1020, 560)
+    const save: PlayerSave = { ...BASE_SAVE, loot: [], gear: [sword], equipment: {} };
+    w.importPlayer(1, save, 1020, 560);
+
+    w.depositToStash(1, 7001);
+    expect(w.playerStats(1)!.gear.find((g) => g.uid === 7001)).toBeUndefined();
+    expect(stashOf(w, 1).map((i) => i.uid)).toContain(7001);
+  });
+
+  it('withdraw moves a stashed item back into the bag', () => {
+    const w = new World();
+    w.populateNpcs('town');
+    const save: PlayerSave = { ...BASE_SAVE, loot: [], gear: [sword], equipment: {} };
+    w.importPlayer(2, save, 1020, 560);
+
+    w.depositToStash(2, 7001); // bag -> stash
+    w.drainStashOffers(); // clear the pending window so the next read is fresh
+    w.withdrawFromStash(2, 7001); // stash -> bag
+
+    expect(w.playerStats(2)!.gear.find((g) => g.uid === 7001)).toBeTruthy();
+    expect(stashOf(w, 2).map((i) => i.uid)).not.toContain(7001);
+  });
+
+  it('does nothing away from the banker (proximity is server-checked)', () => {
+    const w = new World();
+    w.populateNpcs('town');
+    const save: PlayerSave = { ...BASE_SAVE, loot: [], gear: [sword], equipment: {} };
+    w.importPlayer(3, save, 50, 50); // nowhere near the Vault Keeper
+
+    w.depositToStash(3, 7001);
+    expect(w.playerStats(3)!.gear.find((g) => g.uid === 7001)).toBeTruthy();
+    expect(stashOf(w, 3)).toHaveLength(0);
+  });
+});

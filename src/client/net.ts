@@ -110,6 +110,8 @@ export class Net {
   gamble: { cost: number } | null = null;
   /** Open Artificer window (service costs), or null when no artificer panel is open. */
   artificer: { rerollCost: number; unsocketCost: number } | null = null;
+  /** Open banker stash (stored items + capacity), or null when no stash panel is open. */
+  stash: { items: ItemInstance[]; cap: number } | null = null;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
   authRev = 0;
   /** Bumped whenever a content packet arrives — drives a live re-skin (theme edits, hot reload). */
@@ -238,6 +240,14 @@ export class Net {
     this.send({ t: 'combine_gems' });
   }
 
+  sendStashDeposit(uid: number): void {
+    this.send({ t: 'stash_deposit', uid });
+  }
+
+  sendStashWithdraw(uid: number): void {
+    this.send({ t: 'stash_withdraw', uid });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
@@ -307,6 +317,13 @@ export class Net {
           this.shop = { vendor: String(msg.vendor ?? 'Vendor'), stock: msg.stock.slice(0, 60) };
         }
         break;
+      case 'stash':
+        // Defensive: a malformed/hostile 'stash' message can't crash the panel.
+        this.stash = {
+          items: Array.isArray(msg.items) ? msg.items.slice(0, 200) : [],
+          cap: typeof msg.cap === 'number' ? msg.cap : 0,
+        };
+        break;
       case 'party':
         this.party = Array.isArray(msg.members)
           ? { members: msg.members, ...(msg.inviteFrom ? { inviteFrom: msg.inviteFrom } : {}) }
@@ -332,6 +349,7 @@ export class Net {
         this.shop = null; // close any open shop when we leave the area
         this.gamble = null;
         this.artificer = null;
+        this.stash = null;
         break;
       case 'chat':
         this.chat.push(

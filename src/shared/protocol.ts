@@ -184,6 +184,10 @@ export type ClientMessage =
   | { t: 'unsocket_gem'; slot: string; index: number }
   /** Artificer: fuse 3 held gems of one kind into one of the next tier. */
   | { t: 'combine_gems' }
+  /** Banker: move a bag gear instance into the stash (storage). */
+  | { t: 'stash_deposit'; uid: number }
+  /** Banker: move a stashed gear instance back into the bag. */
+  | { t: 'stash_withdraw'; uid: number }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
@@ -247,6 +251,8 @@ export type ServerMessage =
     }
   /** A nearby vendor's shop contents (sent when the player interacts with a vendor NPC). */
   | { t: 'shop'; vendor: string; stock: { itemId: string; price: number }[] }
+  /** The player's stash (bank) contents — sent on opening a banker and after each deposit/withdraw. */
+  | { t: 'stash'; items: ItemInstance[]; cap: number }
   /**
    * The receiving player's full party state. `members` is empty when not in a party;
    * `inviteFrom` is set when an unanswered invite is pending (so the client can prompt).

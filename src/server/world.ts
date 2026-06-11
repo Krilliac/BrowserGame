@@ -98,6 +98,8 @@ const INTERACT_RANGE = 70;
 // The unequipped-gear bag holds up to this many pieces; a new piece beyond the cap evicts the oldest
 // (sell or equip to keep the good stuff). The HUD only shows the newest few — see the client.
 const MAX_BAG_GEAR = 30;
+// Bank stash slots — far larger than the bag, so the overflow has somewhere safe to go.
+const STASH_CAP = 60;
 // Artificer service costs (flat, predictable): reroll an item's affixes for gold + a rune shard;
 // pop a socketed gem back to the bag for gold.
 export const ARTIFICER_REROLL_GOLD = 250;
@@ -167,6 +169,8 @@ interface Player {
   loot: Map<string, number>;
   /** Unequipped gear instances in the bag (rolled rarity + stats). */
   gear: ItemInstance[];
+  /** Stored gear in the bank stash (deposited at a banker; persisted; far larger than the bag). */
+  stash: ItemInstance[];
   equipment: Equipment;
   power: number;
   /** Crit chance in [0,1]: base plus the sum of equipped +crit affixes. */
@@ -212,6 +216,8 @@ export interface PlayerSave {
   gold: number;
   loot: [string, number][];
   gear: ItemInstance[];
+  /** Banked stash gear (absent on pre-stash saves — defaults to empty). */
+  stash?: ItemInstance[];
   /** Equipped gear by doll slot; partial-friendly so older saves migrate cleanly. */
   equipment: Record<string, ItemInstance | null>;
   god: boolean;
@@ -293,7 +299,7 @@ interface GroundItem {
   instance?: ItemInstance;
 }
 
-type NpcKind = 'vendor' | 'questgiver' | 'healer' | 'gambler' | 'artificer';
+type NpcKind = 'vendor' | 'questgiver' | 'healer' | 'gambler' | 'artificer' | 'banker';
 
 interface Npc {
   id: number;
@@ -332,6 +338,8 @@ export class World {
   private gambleOffers: { playerId: number; cost: number }[] = [];
   /** Pending Artificer windows to deliver (player just interacted with an artificer NPC). */
   private artificerOffers: { playerId: number }[] = [];
+  /** Pending stash windows to deliver: the bank contents for a player who opened/changed it. */
+  private stashOffers: { playerId: number; items: ItemInstance[] }[] = [];
   /** Living-loot meta: sim time (ms) each monster type was last killed, for the hunting bounty. */
   private readonly lastKillAt = new Map<string, number>();
   // Server-authoritative weather modifiers (so weather affects gameplay, not just visuals).
@@ -515,7 +523,7 @@ export class World {
 
   /** Place static NPCs for the area (from the content DB). Called once after construction. */
   populateNpcs(areaId: string): void {
-    const KINDS: NpcKind[] = ['vendor', 'questgiver', 'healer', 'gambler', 'artificer'];
+    const KINDS: NpcKind[] = ['vendor', 'questgiver', 'healer', 'gambler', 'artificer', 'banker'];
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
       const kind = (KINDS as string[]).includes(npc.kind) ? (npc.kind as NpcKind) : 'vendor';
@@ -542,6 +550,8 @@ export class World {
       this.gambleOffers.push({ playerId: player.id, cost: gambleCost(player.level) });
     } else if (npc.kind === 'artificer') {
       this.artificerOffers.push({ playerId: player.id });
+    } else if (npc.kind === 'banker') {
+      this.pushStash(player); // open the stash window with the current contents
     } else {
       this.talkToQuestGiver(player);
     }
@@ -614,6 +624,50 @@ export class World {
     const drained = this.artificerOffers;
     this.artificerOffers = [];
     return drained;
+  }
+
+  /** Queue the player's current stash contents to be sent as a `stash` packet. */
+  private pushStash(player: Player): void {
+    this.stashOffers.push({ playerId: player.id, items: player.stash });
+  }
+
+  /** Drain pending stash windows for the host to deliver as `stash` packets (with the cap). */
+  drainStashOffers(): { playerId: number; items: ItemInstance[]; cap: number }[] {
+    const drained = this.stashOffers.map((o) => ({ ...o, cap: STASH_CAP }));
+    this.stashOffers = [];
+    return drained;
+  }
+
+  /** Banker: deposit a bag gear instance into the stash. Requires banker proximity + stash room. */
+  depositToStash(id: number, uid: number): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    if (this.nearbyNpc(player)?.kind !== 'banker') return;
+    if (player.stash.length >= STASH_CAP) {
+      this.notify(player.id, 'Your stash is full.');
+      return;
+    }
+    const idx = player.gear.findIndex((g) => g.uid === uid);
+    if (idx < 0) return;
+    const [inst] = player.gear.splice(idx, 1);
+    if (inst) player.stash.push(inst);
+    this.pushStash(player); // refresh the open panel
+  }
+
+  /** Banker: withdraw a stashed gear instance back to the bag. Requires banker proximity + bag room. */
+  withdrawFromStash(id: number, uid: number): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    if (this.nearbyNpc(player)?.kind !== 'banker') return;
+    if (player.gear.length >= MAX_BAG_GEAR) {
+      this.notify(player.id, 'Your bag is full.');
+      return;
+    }
+    const idx = player.stash.findIndex((g) => g.uid === uid);
+    if (idx < 0) return;
+    const [inst] = player.stash.splice(idx, 1);
+    if (inst) player.gear.push(inst);
+    this.pushStash(player);
   }
 
   /**
@@ -1083,6 +1137,7 @@ export class World {
       gold: 0,
       loot: new Map(),
       gear: [],
+      stash: [],
       equipment: emptyEquipment(),
       power: 0,
       critChance: BASE_CRIT_CHANCE,
@@ -1122,6 +1177,7 @@ export class World {
       gold: p.gold,
       loot: [...p.loot],
       gear: [...p.gear],
+      stash: [...p.stash],
       equipment: { ...p.equipment },
       god: p.god,
       quests: [...p.quests],
@@ -1141,6 +1197,7 @@ export class World {
     p.gold = save.gold;
     p.loot = new Map(save.loot);
     p.gear = [...save.gear];
+    p.stash = [...(save.stash ?? [])]; // pre-stash saves start with an empty bank
     p.equipment = { ...emptyEquipment(), ...save.equipment };
     p.god = save.god;
     p.quests = new Map(save.quests);
