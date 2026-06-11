@@ -582,6 +582,7 @@ function worldClick(screenX: number, screenY: number): void {
   const mob = pickMob(w.x, w.y);
   if (mob) {
     targetId = mob.id; // select + chase (moveSample steers toward it, auto-attack engages)
+    moveTarget = null; // drop any pending ground move so we don't walk off when the mob dies
   } else {
     targetId = null;
     moveTarget = { x: w.x, y: w.y };
