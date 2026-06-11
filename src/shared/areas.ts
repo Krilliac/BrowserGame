@@ -95,6 +95,12 @@ export const AREAS: Record<string, AreaDef> = {
         toSpawn: { x: 1100, y: 160 },
         label: 'Rotfen Marsh ↓',
       },
+      {
+        rect: { x: 1080, y: 0, w: 300, h: 50 },
+        toArea: 'forgotten_catacombs',
+        toSpawn: { x: 750, y: 220 },
+        label: 'The Forgotten Catacombs ⌖',
+      },
     ],
   },
   crypt: {
@@ -134,6 +140,12 @@ export const AREAS: Record<string, AreaDef> = {
         toSpawn: { x: 1180, y: 1860 },
         label: '↑ Back to Gloomwood',
       },
+      {
+        rect: { x: 1000, y: 1750, w: 300, h: 50 },
+        toArea: 'writhing_hive',
+        toSpawn: { x: 750, y: 220 },
+        label: 'The Writhing Hive ⌖',
+      },
     ],
   },
   // A volcanic underground beyond the crypt; continues the spine, exits to Frostpeak.
@@ -157,6 +169,12 @@ export const AREAS: Record<string, AreaDef> = {
         toSpawn: { x: 1000, y: 180 },
         label: 'Frostpeak Pass ↓',
       },
+      {
+        rect: { x: 0, y: 760, w: 50, h: 240 },
+        toArea: 'infernal_forge',
+        toSpawn: { x: 750, y: 220 },
+        label: 'The Infernal Forge ⌖',
+      },
     ],
   },
   // Ice highlands — the current act-end, home of the Pale King.
@@ -173,6 +191,82 @@ export const AREAS: Record<string, AreaDef> = {
         toArea: 'mines',
         toSpawn: { x: 950, y: 1600 },
         label: '↑ Back to Emberdeep',
+      },
+      {
+        rect: { x: 960, y: 1950, w: 300, h: 50 },
+        toArea: 'frozen_vault',
+        toSpawn: { x: 750, y: 220 },
+        label: 'The Frozen Vault ⌖',
+      },
+    ],
+  },
+
+  // ===================================================================================
+  // Procedural dungeons — entered via the portals above. Each is repopulated on instance
+  // creation (random packs, elevated elite chance, a boss); the population pool + boss live
+  // in DUNGEONS below. A low playerCap keeps them near-private so re-entering re-rolls.
+  // ===================================================================================
+  forgotten_catacombs: {
+    id: 'forgotten_catacombs',
+    name: 'The Forgotten Catacombs',
+    width: 1500,
+    height: 1300,
+    spawn: { x: 750, y: 220 },
+    playerCap: 4,
+    portals: [
+      {
+        rect: { x: 600, y: 0, w: 300, h: 50 },
+        toArea: 'wilderness',
+        toSpawn: { x: 1230, y: 120 },
+        label: '↑ Leave the Catacombs',
+      },
+    ],
+  },
+  writhing_hive: {
+    id: 'writhing_hive',
+    name: 'The Writhing Hive',
+    width: 1500,
+    height: 1300,
+    spawn: { x: 750, y: 220 },
+    playerCap: 4,
+    portals: [
+      {
+        rect: { x: 600, y: 0, w: 300, h: 50 },
+        toArea: 'marsh',
+        toSpawn: { x: 1150, y: 1650 },
+        label: '↑ Flee the Hive',
+      },
+    ],
+  },
+  infernal_forge: {
+    id: 'infernal_forge',
+    name: 'The Infernal Forge',
+    width: 1500,
+    height: 1300,
+    spawn: { x: 750, y: 220 },
+    playerCap: 4,
+    portals: [
+      {
+        rect: { x: 600, y: 0, w: 300, h: 50 },
+        toArea: 'mines',
+        toSpawn: { x: 140, y: 880 },
+        label: '↑ Escape the Forge',
+      },
+    ],
+  },
+  frozen_vault: {
+    id: 'frozen_vault',
+    name: 'The Frozen Vault',
+    width: 1500,
+    height: 1300,
+    spawn: { x: 750, y: 220 },
+    playerCap: 4,
+    portals: [
+      {
+        rect: { x: 600, y: 0, w: 300, h: 50 },
+        toArea: 'frostpeak',
+        toSpawn: { x: 1110, y: 1850 },
+        label: '↑ Leave the Vault',
       },
     ],
   },
@@ -313,7 +407,185 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
     gradeContrast: 1.08,
     spriteTint: '#dcebff',
   },
+
+  // --- Dungeon themes: dark, indoor, oppressive ---
+  forgotten_catacombs: {
+    groundBase: '#241f29',
+    groundSpeck: '#332b3a',
+    prop: 'grave',
+    propDensity: 0.1,
+    atmoColor: '#160c1e',
+    atmoAlpha: 0.36,
+    outdoor: false,
+    particleColor: '#8c93a8',
+    particleCount: 44,
+    particleRise: 12,
+    particleFlicker: false,
+    weather: 'fog',
+    weatherIntensity: 0.4,
+    fogColor: '#0c0a12',
+    lightAmbient: 0.4,
+    gradeSaturation: 0.7,
+    gradeBrightness: 0.9,
+    gradeContrast: 1.1,
+    spriteTint: '#c2b8d6',
+  },
+  writhing_hive: {
+    groundBase: '#1d241a',
+    groundSpeck: '#2e3a22',
+    prop: 'mushroom',
+    propDensity: 0.14,
+    atmoColor: '#16240e',
+    atmoAlpha: 0.32,
+    outdoor: false,
+    particleColor: '#9fd86a',
+    particleCount: 56,
+    particleRise: -3,
+    particleFlicker: true,
+    weather: 'fog',
+    weatherIntensity: 0.45,
+    fogColor: '#0a120a',
+    lightAmbient: 0.48,
+    gradeSaturation: 0.95,
+    gradeBrightness: 0.88,
+    gradeContrast: 1.08,
+    spriteTint: '#cfe6b8',
+  },
+  infernal_forge: {
+    groundBase: '#1f1410',
+    groundSpeck: '#3a1d0e',
+    prop: 'crystal',
+    propDensity: 0.1,
+    atmoColor: '#2a0c06',
+    atmoAlpha: 0.32,
+    outdoor: false,
+    particleColor: '#ff8a3a',
+    particleCount: 64,
+    particleRise: -14,
+    particleFlicker: true,
+    weather: 'none',
+    weatherIntensity: 0.5,
+    fogColor: '#0e0604',
+    lightAmbient: 0.42,
+    gradeSaturation: 1.15,
+    gradeBrightness: 0.95,
+    gradeContrast: 1.12,
+    spriteTint: '#ffceb0',
+  },
+  frozen_vault: {
+    groundBase: '#1a2230',
+    groundSpeck: '#28344a',
+    prop: 'pillar',
+    propDensity: 0.1,
+    atmoColor: '#0c1828',
+    atmoAlpha: 0.3,
+    outdoor: false,
+    particleColor: '#cfe6ff',
+    particleCount: 60,
+    particleRise: 4,
+    particleFlicker: false,
+    weather: 'snow',
+    weatherIntensity: 0.6,
+    fogColor: '#080c14',
+    lightAmbient: 0.5,
+    gradeSaturation: 0.85,
+    gradeBrightness: 0.95,
+    gradeContrast: 1.1,
+    spriteTint: '#cfe0ff',
+  },
 };
+
+/**
+ * Procedural dungeon population. The presence of an entry here marks an area as a dungeon: the World
+ * rolls a random pack from `pool` (each spawn an equal pick) at random positions, with `eliteChance`
+ * per mob (higher than the overworld), then spawns `boss` once and, with `miniBossChance`, `miniBoss`.
+ */
+export interface DungeonDef {
+  /** Regular monster template ids; each spawn is an equal random pick. */
+  pool: string[];
+  /** The end-boss template id, spawned exactly once. */
+  boss: string;
+  /** An optional extra champion that may also appear (a tanky bonus encounter). */
+  miniBoss?: string;
+  miniBossChance: number;
+  /** Per-mob elite ("champion") chance inside the dungeon — dialled up from the overworld ~0.09. */
+  eliteChance: number;
+  /** Inclusive range for how many regular monsters fill the dungeon. */
+  minMobs: number;
+  maxMobs: number;
+}
+
+export const DUNGEONS: Record<string, DungeonDef> = {
+  forgotten_catacombs: {
+    pool: [
+      'rot_ghoul',
+      'carrion_swarm',
+      'thornling_archer',
+      'tusk_runner',
+      'skeleton',
+      'plague_hound',
+      'grave_golem',
+    ],
+    boss: 'maggath',
+    miniBoss: 'abyssal_warden',
+    miniBossChance: 0.4,
+    eliteChance: 0.2,
+    minMobs: 14,
+    maxMobs: 20,
+  },
+  writhing_hive: {
+    pool: [
+      'plague_hound',
+      'grave_golem',
+      'bile_ooze',
+      'shardspine_hurler',
+      'gravetide_revenant',
+      'marsh_leech',
+    ],
+    boss: 'vorraxia',
+    miniBoss: 'abyssal_warden',
+    miniBossChance: 0.45,
+    eliteChance: 0.24,
+    minMobs: 16,
+    maxMobs: 22,
+  },
+  infernal_forge: {
+    pool: [
+      'bile_ooze',
+      'shardspine_hurler',
+      'gravetide_revenant',
+      'cinder_imp',
+      'magma_crawler',
+      'wraithfrost_stalker',
+    ],
+    boss: 'balthuzar',
+    miniBoss: 'molten_colossus',
+    miniBossChance: 0.5,
+    eliteChance: 0.28,
+    minMobs: 16,
+    maxMobs: 24,
+  },
+  frozen_vault: {
+    pool: [
+      'wraithfrost_stalker',
+      'hollow_runeseer',
+      'obsidian_juggernaut',
+      'gravetide_revenant',
+      'rime_archer',
+    ],
+    boss: 'kaldris',
+    miniBoss: 'voidmaw_devourer',
+    miniBossChance: 0.5,
+    eliteChance: 0.32,
+    minMobs: 18,
+    maxMobs: 26,
+  },
+};
+
+/** True if the area id is a procedural dungeon (populated from DUNGEONS rather than fixed spawns). */
+export function isDungeon(areaId: string): boolean {
+  return areaId in DUNGEONS;
+}
 
 export function areaOf(id: string): AreaDef | undefined {
   return AREAS[id];

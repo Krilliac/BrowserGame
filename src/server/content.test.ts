@@ -10,7 +10,18 @@ describe('content (SQLite-backed)', () => {
         .areas()
         .map((a) => a.id)
         .sort(),
-    ).toEqual(['crypt', 'frostpeak', 'marsh', 'mines', 'town', 'wilderness']);
+    ).toEqual([
+      'crypt',
+      'forgotten_catacombs',
+      'frostpeak',
+      'frozen_vault',
+      'infernal_forge',
+      'marsh',
+      'mines',
+      'town',
+      'wilderness',
+      'writhing_hive',
+    ]);
     // The original nine spells lead the order (declaration order); the expanded pool appends after.
     expect(c.abilityOrder().slice(0, 9)).toEqual([
       'slash',

@@ -49,6 +49,7 @@ import { gambleCost, isGambleSlot, rollGamble } from '../shared/gamble.js';
 import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-corruption.js';
 import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../shared/equipment.js';
 import { stepMob, type MobTemplate, type MobView, type PlayerView } from './mobs.js';
+import { DUNGEONS, type DungeonDef } from '../shared/areas.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { getContent, type QuestDef } from './content.js';
@@ -352,17 +353,50 @@ export class World {
 
   /** Populate the area's monsters. Called once by the instance manager after construction. */
   populateMobs(areaId: string): void {
+    // Dungeons are populated procedurally (random pack, elevated elites, a boss) — not from the
+    // fixed area_mobs roster. Each instance is a fresh roll, so re-entering re-rolls the dungeon.
+    const dungeon = DUNGEONS[areaId];
+    if (dungeon) {
+      this.populateDungeon(dungeon);
+      return;
+    }
     const content = getContent();
     for (const spawn of content.areaMobs(areaId)) {
       const template = content.mobTemplate(spawn.templateId);
       if (!template) continue;
       for (let i = 0; i < spawn.count; i++) {
-        this.createMob(
-          template,
-          80 + Math.random() * (this.width - 160),
-          80 + Math.random() * (this.height - 160),
-        );
+        this.createMob(template, this.randomMobX(), this.randomMobY());
       }
+    }
+  }
+
+  /** A random in-bounds spawn x/y, kept off the very edges so mobs aren't born in a wall. */
+  private randomMobX(): number {
+    return 80 + Math.random() * (this.width - 160);
+  }
+  private randomMobY(): number {
+    return 80 + Math.random() * (this.height - 160);
+  }
+
+  /**
+   * Roll a procedural dungeon: a random-sized pack drawn (with replacement) from the dungeon's pool
+   * at random positions and an elevated elite chance, plus the boss once and — sometimes — a bonus
+   * champion mini-boss. Mirrors the Diablo "every run is different" feel.
+   */
+  private populateDungeon(d: DungeonDef): void {
+    const content = getContent();
+    const count = d.minMobs + Math.floor(Math.random() * (d.maxMobs - d.minMobs + 1));
+    for (let i = 0; i < count; i++) {
+      const id = d.pool[Math.floor(Math.random() * d.pool.length)];
+      const template = id ? content.mobTemplate(id) : undefined;
+      if (template)
+        this.createMob(template, this.randomMobX(), this.randomMobY(), false, false, d.eliteChance);
+    }
+    const boss = content.mobTemplate(d.boss);
+    if (boss) this.createMob(boss, this.width / 2, this.height * 0.62);
+    if (d.miniBoss && Math.random() < d.miniBossChance) {
+      const mini = content.mobTemplate(d.miniBoss);
+      if (mini) this.createMob(mini, this.randomMobX(), this.randomMobY());
     }
   }
 
@@ -400,12 +434,14 @@ export class World {
     y: number,
     forceElite = false,
     invader = false,
+    eliteChance = ELITE_CHANCE,
   ): void {
     const id = this.allocId();
     // Elite ("champion") roll: a rare, beefed-up variant with a modifier prefix. Bosses (very high
-    // HP) never roll elite — they are already special. Invasions force the elite flag.
+    // HP) never roll elite — they are already special. Invasions force the elite flag. Dungeons pass
+    // an elevated eliteChance, so tougher champions show up far more often inside them.
     const isBoss = template.hp >= 200;
-    const elite = !isBoss && (forceElite || Math.random() < ELITE_CHANCE);
+    const elite = !isBoss && (forceElite || Math.random() < eliteChance);
     const mod = elite
       ? (ELITE_MODIFIERS[Math.floor(Math.random() * ELITE_MODIFIERS.length)] ?? null)
       : null;
@@ -1667,8 +1703,12 @@ export class World {
     const template = getContent().mobTemplate(mob.templateId)!;
     mob.dead = false;
     mob.hp = template.hp;
-    mob.x = mob.homeX;
-    mob.y = mob.homeY;
+    // Re-randomize the respawn position (and update its home) so the world doesn't feel static —
+    // cleared ground refills somewhere new rather than the exact same spots every time.
+    mob.x = this.randomMobX();
+    mob.y = this.randomMobY();
+    mob.homeX = mob.x;
+    mob.homeY = mob.y;
     mob.attackCd = 0;
   }
 

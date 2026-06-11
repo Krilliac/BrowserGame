@@ -14,8 +14,19 @@ describe('world graph integrity', () => {
   const areas = c.areas();
   const ids = new Set(areas.map((a) => a.id));
 
-  it('ships all six areas', () => {
-    expect([...ids].sort()).toEqual(['crypt', 'frostpeak', 'marsh', 'mines', 'town', 'wilderness']);
+  it('ships the six overworld areas plus the four dungeons', () => {
+    expect([...ids].sort()).toEqual([
+      'crypt',
+      'forgotten_catacombs',
+      'frostpeak',
+      'frozen_vault',
+      'infernal_forge',
+      'marsh',
+      'mines',
+      'town',
+      'wilderness',
+      'writhing_hive',
+    ]);
   });
 
   it('every portal targets a real area, and the new areas are reachable from town', () => {

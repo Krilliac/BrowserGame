@@ -289,6 +289,99 @@ export function seed(db: Database): void {
   }
   seedAccounts(db); // separate so existing content DBs still get the default account
   ensureSpellbookContent(db); // separate so pre-spellbook DBs gain the new rows without a wipe
+  ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
+}
+
+/**
+ * Upsert the dungeon-era content (new monster templates, the four dungeon areas + their themes, and
+ * the dungeon entrance/return portals) into an already-seeded DB. Idempotent: INSERT OR IGNORE keyed
+ * on the primary keys, and portals are guarded by (area_id, to_area) since that table has no natural
+ * key. Safe to run every boot (a fresh DB seeded these already, so this no-ops).
+ */
+function ensureWorldExpansion(db: Database): void {
+  const insMob = db.prepare(
+    `INSERT OR IGNORE INTO mob_templates
+       (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  for (const t of Object.values(MOB_TEMPLATES)) {
+    insMob.run(
+      t.id,
+      t.name,
+      t.hp,
+      t.level,
+      t.hue,
+      t.speed,
+      t.aggroRange,
+      t.attackRange,
+      t.damage,
+      t.attackCooldownMs,
+      t.behavior,
+      t.telegraphMs,
+      t.projectileSpeed ?? null,
+      t.kiteRange ?? null,
+      t.slamRadius ?? null,
+      t.dashSpeed ?? null,
+    );
+  }
+
+  const insArea = db.prepare(
+    'INSERT OR IGNORE INTO areas (id,name,width,height,spawn_x,spawn_y,player_cap) VALUES (?,?,?,?,?,?,?)',
+  );
+  const insTheme = db.prepare(
+    `INSERT OR IGNORE INTO area_theme
+       (area_id,ground_base,ground_speck,prop,prop_density,atmo_color,atmo_alpha,outdoor,
+        particle_color,particle_count,particle_rise,particle_flicker,weather,weather_intensity,
+        fog_color,light_ambient,grade_saturation,grade_brightness,grade_contrast,sprite_tint)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  const portalExists = db.prepare('SELECT 1 FROM portals WHERE area_id = ? AND to_area = ?');
+  const insPortal = db.prepare(
+    'INSERT INTO portals (area_id,rect_x,rect_y,rect_w,rect_h,to_area,to_spawn_x,to_spawn_y,label) VALUES (?,?,?,?,?,?,?,?,?)',
+  );
+  for (const a of Object.values(AREAS)) {
+    insArea.run(a.id, a.name, a.width, a.height, a.spawn.x, a.spawn.y, a.playerCap);
+    const t = AREA_THEMES[a.id] ?? DEFAULT_THEME;
+    insTheme.run(
+      a.id,
+      t.groundBase,
+      t.groundSpeck,
+      t.prop,
+      t.propDensity,
+      t.atmoColor,
+      t.atmoAlpha,
+      t.outdoor ? 1 : 0,
+      t.particleColor,
+      t.particleCount,
+      t.particleRise,
+      t.particleFlicker ? 1 : 0,
+      t.weather,
+      t.weatherIntensity,
+      t.fogColor,
+      t.lightAmbient,
+      t.gradeSaturation,
+      t.gradeBrightness,
+      t.gradeContrast,
+      t.spriteTint,
+    );
+    // Only insert a portal that isn't already present for this (area → destination) pair, so the new
+    // dungeon entrances appear on existing overworld areas without duplicating the original portals.
+    for (const p of a.portals) {
+      if (portalExists.get(a.id, p.toArea)) continue;
+      insPortal.run(
+        a.id,
+        p.rect.x,
+        p.rect.y,
+        p.rect.w,
+        p.rect.h,
+        p.toArea,
+        p.toSpawn.x,
+        p.toSpawn.y,
+        p.label,
+      );
+    }
+  }
 }
 
 /**

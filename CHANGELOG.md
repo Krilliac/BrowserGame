@@ -24,6 +24,18 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Procedural Diablo-style dungeons + tougher spawns.** Four instanced **dungeons** now hang off the
+  overworld via portals — **The Forgotten Catacombs** (off Gloomwood, L4–9), **The Writhing Hive**
+  (off Rotfen Marsh, L9–15), **The Infernal Forge** (off Emberdeep Mines, L15–20), and **The Frozen
+  Vault** (off Frostpeak, L19–24). Each is **repopulated from scratch on entry**: a random-sized pack
+  drawn from the dungeon's monster pool at random positions, an **elevated elite ("champion") chance**
+  (up to 0.32 vs the overworld 0.09), a **named boss** (Maggath, Vorraxia, Bal'thuzar, Kaldris), and
+  sometimes a bonus tanky **mini-boss**. A low player-cap keeps them near-private, so re-entering
+  re-rolls the whole dungeon. Adds **20 new monster templates** (a full dungeon bestiary across every
+  bracket + four bosses) and four dark dungeon themes. Overworld monsters now also **re-randomize
+  their position when they respawn**, so cleared ground refills somewhere new instead of the same
+  spots. All of it seeds idempotently into an existing DB (areas, themes, portals, monsters — no
+  wipe). The drop pool widening from the previous entry means dungeon kills surface the full loot set.
 - **Huge content drop — 34 new spells + 74 new gear bases.** The spellbook grows from 9 to **43
   abilities**: a full elemental line (ember/frost/spark bolts, frost & inferno **novas**, chain
   spark, glacier spike, thunder lance…), an occult & nature line (shadow bolt, poison spit, arcane
