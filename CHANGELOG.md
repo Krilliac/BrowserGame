@@ -29,7 +29,9 @@ versioning once it stabilizes.
   Ashen Warlocks, Obsidian Juggernauts and Hollow Runeseers, and ruled by a new act boss —
   **Xal'thirun, the Unmaker** (L26), with a bounty quest that rewards the Tome of the Thunder Lance.
   Three new monster templates join the bestiary; the zone, its theme, the entrance/return portals,
-  the monster roster, the boss gold drop, and the quest all seed idempotently into an existing DB.
+  the monster roster, the boss gold drop, and the quests all seed idempotently into an existing DB.
+  A quest-giver — **The Exiled Seer** — stands near the arrival point (matching every other zone),
+  offering a side bounty to thin the Void Revenants.
 - **Two new gear affixes — Armor & Vigor.** Gear can now roll **+% armor** (incoming damage reduced,
   stacking with the corrupted +fragile penalty, capped at 50%) and **+HP/sec Vigor** (passive regen
   on top of the base). They flow through the whole loot system — rolled by rarity, named in the

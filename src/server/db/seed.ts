@@ -429,6 +429,15 @@ function ensureWorldExpansion(db: Database): void {
   if (!bossGoldExists.get('xalthirun')) {
     bossGoldIns.run('xalthirun', 'always', 'gold', 1, 400, 900, 0, 0);
   }
+
+  // Quest-giver NPC for the new overworld zone (idempotent by area + name), matching the other zones.
+  const wastesNpcExists = db.prepare('SELECT 1 FROM npcs WHERE area_id = ? AND name = ?');
+  const wastesNpcIns = db.prepare(
+    'INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)',
+  );
+  if (!wastesNpcExists.get('sundered_wastes', 'The Exiled Seer')) {
+    wastesNpcIns.run('sundered_wastes', 'The Exiled Seer', 280, 1000, 285, 'questgiver');
+  }
 }
 
 /**
@@ -745,6 +754,7 @@ function seedNpcs(db: Database): void {
   ins.run('marsh', 'Bogged Pilgrim', 1100, 280, 95, 'questgiver');
   ins.run('mines', 'Stranded Miner', 900, 280, 18, 'questgiver');
   ins.run('frostpeak', 'Frostbound Warden', 1000, 300, 205, 'questgiver');
+  ins.run('sundered_wastes', 'The Exiled Seer', 280, 1000, 285, 'questgiver');
 }
 
 /** Quests, keyed by area. Kill-N for now (the implemented type); each new area's boss rewards a tome. */
@@ -884,6 +894,16 @@ const QUESTS: {
     rewardGold: 2000,
     rewardXp: 3000,
     rewardItem: 'tome_thunderlance',
+  },
+  {
+    id: 'wastes_revenants',
+    name: 'Thin the Revenants',
+    description: 'Cull 8 Void Revenants haunting the Sundered Wastes.',
+    targetMob: 'void_revenant',
+    targetCount: 8,
+    rewardGold: 900,
+    rewardXp: 1200,
+    rewardItem: 'tome_chainspark',
   },
 ];
 
