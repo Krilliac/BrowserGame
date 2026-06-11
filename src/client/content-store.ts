@@ -18,7 +18,8 @@ export class ClientContentStore {
   load(areas: AreaDef[], abilities: Ability[], items: ItemInfo[]): void {
     this.areasById = new Map(areas.map((a) => [a.id, a]));
     this.abilitiesById = new Map(abilities.map((a) => [a.id, a]));
-    this.order = abilities.map((a) => a.id);
+    // Ability.id is a plain string on the wire; the server only sends real ability ids.
+    this.order = abilities.map((a) => a.id) as AbilityId[];
     this.itemsById = new Map(items.map((i) => [i.id, i]));
     this.loaded = true;
   }

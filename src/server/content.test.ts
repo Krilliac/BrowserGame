@@ -11,7 +11,8 @@ describe('content (SQLite-backed)', () => {
         .map((a) => a.id)
         .sort(),
     ).toEqual(['crypt', 'frostpeak', 'marsh', 'mines', 'town', 'wilderness']);
-    expect(c.abilityOrder()).toEqual([
+    // The original nine spells lead the order (declaration order); the expanded pool appends after.
+    expect(c.abilityOrder().slice(0, 9)).toEqual([
       'slash',
       'fireball',
       'arrow',
@@ -22,6 +23,9 @@ describe('content (SQLite-backed)', () => {
       'venom',
       'meteor',
     ]);
+    expect(c.abilityOrder().length).toBeGreaterThan(30);
+    expect(c.ability('frostnova')?.kind).toBe('melee');
+    expect(c.item('tome_shadow_bolt')?.teaches).toBe('shadow_bolt');
     expect(c.area('town')?.name).toBe('Aldermere');
     expect(c.area('town')?.portals.length).toBeGreaterThan(0);
     expect(c.mobTemplate('wolf')?.hp).toBe(45);

@@ -37,6 +37,193 @@ const SPELLBOOKS: Record<string, { name: string; color: string; teaches: string;
   tome_cleave: { name: 'Tome of the Reaver', color: '#e0a060', teaches: 'cleave', sell: 160 },
   tome_venom: { name: 'Tome of Venom', color: '#9fd86a', teaches: 'venom', sell: 200 },
   tome_meteor: { name: 'Tome of Cataclysm', color: '#ff5a2a', teaches: 'meteor', sell: 360 },
+
+  // --- Expanded spellbook tomes (one per new ability). dropSpellbook() picks uniformly from all
+  //     kind:'spellbook' items, so registering these makes every book drop roll from the full pool. ---
+  tome_emberbolt: { name: 'Tome of Embers', color: '#ff9a4d', teaches: 'emberbolt', sell: 90 },
+  tome_frostshard: {
+    name: 'Tome of Frost Shards',
+    color: '#aee7ff',
+    teaches: 'frostshard',
+    sell: 95,
+  },
+  tome_sparkjolt: { name: 'Tome of Sparks', color: '#cdb4ff', teaches: 'sparkjolt', sell: 85 },
+  tome_frostlance: {
+    name: 'Tome of the Frost Lance',
+    color: '#7fd4ff',
+    teaches: 'frostlance',
+    sell: 150,
+  },
+  tome_flamewave: {
+    name: 'Tome of the Flame Wave',
+    color: '#ff6a2a',
+    teaches: 'flamewave',
+    sell: 170,
+  },
+  tome_frostnova: {
+    name: 'Tome of the Frost Nova',
+    color: '#bff0ff',
+    teaches: 'frostnova',
+    sell: 200,
+  },
+  tome_staticburst: {
+    name: 'Tome of the Static Burst',
+    color: '#c0a6ff',
+    teaches: 'staticburst',
+    sell: 190,
+  },
+  tome_chainspark: {
+    name: 'Tome of the Chain Spark',
+    color: '#b388ff',
+    teaches: 'chainspark',
+    sell: 230,
+  },
+  tome_cinderorb: {
+    name: 'Tome of the Cinder Orb',
+    color: '#ff7e3a',
+    teaches: 'cinderorb',
+    sell: 250,
+  },
+  tome_glacierspike: {
+    name: 'Tome of the Glacier Spike',
+    color: '#6fc6ff',
+    teaches: 'glacierspike',
+    sell: 320,
+  },
+  tome_thunderlance: {
+    name: 'Tome of the Thunder Lance',
+    color: '#9a7bff',
+    teaches: 'thunderlance',
+    sell: 330,
+  },
+  tome_infernonova: {
+    name: 'Tome of the Inferno Nova',
+    color: '#ff5320',
+    teaches: 'infernonova',
+    sell: 360,
+  },
+  tome_poison_spit: {
+    name: 'Tome of Poison Spit',
+    color: '#7ccf3a',
+    teaches: 'poison_spit',
+    sell: 130,
+  },
+  tome_shadow_bolt: {
+    name: 'Tome of the Shadow Bolt',
+    color: '#8a5bd6',
+    teaches: 'shadow_bolt',
+    sell: 160,
+  },
+  tome_draining_touch: {
+    name: 'Tome of Draining Touch',
+    color: '#a23bbf',
+    teaches: 'draining_touch',
+    sell: 150,
+  },
+  tome_entangling_vines: {
+    name: 'Tome of Entangling Vines',
+    color: '#4a9e52',
+    teaches: 'entangling_vines',
+    sell: 140,
+  },
+  tome_arcane_orb: {
+    name: 'Tome of the Arcane Orb',
+    color: '#3fa9f5',
+    teaches: 'arcane_orb',
+    sell: 200,
+  },
+  tome_radiant_smite: {
+    name: 'Tome of Radiant Smite',
+    color: '#ffd966',
+    teaches: 'radiant_smite',
+    sell: 185,
+  },
+  tome_curse_of_decay: {
+    name: 'Tome of the Curse of Decay',
+    color: '#6b8e2a',
+    teaches: 'curse_of_decay',
+    sell: 175,
+  },
+  tome_shadow_nova: {
+    name: 'Tome of the Shadow Nova',
+    color: '#5a3a8c',
+    teaches: 'shadow_nova',
+    sell: 195,
+  },
+  tome_consecration: {
+    name: 'Tome of Consecration',
+    color: '#ffe9a8',
+    teaches: 'consecration',
+    sell: 210,
+  },
+  tome_lesser_mend: {
+    name: 'Tome of Lesser Mend',
+    color: '#9be8a0',
+    teaches: 'lesser_mend',
+    sell: 120,
+  },
+  tome_greater_restoration: {
+    name: 'Tome of Greater Restoration',
+    color: '#e8f5b0',
+    teaches: 'greater_restoration',
+    sell: 230,
+  },
+  tome_natures_renewal: {
+    name: "Tome of Nature's Renewal",
+    color: '#6fd98f',
+    teaches: 'natures_renewal',
+    sell: 175,
+  },
+  tome_quick_jab: {
+    name: 'Drill of the Quick Jab',
+    color: '#e8e8ee',
+    teaches: 'quick_jab',
+    sell: 70,
+  },
+  tome_skewer: { name: 'Drill of the Skewer', color: '#cfd2d8', teaches: 'skewer', sell: 95 },
+  tome_broadsweep: {
+    name: 'Manual of the Broadsweep',
+    color: '#d4d8de',
+    teaches: 'broadsweep',
+    sell: 120,
+  },
+  tome_whirlwind: {
+    name: 'Manual of the Whirlwind',
+    color: '#d8d8e0',
+    teaches: 'whirlwind',
+    sell: 160,
+  },
+  tome_bladestorm: {
+    name: 'Codex of the Bladestorm',
+    color: '#c2c6cf',
+    teaches: 'bladestorm',
+    sell: 220,
+  },
+  tome_crushing_smash: {
+    name: 'Tome of the Crushing Smash',
+    color: '#b8bcc4',
+    teaches: 'crushing_smash',
+    sell: 180,
+  },
+  tome_skullbreaker: {
+    name: 'Tome of the Skullbreaker',
+    color: '#a8acb4',
+    teaches: 'skullbreaker',
+    sell: 240,
+  },
+  tome_rend: { name: 'Manual of the Rend', color: '#b22b2b', teaches: 'rend', sell: 150 },
+  tome_hamstring: {
+    name: 'Manual of the Hamstring',
+    color: '#9aa2b0',
+    teaches: 'hamstring',
+    sell: 130,
+  },
+  tome_throwing_axe: {
+    name: 'Manual of the Throwing Axe',
+    color: '#cdd1d7',
+    teaches: 'throwing_axe',
+    sell: 110,
+  },
 };
 
 /** The town Merchant's shelf: the deterministic acquisition path (drops are the exciting one). */
@@ -53,6 +240,17 @@ const MERCHANT_STOCK: { item: string; price: number }[] = [
   { item: 'tome_cleave', price: 400 },
   { item: 'tome_venom', price: 500 },
   { item: 'tome_meteor', price: 900 },
+  // A starter selection from the expanded pool; the rest are found as drops out in the world.
+  { item: 'tome_quick_jab', price: 150 },
+  { item: 'tome_emberbolt', price: 200 },
+  { item: 'tome_frostshard', price: 210 },
+  { item: 'tome_sparkjolt', price: 190 },
+  { item: 'tome_skewer', price: 210 },
+  { item: 'tome_throwing_axe', price: 250 },
+  { item: 'tome_lesser_mend', price: 280 },
+  { item: 'tome_hamstring', price: 300 },
+  { item: 'tome_poison_spit', price: 300 },
+  { item: 'tome_entangling_vines', price: 320 },
 ];
 
 /** Equipment a slain monster can drop, by tier, with the group trigger chance. */
@@ -104,6 +302,11 @@ function ensureSpellbookContent(db: Database): void {
   );
   for (const [id, b] of Object.entries(SPELLBOOKS)) {
     insItem.run(id, b.name, 'spellbook', null, null, null, b.color, b.sell, b.teaches);
+  }
+  // Equipment bases: seedItems() only runs on a fresh DB, so the expanded loot pool reaches an
+  // already-seeded DB here. INSERT OR IGNORE keeps it idempotent (existing rows untouched).
+  for (const e of Object.values(EQUIPMENT)) {
+    insItem.run(e.id, e.name, 'equip', e.slot, e.power ?? null, e.hp ?? null, e.color, 0, null);
   }
   // New abilities (and their tomes) reach an already-seeded DB here: insert each ability row only if
   // missing, so the content packet exposes new spells without a wipe.

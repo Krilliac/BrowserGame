@@ -1862,12 +1862,42 @@ function rollAbilityDamage(
   return half + rollDamage(baseDamage - half);
 }
 
-/** Map an ability's on-hit effect onto a monster: Frost/Venom slow, Fireball/Meteor burn. */
+/** Chilling/snaring spells that slow on hit: id → {duration ms, movement factor}. */
+const SLOW_ON_HIT: Partial<Record<AbilityId, { ms: number; factor: number }>> = {
+  frost: { ms: 1500, factor: 0.4 },
+  venom: { ms: 2200, factor: 0.3 },
+  frostshard: { ms: 1200, factor: 0.5 },
+  frostlance: { ms: 1600, factor: 0.45 },
+  frostnova: { ms: 2000, factor: 0.4 },
+  glacierspike: { ms: 2000, factor: 0.4 },
+  entangling_vines: { ms: 2200, factor: 0.35 },
+  curse_of_decay: { ms: 1800, factor: 0.4 },
+  hamstring: { ms: 1600, factor: 0.45 },
+};
+/** Fire / poison / bleed spells that burn (damage-over-time) on hit: id → {duration ms, dmg per tick}. */
+const BURN_ON_HIT: Partial<Record<AbilityId, { ms: number; dmg: number }>> = {
+  fireball: { ms: 2000, dmg: 8 },
+  meteor: { ms: 2600, dmg: 14 },
+  emberbolt: { ms: 2000, dmg: 5 },
+  flamewave: { ms: 2200, dmg: 7 },
+  cinderorb: { ms: 2400, dmg: 9 },
+  infernonova: { ms: 2600, dmg: 10 },
+  poison_spit: { ms: 2600, dmg: 6 },
+  shadow_bolt: { ms: 2000, dmg: 6 },
+  draining_touch: { ms: 2000, dmg: 6 },
+  shadow_nova: { ms: 2200, dmg: 7 },
+  rend: { ms: 2400, dmg: 5 },
+};
+
+/** Map an ability's on-hit effect onto a monster: chilling spells slow, fire/poison/bleed burn. */
 function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
-  if (abilityId === 'frost') mob.statuses.apply('slow', 1500, 0.4);
-  else if (abilityId === 'venom') mob.statuses.apply('slow', 2200, 0.3);
-  else if (abilityId === 'fireball') mob.statuses.apply('burn', 2000, 8);
-  else if (abilityId === 'meteor') mob.statuses.apply('burn', 2600, 14);
+  const slow = SLOW_ON_HIT[abilityId];
+  if (slow) {
+    mob.statuses.apply('slow', slow.ms, slow.factor);
+    return;
+  }
+  const burn = BURN_ON_HIT[abilityId];
+  if (burn) mob.statuses.apply('burn', burn.ms, burn.dmg);
 }
 
 function sanitizeName(name: string): string {
