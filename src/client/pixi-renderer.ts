@@ -22,6 +22,7 @@ import { Weather } from './weather.js';
 import { Lighting, type LightSource } from './lighting.js';
 import { PostFx } from './post-fx.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
+import { TOWN_AREA_ID, TOWN_PALETTE, TOWN_PLAZA, TOWN_PROPS, type TownProp } from './town-decor.js';
 import {
   newAnimView,
   resolveAnim,
@@ -280,6 +281,9 @@ export class PixiRenderer {
   private currentArea = '';
   private currentTheme: AreaTheme = DEFAULT_THEME;
   private portalCenters: { x: number; y: number }[] = []; // world-space, for portal glow lights
+  // World-space warm lights cast by town lamp posts (and the well). Built once per area, projected
+  // to screen each frame like portal lights so they bloom on the additive overlay at night.
+  private townLights: { x: number; y: number; radius: number }[] = [];
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
@@ -385,6 +389,7 @@ export class PixiRenderer {
     for (const child of this.propLayer.removeChildren()) child.destroy();
 
     this.portalCenters = [];
+    this.townLights = [];
     for (const portal of area.portals) {
       const cx = portal.rect.x + portal.rect.w / 2;
       const cy = portal.rect.y + portal.rect.h / 2;
@@ -418,6 +423,196 @@ export class PixiRenderer {
         }
       }
     }
+
+    if (areaId === TOWN_AREA_ID) this.buildTownDecor();
+  }
+
+  /**
+   * Build the town's hand-placed set-dressing into the (cached) prop layer: a cobblestone plaza
+   * patch beneath the spawn square, then each prop with the same 2.5D projection, y-sorting and
+   * soft shadow the actors use, so props occlude/sort with players. Lamp/well glow positions are
+   * recorded in townLights and projected to screen each frame on the additive light overlay.
+   * Built ONCE per area entry (in setArea) — never per frame.
+   */
+  private buildTownDecor(): void {
+    // The plaza paving: a warmer, lighter ground patch under the square. zIndex below props/actors
+    // (its back edge y) but above the portal pads, so it reads as the floor of the settlement.
+    const plaza = new Graphics();
+    plaza
+      .roundRect(TOWN_PLAZA.x, TOWN_PLAZA.y * PITCH, TOWN_PLAZA.w, TOWN_PLAZA.h * PITCH, 26)
+      .fill({ color: TOWN_PALETTE.cobbleBase });
+    // A scatter of cobble highlights + mortar flecks so the paving reads as stones, not a flat slab.
+    for (let i = 0; i < 120; i++) {
+      const cx = TOWN_PLAZA.x + hash2(i * 3 + 1, i * 7 + 2) * TOWN_PLAZA.w;
+      const cy = (TOWN_PLAZA.y + hash2(i * 5 + 3, i * 11 + 4) * TOWN_PLAZA.h) * PITCH;
+      const light = hash2(i * 13, i * 17) > 0.5;
+      plaza
+        .ellipse(cx, cy, 7, 4)
+        .fill({ color: light ? TOWN_PALETTE.cobbleSpeck : TOWN_PALETTE.cobbleEdge, alpha: 0.5 });
+    }
+    plaza.zIndex = TOWN_PLAZA.y - 50000; // under every prop/actor, over the portal pad
+    this.propLayer.addChild(plaza);
+
+    for (const prop of TOWN_PROPS) this.propLayer.addChild(this.makeTownProp(prop));
+  }
+
+  /** Build one town prop as a y-sorted, shadowed Container at its world position. */
+  private makeTownProp(prop: TownProp): Container {
+    const c = new Container();
+    // Fences span two points; everything else is a point prop placed at (x,y).
+    const ax = prop.kind === 'fence' ? (prop.x1 + prop.x2) / 2 : prop.x;
+    const ay = prop.kind === 'fence' ? (prop.y1 + prop.y2) / 2 : prop.y;
+    c.position.set(ax, ay * PITCH);
+    c.zIndex = ay;
+    switch (prop.kind) {
+      case 'well':
+        this.drawWell(c);
+        this.townLights.push({ x: prop.x, y: prop.y, radius: 90 });
+        break;
+      case 'lamp':
+        this.drawLamp(c);
+        this.townLights.push({ x: prop.x, y: prop.y - 36, radius: 120 });
+        break;
+      case 'stall':
+        this.drawStall(c, prop.color);
+        break;
+      case 'banner':
+        this.drawBanner(c, prop.color);
+        break;
+      case 'planter':
+        this.drawPlanter(c);
+        break;
+      case 'fence':
+        this.drawFence(c, prop.x1, prop.y1, prop.x2, prop.y2, ax, ay);
+        break;
+    }
+    return c;
+  }
+
+  /** A soft ground shadow at the prop's foot, matching the actors' directional baked-sun look. */
+  private propShadow(c: Container, radiusX: number, radiusY: number): void {
+    const s = new Sprite(this.softShadowTexture());
+    s.anchor.set(0.5, 0.5);
+    s.width = radiusX * 2;
+    s.height = radiusY * 2;
+    s.alpha = SHADOW_ALPHA;
+    s.position.set(radiusX * SHADOW_OFFSET_X, radiusY * SHADOW_OFFSET_Y);
+    s.skew.x = SHADOW_SKEW;
+    c.addChildAt(s, 0);
+  }
+
+  private drawWell(c: Container): void {
+    this.propShadow(c, 26, 13);
+    const g = new Graphics();
+    // Round stone rim seen at the tilted pitch (a flattened ellipse), with water inside.
+    g.ellipse(0, 0, 26, 26 * PITCH).fill({ color: TOWN_PALETTE.stoneDark });
+    g.ellipse(0, 0, 22, 22 * PITCH).fill({ color: TOWN_PALETTE.stone });
+    g.ellipse(0, -2, 16, 16 * PITCH).fill({ color: TOWN_PALETTE.water });
+    g.ellipse(0, -3, 16, 16 * PITCH).stroke({ width: 1.5, color: '#bfe0ee', alpha: 0.4 });
+    // Two posts + a peaked roof over the well (a classic wishing-well silhouette), lifted upward.
+    g.rect(-20, -44, 5, 44).fill({ color: TOWN_PALETTE.wood });
+    g.rect(15, -44, 5, 44).fill({ color: TOWN_PALETTE.wood });
+    g.poly([-26, -44, 26, -44, 14, -60, -14, -60]).fill({ color: TOWN_PALETTE.thatch });
+    g.poly([-26, -44, 26, -44, 14, -60, -14, -60]).stroke({
+      width: 1,
+      color: TOWN_PALETTE.woodDark,
+      alpha: 0.6,
+    });
+    c.addChild(g);
+  }
+
+  private drawLamp(c: Container): void {
+    this.propShadow(c, 8, 5);
+    const g = new Graphics();
+    g.rect(-2, -48, 4, 48).fill({ color: TOWN_PALETTE.woodDark }); // iron post
+    g.rect(-5, -2, 10, 3).fill({ color: TOWN_PALETTE.woodDark }); // base
+    // Lantern head: a warm glowing pane in an iron cage, lifted to the top of the post.
+    g.roundRect(-6, -60, 12, 14, 2).fill({ color: '#2a2620' });
+    g.roundRect(-4, -58, 8, 10, 1).fill({ color: '#ffd98a' });
+    g.circle(0, -53, 8).fill({ color: TOWN_PALETTE.lampGlow, alpha: 0.22 }); // local soft halo
+    c.addChild(g);
+  }
+
+  private drawStall(c: Container, color: string): void {
+    this.propShadow(c, 30, 12);
+    const g = new Graphics();
+    // Counter + corner posts.
+    g.rect(-30, -22, 60, 10).fill({ color: TOWN_PALETTE.woodDark });
+    g.rect(-30, -34, 4, 34).fill({ color: TOWN_PALETTE.wood });
+    g.rect(26, -34, 4, 34).fill({ color: TOWN_PALETTE.wood });
+    // Striped awning sloping toward the shopper.
+    g.poly([-34, -34, 34, -34, 30, -46, -30, -46]).fill({ color });
+    for (let i = -30; i < 30; i += 12) {
+      g.poly([i, -34, i + 6, -34, i + 5, -46, i - 1, -46]).fill({ color: '#f0e6d2', alpha: 0.5 });
+    }
+    // A few wares on the counter for life.
+    g.circle(-16, -24, 3).fill({ color: '#c64f3a' });
+    g.circle(-6, -24, 3).fill({ color: '#c89b2a' });
+    g.circle(6, -24, 3).fill({ color: '#5a8a4a' });
+    c.addChild(g);
+  }
+
+  private drawBanner(c: Container, color: string): void {
+    this.propShadow(c, 6, 4);
+    const g = new Graphics();
+    g.rect(-2, -64, 4, 64).fill({ color: TOWN_PALETTE.woodDark }); // pole
+    g.circle(0, -64, 3).fill({ color: '#d9c27a' }); // gold finial
+    // Hanging cloth with a notched (swallowtail) hem.
+    g.poly([2, -60, 22, -60, 22, -30, 16, -36, 12, -30, 8, -36, 2, -30]).fill({ color });
+    g.poly([2, -60, 22, -60, 22, -30, 16, -36, 12, -30, 8, -36, 2, -30]).stroke({
+      width: 1,
+      color: '#00000040',
+    });
+    g.poly([8, -56, 16, -56, 12, -48]).fill({ color: '#e7d9a0', alpha: 0.85 }); // emblem
+    c.addChild(g);
+  }
+
+  private drawPlanter(c: Container): void {
+    this.propShadow(c, 12, 6);
+    const g = new Graphics();
+    g.rect(-11, -12, 22, 12).fill({ color: TOWN_PALETTE.stoneDark });
+    g.rect(-11, -12, 22, 4).fill({ color: TOWN_PALETTE.stone });
+    g.circle(-5, -14, 6).fill({ color: TOWN_PALETTE.leaf });
+    g.circle(5, -14, 6).fill({ color: '#46663f' });
+    g.circle(0, -18, 6).fill({ color: '#4f7046' });
+    g.circle(-4, -17, 1.6).fill({ color: '#d98a9a' }); // a couple of blossoms
+    g.circle(4, -16, 1.6).fill({ color: '#e0c060' });
+    c.addChild(g);
+  }
+
+  /** A fence run: posts at each end with two rails between, drawn in the container's local space. */
+  private drawFence(
+    c: Container,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    ax: number,
+    ay: number,
+  ): void {
+    const g = new Graphics();
+    // Endpoints relative to the container origin (the run's midpoint), projected to the pitch.
+    const lx1 = x1 - ax;
+    const ly1 = (y1 - ay) * PITCH;
+    const lx2 = x2 - ax;
+    const ly2 = (y2 - ay) * PITCH;
+    // Two horizontal rails between the posts (drawn before posts so posts overlap them).
+    for (const railY of [-16, -28]) {
+      g.moveTo(lx1, ly1 + railY)
+        .lineTo(lx2, ly2 + railY)
+        .stroke({ width: 4, color: TOWN_PALETTE.wood });
+    }
+    // Posts along the run (including both ends) at a fixed spacing.
+    const len = Math.hypot(lx2 - lx1, ly2 - ly1);
+    const steps = Math.max(1, Math.round(len / 34));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const px = lx1 + (lx2 - lx1) * t;
+      const py = ly1 + (ly2 - ly1) * t;
+      g.rect(px - 2.5, py - 32, 5, 32).fill({ color: TOWN_PALETTE.woodDark });
+      g.rect(px - 3.5, py - 34, 7, 4).fill({ color: TOWN_PALETTE.wood });
+    }
+    c.addChild(g);
   }
 
   /** Configure the per-area color grade (saturation/brightness/contrast) as one filter pass. */
@@ -495,6 +690,16 @@ export class PixiRenderer {
         y: p.y * PITCH * z + originY,
         radius: PORTAL_LIGHT.radius,
         color: PORTAL_LIGHT.color,
+      });
+    }
+    // Town lamp posts + the well cast a warm glow, projected to screen like the portal lights so
+    // they bloom on the additive overlay (strongest after dark). Empty outside the town.
+    for (const t of this.townLights) {
+      lights.push({
+        x: t.x * z + originX,
+        y: t.y * PITCH * z + originY,
+        radius: t.radius,
+        color: TOWN_PALETTE.lampGlow,
       });
     }
     this.lighting.update(
