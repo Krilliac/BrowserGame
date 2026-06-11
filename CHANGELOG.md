@@ -8,6 +8,16 @@ versioning once it stabilizes.
 
 ### Fixed
 
+- **Movement rubber-banding from enemy slows / haste.** Player move speed was being scaled by the
+  HASTE buff and enemy SLOW debuff on the server, but the client-side predictor integrates raw
+  PLAYER_SPEED — so being slowed (now common, with spellcasting monsters) made the predicted
+  position race ahead of the server and snap back, badly. Player movement no longer applies those
+  multipliers (haste still speeds *attacks*; slow still affects monsters and still burns/weakens
+  you) — keeping prediction in sync. (Re-enabling move-slow/haste cleanly needs the predictor to
+  read the same multiplier; tracked as follow-up.)
+- **Ranged/spell auto-attack from range.** Clicking a monster now auto-attacks with your *selected*
+  attack at *its* range — a ranged or spell primary fires from a distance instead of walking you
+  into melee; the chase stops just inside that range. Basic Slash still closes to melee.
 - **The Artificer was non-functional.** Its NPC kind fell back to `vendor` when an area was
   populated (the runtime kind allowlist omitted `artificer`), so Coalhand opened a shop and every
   artificer action (reroll / unsocket / combine) silently failed its proximity check. The allowlist

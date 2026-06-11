@@ -98,12 +98,15 @@ setInterval(() => {
   const seq = predictor.ready ? predictor.step(sample, STEP_DT) : 0;
   net.sendInput(sample, seq);
 
-  // Basic auto-attack: when a mob is selected and within melee reach, swing automatically.
-  // (Spells are manual — fired by the 1-6 keys or by clicking a hotbar slot.)
+  // Auto-attack the selected target with your primary attack when it's in range. A melee primary
+  // (the default Slash) swings up close; a ranged/spell primary fires from its own, longer range —
+  // so picking a ranged spell makes you attack from a distance instead of walking into melee.
   const tgt = targetMob();
-  if (tgt && self && 'slash' in net.you.known) {
-    const reach = net.content.ability('slash')?.range ?? 78;
-    if (Math.hypot(tgt.x - self.x, tgt.y - self.y) <= reach) castAbility('slash');
+  if (tgt && self) {
+    const ability = net.content.ability(autoAttackAbility());
+    if (ability && Math.hypot(tgt.x - self.x, tgt.y - self.y) <= ability.range) {
+      castAbility(ability.id as AbilityId);
+    }
   }
 }, 1000 * STEP_DT);
 
@@ -545,6 +548,19 @@ function castAbility(abilityId: AbilityId, aimOverride?: { dx: number; dy: numbe
   if (ability.kind !== 'heal') lastCombatT = performance.now();
 }
 
+/**
+ * The ability used to auto-attack the selected target: your `selected` damaging spell if you know it
+ * (so a ranged/projectile pick is fired from range), otherwise the free basic Slash. Heals/buffs are
+ * never an auto-attack, so selecting one leaves Slash as the fallback.
+ */
+function autoAttackAbility(): AbilityId {
+  if (selected in net.you.known) {
+    const a = net.content.ability(selected);
+    if (a && a.kind !== 'heal') return selected;
+  }
+  return 'slash';
+}
+
 // Spells auto-aim at the selected target (no manual aiming): the chosen mob, else the nearest
 // mob, else straight ahead. Returns a direction vector from the player.
 function computeAim(): { dx: number; dy: number } {
@@ -627,7 +643,9 @@ function moveSample(): InputState {
   if (mob) {
     tx = mob.x;
     ty = mob.y;
-    stop = (net.content.ability('slash')?.range ?? 78) * 0.8; // stop just inside reach
+    // Stop just inside the primary attack's range: melee closes to the target, ranged/spell holds
+    // back and fires from a distance rather than walking into melee.
+    stop = (net.content.ability(autoAttackAbility())?.range ?? 78) * 0.8;
   } else if (moveTarget) {
     tx = moveTarget.x;
     ty = moveTarget.y;

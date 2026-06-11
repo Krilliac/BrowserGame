@@ -1263,13 +1263,12 @@ export class World {
 
       const { dx, dy } = moveVector(player.input);
       if (dx !== 0 || dy !== 0) {
-        // weather slows; +move affix and an active HASTE buff speed you up; an enemy SLOW debuff drags.
-        const speed =
-          PLAYER_SPEED *
-          this.moveScale *
-          player.moveMult *
-          player.buffs.moveFactor() *
-          player.debuffs.slowFactor();
+        // Player speed must match what the client PREDICTOR integrates (raw PLAYER_SPEED), or the two
+        // desync and the view rubber-bands. So move speed stays as just weather × +move affix here;
+        // HASTE (buff) and SLOW (enemy debuff) do NOT scale player movement (they would desync the
+        // predictor). Haste still speeds attacks via cooldownFactor; slow still affects monsters.
+        // (Re-enabling move-slow/haste needs the predictor to read the same multiplier — see net.)
+        const speed = PLAYER_SPEED * this.moveScale * player.moveMult;
         player.x = clamp(player.x + dx * speed * dt, 0, this.width);
         player.y = clamp(player.y + dy * speed * dt, 0, this.height);
         player.facing = Math.atan2(dy, dx);
