@@ -37,10 +37,18 @@ import {
  * sheets animated by `facing`; projectiles/items/impacts use sourced sprite strips — all with a
  * procedural fallback. Everything is y-sorted so nearer things overlap farther ones.
  */
-const PITCH = 0.64;
+// Vertical foreshorten of the world plane. Lower = a more oblique, raked ground (more "3D"/Diablo
+// III-like, less straight-down). The whole projection (sprites' feet, shadows, portals) scales by
+// this consistently, so the look tilts without misaligning anything.
+const PITCH = 0.6;
 // Camera dolly: the player sits a little BELOW screen-center so more of the world is visible ahead,
 // mimicking a tilted 3D camera (a D2 depth cue). The torch light follows to stay on the player.
 const CAM_DOLLY_Y = 0.58;
+// Follow camera: the view eases toward the player each frame (a trailing RS/Diablo camera) rather
+// than snapping rigidly. exp-based so it's frame-rate independent.
+const CAM_FOLLOW_RATE = 9;
+// A jump bigger than this (a portal / teleport) snaps the camera instead of sliding across the map.
+const CAM_SNAP_DIST = 600;
 // Faux-perspective: actors nearer the bottom of the view (closer to the camera) render slightly
 // bigger, farther ones slightly smaller — the depth scaling D2/D3 use. Kept subtle + clamped.
 const DEPTH_SCALE_K = 0.00035; // per world-unit of y relative to the camera
@@ -410,10 +418,22 @@ export class PixiRenderer {
     const shX = this.shakeMag > 0.05 ? (Math.random() * 2 - 1) * this.shakeMag : 0;
     const shY = this.shakeMag > 0.05 ? (Math.random() * 2 - 1) * this.shakeMag : 0;
 
-    const originX = sw / 2 - state.camX + shX;
-    const originY = sh * CAM_DOLLY_Y - state.camY * PITCH + shY;
-    this.camX = state.camX; // remembered for screen->world picking (click-to-move/target)
-    this.camY = state.camY; // remembered so updateActor can compute per-actor depth scale
+    // Smoothly trail the camera toward the player (a follow camera) instead of snapping rigidly; a
+    // large jump (portal/teleport, or the very first frame) snaps so we never slide across the map.
+    const dxc = state.camX - this.camX;
+    const dyc = state.camY - this.camY;
+    if (Math.hypot(dxc, dyc) > CAM_SNAP_DIST) {
+      this.camX = state.camX;
+      this.camY = state.camY;
+    } else {
+      const k = 1 - Math.exp(-dt * CAM_FOLLOW_RATE);
+      this.camX += dxc * k;
+      this.camY += dyc * k;
+    }
+    // this.camX/camY (the smoothed camera) drive both the draw origin and screen->world picking, so
+    // click-to-move stays aligned with what's on screen even as the camera eases.
+    const originX = sw / 2 - this.camX + shX;
+    const originY = sh * CAM_DOLLY_Y - this.camY * PITCH + shY;
     this.world.position.set(originX, originY);
     this.ground.width = sw;
     this.ground.height = sh;

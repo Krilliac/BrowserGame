@@ -22,6 +22,11 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **Renderer — trailing follow camera + a more oblique tilt (toward the Diablo III / RuneScape
+  look).** The camera now eases toward the player each frame instead of being bolted to it, so the
+  view *follows* like RuneScape/Diablo (large jumps through portals still snap). The world plane is
+  raked a little more (a lower foreshorten) so the ground reads as more 3D and less straight-down.
+  The smoothed camera drives both drawing and click-to-move picking, so targeting stays aligned.
 - **Controls — click-to-move + targeting + remappable hotbar (ARPG redesign).** Movement is now
   **click-to-move only** (WASD and the touch joystick are gone): left-click the ground to walk
   there, left-click a monster to **select + chase** it. A selected monster is **auto-attacked**
