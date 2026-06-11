@@ -155,8 +155,10 @@ interface Player {
   cooldownMult: number;
   /** Movement-speed multiplier (>1 = faster), from +move affixes; clamped. */
   moveMult: number;
-  /** Incoming-damage multiplier (>1) from corrupted +fragile debuffs. */
+  /** Incoming-damage multiplier from +fragile (raises it) and +armor (lowers it); floored. */
   damageTakenMult: number;
+  /** Bonus HP regenerated per second from +vigor affixes (added to base regen). */
+  vigor: number;
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
@@ -846,6 +848,8 @@ export class World {
     let lifesteal = 0; // percent points
     let swift = 0; // percent cooldown reduction
     let move = 0; // percent move bonus
+    let armor = 0; // percent incoming-damage reduction
+    let vigor = 0; // bonus HP regenerated per second
     for (const slot of EQUIP_SLOTS) {
       const inst = player.equipment[slot];
       if (!inst) continue;
@@ -859,6 +863,8 @@ export class World {
         else if (a.stat === 'lifesteal') lifesteal += a.value;
         else if (a.stat === 'swift') swift += a.value;
         else if (a.stat === 'move') move += a.value;
+        else if (a.stat === 'armor') armor += a.value;
+        else if (a.stat === 'vigor') vigor += a.value;
         else if (a.stat === 'frail')
           bonusHp -= a.value; // corrupted debuff: less max HP
         else if (a.stat === 'fragile') damageTaken += a.value / 100; // corrupted debuff: take more
@@ -876,7 +882,9 @@ export class World {
     player.lifesteal = Math.min(0.6, lifesteal / 100); // cap life steal at 60% of damage
     player.cooldownMult = Math.max(0.4, 1 - swift / 100); // cap attack speed at +60%
     player.moveMult = Math.min(1.5, 1 + move / 100); // cap move speed at +50%
-    player.damageTakenMult = damageTaken;
+    // Armor reduces incoming damage (stacking with the corrupted +fragile penalty), capped at 50%.
+    player.damageTakenMult = damageTaken * Math.max(0.5, 1 - armor / 100);
+    player.vigor = vigor; // flat HP/sec added to base regen in tickPlayers
     player.maxHp = Math.max(1, maxHpForLevel(player.level) + bonusHp);
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
@@ -999,6 +1007,7 @@ export class World {
       cooldownMult: 1,
       moveMult: 1,
       damageTakenMult: 1,
+      vigor: 0,
       god: false,
       quests: new Map(),
       questsDone: new Set(),
@@ -1174,7 +1183,8 @@ export class World {
         continue;
       }
       player.mana = Math.min(PLAYER_MAX_MANA, player.mana + MANA_REGEN_PER_SEC * dt);
-      player.hp = Math.min(player.maxHp, player.hp + HP_REGEN_PER_SEC * dt);
+      // Base HP regen plus any +vigor from equipped gear.
+      player.hp = Math.min(player.maxHp, player.hp + (HP_REGEN_PER_SEC + player.vigor) * dt);
       // Advance self-buffs; an active REGEN buff heals over time on top of base regen.
       const { regenHeal } = player.buffs.tick(dt * 1000);
       if (regenHeal > 0) player.hp = Math.min(player.maxHp, player.hp + regenHeal);

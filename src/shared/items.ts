@@ -101,6 +101,8 @@ export type AffixStat =
   | 'lifesteal' // value = % of damage dealt healed back
   | 'swift' // value = % attack-cooldown reduction
   | 'move' // value = % movement-speed bonus
+  | 'armor' // value = % incoming damage reduced
+  | 'vigor' // value = bonus HP regenerated per second
   // Debuffs — only appear on corrupted gear, paired with a strong buff:
   | 'frail' // value = max HP removed
   | 'fragile'; // value = % extra damage taken
@@ -120,7 +122,16 @@ export function isDebuff(a: Affix): boolean {
 }
 
 /** Stats that can appear on a normal (non-corrupted) affix roll. */
-type RollableStat = 'power' | 'hp' | 'crit' | 'multishot' | 'lifesteal' | 'swift' | 'move';
+type RollableStat =
+  | 'power'
+  | 'hp'
+  | 'crit'
+  | 'multishot'
+  | 'lifesteal'
+  | 'swift'
+  | 'move'
+  | 'armor'
+  | 'vigor';
 const AFFIX_STATS: RollableStat[] = [
   'power',
   'hp',
@@ -129,6 +140,8 @@ const AFFIX_STATS: RollableStat[] = [
   'lifesteal',
   'swift',
   'move',
+  'armor',
+  'vigor',
 ];
 
 /** Pre-rarity-scaling base value ranges for the scalar affix stats (multishot is handled specially). */
@@ -139,6 +152,8 @@ const AFFIX_RANGES: Record<Exclude<RollableStat, 'multishot'>, { min: number; ma
   lifesteal: { min: 2, max: 5 },
   swift: { min: 2, max: 4 },
   move: { min: 3, max: 6 },
+  armor: { min: 2, max: 5 },
+  vigor: { min: 1, max: 3 },
 };
 
 /** How many affixes a rarity rolls (common gear has none — rarity is the dopamine gate). */
@@ -187,6 +202,10 @@ export function affixLabel(a: Affix): string {
       return `+${a.value}% attack speed`;
     case 'move':
       return `+${a.value}% move speed`;
+    case 'armor':
+      return `+${a.value}% armor`;
+    case 'vigor':
+      return `+${a.value} hp/sec`;
     case 'frail':
       return `-${a.value} hp`;
     case 'fragile':
@@ -255,6 +274,22 @@ const AFFIX_NAMES: Record<AffixStat, AffixName> = {
       { upTo: 10, word: 'of the Wind' },
       { upTo: 18, word: 'of the Gale' },
       { upTo: Infinity, word: 'of the Storm' },
+    ],
+  },
+  armor: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Sturdy' },
+      { upTo: 12, word: 'Plated' },
+      { upTo: Infinity, word: 'Ironclad' },
+    ],
+  },
+  vigor: {
+    kind: 'suffix',
+    tiers: [
+      { upTo: 6, word: 'of Health' },
+      { upTo: 12, word: 'of Vitality' },
+      { upTo: Infinity, word: 'of Renewal' },
     ],
   },
   hp: {

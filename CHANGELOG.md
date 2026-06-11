@@ -24,6 +24,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Two new gear affixes — Armor & Vigor.** Gear can now roll **+% armor** (incoming damage reduced,
+  stacking with the corrupted +fragile penalty, capped at 50%) and **+HP/sec Vigor** (passive regen
+  on top of the base). They flow through the whole loot system — rolled by rarity, named in the
+  Diablo title style (Sturdy/Plated/Ironclad… / …of Health/Vitality/Renewal), and shown on the stat
+  line — widening defensive/sustain builds alongside the existing offensive affixes.
 - **Temporary buffs & a curse debuff.** Three self-cast buff spells join the book: **War Cry**
   (+30% damage), **Sprint** (+35% attack speed & movement), and **Renew** (a heal-over-time) — each a
   timed buff that stacks on top of your gear. Monsters can now be **weakened** (their outgoing damage
