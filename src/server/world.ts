@@ -869,12 +869,17 @@ export class World {
           bonusHp -= a.value; // corrupted debuff: less max HP
         else if (a.stat === 'fragile') damageTaken += a.value / 100; // corrupted debuff: take more
       }
-      // Socketed gems add the same stat kinds (crit gem value is in whole % points).
+      // Socketed gems add the same stat kinds as affixes (crit gem value is in whole % points).
       const gems = gemBonuses(inst.sockets ?? []);
       power += gems.power;
       bonusHp += gems.hp;
       crit += gems.crit / 100;
       multishot += gems.multishot;
+      lifesteal += gems.lifesteal;
+      swift += gems.swift;
+      move += gems.move;
+      armor += gems.armor;
+      vigor += gems.vigor;
     }
     player.power = power;
     player.critChance = crit;

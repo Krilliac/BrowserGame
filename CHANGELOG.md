@@ -24,6 +24,10 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Gems for every build stat.** Sockets are no longer limited to power/HP/crit/multishot — five new
+  gem families drop and slot in: **Emerald** (life steal), **Amethyst** (attack speed), **Jade**
+  (move speed), **Onyx** (armor), and **Opal** (vigor regen), each across three tiers. Combined with
+  the new Armor/Vigor affixes, socketing is now a real lever for any build, not just raw damage.
 - **New act-2 zone — The Sundered Wastes (L20–26).** A void-scarred highland opens off the east edge
   of Frostpeak Pass, raising the level ceiling past the Pale King. It's stalked by Void Revenants,
   Ashen Warlocks, Obsidian Juggernauts and Hollow Runeseers, and ruled by a new act boss —

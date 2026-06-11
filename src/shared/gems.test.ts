@@ -1,7 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import { GEMS, gemBonuses, gemDef, isGem, rollGemDrop } from './gems.js';
 
-const VALID_STATS = new Set(['power', 'hp', 'crit', 'multishot']);
+const VALID_STATS = new Set([
+  'power',
+  'hp',
+  'crit',
+  'multishot',
+  'lifesteal',
+  'swift',
+  'move',
+  'armor',
+  'vigor',
+]);
+
+/** The full zero baseline for a gemBonuses() result (every gem-able stat). */
+const ZERO_BONUSES = {
+  power: 0,
+  hp: 0,
+  crit: 0,
+  multishot: 0,
+  lifesteal: 0,
+  swift: 0,
+  move: 0,
+  armor: 0,
+  vigor: 0,
+};
 
 describe('GEMS catalog', () => {
   it('every entry is internally consistent (id, stat, positive value, tier 1..3)', () => {
@@ -53,16 +76,17 @@ describe('isGem / gemDef', () => {
 
 describe('gemBonuses', () => {
   it('returns all zeros for an empty list', () => {
-    expect(gemBonuses([])).toEqual({ power: 0, hp: 0, crit: 0, multishot: 0 });
+    expect(gemBonuses([])).toEqual(ZERO_BONUSES);
   });
 
   it('sums a single gem', () => {
-    expect(gemBonuses(['ruby_t3'])).toEqual({ power: 10, hp: 0, crit: 0, multishot: 0 });
+    expect(gemBonuses(['ruby_t3'])).toEqual({ ...ZERO_BONUSES, power: 10 });
   });
 
   it('sums mixed gems across stats and stacks same-stat gems', () => {
     const total = gemBonuses(['ruby_t1', 'ruby_t2', 'sapphire_t3', 'topaz_t1', 'diamond_t3']);
     expect(total).toEqual({
+      ...ZERO_BONUSES,
       power: 3 + 6, // ruby_t1 + ruby_t2
       hp: 55, // sapphire_t3
       crit: 3, // topaz_t1
@@ -70,23 +94,22 @@ describe('gemBonuses', () => {
     });
   });
 
-  it('ignores null (empty) sockets', () => {
-    expect(gemBonuses([null, 'ruby_t1', null])).toEqual({
-      power: 3,
-      hp: 0,
-      crit: 0,
-      multishot: 0,
+  it('sums the new build-stat families (lifesteal / armor / vigor)', () => {
+    expect(gemBonuses(['emerald_t3', 'onyx_t2', 'opal_t1'])).toEqual({
+      ...ZERO_BONUSES,
+      lifesteal: 5,
+      armor: 5,
+      vigor: 1,
     });
+  });
+
+  it('ignores null (empty) sockets', () => {
+    expect(gemBonuses([null, 'ruby_t1', null])).toEqual({ ...ZERO_BONUSES, power: 3 });
   });
 
   it('ignores unknown gem ids without throwing', () => {
     expect(() => gemBonuses(['mystery', 'ruby_t1', 'toString'])).not.toThrow();
-    expect(gemBonuses(['mystery', 'ruby_t1', 'toString'])).toEqual({
-      power: 3,
-      hp: 0,
-      crit: 0,
-      multishot: 0,
-    });
+    expect(gemBonuses(['mystery', 'ruby_t1', 'toString'])).toEqual({ ...ZERO_BONUSES, power: 3 });
   });
 });
 

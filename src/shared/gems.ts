@@ -59,6 +59,28 @@ export const GEMS: Record<string, GemDef> = {
   topaz_t3: gem('topaz_t3', 'Topaz', '#ffd24a', 'crit', 10, 3),
   // Diamond — rare tier-3 only: +1 projectile (build-defining, kept scarce).
   diamond_t3: gem('diamond_t3', 'Diamond', '#bfefff', 'multishot', 1, 3),
+
+  // --- Build-stat families: a gem for every buff affix, so sockets can shape any build ---
+  // Emerald — life steal (% of damage healed): 2 / 3 / 5
+  emerald_t1: gem('emerald_t1', 'Emerald', '#4ade80', 'lifesteal', 2, 1),
+  emerald_t2: gem('emerald_t2', 'Emerald', '#4ade80', 'lifesteal', 3, 2),
+  emerald_t3: gem('emerald_t3', 'Emerald', '#4ade80', 'lifesteal', 5, 3),
+  // Amethyst — attack speed (% cooldown reduction): 2 / 3 / 4
+  amethyst_t1: gem('amethyst_t1', 'Amethyst', '#b06bff', 'swift', 2, 1),
+  amethyst_t2: gem('amethyst_t2', 'Amethyst', '#b06bff', 'swift', 3, 2),
+  amethyst_t3: gem('amethyst_t3', 'Amethyst', '#b06bff', 'swift', 4, 3),
+  // Jade — move speed (%): 3 / 4 / 6
+  jade_t1: gem('jade_t1', 'Jade', '#5fd0a0', 'move', 3, 1),
+  jade_t2: gem('jade_t2', 'Jade', '#5fd0a0', 'move', 4, 2),
+  jade_t3: gem('jade_t3', 'Jade', '#5fd0a0', 'move', 6, 3),
+  // Onyx — armor (% damage reduction): 3 / 5 / 8
+  onyx_t1: gem('onyx_t1', 'Onyx', '#54546a', 'armor', 3, 1),
+  onyx_t2: gem('onyx_t2', 'Onyx', '#54546a', 'armor', 5, 2),
+  onyx_t3: gem('onyx_t3', 'Onyx', '#54546a', 'armor', 8, 3),
+  // Opal — vigor (HP per second): 1 / 2 / 3
+  opal_t1: gem('opal_t1', 'Opal', '#d8e0ff', 'vigor', 1, 1),
+  opal_t2: gem('opal_t2', 'Opal', '#d8e0ff', 'vigor', 2, 2),
+  opal_t3: gem('opal_t3', 'Opal', '#d8e0ff', 'vigor', 3, 3),
 };
 
 /** True if `id` names a known gem. */
@@ -71,20 +93,35 @@ export function gemDef(id: string): GemDef | undefined {
   return GEMS[id];
 }
 
-/** The stats a gem can grant (the gem-relevant subset of {@link AffixStat}). */
+/** The stats a gem can grant (the gem-able subset of {@link AffixStat} — every buff stat). */
 export interface GemBonuses {
   power: number;
   hp: number;
   crit: number;
   multishot: number;
+  lifesteal: number;
+  swift: number;
+  move: number;
+  armor: number;
+  vigor: number;
 }
 
 /**
  * Sum the stat bonuses from a list of socketed gem ids. `null` entries (empty sockets) and unknown
- * ids are ignored; never throws. Returns flat totals for power/hp/crit/multishot.
+ * ids are ignored; never throws. Returns flat totals across every gem-able stat.
  */
 export function gemBonuses(socketed: (string | null)[]): GemBonuses {
-  const out: GemBonuses = { power: 0, hp: 0, crit: 0, multishot: 0 };
+  const out: GemBonuses = {
+    power: 0,
+    hp: 0,
+    crit: 0,
+    multishot: 0,
+    lifesteal: 0,
+    swift: 0,
+    move: 0,
+    armor: 0,
+    vigor: 0,
+  };
   for (const id of socketed) {
     if (id === null) continue;
     const def = GEMS[id];
@@ -101,6 +138,21 @@ export function gemBonuses(socketed: (string | null)[]): GemBonuses {
         break;
       case 'multishot':
         out.multishot += def.value;
+        break;
+      case 'lifesteal':
+        out.lifesteal += def.value;
+        break;
+      case 'swift':
+        out.swift += def.value;
+        break;
+      case 'move':
+        out.move += def.value;
+        break;
+      case 'armor':
+        out.armor += def.value;
+        break;
+      case 'vigor':
+        out.vigor += def.value;
         break;
       default:
         // Gems never grant debuff stats (frail/fragile); ignore defensively.
