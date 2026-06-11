@@ -676,6 +676,53 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     telegraphMs: 800,
     slamRadius: 135,
   },
+
+  // --- The Sundered Wastes (act 2, L20-26): a void-scarred end-of-world highland ---
+  void_revenant: {
+    id: 'void_revenant',
+    name: 'Void Revenant',
+    hp: 180,
+    level: 21,
+    hue: 290,
+    speed: 120,
+    aggroRange: 380,
+    attackRange: 50,
+    damage: 26,
+    attackCooldownMs: 950,
+    behavior: 'melee',
+    telegraphMs: 240,
+  },
+  ashen_warlock: {
+    id: 'ashen_warlock',
+    name: 'Ashen Warlock',
+    hp: 150,
+    level: 22,
+    hue: 28,
+    speed: 84,
+    aggroRange: 520,
+    attackRange: 430,
+    damage: 28,
+    attackCooldownMs: 1500,
+    behavior: 'ranged',
+    telegraphMs: 640,
+    projectileSpeed: 350,
+    kiteRange: 270,
+  },
+  xalthirun: {
+    id: 'xalthirun',
+    name: "Xal'thirun, the Unmaker",
+    hp: 1200,
+    level: 26,
+    hue: 300,
+    speed: 70,
+    aggroRange: 540,
+    attackRange: 90,
+    damage: 44,
+    attackCooldownMs: 1500,
+    behavior: 'melee', // the act-2 boss
+    telegraphMs: 820,
+    slamRadius: 140,
+  },
 };
 
 export interface AreaMobSpawn {
@@ -716,6 +763,13 @@ export const AREA_MOBS: Record<string, AreaMobSpawn[]> = {
     { templateId: 'avalanche_shade', count: 2 },
     { templateId: 'tundra_behemoth', count: 2 },
     { templateId: 'pale_king', count: 1 },
+  ],
+  sundered_wastes: [
+    { templateId: 'void_revenant', count: 7 },
+    { templateId: 'ashen_warlock', count: 3 },
+    { templateId: 'obsidian_juggernaut', count: 2 },
+    { templateId: 'hollow_runeseer', count: 2 },
+    { templateId: 'xalthirun', count: 1 },
   ],
 };
 

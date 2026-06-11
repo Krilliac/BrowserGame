@@ -14,7 +14,7 @@ describe('world graph integrity', () => {
   const areas = c.areas();
   const ids = new Set(areas.map((a) => a.id));
 
-  it('ships the six overworld areas plus the four dungeons', () => {
+  it('ships the seven overworld areas plus the four dungeons', () => {
     expect([...ids].sort()).toEqual([
       'crypt',
       'forgotten_catacombs',
@@ -23,6 +23,7 @@ describe('world graph integrity', () => {
       'infernal_forge',
       'marsh',
       'mines',
+      'sundered_wastes',
       'town',
       'wilderness',
       'writhing_hive',
@@ -86,7 +87,9 @@ describe('world graph integrity', () => {
     expect(questMobs.has('fenwitch')).toBe(true);
     expect(questMobs.has('forge_tyrant')).toBe(true);
     expect(questMobs.has('pale_king')).toBe(true);
-    // The Pale King is the level ceiling of the shipped content.
     expect(c.mobTemplate('pale_king')!.level).toBe(20);
+    // Act 2 (the Sundered Wastes) raises the ceiling: the Unmaker is its quest boss.
+    expect(questMobs.has('xalthirun')).toBe(true);
+    expect(c.mobTemplate('xalthirun')!.level).toBe(26);
   });
 });

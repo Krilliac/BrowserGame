@@ -198,6 +198,12 @@ export const AREAS: Record<string, AreaDef> = {
         toSpawn: { x: 750, y: 220 },
         label: 'The Frozen Vault ⌖',
       },
+      {
+        rect: { x: 2150, y: 800, w: 50, h: 300 },
+        toArea: 'sundered_wastes',
+        toSpawn: { x: 160, y: 1000 },
+        label: 'The Sundered Wastes →',
+      },
     ],
   },
 
@@ -267,6 +273,24 @@ export const AREAS: Record<string, AreaDef> = {
         toArea: 'frostpeak',
         toSpawn: { x: 1110, y: 1850 },
         label: '↑ Leave the Vault',
+      },
+    ],
+  },
+
+  // Act 2: a void-scarred highland beyond Frostpeak — the new level ceiling (L20-26).
+  sundered_wastes: {
+    id: 'sundered_wastes',
+    name: 'The Sundered Wastes',
+    width: 2400,
+    height: 2000,
+    spawn: { x: 160, y: 1000 },
+    playerCap: 16,
+    portals: [
+      {
+        rect: { x: 0, y: 850, w: 50, h: 300 },
+        toArea: 'frostpeak',
+        toSpawn: { x: 2080, y: 1000 },
+        label: '← Back to Frostpeak',
       },
     ],
   },
@@ -492,6 +516,28 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
     gradeBrightness: 0.95,
     gradeContrast: 1.1,
     spriteTint: '#cfe0ff',
+  },
+  // Void-scarred highland: bruised violet ground, drifting void-motes, a wrongness in the air.
+  sundered_wastes: {
+    groundBase: '#211a26',
+    groundSpeck: '#2e2236',
+    prop: 'crystal',
+    propDensity: 0.08,
+    atmoColor: '#2a0e2e',
+    atmoAlpha: 0.26,
+    outdoor: true,
+    particleColor: '#c08adf',
+    particleCount: 58,
+    particleRise: -8,
+    particleFlicker: true,
+    weather: 'none',
+    weatherIntensity: 0.5,
+    fogColor: '#140a1a',
+    lightAmbient: 0.6,
+    gradeSaturation: 1.05,
+    gradeBrightness: 0.92,
+    gradeContrast: 1.12,
+    spriteTint: '#d8c4e8',
   },
 };
 

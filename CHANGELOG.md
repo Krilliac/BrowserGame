@@ -24,6 +24,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **New act-2 zone — The Sundered Wastes (L20–26).** A void-scarred highland opens off the east edge
+  of Frostpeak Pass, raising the level ceiling past the Pale King. It's stalked by Void Revenants,
+  Ashen Warlocks, Obsidian Juggernauts and Hollow Runeseers, and ruled by a new act boss —
+  **Xal'thirun, the Unmaker** (L26), with a bounty quest that rewards the Tome of the Thunder Lance.
+  Three new monster templates join the bestiary; the zone, its theme, the entrance/return portals,
+  the monster roster, the boss gold drop, and the quest all seed idempotently into an existing DB.
 - **Two new gear affixes — Armor & Vigor.** Gear can now roll **+% armor** (incoming damage reduced,
   stacking with the corrupted +fragile penalty, capped at 50%) and **+HP/sec Vigor** (passive regen
   on top of the base). They flow through the whole loot system — rolled by rarity, named in the

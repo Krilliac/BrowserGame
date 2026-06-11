@@ -408,6 +408,27 @@ function ensureWorldExpansion(db: Database): void {
       q.turnInCount ?? 0,
     );
   }
+
+  // Area-mob rosters for new OVERWORLD areas (dungeons populate procedurally, not from this table).
+  // Guarded by (area_id, template_id) since area_mobs has no natural key.
+  const areaMobExists = db.prepare('SELECT 1 FROM area_mobs WHERE area_id = ? AND template_id = ?');
+  const areaMobIns = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');
+  for (const [areaId, spawns] of Object.entries(AREA_MOBS)) {
+    for (const s of spawns) {
+      if (!areaMobExists.get(areaId, s.templateId)) areaMobIns.run(areaId, s.templateId, s.count);
+    }
+  }
+
+  // New act bosses have no drop table — give them a fat gold drop, like the other overworld bosses.
+  const bossGoldExists = db.prepare(
+    "SELECT 1 FROM loot_entry WHERE mob_template_id = ? AND grp = 'always' AND item_id = 'gold'",
+  );
+  const bossGoldIns = db.prepare(
+    'INSERT INTO loot_entry (mob_template_id,grp,item_id,weight,min_qty,max_qty,is_nothing,chance) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  if (!bossGoldExists.get('xalthirun')) {
+    bossGoldIns.run('xalthirun', 'always', 'gold', 1, 400, 900, 0, 0);
+  }
 }
 
 /**
@@ -853,6 +874,16 @@ const QUESTS: {
     rewardGold: 1600,
     rewardXp: 2200,
     rewardItem: 'tome_glacierspike',
+  },
+  {
+    id: 'act2_unmaker',
+    name: 'The Unmaker',
+    description: "Cross into the Sundered Wastes and end Xal'thirun, the Unmaker.",
+    targetMob: 'xalthirun',
+    targetCount: 1,
+    rewardGold: 2000,
+    rewardXp: 3000,
+    rewardItem: 'tome_thunderlance',
   },
 ];
 
