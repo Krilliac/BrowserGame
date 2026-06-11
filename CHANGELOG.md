@@ -32,6 +32,12 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **Renderer — more 3D + wider sprite coverage.** Flying monsters (bats, sprites, shades, wraiths)
+  now **hover elevated above a smaller, fainter planted shadow** — a real height/parallax cue (the
+  D2/D3 look). And far more monsters get a real animated sprite instead of a flat procedural blob:
+  the LPC sheets are reused by archetype (humanoid/undead → skeleton, canine/beast → wolf, flyer →
+  bat, big named undead bosses → the imposing 1.6× boss sprite); amorphous mobs (oozes, golems,
+  colossi) still use procedural shapes, which suit them better than a mismatched sprite.
 - **Spell merchant — rotating, capped shelf + higher prices.** The Merchant no longer dumps its
   whole catalog (which overflowed the panel): it shows its basic gear plus a **rotating window of a
   few spell tomes**, cycling the selection every few minutes, and **tome prices are scaled up** (a

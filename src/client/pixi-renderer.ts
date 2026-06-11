@@ -180,15 +180,36 @@ function hash2(x: number, y: number): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
+// Names whose monsters fly — rendered elevated above a planted ground shadow (a 3D height cue).
+const FLYER_RE = /Bat|Sprite|Shade|Wraith|Spectre|Ghost/;
+// Big humanoid/undead bosses get the imposing 1.6× boss sprite.
+const BOSS_NAME_RE = /Lord|King|Warden|Bonecaller|Tyrant|Unmaker|Eternal|Knight|Reaver/;
+
+/**
+ * Pick a sprite sheet for an entity by archetype (the LPC sheets are reused across thematically
+ * similar monsters): humanoid/undead → skeleton, canine/beast → wolf, flyer → bat, big named undead
+ * → boss. Monsters with no good match (oozes, golems, imps, colossi, demons) fall back to procedural
+ * shapes, which suit their amorphous forms better than a mismatched sprite.
+ */
 function sheetKey(e: EntityState): string | undefined {
   if (e.kind === 'player' || e.kind === 'npc') return 'hero';
-  if (e.kind === 'mob') {
-    if (e.name.includes('Lord')) return 'boss';
-    if (e.name.includes('Wolf')) return 'wolf';
-    if (e.name.includes('Skeleton')) return 'skeleton';
-    if (e.name.includes('Bat')) return 'bat';
-  }
+  if (e.kind !== 'mob') return undefined;
+  const n = e.name;
+  if (e.maxHp >= 280 && BOSS_NAME_RE.test(n)) return 'boss';
+  if (/Wolf|Hound|Boar/.test(n)) return 'wolf';
+  if (
+    /Skeleton|Cultist|Revenant|Knight|Warlock|Acolyte|Warden|Runeseer|Seer|Bonecaller|Lord|Pilgrim/.test(
+      n,
+    )
+  )
+    return 'skeleton';
+  if (FLYER_RE.test(n)) return 'bat';
   return undefined;
+}
+
+/** Elevation (px) a flying monster floats above the ground, separating it from its planted shadow. */
+function flyHeight(e: EntityState): number {
+  return e.kind === 'mob' && FLYER_RE.test(e.name) ? 16 : 0;
 }
 
 export interface RenderState {
@@ -608,9 +629,12 @@ export class PixiRenderer {
       // A small vertical bob — a quick footstep lift while moving, a slow breath while idle —
       // staggered per entity so a crowd doesn't pulse in lockstep. Sells the billboards as alive.
       const phase = e.id * 1.7;
-      view.sprite.y = moving
-        ? -Math.abs(Math.sin(now / 110 + phase)) * 2.5
-        : Math.sin(now / 420 + phase) * 1.2;
+      const fly = flyHeight(e);
+      view.sprite.y = fly
+        ? -fly + Math.sin(now / 300 + phase) * 2 // flyers hover well above their planted shadow
+        : moving
+          ? -Math.abs(Math.sin(now / 110 + phase)) * 2.5
+          : Math.sin(now / 420 + phase) * 1.2;
     }
     view.lastX = e.x;
     view.lastY = e.y;
@@ -664,9 +688,11 @@ export class PixiRenderer {
     // read as planted on the ground and lit from a consistent direction (the Diablo 2 look).
     const shadow = new Sprite(this.softShadowTexture());
     shadow.anchor.set(0.5, 0.5);
-    shadow.width = radius * 2.9;
-    shadow.height = radius * 1.45;
-    shadow.alpha = SHADOW_ALPHA;
+    // A flyer's shadow is smaller + fainter (cast from height), which sells the elevation gap.
+    const flying = flyHeight(e) > 0;
+    shadow.width = radius * (flying ? 1.9 : 2.9);
+    shadow.height = radius * (flying ? 0.95 : 1.45);
+    shadow.alpha = flying ? SHADOW_ALPHA * 0.65 : SHADOW_ALPHA;
     shadow.position.set(radius * SHADOW_OFFSET_X, radius * SHADOW_OFFSET_Y);
     shadow.skew.x = SHADOW_SKEW;
     container.addChild(shadow);
