@@ -98,6 +98,9 @@ export type AffixStat =
   | 'hp'
   | 'crit'
   | 'multishot'
+  | 'lifesteal' // value = % of damage dealt healed back
+  | 'swift' // value = % attack-cooldown reduction
+  | 'move' // value = % movement-speed bonus
   // Debuffs — only appear on corrupted gear, paired with a strong buff:
   | 'frail' // value = max HP removed
   | 'fragile'; // value = % extra damage taken
@@ -117,14 +120,25 @@ export function isDebuff(a: Affix): boolean {
 }
 
 /** Stats that can appear on a normal (non-corrupted) affix roll. */
-type RollableStat = 'power' | 'hp' | 'crit' | 'multishot';
-const AFFIX_STATS: RollableStat[] = ['power', 'hp', 'crit', 'multishot'];
+type RollableStat = 'power' | 'hp' | 'crit' | 'multishot' | 'lifesteal' | 'swift' | 'move';
+const AFFIX_STATS: RollableStat[] = [
+  'power',
+  'hp',
+  'crit',
+  'multishot',
+  'lifesteal',
+  'swift',
+  'move',
+];
 
 /** Pre-rarity-scaling base value ranges for the scalar affix stats (multishot is handled specially). */
-const AFFIX_RANGES: Record<'power' | 'hp' | 'crit', { min: number; max: number }> = {
+const AFFIX_RANGES: Record<Exclude<RollableStat, 'multishot'>, { min: number; max: number }> = {
   power: { min: 2, max: 6 },
   hp: { min: 8, max: 22 },
   crit: { min: 2, max: 6 },
+  lifesteal: { min: 2, max: 5 },
+  swift: { min: 2, max: 4 },
+  move: { min: 3, max: 6 },
 };
 
 /** How many affixes a rarity rolls (common gear has none — rarity is the dopamine gate). */
@@ -167,6 +181,12 @@ export function affixLabel(a: Affix): string {
       return `+${a.value}% crit`;
     case 'multishot':
       return `+${a.value} projectile${a.value > 1 ? 's' : ''}`;
+    case 'lifesteal':
+      return `+${a.value}% life steal`;
+    case 'swift':
+      return `+${a.value}% attack speed`;
+    case 'move':
+      return `+${a.value}% move speed`;
     case 'frail':
       return `-${a.value} hp`;
     case 'fragile':
@@ -211,6 +231,30 @@ const AFFIX_NAMES: Record<AffixStat, AffixName> = {
     tiers: [
       { upTo: 1, word: 'Forking' },
       { upTo: Infinity, word: 'Splitting' },
+    ],
+  },
+  lifesteal: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Bloody' },
+      { upTo: 12, word: 'Vampiric' },
+      { upTo: Infinity, word: 'Sanguine' },
+    ],
+  },
+  swift: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Quick' },
+      { upTo: 12, word: 'Rapid' },
+      { upTo: Infinity, word: 'Blurred' },
+    ],
+  },
+  move: {
+    kind: 'suffix',
+    tiers: [
+      { upTo: 10, word: 'of the Wind' },
+      { upTo: 18, word: 'of the Gale' },
+      { upTo: Infinity, word: 'of the Storm' },
     ],
   },
   hp: {

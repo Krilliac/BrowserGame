@@ -1320,7 +1320,7 @@ function drawMinimap(w: number): void {
 }
 
 function drawInventory(w: number): void {
-  const pw = 156;
+  const pw = 236; // wide enough for Diablo-style names like "Savage Iron Sword of the Boar"
   const px = w - pw - 8;
   let py = 44 + MINIMAP_SIZE + 8;
 
@@ -1368,11 +1368,11 @@ function drawInventory(w: number): void {
     gear.forEach((inst, i) => {
       const ry = py + 22 + i * rowH;
       bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: rowH });
-      // Line 1: the item name, in its rarity color.
+      // Line 1: the item name, in its rarity color — truncated so long named items never overflow.
       hud.font = 'bold 11px system-ui, sans-serif';
       hud.fillStyle = rarityColor(inst.rarity);
       hud.textAlign = 'left';
-      hud.fillText(instLabel(inst), px + 8, ry + 11);
+      hud.fillText(fitText(instLabel(inst), pw - 14), px + 8, ry + 11);
       // Line 2: stat segments laid out left-to-right (debuffs in red), no overlap with the name.
       hud.font = '10px system-ui, sans-serif';
       let sx = px + 8;

@@ -148,6 +148,12 @@ interface Player {
   critChance: number;
   /** Extra projectiles per projectile cast, from equipped +multishot affixes. */
   multishot: number;
+  /** Fraction of damage dealt healed back, 0..1 (from +lifesteal affixes). */
+  lifesteal: number;
+  /** Cooldown multiplier (<1 = faster), from +swift affixes; clamped. */
+  cooldownMult: number;
+  /** Movement-speed multiplier (>1 = faster), from +move affixes; clamped. */
+  moveMult: number;
   /** Incoming-damage multiplier (>1) from corrupted +fragile debuffs. */
   damageTakenMult: number;
   god: boolean;
@@ -799,6 +805,9 @@ export class World {
     let crit = BASE_CRIT_CHANCE;
     let multishot = 0;
     let damageTaken = 1;
+    let lifesteal = 0; // percent points
+    let swift = 0; // percent cooldown reduction
+    let move = 0; // percent move bonus
     for (const slot of EQUIP_SLOTS) {
       const inst = player.equipment[slot];
       if (!inst) continue;
@@ -809,6 +818,9 @@ export class World {
         else if (a.stat === 'hp') bonusHp += a.value;
         else if (a.stat === 'crit') crit += a.value / 100;
         else if (a.stat === 'multishot') multishot += a.value;
+        else if (a.stat === 'lifesteal') lifesteal += a.value;
+        else if (a.stat === 'swift') swift += a.value;
+        else if (a.stat === 'move') move += a.value;
         else if (a.stat === 'frail')
           bonusHp -= a.value; // corrupted debuff: less max HP
         else if (a.stat === 'fragile') damageTaken += a.value / 100; // corrupted debuff: take more
@@ -823,6 +835,9 @@ export class World {
     player.power = power;
     player.critChance = crit;
     player.multishot = multishot;
+    player.lifesteal = Math.min(0.6, lifesteal / 100); // cap life steal at 60% of damage
+    player.cooldownMult = Math.max(0.4, 1 - swift / 100); // cap attack speed at +60%
+    player.moveMult = Math.min(1.5, 1 + move / 100); // cap move speed at +50%
     player.damageTakenMult = damageTaken;
     player.maxHp = Math.max(1, maxHpForLevel(player.level) + bonusHp);
     if (player.hp > player.maxHp) player.hp = player.maxHp;
@@ -942,6 +957,9 @@ export class World {
       power: 0,
       critChance: BASE_CRIT_CHANCE,
       multishot: 0,
+      lifesteal: 0,
+      cooldownMult: 1,
+      moveMult: 1,
       damageTakenMult: 1,
       god: false,
       quests: new Map(),
@@ -1034,7 +1052,7 @@ export class World {
     const facing = aimAngle(dx, dy, player.facing);
     player.facing = facing;
     player.mana -= ability.manaCost;
-    player.cooldowns.set(abilityId, ability.cooldownMs);
+    player.cooldowns.set(abilityId, ability.cooldownMs * player.cooldownMult); // +swift = faster
     this.events.push({ kind: 'cast', x: player.x, y: player.y, facing, abilityId });
     // Each spell rank above 1 boosts the effect (the Diablo 1 duplicate-tome rule).
     const rankMult = spellRankMult(rank);
@@ -1112,7 +1130,7 @@ export class World {
 
       const { dx, dy } = moveVector(player.input);
       if (dx !== 0 || dy !== 0) {
-        const speed = PLAYER_SPEED * this.moveScale; // weather may slow movement
+        const speed = PLAYER_SPEED * this.moveScale * player.moveMult; // weather slows; +move affix speeds
         player.x = clamp(player.x + dx * speed * dt, 0, this.width);
         player.y = clamp(player.y + dy * speed * dt, 0, this.height);
         player.facing = Math.atan2(dy, dx);
@@ -1335,6 +1353,11 @@ export class World {
   ): void {
     if (attackerId !== 0) mob.lastAttacker = attackerId;
     mob.hp -= amount;
+    // Life steal: the attacker heals for a fraction of the damage they just dealt.
+    const attacker = this.players.get(attackerId);
+    if (attacker && !attacker.dead && attacker.lifesteal > 0 && amount > 0) {
+      attacker.hp = Math.min(attacker.maxHp, attacker.hp + amount * attacker.lifesteal);
+    }
     const hit: FxEvent = { kind: 'hit', x: mob.x, y: mob.y, value: Math.ceil(amount) };
     if (abilityId !== undefined) hit.abilityId = abilityId;
     if (crit) hit.crit = true;
