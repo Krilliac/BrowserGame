@@ -6,6 +6,21 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Changed
+
+- **Controls — click-to-move + targeting + remappable hotbar (ARPG redesign).** Movement is now
+  **click-to-move only** (WASD and the touch joystick are gone): left-click the ground to walk
+  there, left-click a monster to **select + chase** it. A selected monster is **auto-attacked**
+  with your basic Slash whenever it's in reach — no key needed. Spells stay **manual** and
+  **auto-aim at the selected target** (no manual aiming): fire them from the **6-slot hotbar**
+  (keys `1`–`6`, or click a slot). The hotbar is **remappable** — `Shift`+scroll or `Shift`+click a
+  slot cycles its spell — and **locks during combat** (for ~4s after you deal or take damage) so you
+  can't re-plan your rotation mid-fight. Newly-learned spells auto-fill empty slots. Movement is
+  synthesized client-side into the existing 8-direction input, so the authoritative server,
+  prediction, and reconciliation are untouched (no protocol change). Fresh characters start knowing
+  **only the Slash auto-attack** — every spell is acquired loot. Added `PixiRenderer.screenToWorld`
+  to invert the tilted projection for click picking; removed `input.ts` (joystick) as dead code.
+
 ### Added
 
 - **Artificer NPC — enchanting + gem unsocketing.** Coalhand the Artificer joins the town: press E

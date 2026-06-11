@@ -252,6 +252,7 @@ export class PixiRenderer {
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
+  private camX = 0; // last camera world-x (screen center), for screen->world picking
   private camY = 0; // last camera world-y, for per-actor faux-perspective depth scaling
   private fadeAlpha = 0; // area-change fade-from-black, eases 1 -> 0 on arrival
   private lastFrameAt = performance.now();
@@ -307,6 +308,21 @@ export class PixiRenderer {
    */
   invalidateArea(): void {
     this.currentArea = '';
+  }
+
+  /**
+   * Invert the tilted projection: turn a screen-space point (e.g. a mouse click) back into a
+   * world-plane (x, y). Uses the last camera passed to `update`, so call after a frame has
+   * rendered. The inverse of: screenX = sw/2 - camX + worldX, screenY = sh*CAM_DOLLY_Y -
+   * camY*PITCH + worldY*PITCH. (Screen shake is transient and ignored.)
+   */
+  screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    const sw = this.app.screen.width;
+    const sh = this.app.screen.height;
+    return {
+      x: this.camX + (screenX - sw / 2),
+      y: this.camY + (screenY - sh * CAM_DOLLY_Y) / PITCH,
+    };
   }
 
   setArea(areaId: string): void {
@@ -394,6 +410,7 @@ export class PixiRenderer {
 
     const originX = sw / 2 - state.camX + shX;
     const originY = sh * CAM_DOLLY_Y - state.camY * PITCH + shY;
+    this.camX = state.camX; // remembered for screen->world picking (click-to-move/target)
     this.camY = state.camY; // remembered so updateActor can compute per-actor depth scale
     this.world.position.set(originX, originY);
     this.ground.width = sw;

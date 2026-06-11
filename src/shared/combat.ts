@@ -188,7 +188,7 @@ export const ABILITY_ORDER: AbilityId[] = [
  * Abilities every fresh character knows. Everything else is *acquired* — learned from spellbook
  * items that drop from monsters, reward quests, or sit on a vendor's shelf ("loot = your build").
  */
-export const STARTER_ABILITIES: AbilityId[] = ['slash', 'fireball'];
+export const STARTER_ABILITIES: AbilityId[] = ['slash'];
 
 // --- Spell ranks (the Diablo 1 duplicate rule: re-reading a known book ranks the spell up) ---
 export const MAX_SPELL_RANK = 5;

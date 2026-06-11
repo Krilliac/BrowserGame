@@ -16,14 +16,13 @@ import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
 import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
 import { drawInventoryPanel, type InventoryButton } from './inventory-panel.js';
-import { Input } from './input.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
 import { Predictor } from './predictor.js';
-import type { AbilityId } from '../shared/combat.js';
-import type { EntityState } from '../shared/protocol.js';
+import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
+import type { EntityState, InputState } from '../shared/protocol.js';
 
 const gameCanvas = document.getElementById('game') as HTMLCanvasElement;
 const hudCanvas = document.getElementById('hud') as HTMLCanvasElement;
@@ -71,9 +70,6 @@ const unlockAudio = (): void => sound.unlock();
 window.addEventListener('pointerdown', unlockAudio, { once: true });
 window.addEventListener('keydown', unlockAudio, { once: true });
 
-const input = new Input();
-input.attach(gameCanvas);
-
 // Reserve right-click for the game: suppress the browser's native context menu (copy image,
 // etc.) everywhere except editable fields, so right-click paste still works in the chat box.
 window.addEventListener('contextmenu', (e) => {
@@ -88,7 +84,7 @@ const STEP_DT = 1 / 30;
 let lastAreaId = '';
 let lastAuthRev = 0;
 setInterval(() => {
-  const sample = input.sample();
+  const sample = moveSample();
   if (net.areaId !== lastAreaId) {
     predictor.reset();
     lastAreaId = net.areaId;
@@ -101,15 +97,49 @@ setInterval(() => {
   if (area) predictor.setBounds(area.width, area.height);
   const seq = predictor.ready ? predictor.step(sample, STEP_DT) : 0;
   net.sendInput(sample, seq);
+
+  // Basic auto-attack: when a mob is selected and within melee reach, swing automatically.
+  // (Spells are manual — fired by the 1-6 keys or by clicking a hotbar slot.)
+  const tgt = targetMob();
+  if (tgt && self && 'slash' in net.you.known) {
+    const reach = net.content.ability('slash')?.range ?? 78;
+    if (Math.hypot(tgt.x - self.x, tgt.y - self.y) <= reach) castAbility('slash');
+  }
 }, 1000 * STEP_DT);
 
 // --- Combat input ---------------------------------------------------------------------
 let mouseX = window.innerWidth / 2;
 let mouseY = window.innerHeight / 2;
-let hasMouse = false;
 let selected: AbilityId = 'slash';
 const cooldownEnd: Record<string, number> = {};
-const slotRects: { ability: AbilityId; x: number; y: number; w: number; h: number }[] = [];
+
+// --- Click-to-move + targeting --------------------------------------------------------
+// Left-click the ground to walk there; left-click a mob to select it (chase + auto-attack).
+// Movement is synthesized client-side into the same 8-direction InputState the server already
+// understands, so no protocol/server change is needed — prediction & reconciliation are untouched.
+let moveTarget: { x: number; y: number } | null = null;
+let targetId: number | null = null;
+const PICK_RADIUS = 26; // world px of slop around a mob when picking a click target
+const MOVE_STOP_RADIUS = 8; // stop this close to a ground move-target (avoids 8-dir jitter)
+
+// --- Remappable 6-slot hotbar ---------------------------------------------------------
+// Slots map to keys 1-6. Empty slots auto-fill from newly-learned spells; shift+scroll or
+// shift+click a slot to cycle its spell. Remapping is locked for COMBAT_LOCK_MS after any
+// damage dealt or taken, so you can't re-plan your rotation mid-fight.
+const HOTBAR_SIZE = 6;
+const hotbar: (AbilityId | null)[] = [null, null, null, null, null, null];
+const COMBAT_LOCK_MS = 4000;
+let lastCombatT = -Infinity; // performance.now() of the last damage dealt/taken
+let lastKnownHp = 0; // tracks net.you.hp to detect "took damage" (enters combat)
+
+const slotRects: {
+  slot: number;
+  ability: AbilityId | null;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}[] = [];
 const bagRects: {
   uid: number;
   x: number;
@@ -162,11 +192,23 @@ let lastContentRev = 0;
 
 window.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') {
-    hasMouse = true;
     mouseX = e.clientX;
     mouseY = e.clientY;
   }
 });
+
+// Shift+scroll over a hotbar slot cycles its spell (out of combat only) — rotation building.
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (!e.shiftKey) return;
+    const slot = slotRects.find((s) => inRect(mouseX, mouseY, s));
+    if (!slot) return;
+    e.preventDefault();
+    cycleSlot(slot.slot, e.deltaY > 0 ? 1 : -1);
+  },
+  { passive: false },
+);
 
 window.addEventListener('keydown', (e) => {
   if (document.activeElement === chatInputEl) return;
@@ -193,10 +235,13 @@ window.addEventListener('keydown', (e) => {
     inventoryOpen = false;
     return;
   }
-  const ability = net.content.abilityOrder().find((id) => net.content.ability(id)?.key === e.key);
-  if (ability) {
-    selected = ability;
-    castAbility(ability);
+  const slotIdx = '123456'.indexOf(e.key);
+  if (slotIdx >= 0) {
+    const ab = hotbar[slotIdx];
+    if (ab) {
+      selected = ab;
+      castAbility(ab);
+    }
   } else if (e.key.toLowerCase() === 'e') {
     net.sendInteract(); // server validates NPC proximity
   } else if (e.key.toLowerCase() === 'c') {
@@ -254,10 +299,14 @@ window.addEventListener('pointerdown', (e) => {
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
-    selected = slot.ability;
-    castAbility(slot.ability);
+    // Shift+click cycles the slot's spell (rotation building); a plain click casts it.
+    if (e.shiftKey) cycleSlot(slot.slot, 1);
+    else if (slot.ability) {
+      selected = slot.ability;
+      castAbility(slot.ability);
+    }
   } else if (e.target === gameCanvas) {
-    castAbility(selected);
+    worldClick(e.clientX, e.clientY);
   }
 });
 
@@ -379,8 +428,8 @@ function handleShopClick(x: number, y: number): boolean {
   return shopPanelRect ? inRect(x, y, shopPanelRect) : false;
 }
 
-// Touch tap-vs-drag: a drag drives the move joystick (input.ts); a quick stationary tap on the
-// world casts the selected ability toward the tapped point. HUD/bag/slot taps are handled here.
+// Touch: a quick stationary tap on the world walks there (or selects a tapped mob), mirroring a
+// desktop left-click. HUD/bag/slot taps are handled here; a tap on a hotbar slot casts that spell.
 const TAP_MAX_MOVE = 18; // px of travel still counted as a tap, not a drag
 const TAP_MAX_MS = 260;
 let touchStart: { x: number; y: number; t: number } | null = null;
@@ -417,11 +466,13 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
-    selected = slot.ability;
-    castAbility(slot.ability);
+    if (slot.ability) {
+      selected = slot.ability;
+      castAbility(slot.ability);
+    }
     return;
   }
-  // A world touch: remember it so pointerup can tell a tap (attack) from a drag (move).
+  // A world touch: remember it so pointerup can tell a tap (move/select) from a drag.
   touchStart = { x: e.clientX, y: e.clientY, t: performance.now() };
 });
 
@@ -431,11 +482,7 @@ gameCanvas.addEventListener('pointerup', (e) => {
   const heldMs = performance.now() - touchStart.t;
   touchStart = null;
   if (moved <= TAP_MAX_MOVE && heldMs <= TAP_MAX_MS) {
-    // Aim from the player (always screen-center, camera follows) toward the tapped point.
-    castAbility(selected, {
-      dx: e.clientX - window.innerWidth / 2,
-      dy: e.clientY - window.innerHeight / 2,
-    });
+    worldClick(e.clientX, e.clientY);
   }
 });
 
@@ -490,14 +537,145 @@ function castAbility(abilityId: AbilityId, aimOverride?: { dx: number; dy: numbe
   const aim = aimOverride ?? computeAim();
   net.sendCast(abilityId, aim.dx, aim.dy);
   cooldownEnd[abilityId] = performance.now() + ability.cooldownMs;
+  // Casting an offensive ability counts as "in combat" (locks hotbar remapping). Heals don't.
+  if (ability.kind !== 'heal') lastCombatT = performance.now();
 }
 
+// Spells auto-aim at the selected target (no manual aiming): the chosen mob, else the nearest
+// mob, else straight ahead. Returns a direction vector from the player.
 function computeAim(): { dx: number; dy: number } {
   if (!self) return { dx: 1, dy: 0 };
-  if (hasMouse) return { dx: mouseX - window.innerWidth / 2, dy: mouseY - window.innerHeight / 2 };
-  const mob = nearestMob();
-  if (mob) return { dx: mob.x - self.x, dy: mob.y - self.y };
+  const t = targetMob() ?? nearestMob();
+  if (t) return { dx: t.x - self.x, dy: t.y - self.y };
   return { dx: Math.cos(self.facing), dy: Math.sin(self.facing) };
+}
+
+/** The currently selected mob entity, or undefined (clears a stale target id as a side effect). */
+function targetMob(): EntityState | undefined {
+  if (targetId === null) return undefined;
+  const m = entities.find((e) => e.id === targetId && e.kind === 'mob');
+  if (!m) {
+    targetId = null;
+    return undefined;
+  }
+  return m;
+}
+
+/** Pick the mob nearest a world-space point, within a generous slop radius, or undefined. */
+function pickMob(wx: number, wy: number): EntityState | undefined {
+  let best: EntityState | undefined;
+  let bestD = PICK_RADIUS + MOB_RADIUS;
+  for (const e of entities) {
+    if (e.kind !== 'mob') continue;
+    const d = Math.hypot(e.x - wx, e.y - wy);
+    if (d < bestD) {
+      best = e;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/** A left-click / tap on the world: select a mob under the cursor, else walk to the point. */
+function worldClick(screenX: number, screenY: number): void {
+  if (net.you.dead) return;
+  const w = renderer.screenToWorld(screenX, screenY);
+  const mob = pickMob(w.x, w.y);
+  if (mob) {
+    targetId = mob.id; // select + chase (moveSample steers toward it, auto-attack engages)
+  } else {
+    targetId = null;
+    moveTarget = { x: w.x, y: w.y };
+  }
+}
+
+const DIR_THRESHOLD = Math.cos((Math.PI * 3) / 8); // cos(67.5°): clean 8-way sectors
+
+/** Quantize a heading (radians) into the boolean 8-direction InputState the server understands. */
+function dirToInput(angle: number): InputState {
+  const cx = Math.cos(angle);
+  const cy = Math.sin(angle);
+  return {
+    right: cx > DIR_THRESHOLD,
+    left: cx < -DIR_THRESHOLD,
+    down: cy > DIR_THRESHOLD,
+    up: cy < -DIR_THRESHOLD,
+  };
+}
+
+/**
+ * Synthesize this tick's movement from the click-to-move target: chase the selected mob (stopping
+ * just inside melee reach) or walk toward a ground point (stopping on arrival). Idle otherwise.
+ */
+function moveSample(): InputState {
+  const idle: InputState = { up: false, down: false, left: false, right: false };
+  if (net.you.dead) {
+    moveTarget = null;
+    return idle;
+  }
+  const px = predictor.ready ? predictor.x : net.you.x;
+  const py = predictor.ready ? predictor.y : net.you.y;
+  const mob = targetMob();
+  let tx: number;
+  let ty: number;
+  let stop: number;
+  if (mob) {
+    tx = mob.x;
+    ty = mob.y;
+    stop = (net.content.ability('slash')?.range ?? 78) * 0.8; // stop just inside reach
+  } else if (moveTarget) {
+    tx = moveTarget.x;
+    ty = moveTarget.y;
+    stop = MOVE_STOP_RADIUS;
+  } else {
+    return idle;
+  }
+  const dx = tx - px;
+  const dy = ty - py;
+  if (Math.hypot(dx, dy) <= stop) {
+    if (!mob) moveTarget = null; // arrived at a ground point — stop walking
+    return idle;
+  }
+  return dirToInput(Math.atan2(dy, dx));
+}
+
+// --- Hotbar helpers -------------------------------------------------------------------
+/** Hotbar remapping is locked for a few seconds after dealing or taking damage. */
+function inCombat(): boolean {
+  return performance.now() - lastCombatT < COMBAT_LOCK_MS;
+}
+
+/** Learned ability ids, in canonical order. */
+function knownAbilityIds(): AbilityId[] {
+  return net.content.abilityOrder().filter((id) => id in net.you.known);
+}
+
+/** Drop unknown spells from the bar and auto-fill empty slots with newly-learned spells. */
+function syncHotbar(): void {
+  const known = new Set(knownAbilityIds());
+  for (let i = 0; i < hotbar.length; i++) {
+    const id = hotbar[i];
+    if (id && !known.has(id)) hotbar[i] = null;
+  }
+  for (const id of knownAbilityIds()) {
+    if (hotbar.includes(id)) continue;
+    const empty = hotbar.indexOf(null);
+    if (empty === -1) break;
+    hotbar[empty] = id;
+  }
+}
+
+/** Cycle a hotbar slot to the next/prev known spell (skipping ones already on other slots). */
+function cycleSlot(i: number, dir: number): void {
+  if (inCombat()) return; // can't re-plan your rotation mid-fight
+  const used = new Set(hotbar.filter((a, j) => a && j !== i));
+  const cur = hotbar[i];
+  const list = knownAbilityIds().filter((a) => !used.has(a));
+  if (cur && !list.includes(cur)) list.unshift(cur);
+  if (list.length === 0) return;
+  const idx = cur ? list.indexOf(cur) : -1;
+  const n = list.length;
+  hotbar[i] = list[(((idx + dir) % n) + n) % n] ?? null;
 }
 
 function nearestMob(): EntityState | undefined {
@@ -518,7 +696,6 @@ function nearestMob(): EntityState | undefined {
 // --- Chat input wiring ----------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && document.activeElement !== chatInputEl) {
-    input.clearKeys();
     chatInputEl.focus();
     e.preventDefault();
   }
@@ -526,7 +703,6 @@ window.addEventListener('keydown', (e) => {
 // Focusing chat marks it active: the log becomes interactive (scrollbar + wheel) on any device,
 // and the wheel listener below routes scrolling to it.
 chatInputEl.addEventListener('focus', () => {
-  input.clearKeys();
   chatEl.classList.add('chat-active');
 });
 chatInputEl.addEventListener('blur', () => chatEl.classList.remove('chat-active'));
@@ -607,6 +783,11 @@ function frame(): void {
   const now = performance.now();
   entities = net.snapshots.sample(now - INTERP_DELAY_MS);
   self = entities.find((e) => e.id === net.selfId);
+
+  // Taking damage (hp dropped) enters combat, which locks hotbar remapping for a few seconds.
+  if (lastKnownHp > 0 && net.you.hp < lastKnownHp) lastCombatT = now;
+  lastKnownHp = net.you.hp;
+
   let camX = self ? self.x : 0;
   let camY = self ? self.y : 0;
 
@@ -1045,14 +1226,15 @@ function drawHud(): void {
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
 
-  const slot = 48;
+  syncHotbar();
+  const slot = 52;
   const gap = 10;
-  const order = net.content.abilityOrder();
-  const count = order.length;
+  const count = HOTBAR_SIZE;
   const panelW = count * slot + (count - 1) * gap;
   const panelX = w / 2 - panelW / 2;
-  const slotsY = h - 60;
+  const slotsY = h - 64;
   const now = performance.now();
+  const locked = inCombat();
 
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'left';
@@ -1076,40 +1258,34 @@ function drawHud(): void {
   );
 
   slotRects.length = 0;
-  order.forEach((id, i) => {
-    const ability = net.content.ability(id);
-    if (!ability) return;
+  for (let i = 0; i < count; i++) {
+    const id = hotbar[i] ?? null;
     const x = panelX + i * (slot + gap);
-    const rank = net.you.known[id]; // undefined = not yet learned
-    const learned = rank !== undefined;
-    // Only learned spells are click-to-cast targets; locked slots show how to get them.
-    if (learned) slotRects.push({ ability: id, x, y: slotsY, w: slot, h: slot });
+    // Every slot (even empty) is a click/scroll target so it can be remapped.
+    slotRects.push({ slot: i, ability: id, x, y: slotsY, w: slot, h: slot });
+    const ability = id ? net.content.ability(id) : undefined;
 
     hud.fillStyle = 'rgba(0,0,0,0.55)';
     hud.fillRect(x, slotsY, slot, slot);
-    hud.globalAlpha = !learned ? 0.18 : net.you.mana < ability.manaCost ? 0.3 : 0.85;
-    hud.fillStyle = ability.color;
-    hud.fillRect(x + 4, slotsY + 4, slot - 8, slot - 8);
-    hud.globalAlpha = 1;
 
-    if (learned) {
+    if (ability && id) {
+      const rank = net.you.known[id] ?? 1;
+      hud.globalAlpha = net.you.mana < ability.manaCost ? 0.3 : 0.9;
+      hud.fillStyle = ability.color;
+      hud.fillRect(x + 4, slotsY + 4, slot - 8, slot - 8);
+      hud.globalAlpha = 1;
+
       const remaining = (cooldownEnd[id] ?? 0) - now;
       if (remaining > 0) {
         const frac = Math.min(1, remaining / ability.cooldownMs);
         hud.fillStyle = 'rgba(0,0,0,0.6)';
         hud.fillRect(x, slotsY + slot * (1 - frac), slot, slot * frac);
       }
-    }
 
-    hud.strokeStyle = selected === id && learned ? '#c9a24b' : 'rgba(255,255,255,0.25)';
-    hud.lineWidth = selected === id && learned ? 3 : 1;
-    hud.strokeRect(x, slotsY, slot, slot);
-
-    if (learned) {
       hud.fillStyle = '#fff';
       hud.font = 'bold 12px system-ui, sans-serif';
       hud.textAlign = 'left';
-      hud.fillText(ability.key, x + 4, slotsY + 14);
+      hud.fillText(String(i + 1), x + 4, slotsY + 14);
       // Rank pips for a ranked-up spell (the Diablo 1 duplicate-tome reward).
       if (rank > 1) {
         hud.fillStyle = '#f2c14e';
@@ -1120,24 +1296,35 @@ function drawHud(): void {
       hud.textAlign = 'center';
       hud.font = '10px system-ui, sans-serif';
       hud.fillStyle = '#fff';
-      hud.fillText(ability.name, x + slot / 2, slotsY + slot - 5);
+      hud.fillText(fitText(ability.name, slot - 6), x + slot / 2, slotsY + slot - 6);
     } else {
-      // Locked: a padlock glyph + the spell name dimmed, so the slot reads as "find this book".
-      hud.fillStyle = '#9aa3b2';
-      hud.font = 'bold 16px system-ui, sans-serif';
-      hud.textAlign = 'center';
-      hud.fillText('🔒', x + slot / 2, slotsY + slot / 2 + 2);
-      hud.font = '10px system-ui, sans-serif';
+      // Empty slot: a "+" invites remapping a known spell into it (shift+scroll / shift+click).
       hud.fillStyle = '#6b7280';
-      hud.fillText(ability.name, x + slot / 2, slotsY + slot - 5);
+      hud.font = 'bold 12px system-ui, sans-serif';
+      hud.textAlign = 'left';
+      hud.fillText(String(i + 1), x + 4, slotsY + 14);
+      hud.textAlign = 'center';
+      hud.font = '18px system-ui, sans-serif';
+      hud.fillText('+', x + slot / 2, slotsY + slot / 2 + 6);
     }
-  });
 
-  input.hudRect = { x: panelX - 6, y: h - 108, w: panelW + 12, h: 104 };
+    hud.strokeStyle = id && selected === id ? '#c9a24b' : 'rgba(255,255,255,0.25)';
+    hud.lineWidth = id && selected === id ? 3 : 1;
+    hud.strokeRect(x, slotsY, slot, slot);
+  }
+
+  // Combat-lock / remap hint under the bar.
+  hud.font = '10px system-ui, sans-serif';
+  hud.textAlign = 'center';
+  hud.fillStyle = locked ? 'rgba(220,90,90,0.9)' : 'rgba(201,162,75,0.7)';
+  hud.fillText(
+    locked ? '⚔ In combat — hotbar locked' : '⇧ scroll or ⇧ click a slot to swap spells',
+    w / 2,
+    slotsY + slot + 13,
+  );
 
   drawMinimap(w);
   drawInventory(w);
-  drawJoystick();
 
   const npc = nearbyNpc();
   if (npc && !net.you.dead && !net.shop && !net.gamble && !net.artificer) {
@@ -1223,23 +1410,6 @@ function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean }
 }
 
 const MINIMAP_SIZE = 160;
-
-/** Draw the touch move-joystick where the player is dragging (input.ts computes the geometry). */
-function drawJoystick(): void {
-  const j = input.joystick;
-  if (!j.active) return;
-  hud.save();
-  hud.lineWidth = 2;
-  hud.strokeStyle = 'rgba(201,162,75,0.55)';
-  hud.beginPath();
-  hud.arc(j.baseX, j.baseY, 60, 0, Math.PI * 2);
-  hud.stroke();
-  hud.fillStyle = 'rgba(201,162,75,0.45)';
-  hud.beginPath();
-  hud.arc(j.knobX, j.knobY, 22, 0, Math.PI * 2);
-  hud.fill();
-  hud.restore();
-}
 
 function drawMinimap(w: number): void {
   const size = MINIMAP_SIZE;
