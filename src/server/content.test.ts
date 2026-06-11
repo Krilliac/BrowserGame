@@ -11,7 +11,17 @@ describe('content (SQLite-backed)', () => {
         .map((a) => a.id)
         .sort(),
     ).toEqual(['crypt', 'frostpeak', 'marsh', 'mines', 'town', 'wilderness']);
-    expect(c.abilityOrder()).toEqual(['slash', 'fireball', 'arrow', 'frost', 'heal', 'lightning']);
+    expect(c.abilityOrder()).toEqual([
+      'slash',
+      'fireball',
+      'arrow',
+      'frost',
+      'heal',
+      'lightning',
+      'cleave',
+      'venom',
+      'meteor',
+    ]);
     expect(c.area('town')?.name).toBe('Aldermere');
     expect(c.area('town')?.portals.length).toBeGreaterThan(0);
     expect(c.mobTemplate('wolf')?.hp).toBe(45);

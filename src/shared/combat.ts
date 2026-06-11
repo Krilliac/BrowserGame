@@ -9,7 +9,16 @@
 
 export type EntityKind = 'player' | 'mob' | 'projectile' | 'item' | 'npc';
 
-export type AbilityId = 'slash' | 'fireball' | 'arrow' | 'frost' | 'heal' | 'lightning';
+export type AbilityId =
+  | 'slash'
+  | 'fireball'
+  | 'arrow'
+  | 'frost'
+  | 'heal'
+  | 'lightning'
+  | 'cleave'
+  | 'venom'
+  | 'meteor';
 
 export type AbilityKind = 'melee' | 'projectile' | 'heal';
 
@@ -117,6 +126,50 @@ export const ABILITIES: Record<AbilityId, Ability> = {
     projectileTtlMs: 900,
     radius: 8,
   },
+  // A heavy sweeping melee — wide arc, big hit, slow swing. The two-hander fantasy.
+  cleave: {
+    id: 'cleave',
+    name: 'Cleave',
+    key: '7',
+    kind: 'melee',
+    damage: 24,
+    range: 92,
+    cooldownMs: 1000,
+    manaCost: 8,
+    color: '#e0a060',
+    meleeHalfAngle: 1.3,
+    radius: 92,
+  },
+  // A venom bolt that poisons (slows) on hit — control + chip damage.
+  venom: {
+    id: 'venom',
+    name: 'Venom Bolt',
+    key: '8',
+    kind: 'projectile',
+    damage: 18,
+    range: 440,
+    cooldownMs: 950,
+    manaCost: 14,
+    color: '#9fd86a',
+    projectileSpeed: 340,
+    projectileTtlMs: 1300,
+    radius: 9,
+  },
+  // The big nuke: slow, expensive, hits hard and sets the target ablaze.
+  meteor: {
+    id: 'meteor',
+    name: 'Meteor',
+    key: '9',
+    kind: 'projectile',
+    damage: 44,
+    range: 520,
+    cooldownMs: 1800,
+    manaCost: 34,
+    color: '#ff5a2a',
+    projectileSpeed: 300,
+    projectileTtlMs: 1500,
+    radius: 14,
+  },
 };
 
 export const ABILITY_ORDER: AbilityId[] = [
@@ -126,6 +179,9 @@ export const ABILITY_ORDER: AbilityId[] = [
   'frost',
   'heal',
   'lightning',
+  'cleave',
+  'venom',
+  'meteor',
 ];
 
 /**

@@ -1830,10 +1830,12 @@ function rollAbilityDamage(
   return half + rollDamage(baseDamage - half);
 }
 
-/** Map an ability's on-hit effect onto a monster: Frostbolt slows, Fireball burns. */
+/** Map an ability's on-hit effect onto a monster: Frost/Venom slow, Fireball/Meteor burn. */
 function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
   if (abilityId === 'frost') mob.statuses.apply('slow', 1500, 0.4);
+  else if (abilityId === 'venom') mob.statuses.apply('slow', 2200, 0.3);
   else if (abilityId === 'fireball') mob.statuses.apply('burn', 2000, 8);
+  else if (abilityId === 'meteor') mob.statuses.apply('burn', 2600, 14);
 }
 
 function sanitizeName(name: string): string {

@@ -34,6 +34,9 @@ const SPELLBOOKS: Record<string, { name: string; color: string; teaches: string;
   tome_frost: { name: 'Tome of Frost', color: '#7fd4ff', teaches: 'frost', sell: 120 },
   tome_heal: { name: 'Tome of Mending', color: '#7cfc7c', teaches: 'heal', sell: 60 },
   tome_lightning: { name: 'Tome of Storms', color: '#b388ff', teaches: 'lightning', sell: 280 },
+  tome_cleave: { name: 'Tome of the Reaver', color: '#e0a060', teaches: 'cleave', sell: 160 },
+  tome_venom: { name: 'Tome of Venom', color: '#9fd86a', teaches: 'venom', sell: 200 },
+  tome_meteor: { name: 'Tome of Cataclysm', color: '#ff5a2a', teaches: 'meteor', sell: 360 },
 };
 
 /** The town Merchant's shelf: the deterministic acquisition path (drops are the exciting one). */
@@ -47,6 +50,9 @@ const MERCHANT_STOCK: { item: string; price: number }[] = [
   { item: 'leather_armor', price: 55 },
   { item: 'iron_sword', price: 90 },
   { item: 'iron_helm', price: 70 },
+  { item: 'tome_cleave', price: 400 },
+  { item: 'tome_venom', price: 500 },
+  { item: 'tome_meteor', price: 900 },
 ];
 
 /** Equipment a slain monster can drop, by tier, with the group trigger chance. */
@@ -99,13 +105,46 @@ function ensureSpellbookContent(db: Database): void {
   for (const [id, b] of Object.entries(SPELLBOOKS)) {
     insItem.run(id, b.name, 'spellbook', null, null, null, b.color, b.sell, b.teaches);
   }
-  const stocked = db.prepare('SELECT COUNT(*) AS n FROM vendor_stock').get() as { n: number };
-  if (stocked.n === 0) {
-    const ins = db.prepare(
-      'INSERT INTO vendor_stock (area_id,npc_name,item_id,price,sort_order) VALUES (?,?,?,?,?)',
+  // New abilities (and their tomes) reach an already-seeded DB here: insert each ability row only if
+  // missing, so the content packet exposes new spells without a wipe.
+  const abilityHas = db.prepare('SELECT 1 FROM abilities WHERE id = ?');
+  const abilityIns = db.prepare(
+    `INSERT INTO abilities
+       (id,name,key,kind,damage,range,cooldown_ms,mana_cost,color,melee_half_angle,projectile_speed,projectile_ttl_ms,radius,sort_order)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  ABILITY_ORDER.forEach((id, i) => {
+    if (abilityHas.get(id)) return;
+    const a = ABILITIES[id];
+    abilityIns.run(
+      a.id,
+      a.name,
+      a.key,
+      a.kind,
+      a.damage,
+      a.range,
+      a.cooldownMs,
+      a.manaCost,
+      a.color,
+      a.meleeHalfAngle ?? null,
+      a.projectileSpeed ?? null,
+      a.projectileTtlMs ?? null,
+      a.radius,
+      i,
     );
-    MERCHANT_STOCK.forEach((s, i) => ins.run('town', 'Merchant', s.item, s.price, i));
-  }
+  });
+
+  // Merchant shelf: insert each item only if that (Merchant, item) line isn't already present, so
+  // new tomes appear on the shelf for existing servers too.
+  const stockHas = db.prepare(
+    "SELECT 1 FROM vendor_stock WHERE area_id = 'town' AND npc_name = 'Merchant' AND item_id = ?",
+  );
+  const stockIns = db.prepare(
+    'INSERT INTO vendor_stock (area_id,npc_name,item_id,price,sort_order) VALUES (?,?,?,?,?)',
+  );
+  MERCHANT_STOCK.forEach((s, i) => {
+    if (!stockHas.get(s.item)) stockIns.run('town', 'Merchant', s.item, s.price, i);
+  });
   // The guaranteed third spell ~15 minutes in, and quest gold at ~12× the area's per-kill EV.
   db.prepare(
     "UPDATE quests SET reward_item = 'tome_heal' WHERE id = 'wolf_cull' AND reward_item IS NULL",
