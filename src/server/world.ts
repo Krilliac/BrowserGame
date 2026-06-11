@@ -1728,6 +1728,7 @@ export class World {
     player.x = this.spawnPoint.x;
     player.y = this.spawnPoint.y;
     player.cooldowns.clear();
+    player.buffs.clear(); // don't carry a War Cry / Sprint / Renew through death
   }
 
   private respawnMob(mob: Mob): void {
