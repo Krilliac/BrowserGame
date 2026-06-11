@@ -257,6 +257,10 @@ window.addEventListener('keydown', (e) => {
     waypointOpen = !waypointOpen; // toggle the waypoint / fast-travel map
   } else if (e.key.toLowerCase() === 'i') {
     inventoryOpen = !inventoryOpen; // toggle the full inventory
+  } else if (e.key === '=' || e.key === '+') {
+    renderer.adjustZoom(0.1); // zoom the camera in (RS/Diablo-style)
+  } else if (e.key === '-' || e.key === '_') {
+    renderer.adjustZoom(-0.1); // zoom the camera out
   }
 });
 

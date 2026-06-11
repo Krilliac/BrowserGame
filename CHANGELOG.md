@@ -27,6 +27,8 @@ versioning once it stabilizes.
   view *follows* like RuneScape/Diablo (large jumps through portals still snap). The world plane is
   raked a little more (a lower foreshorten) so the ground reads as more 3D and less straight-down.
   The smoothed camera drives both drawing and click-to-move picking, so targeting stays aligned.
+  Added **camera zoom** (`=`/`-`), defaulting a touch zoomed-in for a more intimate framing — the
+  zoom feeds the projection and click-picking so everything stays aligned at any level.
 - **Controls — click-to-move + targeting + remappable hotbar (ARPG redesign).** Movement is now
   **click-to-move only** (WASD and the touch joystick are gone): left-click the ground to walk
   there, left-click a monster to **select + chase** it. A selected monster is **auto-attacked**

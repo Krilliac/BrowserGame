@@ -262,6 +262,7 @@ export class PixiRenderer {
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
+  private zoom = 1.15; // camera zoom (player-adjustable); >1 = closer, a more intimate D3 framing
   private camX = 0; // last camera world-x (screen center), for screen->world picking
   private camY = 0; // last camera world-y, for per-actor faux-perspective depth scaling
   private fadeAlpha = 0; // area-change fade-from-black, eases 1 -> 0 on arrival
@@ -329,10 +330,22 @@ export class PixiRenderer {
   screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
     const sw = this.app.screen.width;
     const sh = this.app.screen.height;
+    const z = this.zoom;
     return {
-      x: this.camX + (screenX - sw / 2),
-      y: this.camY + (screenY - sh * CAM_DOLLY_Y) / PITCH,
+      x: this.camX + (screenX - sw / 2) / z,
+      y: this.camY + (screenY - sh * CAM_DOLLY_Y) / (PITCH * z),
     };
+  }
+
+  /** Zoom range, clamped — keeps the framing sane and click-picking aligned. */
+  setZoom(z: number): void {
+    this.zoom = Math.max(0.75, Math.min(1.6, z));
+  }
+  adjustZoom(delta: number): void {
+    this.setZoom(this.zoom + delta);
+  }
+  getZoom(): number {
+    return this.zoom;
   }
 
   setArea(areaId: string): void {
@@ -430,14 +443,17 @@ export class PixiRenderer {
       this.camX += dxc * k;
       this.camY += dyc * k;
     }
-    // this.camX/camY (the smoothed camera) drive both the draw origin and screen->world picking, so
-    // click-to-move stays aligned with what's on screen even as the camera eases.
-    const originX = sw / 2 - this.camX + shX;
-    const originY = sh * CAM_DOLLY_Y - this.camY * PITCH + shY;
+    // this.camX/camY (the smoothed camera) and zoom drive both the draw origin and screen->world
+    // picking, so click-to-move stays aligned with what's on screen even as the camera eases/zooms.
+    const z = this.zoom;
+    const originX = sw / 2 - this.camX * z + shX;
+    const originY = sh * CAM_DOLLY_Y - this.camY * PITCH * z + shY;
     this.world.position.set(originX, originY);
+    this.world.scale.set(z);
     this.ground.width = sw;
     this.ground.height = sh;
     this.ground.tilePosition.set(originX, originY);
+    this.ground.tileScale.set(z);
 
     this.atmosphere.update(now, sw, sh, state.corruption ?? 0);
     this.weather.update(now, sw, sh);
@@ -454,8 +470,8 @@ export class PixiRenderer {
     ];
     for (const p of this.portalCenters) {
       lights.push({
-        x: p.x + originX,
-        y: p.y * PITCH + originY,
+        x: p.x * z + originX,
+        y: p.y * PITCH * z + originY,
         radius: PORTAL_LIGHT.radius,
         color: PORTAL_LIGHT.color,
       });
