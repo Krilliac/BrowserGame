@@ -2,7 +2,7 @@ import { Application } from 'pixi.js';
 import { isPinnedToBottom } from './chat.js';
 import {
   affixLabel,
-  instanceName,
+  instanceTitle,
   isDebuff,
   RARITY,
   type Affix,
@@ -1210,7 +1210,7 @@ function rarityColor(rarity: string): string {
 
 /** Rarity-prefixed display name for a gear instance (e.g. "Rare Iron Sword"). */
 function instLabel(inst: ItemInstance): string {
-  return instanceName(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
+  return instanceTitle(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
 }
 
 /** Stat segments for a gear instance: base stat(s) then affixes, flagging debuffs for red text. */

@@ -57,10 +57,10 @@ const MERCHANT_STOCK: { item: string; price: number }[] = [
 
 /** Equipment a slain monster can drop, by tier, with the group trigger chance. */
 const GEAR_DROPS: Record<string, { chance: number; items: string[] }> = {
-  wolf: { chance: 0.15, items: ['rusty_sword', 'leather_armor'] },
-  bat: { chance: 0.15, items: ['rusty_sword', 'leather_armor'] },
-  skeleton: { chance: 0.15, items: ['iron_sword', 'iron_armor'] },
-  crypt_lord: { chance: 0.3, items: ['iron_sword', 'iron_armor'] },
+  wolf: { chance: 0.3, items: ['rusty_sword', 'leather_armor'] },
+  bat: { chance: 0.3, items: ['rusty_sword', 'leather_armor'] },
+  skeleton: { chance: 0.3, items: ['iron_sword', 'iron_armor'] },
+  crypt_lord: { chance: 0.5, items: ['iron_sword', 'iron_armor'] },
   // Marsh drops steel; the Fenwitch is a near-guaranteed upgrade source.
   bog_shambler: { chance: 0.18, items: ['steel_sword', 'steel_armor', 'steel_helm'] },
   fen_strangler: { chance: 0.2, items: ['steel_sword', 'steel_armor', 'tower_shield'] },
@@ -152,6 +152,9 @@ function ensureSpellbookContent(db: Database): void {
   db.prepare(
     "UPDATE quests SET reward_gold = 150 WHERE id = 'wolf_cull' AND reward_gold = 50",
   ).run();
+  // Gear (and thus affixed/named items) should drop often enough to feel like loot — bump any
+  // stingy early gear chance up to 0.3 for already-seeded DBs. Idempotent (only raises, never loops).
+  db.prepare("UPDATE loot_entry SET chance = 0.3 WHERE grp = 'gear' AND chance < 0.3").run();
 
   // Gems are content items (kind 'gem') so the client gets their name + color via the content
   // packet. Their stats/socket logic live in shared/gems.ts; here we just register them as items.

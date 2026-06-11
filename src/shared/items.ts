@@ -36,11 +36,13 @@ export interface RarityDef {
 }
 
 export const RARITY: Record<Rarity, RarityDef> = {
-  common: { name: 'Common', weight: 1000, statMult: 1.0, variance: 0.1, color: '#c9c9c9' },
-  magic: { name: 'Magic', weight: 430, statMult: 1.35, variance: 0.12, color: '#6ea8ff' },
-  rare: { name: 'Rare', weight: 150, statMult: 1.8, variance: 0.15, color: '#ffd24a' },
-  epic: { name: 'Epic', weight: 38, statMult: 2.4, variance: 0.18, color: '#c06bff' },
-  legendary: { name: 'Legendary', weight: 7, statMult: 3.2, variance: 0.22, color: '#ff7a1a' },
+  // Weights tuned so a clear majority of gear rolls magic-or-better (an affix-bearing item) — the
+  // "loot = your build" identity wants modifiers to feel common, not rare.
+  common: { name: 'Common', weight: 560, statMult: 1.0, variance: 0.1, color: '#c9c9c9' },
+  magic: { name: 'Magic', weight: 480, statMult: 1.35, variance: 0.12, color: '#6ea8ff' },
+  rare: { name: 'Rare', weight: 190, statMult: 1.8, variance: 0.15, color: '#ffd24a' },
+  epic: { name: 'Epic', weight: 52, statMult: 2.4, variance: 0.18, color: '#c06bff' },
+  legendary: { name: 'Legendary', weight: 11, statMult: 3.2, variance: 0.22, color: '#ff7a1a' },
   // Never weighted-rolled (weight 0); only born from corruption. The strongest base stats of all.
   corrupted: { name: 'Corrupted', weight: 0, statMult: 3.9, variance: 0.25, color: '#ff2d6f' },
 };
@@ -172,6 +174,82 @@ export function affixLabel(a: Affix): string {
     default:
       return `+${a.value} ${a.stat}`;
   }
+}
+
+// --- Diablo-style affix names ---------------------------------------------------------
+// Each affix gets an evocative name that flows into the item title: prefixes go before the base
+// ("Savage Iron Sword"), suffixes after ("... of the Boar"), tiered by magnitude. The numbers still
+// show on the stat line; this is the flavor layer that makes a magic drop read like a named item.
+
+interface AffixName {
+  /** Where it sits in the title. */
+  kind: 'prefix' | 'suffix';
+  /** Ascending value thresholds → the word/phrase used at that tier. */
+  tiers: { upTo: number; word: string }[];
+}
+
+const AFFIX_NAMES: Record<AffixStat, AffixName> = {
+  power: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Jagged' },
+      { upTo: 12, word: 'Savage' },
+      { upTo: 20, word: 'Cruel' },
+      { upTo: Infinity, word: 'Merciless' },
+    ],
+  },
+  crit: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Keen' },
+      { upTo: 12, word: 'Deadly' },
+      { upTo: Infinity, word: 'Vicious' },
+    ],
+  },
+  multishot: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 1, word: 'Forking' },
+      { upTo: Infinity, word: 'Splitting' },
+    ],
+  },
+  hp: {
+    kind: 'suffix',
+    tiers: [
+      { upTo: 20, word: 'of the Fox' },
+      { upTo: 40, word: 'of the Boar' },
+      { upTo: 60, word: 'of the Bear' },
+      { upTo: Infinity, word: 'of the Colossus' },
+    ],
+  },
+  frail: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Frailty' }] },
+  fragile: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Brittleness' }] },
+};
+
+/** The evocative name + placement for one affix (e.g. {kind:'suffix', word:'of the Boar'}). */
+export function affixName(a: Affix): { kind: 'prefix' | 'suffix'; word: string } {
+  const def = AFFIX_NAMES[a.stat];
+  const tier = def.tiers.find((t) => a.value <= t.upTo) ?? def.tiers[def.tiers.length - 1]!;
+  return { kind: def.kind, word: tier.word };
+}
+
+/**
+ * The Diablo-style item title composed from its affixes: prefix words, the base name, then suffix
+ * phrases — e.g. "Savage Keen Iron Sword of the Boar". A plain (affix-less) item is just its base
+ * name; rarity is conveyed by color, not a "Magic/Rare" word.
+ */
+export function instanceTitle(inst: ItemInstance, baseName: string): string {
+  const affixes = inst.affixes ?? [];
+  if (affixes.length === 0) return baseName;
+  const prefixes: string[] = [];
+  const suffixes: string[] = [];
+  for (const a of affixes) {
+    const n = affixName(a);
+    (n.kind === 'prefix' ? prefixes : suffixes).push(n.word);
+  }
+  const head = prefixes.length ? `${prefixes.join(' ')} ` : '';
+  const tail = suffixes.length ? ` ${suffixes.join(' ')}` : '';
+  return `${head}${baseName}${tail}`;
 }
 
 const CORRUPT_BUFFS: AffixStat[] = ['power', 'crit', 'multishot'];
