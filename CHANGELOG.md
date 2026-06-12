@@ -8,6 +8,11 @@ versioning once it stabilizes.
 
 ### Fixed
 
+- **NaN-injection via cast aim (security).** A hostile client could send non-finite `dx`/`dy` in a
+  `cast` and poison the caster's facing + spawn a NaN-position projectile broadcast to every
+  player. The aim is now sanitized at the simulation boundary. (Found by the invariant soak.)
+- **Out-of-bounds mob spawns.** `spawnMobAt` now clamps its spawn scatter to the world, like every
+  other spawn path. (Also found by the invariant soak.)
 - **Movement rubber-banding (now fixed properly, predictor-aware).** Player move speed scaled by
   weather, +move affixes/gems, the Haste buff, and enemy Slow debuff — but the client predictor
   integrated raw `PLAYER_SPEED`, so any of those (especially the now-common monster Slow) made the
@@ -25,6 +30,11 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **Mob HP scales with level.** Player attack power climbs fast (gear + strength + skill nodes),
+  so without this a mid-level monster died in one hit and the danger evaporated. Mob HP now grows
+  ×(1 + 0.05 × level) — early mobs barely change, but L18 mobs are ~1.9× tankier and the L40+ apex
+  bosses ~3×, so same-level fights take real exchanges and the grind lengthens. (Calibrated
+  against the new offline pacing simulator, which flagged the one-shot-by-L8 problem.)
 - **Engine-mining adoption pass (wasmbots · stage.js · Excalibur · hex-engine).** Every
   vendorable pattern from the four-repo research sweep, in one slice:
   - **Combat feel:** overlapping monsters now push each other apart (no more single-pixel mob
@@ -61,6 +71,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Apex boss phases.** Nyxathor (the Abyssal Throne) and Athraxis (the Unmade God, in the Unmade
+  Court) now fight in scripted HP-gated phases layered over their brawling AI — they taunt,
+  reposition, cast big novas, and **summon their honor guard** as you wear them down, returning to
+  melee between set-pieces. (`server/boss-scripts.ts`, a tiny vendored action-queue.)
+- **Test + playtest instrumentation.** A deterministic invariant soak (`world-invariants.test.ts`
+  — hammers the sim with valid + hostile actions and asserts structural invariants throughout; it
+  caught the two bugs fixed above), an offline Act-1 pacing simulator (`tools/playtest/pacing.ts`),
+  bot record/replay for deterministic brain regression tests (`tools/bots/replay.ts`), and headless
+  playthrough + inspector smoke checks.
 - **Acts 2 and 3 — the rest of the map (8 new areas, 18 new monsters).** The Act 2 road runs
   Duskhaven → Grimfrost Barrow → the Howling Barrens → the Sunken Pass (the game's first rain
   zone), forking east to the Blighted Spire and south to **Vhalreth, the city** — Act 3's safe

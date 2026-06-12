@@ -34,12 +34,16 @@ export default tseslint.config(
     },
   },
   {
-    files: ['scripts/**/*.mjs'],
+    // Node-run headless scripts (screenshot + playtest harnesses): Node globals, plus the browser
+    // globals the Playwright `page.evaluate` callbacks reference (they run in the page context).
+    files: ['scripts/**/*.mjs', 'tools/playtest/**/*.mjs'],
     languageOptions: {
       globals: {
         process: 'readonly',
         console: 'readonly',
         setTimeout: 'readonly',
+        document: 'readonly',
+        getComputedStyle: 'readonly',
       },
     },
   },
