@@ -31,6 +31,15 @@ import {
   type AnimView,
   type ClipSet,
 } from './animation-controller.js';
+import {
+  ANIMALS_SHEET,
+  MONSTERS_SHEET,
+  ROGUES_SHEET,
+  mobSpriteCell,
+  npcSpriteCell,
+} from './rogues-sprites.js';
+import { GROUND_TILESETS, groundTilesetFor, pickTile } from './ground-tiles.js';
+import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
 
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
@@ -365,6 +374,7 @@ export class PixiRenderer {
   private lastFrameAt = performance.now();
   private readonly groundTextures = new Map<string, Texture>();
   private readonly tex = new Map<string, Texture>(); // sheets + misc
+  private readonly tileImages = new Map<string, HTMLImageElement>(); // ground tilesets, by src
   private readonly frameCache = new Map<string, Texture>();
   private softShadow?: Texture; // shared soft-ellipse shadow, baked on first actor
 
@@ -397,9 +407,18 @@ export class PixiRenderer {
 
   /** Load sprite sheets + FX/item textures. Falls back to procedural shapes on failure. */
   async loadAssets(): Promise<void> {
+    // Decor sprites are keyed by their src path (one alias per curated file).
+    const decorSrcs = new Set<string>();
+    for (const entry of Object.values(DECOR_SPRITES)) {
+      for (const d of Array.isArray(entry) ? entry : [entry]) decorSrcs.add(d.src);
+    }
     const all = {
       ...Object.fromEntries(Object.entries(SHEETS).map(([a, s]) => [a, s.src])),
       ...MISC,
+      rogues32: ROGUES_SHEET.src,
+      monsters32: MONSTERS_SHEET.src,
+      animals32: ANIMALS_SHEET.src,
+      ...Object.fromEntries([...decorSrcs].map((src) => [src, src])),
     };
     try {
       const loaded = await Assets.load(Object.entries(all).map(([alias, src]) => ({ alias, src })));
@@ -407,9 +426,30 @@ export class PixiRenderer {
         const t = (loaded as Record<string, Texture>)[alias];
         if (t) this.tex.set(alias, t);
       }
+      // The 32px sheets and decor cutouts are pixel art — keep them crisp when scaled.
+      for (const alias of ['rogues32', 'monsters32', 'animals32', ...decorSrcs]) {
+        const t = this.tex.get(alias);
+        if (t) t.source.scaleMode = 'nearest';
+      }
     } catch {
       // leave tex empty -> procedural fallback
     }
+    // Ground tilesets load as plain images: the ground texture is baked on a 2D canvas per area.
+    const tileSrcs = new Set(Object.values(GROUND_TILESETS).map((t) => t.src));
+    await Promise.all(
+      [...tileSrcs].map(
+        (src) =>
+          new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+              this.tileImages.set(src, img);
+              resolve();
+            };
+            img.onerror = () => resolve(); // missing sheet -> that biome keeps procedural ground
+            img.src = src;
+          }),
+      ),
+    );
   }
 
   /**
@@ -458,7 +498,10 @@ export class PixiRenderer {
     this.weather.setWeather(theme.weather, theme.weatherIntensity, theme.fogColor);
     this.applyGrade(theme);
     this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
-    this.ground.texture = this.groundTexture(theme.groundBase, theme.groundSpeck);
+    // Real tiled ground where a biome tileset exists; the procedural speckle is the fallback.
+    this.ground.texture =
+      this.tiledGroundTexture(areaId, theme.groundBase) ??
+      this.groundTexture(theme.groundBase, theme.groundSpeck);
 
     for (const child of this.propLayer.removeChildren()) child.destroy();
     // Roofs live in their own layer above the actors — clear them too so leaving the area never
@@ -541,6 +584,12 @@ export class PixiRenderer {
     c.position.set(ax, ay * PITCH);
     c.zIndex = ay;
     const scale = prop.scale ?? 1;
+
+    // Real decor sprites (curated pack cutouts) where one exists for the kind — the variant is
+    // picked deterministically from the prop's position, so a row of graves doesn't repeat. Kinds
+    // with no mapping (or a failed texture) keep their procedural draw below.
+    if (this.addDecorSprite(c, prop.kind, prop.x, prop.y, scale)) return c;
+
     switch (prop.kind) {
       case 'palisade':
         this.drawPalisade(c, prop.x, prop.y, prop.x2!, prop.y2!, ax, ay);
@@ -587,6 +636,36 @@ export class PixiRenderer {
         break;
     }
     return c;
+  }
+
+  /**
+   * Add a curated decor sprite (with foot shadow) for a prop kind into a container, picking a
+   * variant deterministically from the world position. Returns false when the kind has no sprite
+   * mapping or its texture isn't loaded — the caller keeps its procedural draw.
+   */
+  private addDecorSprite(
+    c: Container,
+    kind: string,
+    seedX: number,
+    seedY: number,
+    scale: number,
+  ): boolean {
+    const ds = decorSprite(kind, seedX, seedY);
+    const dtex = ds ? this.tex.get(ds.src) : undefined;
+    if (!ds || !dtex) return false;
+    const tex = ds.frame
+      ? new Texture({
+          source: dtex.source as TextureSource,
+          frame: new Rectangle(ds.frame.x, ds.frame.y, ds.frame.w, ds.frame.h),
+        })
+      : dtex;
+    const s = new Sprite(tex);
+    s.anchor.set(0.5, ds.anchorY ?? 1);
+    s.scale.set(ds.scale * scale);
+    const w = tex.width * ds.scale * scale;
+    this.propShadow(c, w * 0.5, w * 0.22);
+    c.addChild(s);
+    return true;
   }
 
   /** A soft ground shadow at the prop's foot, matching the actors' directional baked-sun look. */
@@ -1342,15 +1421,32 @@ export class PixiRenderer {
         : moving
           ? -Math.abs(Math.sin(now / 110 + phase)) * 2.5
           : Math.sin(now / 420 + phase) * 1.2;
+    } else if (view.sprite && !view.sheet) {
+      // Static one-frame sprite: mirror horizontally to face the travel direction, with the same
+      // walk/idle bob the animated actors get so it still reads as alive.
+      const moving = Math.hypot(e.x - view.lastX, e.y - view.lastY) > 0.25;
+      const left = Math.cos(e.facing) < -0.05;
+      view.sprite.scale.x = Math.abs(view.sprite.scale.x) * (left ? -1 : 1);
+      const phase = e.id * 1.7;
+      const fly = flyHeight(e);
+      view.sprite.y = fly
+        ? -fly + Math.sin(now / 300 + phase) * 2
+        : moving
+          ? -Math.abs(Math.sin(now / 110 + phase)) * 2.5
+          : Math.sin(now / 420 + phase) * 1.2;
     }
     view.lastX = e.x;
     view.lastY = e.y;
     if (view.sprite) {
       const flags = e.flags ?? 0;
       // Status/flash tints override; otherwise actors take the area's cohesive sprite tint.
+      // (The gold NPC tint only suits the shared hero sheet — distinct rogues figures keep
+      // their own palette.)
       view.sprite.tint =
         e.kind === 'npc'
-          ? 0xffd97a
+          ? view.sheet
+            ? 0xffd97a
+            : 0xffffff
           : now < view.flashUntil
             ? TINT_FLASH
             : flags & 2
@@ -1427,7 +1523,15 @@ export class PixiRenderer {
       seen: true,
     };
 
-    if (sheet && baseTex) {
+    // Static (single-frame) 32rogues sprites: NPCs prefer them (a distinct figure per role beats
+    // a shared animated hero), and mobs use them when no animated LPC sheet matches — previously
+    // those fell back to procedural orbs.
+    const staticSprite = this.staticActorSprite(e);
+    if (staticSprite && (e.kind === 'npc' || !(sheet && baseTex))) {
+      view.sprite = staticSprite;
+      view.topY = -staticSprite.height * 0.85;
+      container.addChild(staticSprite);
+    } else if (sheet && baseTex) {
       const start = resolveAnim(anim, sheet.clips, e.facing, false, performance.now());
       const sprite = new Sprite(this.frame(key!, sheet.fw, sheet.fh, start.col, start.row));
       sprite.anchor.set(0.5, 0.92);
@@ -1471,6 +1575,33 @@ export class PixiRenderer {
       container.addChild(mark);
     }
     return view;
+  }
+
+  /**
+   * A static one-frame sprite for an actor from the 32rogues sheets: every monster name maps to a
+   * creature cell (mobSpriteCell) and every service NPC kind to a townsfolk cell (npcSpriteCell).
+   * Returns undefined when no cell matches or the sheet isn't loaded (→ LPC/orb fallback).
+   */
+  private staticActorSprite(e: EntityState): Sprite | undefined {
+    let alias: string | undefined;
+    let cell: { col: number; row: number } | undefined;
+    if (e.kind === 'mob') {
+      const m = mobSpriteCell(e.name);
+      if (m) {
+        alias = m.sheet === 'animals' ? 'animals32' : 'monsters32';
+        cell = m;
+      }
+    } else if (e.kind === 'npc' && e.npcKind) {
+      cell = npcSpriteCell(e.npcKind);
+      alias = 'rogues32';
+    }
+    if (!alias || !cell || !this.tex.has(alias)) return undefined;
+    // Bosses read bigger; everyone else lands near the LPC actors' on-screen height.
+    const scale = e.kind === 'mob' && e.maxHp >= 280 ? 2.1 : 1.4;
+    const sprite = new Sprite(this.frame(alias, 32, 32, cell.col, cell.row));
+    sprite.anchor.set(0.5, 0.92);
+    sprite.scale.set(scale);
+    return sprite;
   }
 
   private frame(alias: string, fw: number, fh: number, col: number, row: number): Texture {
@@ -1872,6 +2003,8 @@ export class PixiRenderer {
     const c = new Container();
     c.position.set(x, y * PITCH);
     c.zIndex = y;
+    // Theme-density props share the curated decor sprites (trees, graves, mushrooms, crystals…).
+    if (this.addDecorSprite(c, kind, x, y, 1)) return c;
     const g = new Graphics();
     g.ellipse(0, 0, 16, 7).fill({ color: '#000000', alpha: 0.28 });
     if (kind === 'tree') {
@@ -1930,6 +2063,49 @@ export class PixiRenderer {
     ctx.restore();
     this.softShadow = Texture.from(cv);
     return this.softShadow;
+  }
+
+  /**
+   * Bake (and cache) a real tiled-ground texture for an area from its biome tileset: a 16×16-tile
+   * pattern of weight-picked floor tiles, upscaled to 32 world px per tile with crisp pixels. The
+   * TilingSprite repeats the pattern across the screen. Returns undefined (→ procedural fallback)
+   * when the area has no tileset mapping or its sheet failed to load.
+   */
+  private tiledGroundTexture(areaId: string, groundBase: string): Texture | undefined {
+    const ts = groundTilesetFor(areaId, groundBase);
+    if (!ts) return undefined;
+    const img = this.tileImages.get(ts.src);
+    if (!img) return undefined;
+    const key = `tiles:${ts.src}`;
+    const cached = this.groundTextures.get(key);
+    if (cached) return cached;
+    const TILE_WORLD = 32; // world px per tile (16px art shown 2×, 32px art native)
+    const N = 16; // pattern tiles per side — big enough that the repeat reads as natural ground
+    const cv = document.createElement('canvas');
+    cv.width = N * TILE_WORLD;
+    cv.height = N * TILE_WORLD;
+    const ctx = cv.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    for (let gy = 0; gy < N; gy++) {
+      for (let gx = 0; gx < N; gx++) {
+        const { col, row } = pickTile(ts, gx, gy);
+        ctx.drawImage(
+          img,
+          col * ts.tileSize,
+          row * ts.tileSize,
+          ts.tileSize,
+          ts.tileSize,
+          gx * TILE_WORLD,
+          gy * TILE_WORLD,
+          TILE_WORLD,
+          TILE_WORLD,
+        );
+      }
+    }
+    const tex = Texture.from(cv);
+    tex.source.scaleMode = 'nearest';
+    this.groundTextures.set(key, tex);
+    return tex;
   }
 
   /** Build (and cache) a tiled ground texture from the theme's base + speckle colors. */

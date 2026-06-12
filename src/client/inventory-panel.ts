@@ -8,6 +8,7 @@
 
 import type { ItemInstance } from '../shared/items.js';
 import { RARITY } from '../shared/items.js';
+import { drawItemIcon } from './item-icons.js';
 
 export interface InventoryButton {
   action: 'equip' | 'close';
@@ -109,15 +110,21 @@ export function drawInventoryPanel(
     hud.lineWidth = 1;
     hud.strokeRect(cx, cy, cellW, rowH - 4);
 
+    // Pixel-art item icon on the left edge; when the sheets haven't loaded yet the text simply
+    // keeps its original position (the name + colors remain the fallback identity).
+    const iconSize = rowH - 10;
+    const hasIcon = drawItemIcon(hud, inst.baseId, cx + 3, cy + 3, iconSize);
+    const textX = hasIcon ? cx + 3 + iconSize + 6 : cx + 6;
+
     // Line 1: rarity-colored name.
     hud.textAlign = 'left';
     hud.font = 'bold 12px system-ui, sans-serif';
     hud.fillStyle = RARITY[inst.rarity]?.color ?? '#cccccc';
-    hud.fillText(fit(hud, data.nameOf(inst), cellW - 12), cx + 6, cy + 13);
+    hud.fillText(fit(hud, data.nameOf(inst), cellW - (textX - cx) - 6), textX, cy + 13);
 
     // Line 2: stat segments left-to-right (debuffs red), clipped to the cell width.
     hud.font = '10px system-ui, sans-serif';
-    let sx = cx + 6;
+    let sx = textX;
     for (const seg of data.statSegments(inst)) {
       const w = hud.measureText(seg.text).width;
       if (sx - cx + w > cellW - 6) {

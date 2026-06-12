@@ -33,9 +33,8 @@
 - [x] Status effects — Frostbolt slow, Fireball burn.
 - [x] **Sprite art + audio** — LPC character/monster sprites with facing-driven animation, plus a
       sound manager (cast SFX + per-area ambient). Assets bundled in `public/assets/` (CC0-first).
-- [ ] Use the remaining sourced art: **tilemap ground** from the Kenney/OGA tiles, **item-icon
-      sprites** (coins/gems) and **spell-FX sprite strips** (fireball/arrow/frost/explosion) to
-      replace the procedural projectile/item/FX graphics.
+- [x] Use the remaining sourced art — superseded by the **curated-pack integration** below;
+      spell-FX strips and coin/gem item sprites were wired earlier.
 - [x] Spell-FX sprites (fireball/frost strips + explosion on death) and item-icon sprites
       (coin/gem) wired into the renderer with procedural fallbacks.
 - [x] Inventory panel — non-gold loot now sent in the `you` message and shown in a HUD "Bag".
@@ -110,9 +109,14 @@
       `animation-controller.ts`, driven by FxEvents); camera dolly + faux-perspective depth scale;
       atmospheric edge-fog; quality-gated bloom (`post-fx.ts`); real gold/gem loot icons. Verified via
       the screenshot harness (also fixed a Windows static-serve bug + a Pixi-v8 filters-null crash).
-- [ ] **Renderer — remaining asset upgrade**: source + atlas more monsters/tiles/FX (LPC/DCSS/Kenney),
-      a Tiled `.tmj` ground via `@pixi/tilemap`, composite LPC equipment layers — needs the asset
-      pipeline (Free Texture Packer) + human CC-BY attribution review.
+- [x] **Curated-pack asset integration** — 13 extracted packs (`public/assets/INVENTORY.md`) wired
+      in: per-biome tiled ground (`ground-tiles.ts`), a 32rogues sprite for **every** mob template +
+      distinct NPC figures (`rogues-sprites.ts`), 16 decor-sprite kinds with variants
+      (`decor-sprites.ts`), and real HUD item icons (`item-icons.ts`). Curated sprites committed
+      under `public/assets/curated/`; attribution in `public/assets/CREDITS.md`.
+- [ ] **Renderer — remaining asset upgrade**: a Tiled `.tmj` hand-authored ground via
+      `@pixi/tilemap`, composite LPC equipment layers — needs the asset pipeline (Free Texture
+      Packer) + human CC-BY attribution review.
 
 ## Research-driven adoptions (from `wiki/research/`)
 

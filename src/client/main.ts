@@ -14,6 +14,7 @@ import { drawPartyPanel, type PartyButton } from './party-panel.js';
 import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { drawHirePanel, type HireButton } from './hire-panel.js';
+import { loadItemIcons } from './item-icons.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
 import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
 import { drawStashPanel, type StashButton } from './stash-panel.js';
@@ -75,6 +76,7 @@ const name =
 const net = new Net(name);
 const renderer = new PixiRenderer(app, net.content);
 await renderer.loadAssets();
+void loadItemIcons(); // HUD item icons (bag/stash/belt) — panels fall back until loaded
 net.connect();
 
 const sound = new Sound();

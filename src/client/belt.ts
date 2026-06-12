@@ -8,6 +8,7 @@
  */
 
 import type { Rect } from '../shared/areas.js';
+import { drawItemIcon } from './item-icons.js';
 
 export interface BeltView {
   health: number;
@@ -60,14 +61,33 @@ export function drawBelt(
   belt: BeltView,
 ): void {
   const rects = beltSlotRects(viewport);
-  drawSlot(hud, rects.health, '#d23b3b', '#f08a8a', belt.health, belt.healthKey, belt.healthReady);
-  drawSlot(hud, rects.mana, '#3b6fd2', '#7fa3ec', belt.mana, belt.manaKey, belt.manaReady);
+  drawSlot(
+    hud,
+    rects.health,
+    'potion_health',
+    '#d23b3b',
+    '#f08a8a',
+    belt.health,
+    belt.healthKey,
+    belt.healthReady,
+  );
+  drawSlot(
+    hud,
+    rects.mana,
+    'potion_mana',
+    '#3b6fd2',
+    '#7fa3ec',
+    belt.mana,
+    belt.manaKey,
+    belt.manaReady,
+  );
 }
 
 /** Draw a single belt slot: panel, potion icon, count, hotkey caption, and cooldown overlay. */
 function drawSlot(
   hud: CanvasRenderingContext2D,
   rect: Rect,
+  itemId: string,
   color: string,
   highlight: string,
   count: number,
@@ -87,7 +107,11 @@ function drawSlot(
   hud.lineWidth = 1.5;
   hud.stroke();
 
-  drawFlask(hud, rect, color, highlight);
+  // Pixel-art potion icon when the sheet has loaded; the procedural flask is the fallback.
+  const pad = 7;
+  if (!drawItemIcon(hud, itemId, rect.x + pad, rect.y + pad, rect.w - pad * 2)) {
+    drawFlask(hud, rect, color, highlight);
+  }
 
   // Carried count, bold in the bottom-right corner.
   hud.fillStyle = '#e7d9b0';

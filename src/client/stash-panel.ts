@@ -8,6 +8,7 @@
 
 import type { ItemInstance } from '../shared/items.js';
 import { RARITY } from '../shared/items.js';
+import { drawItemIcon } from './item-icons.js';
 
 export interface StashButton {
   action: 'deposit' | 'withdraw' | 'close';
@@ -160,10 +161,19 @@ function drawColumn(
       col.buttons.push({ action: col.action, uid: inst.uid, x: cx, y, w: colW, h: rowH - 4 });
     }
     drawRow(hud, cx, y, colW, rowH, col.enabled);
+
+    // Pixel-art item icon on the left edge (dimmed with the row when not tappable); falls back
+    // to the original text-only row until the sheets load.
+    const iconSize = rowH - 10;
+    hud.globalAlpha = col.enabled ? 1 : 0.5;
+    const hasIcon = drawItemIcon(hud, inst.baseId, cx + 3, y + 3, iconSize);
+    hud.globalAlpha = 1;
+    const textX = hasIcon ? cx + 3 + iconSize + 5 : cx + 8;
+
     hud.textAlign = 'left';
     hud.fillStyle = col.enabled ? RARITY[inst.rarity].color : '#7d828c';
     hud.font = 'bold 12px system-ui, sans-serif';
-    hud.fillText(fit(hud, col.nameOf(inst), colW - 16), cx + 8, y + 17);
+    hud.fillText(fit(hud, col.nameOf(inst), colW - (textX - cx) - 8), textX, y + 17);
     y += rowH;
   }
   if (col.overflow) {

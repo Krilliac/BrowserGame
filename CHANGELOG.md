@@ -25,6 +25,23 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Real pack art across the whole game (curated-asset integration).** The 13 extracted Downloads
+  packs (see `public/assets/INVENTORY.md`) now feed the renderer and HUD via four new data modules:
+  - **Tiled ground per biome** (`ground-tiles.ts`) — every area bakes a 16×16-tile pattern of real
+    floor tiles (forest grass + wildflowers, catacomb brick, cursed earth, cracked graveyard dirt,
+    slate dungeon, volcanic/glacial stone…) replacing the procedural speckle; procedural stays as
+    the fallback.
+  - **A sprite for every monster** (`rogues-sprites.ts`) — all 48 mob templates map to 32rogues
+    creature cells; mobs without an animated LPC sheet (slimes, golems, demons, spiders…) now draw
+    a real static sprite with facing-flip + walk/idle bob instead of a colored orb. Service NPCs
+    get distinct townsfolk figures (shopkeep, priest, blacksmith…).
+  - **Decor sprites** (`decor-sprites.ts`) — 16 prop kinds (graves, bones, dead trees, rocks,
+    crystals, mushrooms, stalagmites, ruins, pots, horror plants, barrel, crate…) with up to 6
+    position-hashed variants each, used by both SQL `decor` rows and theme-density props.
+  - **HUD item icons** (`item-icons.ts`) — bag/stash/belt cells draw real pixel-art icons (94 gear
+    mappings + 25 gems + 10 runes + tomes/materials/potions) with the old colored-rect fallback.
+  Only the ~640KB of curated sprites the game loads are committed (`public/assets/curated/`); raw
+  packs stay on disk, attribution recorded in `public/assets/CREDITS.md`.
 - **Hirelings (mercenary companions).** Captain Aldric, the town Recruiter, hires out a melee
   **Guard** or a kiting **Marksman** for a level-scaled gold fee. The companion follows you,
   fights nearby monsters (kill credit — XP and quests — flows to you), scales with your level,
