@@ -130,6 +130,8 @@ export interface EntityState {
   elite?: boolean;
   /** NPCs only: their role, so the client shows the right prompt + marker ('vendor' | 'questgiver'). */
   npcKind?: string;
+  /** Chests only: true once looted, so the client draws it open and stops prompting. */
+  opened?: boolean;
 }
 
 /** Directional intent for one frame, normalized to -1..1 on each axis. */

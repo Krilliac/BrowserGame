@@ -815,12 +815,17 @@ const TOWN_DECOR: readonly DecorProp[] = [
 
   // --- A shrine by the bonfire: step onto it to be blessed with a timed buff (recharges). ---
   { kind: 'shrine', x: 800, y: 772, color: '#7fd0ff' },
+
+  // --- A loot chest tucked inside the south house — a reward for stepping indoors. ---
+  { kind: 'chest', x: 800, y: 985, color: '#b9863f' },
 ];
 
-/** Decor for the Hollowroot Caverns: a pair of shrines tucked in the dark to reward exploring. */
+/** Decor for the Hollowroot Caverns: shrines + chests tucked in the dark to reward exploring. */
 const HOLLOWROOT_DECOR: readonly DecorProp[] = [
   { kind: 'shrine', x: 400, y: 820, color: '#9a7fff' },
   { kind: 'shrine', x: 1320, y: 1040, color: '#7fffd0' },
+  { kind: 'chest', x: 760, y: 560, color: '#b9863f' },
+  { kind: 'chest', x: 1180, y: 980, color: '#b9863f' },
 ];
 
 /** All set-dressing decor, keyed by area. seedDecor/ensureDecor consume this. */

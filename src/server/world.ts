@@ -105,6 +105,10 @@ const STASH_CAP = 60;
 // for the cooldown before it can bless again (shared across players, Diablo-shrine style).
 const SHRINE_RADIUS = 46;
 const SHRINE_COOLDOWN_MS = 60_000;
+// Chests (decor kind 'chest'): walk within this radius to pry one open once; it spills gold + gear.
+const CHEST_RADIUS = 52;
+const CHEST_GOLD_MIN = 25;
+const CHEST_GOLD_MAX = 90;
 // Artificer service costs (flat, predictable): reroll an item's affixes for gold + a rune shard;
 // pop a socketed gem back to the bag for gold.
 export const ARTIFICER_REROLL_GOLD = 250;
@@ -329,6 +333,8 @@ export class World {
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
   // Solid wall colliders for this area (house footprints), lazily built from decor (null = not yet).
   private walls: Rect[] | null = null;
+  // Lootable chests for this area, lazily built from 'chest' decor (null = not yet built).
+  private chests: { id: number; x: number; y: number; opened: boolean }[] | null = null;
 
   private readonly players = new Map<number, Player>();
   private readonly mobs = new Map<number, Mob>();
@@ -1391,6 +1397,7 @@ export class World {
         player.facing = Math.atan2(dy, dx);
       }
       this.checkShrines(player);
+      this.checkChests(player);
     }
   }
 
@@ -1424,6 +1431,33 @@ export class World {
       s.readyAt = this.now + SHRINE_COOLDOWN_MS;
       this.notify(player.id, `A shrine blesses you — ${buff.label}.`);
       return; // one blessing per tick
+    }
+  }
+
+  /** The area's chests, built once from its 'chest' decor (each gets a stable entity id). */
+  private chestList(): { id: number; x: number; y: number; opened: boolean }[] {
+    if (this.chests === null) {
+      const decor = getContent().area(this.areaId)?.decor ?? [];
+      this.chests = decor
+        .filter((d) => d.kind === 'chest')
+        .map((d) => ({ id: this.allocId(), x: d.x, y: d.y, opened: false }));
+    }
+    return this.chests;
+  }
+
+  /** Pop open any closed chest a player walks up to, spilling gold + gear on the ground (once). */
+  private checkChests(player: Player): void {
+    for (const c of this.chestList()) {
+      if (c.opened) continue;
+      if (Math.hypot(player.x - c.x, player.y - c.y) > CHEST_RADIUS) continue;
+      c.opened = true;
+      const gold =
+        CHEST_GOLD_MIN + Math.floor(Math.random() * (CHEST_GOLD_MAX - CHEST_GOLD_MIN + 1));
+      this.dropGround('gold', gold, c.x, c.y);
+      const corrupt = this.corruption() * CORRUPT_DROP_MAX;
+      this.dropBonusGear(c.x, c.y, 1, corrupt); // one good piece...
+      if (Math.random() < 0.4) this.dropBonusGear(c.x, c.y, 0, corrupt); // ...sometimes a second
+      this.notify(player.id, 'You pry open a chest!');
     }
   }
 
@@ -2161,6 +2195,21 @@ export class World {
         maxHp: 0,
         level: 0,
         npcKind: npc.kind,
+      });
+    }
+    for (const chest of this.chestList()) {
+      out.push({
+        id: chest.id,
+        x: chest.x,
+        y: chest.y,
+        name: '',
+        hue: 0,
+        kind: 'chest',
+        facing: 0,
+        hp: 0,
+        maxHp: 0,
+        level: 0,
+        opened: chest.opened,
       });
     }
     return out;
