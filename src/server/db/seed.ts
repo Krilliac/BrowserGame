@@ -11,6 +11,7 @@ import { RUNES } from '../../shared/runewords.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 import { EXPANSION_AREA_MOBS, EXPANSION_LOOT } from './seed-expansion.js';
 import { EXPANSION_DECOR } from './seed-decor.js';
+import { ensureSpellTomeContent } from './seed-spells.js';
 
 /** Display names + colors for the non-equipment loot materials (and gold). */
 const MATERIALS: Record<string, { name: string; color: string }> = {
@@ -299,6 +300,7 @@ export function seed(db: Database): void {
   }
   seedAccounts(db); // separate so existing content DBs still get the default account
   ensureSpellbookContent(db); // separate so pre-spellbook DBs gain the new rows without a wipe
+  ensureSpellTomeContent(db); // the expanded spell roster's tomes + vendor shelf lines
   ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
   ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
   ensureExpansionContent(db); // hand-placed decor, new-monster rosters/loot, sprite tints

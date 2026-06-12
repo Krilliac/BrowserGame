@@ -23,8 +23,29 @@ versioning once it stabilizes.
   artificer action (reroll / unsocket / combine) silently failed its proximity check. The allowlist
   now includes `artificer`, restoring the whole crafting window. (Found by the new gem-combine tests.)
 
+### Changed
+
+- **The world is HARD now (difficulty + pacing overhaul).** The game is rebalanced from a
+  15-minute stroll into an hours-long climb:
+  - **Exponential XP curve** — each level costs ~28% more than the last (L10 ≈ 2.6k total XP,
+    L20 ≈ 35k, L30 ≈ 410k, vs the old quadratic 4.5k/19k/43.5k), and kill XP is reduced ~35%.
+    Existing saves keep their level (XP is raised to the new floor — nobody de-levels).
+  - **Monsters hit 1.5× harder, live 1.4× longer, and notice you from 1.2× farther** — on top
+    of elite/rift/corruption scaling.
+  - **Smarter, varied AI (traits across the whole roster):** *pack* hunters speed up and aggro
+    wider together and call packmates for help when hurt; *craven* skirmishers flee below 30%
+    HP (but hold the line in numbers); *enrage* brutes hit 1.5× and run 1.35× faster below 35%
+    HP; *flankers* curve around you instead of beelining; and any hurt monster is **alerted** —
+    it hunts with 2.5× aggro reach instead of idling.
+
 ### Added
 
+- **10 new spells across the longer climb.** Early utility (Razor Wind, Bone Chakram), mid-game
+  control (Mire Mortar's bogging splat, the Galeburst and Earthshatter novas), a big expensive
+  heal (Divine Mending), a late-game War Cry (Battle Trance, +45% damage), and three endgame
+  nukes (Wyrmfire Lance, Starfall, Maelstrom Orb — burning, slowing, and the hardest single hit
+  in the book). Cheap tomes sit on the Merchant's shelf (topping out at a 2,600g gold sink);
+  the four chase tomes (Galeburst, Earthshatter, Starfall, Maelstrom Orb) are **drop-only**.
 - **SQL sprite color overrides (`sprite_tints`).** A new content table multiply-tints any rendered
   source — `mob:<template_id>`, `npc:<kind>`, `hireling:<type>`, `decor:<kind>` — so one image
   spawns many variations (and the look can be pushed dark and gritty) without ever editing the

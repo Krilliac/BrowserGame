@@ -4,13 +4,22 @@ import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from '
 describe('progression (XP / leveling curve)', () => {
   it('starts level 1 at 0 XP and increases monotonically', () => {
     expect(xpForLevel(1)).toBe(0);
-    expect(xpForLevel(2)).toBe(100);
-    expect(xpForLevel(3)).toBe(300);
-    expect(xpForLevel(4)).toBe(600);
-    expect(xpForLevel(5)).toBe(1000);
+    expect(xpForLevel(2)).toBe(90);
     for (let lvl = 1; lvl < 50; lvl++) {
       expect(xpForLevel(lvl + 1)).toBeGreaterThan(xpForLevel(lvl));
     }
+  });
+
+  it('is exponential: each level costs ~28% more than the last (the hours-long chase)', () => {
+    for (let lvl = 2; lvl <= 35; lvl++) {
+      const prev = xpForLevel(lvl) - xpForLevel(lvl - 1);
+      const next = xpForLevel(lvl + 1) - xpForLevel(lvl);
+      expect(next / prev).toBeGreaterThan(1.25);
+      expect(next / prev).toBeLessThan(1.31);
+    }
+    // Pacing anchors: mid-game in the tens of thousands, endgame in the hundreds of thousands.
+    expect(xpForLevel(20)).toBeGreaterThan(30_000);
+    expect(xpForLevel(30)).toBeGreaterThan(380_000);
   });
 
   it('levelForXp is the exact inverse at level boundaries', () => {
@@ -29,7 +38,7 @@ describe('progression (XP / leveling curve)', () => {
     expect(levelForXp(0)).toBe(1);
     expect(levelForXp(-500)).toBe(1);
     expect(levelForXp(Number.NaN)).toBe(1);
-    expect(levelForXp(99)).toBe(1); // just under the level-2 boundary
+    expect(levelForXp(89)).toBe(1); // just under the level-2 boundary
   });
 
   it('treats invalid level inputs as level 1', () => {
@@ -40,9 +49,9 @@ describe('progression (XP / leveling curve)', () => {
   });
 
   it('xpReward increases with monster level', () => {
-    expect(xpReward(1)).toBe(20);
-    expect(xpReward(2)).toBe(28);
-    expect(xpReward(5)).toBe(52);
+    expect(xpReward(1)).toBe(13);
+    expect(xpReward(2)).toBe(18);
+    expect(xpReward(5)).toBe(33);
     for (let lvl = 1; lvl < 20; lvl++) {
       expect(xpReward(lvl + 1)).toBeGreaterThan(xpReward(lvl));
     }
@@ -73,7 +82,7 @@ describe('progression (XP / leveling curve)', () => {
     const p = levelProgress(xpForLevel(3));
     expect(p.level).toBe(3);
     expect(p.intoLevel).toBe(0);
-    expect(p.neededForNext).toBe(300); // 600 -> 1000 span between L3 and L4
+    expect(p.neededForNext).toBe(xpForLevel(4) - xpForLevel(3));
     expect(p.fraction).toBe(0);
   });
 

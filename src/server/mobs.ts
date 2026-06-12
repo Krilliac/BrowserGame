@@ -1080,6 +1080,84 @@ export const MOB_SUPPORT: Record<string, AbilityId> = {
   gnarlfang_lycan: 'sprint', // a pack-hunter that bursts to close the gap
 };
 
+/**
+ * Personality traits that vary how a monster fights (resolved per-template via MOB_TRAITS):
+ *  - pack    : bolder and faster with same-template packmates nearby.
+ *  - craven  : flees when badly hurt — unless packmates make it brave.
+ *  - enrage  : faster and harder-hitting once badly hurt (damage side via traitDamageMult).
+ *  - flanker : curves around its target instead of beelining straight in.
+ */
+export type MobTrait = 'pack' | 'craven' | 'enrage' | 'flanker';
+
+/** hpFrac below which a craven mob breaks and runs. */
+const CRAVEN_FLEE_HP_FRAC = 0.3;
+/** hpFrac below which an enrage mob speeds up (and hits harder via traitDamageMult). */
+const ENRAGE_HP_FRAC = 0.35;
+
+/**
+ * Trait assignments across the bestiary. Bosses and elites (hp >= 200) are deliberately
+ * traitless — they have their own mechanics. A template can carry up to two traits.
+ */
+export const MOB_TRAITS: Record<string, MobTrait[]> = {
+  // Canines, harpies, and swarms hunt in packs.
+  wolf: ['pack'],
+  frost_wolf: ['pack'],
+  plague_hound: ['pack'],
+  marsh_leech: ['pack'],
+  gloomcap_myconid: ['pack'],
+  riftwing_harpy: ['pack'],
+  bat: ['pack', 'craven'],
+  carrion_swarm: ['pack', 'craven'],
+  thistle_kobold: ['pack', 'craven'],
+  gnarlfang_lycan: ['pack', 'flanker'],
+  // Skirmishers, imps, and frail casters are craven — they break and run when bloodied.
+  sprite: ['craven'],
+  cultist: ['craven'],
+  mire_spitter: ['craven'],
+  deep_cultist: ['craven'],
+  rime_archer: ['craven'],
+  thornling_archer: ['craven'],
+  ember_acolyte: ['craven'],
+  shardspine_hurler: ['craven'],
+  hollow_runeseer: ['craven'],
+  ashen_warlock: ['craven'],
+  pyre_caster: ['craven'],
+  rotfen_naga: ['craven'],
+  cinder_imp: ['craven', 'flanker'],
+  // Brutes, orcs, ettins, golems, and beasts enrage when badly hurt.
+  boar: ['enrage'],
+  tusk_runner: ['enrage'],
+  bog_shambler: ['enrage'],
+  magma_crawler: ['enrage'],
+  grave_golem: ['enrage'],
+  rot_ghoul: ['enrage'],
+  mosshide_orc: ['enrage'],
+  shadowmaw_bear: ['enrage'],
+  fen_ettin: ['enrage'],
+  crag_manticore: ['enrage'],
+  // Stalkers, lurkers, and reptiles flank — they curve around you instead of beelining.
+  fen_strangler: ['flanker'],
+  avalanche_shade: ['flanker'],
+  gravetide_revenant: ['flanker'],
+  wraithfrost_stalker: ['flanker'],
+  void_revenant: ['flanker'],
+  basalt_basilisk: ['flanker'],
+};
+
+/**
+ * Damage multiplier the orchestrator applies to an attacking mob's outgoing damage:
+ * enraged templates hit 1.5x harder while below the enrage threshold.
+ */
+export function traitDamageMult(templateId: string, hpFrac: number): number {
+  const enraged = MOB_TRAITS[templateId]?.includes('enrage') && hpFrac < ENRAGE_HP_FRAC;
+  return enraged ? 1.5 : 1;
+}
+
+/** Whether a template runs in packs — the orchestrator uses this for help-calls (alerting packmates). */
+export function isPackish(templateId: string): boolean {
+  return MOB_TRAITS[templateId]?.includes('pack') ?? false;
+}
+
 export interface MobView {
   x: number;
   y: number;
@@ -1106,12 +1184,56 @@ export interface MobIntent {
 
 const IDLE: MobIntent = { vx: 0, vy: 0, facing: null, attackTargetId: null };
 
+/** Flanker curve band: outside it (or right on top of the target) they commit straight in. */
+const FLANK_MIN_DIST = 70;
+const FLANK_MAX_DIST = 220;
+/** Perpendicular blend strength of a flanker's approach (normalized afterwards). */
+const FLANK_BLEND = 0.45;
+
+/**
+ * Per-tick context the World supplies so traits (MOB_TRAITS) can act. Omitting it disables
+ * all trait behavior — stepMob then behaves exactly as the trait-free baseline.
+ */
+export interface MobStepContext {
+  /** This mob's hp fraction 0..1 (drives craven flight + enrage). */
+  hpFrac: number;
+  /** Living same-template packmates within ~220px (drives pack speed). */
+  packNearby: number;
+  /** Stable per-mob seed (e.g. its entity id) for deterministic variation. */
+  seed: number;
+  /** Set when the mob was recently hurt or an ally called for help — extends aggro reach. */
+  alerted: boolean;
+}
+
 /**
  * Aggro the nearest living player in range: chase until within attack range, then strike on
  * cooldown. Returns IDLE when no target — the World adds gentle wandering for idle mobs.
+ *
+ * With a MobStepContext, the template's traits kick in: alerted mobs hunt far beyond their
+ * normal aggro range, packs run faster and bolder, craven mobs flee when bloodied (unless
+ * packmates hold them in line), enraged mobs speed up, and flankers curve around their target.
+ * Pure and deterministic: same inputs always yield the same intent.
  */
-export function stepMob(mob: MobView, players: PlayerView[], aggroScale = 1): MobIntent {
-  const target = nearestTarget(mob, players, aggroScale);
+export function stepMob(
+  mob: MobView,
+  players: PlayerView[],
+  aggroScale = 1,
+  ctx?: MobStepContext,
+): MobIntent {
+  const traits = ctx ? (MOB_TRAITS[mob.template.id] ?? []) : [];
+
+  let aggroMult = 1;
+  let speedMult = 1;
+  if (ctx) {
+    if (ctx.alerted) aggroMult *= 2.5;
+    if (traits.includes('pack') && ctx.packNearby >= 1) {
+      aggroMult *= 1.3;
+      speedMult *= ctx.packNearby >= 3 ? 1.25 : 1.15;
+    }
+    if (traits.includes('enrage') && ctx.hpFrac < ENRAGE_HP_FRAC) speedMult *= 1.35;
+  }
+
+  const target = nearestTarget(mob, players, aggroScale * aggroMult);
   if (!target) return IDLE;
 
   const dx = target.x - mob.x;
@@ -1120,7 +1242,13 @@ export function stepMob(mob: MobView, players: PlayerView[], aggroScale = 1): Mo
   const facing = Math.atan2(dy, dx);
   const inv = dist > 1e-6 ? 1 / dist : 0;
   const t = mob.template;
-  const speed = t.speed;
+  const speed = t.speed * speedMult;
+
+  // Craven: badly hurt and outnumbered → backpedal away at full speed, still facing the
+  // threat (readable). Cowards are brave in numbers: with 2+ packmates they hold the line.
+  if (ctx && traits.includes('craven') && ctx.hpFrac < CRAVEN_FLEE_HP_FRAC && ctx.packNearby < 2) {
+    return { vx: -dx * inv * speed, vy: -dy * inv * speed, facing, attackTargetId: null };
+  }
 
   if (t.behavior === 'ranged') {
     // Kite: stay in the band [kiteRange, attackRange]. Approach if too far, retreat if too close,
@@ -1139,7 +1267,21 @@ export function stepMob(mob: MobView, players: PlayerView[], aggroScale = 1): Mo
   if (dist <= t.attackRange) {
     return { vx: 0, vy: 0, facing, attackTargetId: mob.attackReady ? target.id : null };
   }
-  return { vx: dx * inv * speed, vy: dy * inv * speed, facing, attackTargetId: null };
+
+  // Flanker: in the mid-range band, blend in a perpendicular component (side picked
+  // deterministically from the seed) so the mob curves around the player instead of
+  // beelining. Renormalized, so net speed is unchanged; below the band it commits straight in.
+  let ux = dx * inv;
+  let uy = dy * inv;
+  if (ctx && traits.includes('flanker') && dist >= FLANK_MIN_DIST && dist <= FLANK_MAX_DIST) {
+    const side = Math.abs(ctx.seed) % 2 === 0 ? 1 : -1;
+    const bx = ux - uy * side * FLANK_BLEND;
+    const by = uy + ux * side * FLANK_BLEND;
+    const norm = Math.hypot(bx, by);
+    ux = bx / norm;
+    uy = by / norm;
+  }
+  return { vx: ux * speed, vy: uy * speed, facing, attackTargetId: null };
 }
 
 function nearestTarget(mob: MobView, players: PlayerView[], aggroScale = 1): PlayerView | null {

@@ -57,8 +57,11 @@ import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-
 import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../shared/equipment.js';
 import {
   stepMob,
+  isPackish,
+  traitDamageMult,
   MOB_SPELLS,
   MOB_SUPPORT,
+  type MobStepContext,
   type MobTemplate,
   type MobView,
   type PlayerView,
@@ -141,6 +144,14 @@ const CHEST_GOLD_MAX = 90;
 const POT_RADIUS = 30;
 const POT_GOLD_MIN = 2;
 const POT_GOLD_MAX = 14;
+
+// Global difficulty tuning — the world is balanced to be DANGEROUS: monsters hit much harder,
+// live longer, and notice you from farther away, so ground is earned rather than strolled
+// through. Pairs with the exponential XP curve (progression.ts) for an hours-long climb.
+const MOB_DMG_TUNING = 1.5;
+const MOB_HP_TUNING = 1.4;
+const MOB_AGGRO_TUNING = 1.2;
+
 // Quick-use potion belt: instant restore on use, a shared use-cooldown, and a carry cap. Topped up
 // by the Healer and found in chests — the active-survival layer on top of passive regen.
 const POTION_CAP = 8;
@@ -350,6 +361,9 @@ interface Mob {
   spdMult: number;
   /** Spawned by an invasion event — its drops carry a slim corrupted-gear chance. */
   invader: boolean;
+  /** Sim time (ms) until which this mob is ALERTED (hurt, or a packmate called for help) —
+   *  alerted mobs hunt with greatly extended aggro reach instead of idling. */
+  alertUntil: number;
 }
 
 interface Projectile {
@@ -616,7 +630,7 @@ export class World {
     // Rift tier scaling: every spawn levels up (more XP per kill) and hits/lives harder.
     const tierHp = 1 + 0.35 * this.tier;
     const tierDmg = 1 + 0.18 * this.tier;
-    const hp = Math.round((mod ? template.hp * mod.hp : template.hp) * tierHp);
+    const hp = Math.round((mod ? template.hp * mod.hp : template.hp) * tierHp * MOB_HP_TUNING);
     this.mobs.set(id, {
       id,
       templateId: template.id,
@@ -649,6 +663,7 @@ export class World {
       dmgMult: (mod ? mod.dmg : 1) * tierDmg,
       spdMult: mod ? mod.spd : 1,
       invader,
+      alertUntil: 0,
     });
   }
 
@@ -1533,7 +1548,9 @@ export class World {
     const p = this.players.get(id);
     if (!p) return;
     p.level = save.level;
-    p.xp = save.xp;
+    // Grandfather saves from before the exponential curve: keep the character's LEVEL by
+    // raising their XP to its new floor, so nobody ever de-levels on a rebalance.
+    p.xp = Math.max(save.xp, xpForLevel(save.level));
     p.gold = save.gold;
     p.loot = new Map(save.loot);
     p.gear = [...save.gear];
@@ -1696,6 +1713,9 @@ export class World {
   private mobOutgoing(mob: Mob, template: MobTemplate): number {
     return (
       template.damage *
+      MOB_DMG_TUNING *
+      // Enraged brutes (trait, below 35% HP) hit half again as hard — finish them or back off.
+      traitDamageMult(mob.templateId, mob.maxHp > 0 ? mob.hp / mob.maxHp : 1) *
       mob.dmgMult *
       this.corruptionDmg() *
       mob.statuses.weakenFactor() *
@@ -1925,7 +1945,21 @@ export class World {
       }
 
       const view: MobView = { x: mob.x, y: mob.y, template, attackReady: mob.attackCd <= 0 };
-      const intent = stepMob(view, views, this.aggroScale); // weather may dampen aggro range
+      // Per-mob AI context: drives the trait behaviors (pack speed, craven flight, enrage
+      // pace, flanking curves) and the alerted hunt after a hit or a packmate's help-call.
+      let packNearby = 0;
+      for (const ally of this.mobs.values()) {
+        if (ally.dead || ally.templateId !== mob.templateId || ally.id === mob.id) continue;
+        if (Math.hypot(ally.x - mob.x, ally.y - mob.y) <= 220) packNearby++;
+      }
+      const ctx: MobStepContext = {
+        hpFrac: mob.maxHp > 0 ? mob.hp / mob.maxHp : 1,
+        packNearby,
+        seed: mob.id,
+        alerted: this.now < mob.alertUntil,
+      };
+      // Weather may dampen aggro; the difficulty tuning widens it (monsters notice you sooner).
+      const intent = stepMob(view, views, this.aggroScale * MOB_AGGRO_TUNING, ctx);
 
       if (intent.attackTargetId !== null) {
         const targetAlive =
@@ -2289,6 +2323,17 @@ export class World {
   ): void {
     if (attackerId !== 0) mob.lastAttacker = attackerId;
     mob.hp -= amount;
+    // A hurt monster is ALERTED (extended aggro reach — it hunts rather than idles), and a
+    // pack hunter calls for help: same-template packmates in earshot join the alert.
+    mob.alertUntil = this.now + 8000;
+    if (isPackish(mob.templateId)) {
+      for (const ally of this.mobs.values()) {
+        if (ally.dead || ally.templateId !== mob.templateId || ally.id === mob.id) continue;
+        if (Math.hypot(ally.x - mob.x, ally.y - mob.y) <= 360) {
+          ally.alertUntil = Math.max(ally.alertUntil, this.now + 8000);
+        }
+      }
+    }
     // Life steal: the attacker heals for a fraction of the damage they just dealt.
     const attacker = this.players.get(attackerId);
     if (attacker && !attacker.dead && attacker.lifesteal > 0 && amount > 0) {
@@ -2923,6 +2968,8 @@ const SLOW_ON_HIT: Partial<Record<AbilityId, { ms: number; factor: number }>> = 
   entangling_vines: { ms: 2200, factor: 0.35 },
   curse_of_decay: { ms: 1800, factor: 0.4 },
   hamstring: { ms: 1600, factor: 0.45 },
+  mire_mortar: { ms: 2000, factor: 0.35 }, // the mud splat bogs everything it hits
+  earthshatter: { ms: 1800, factor: 0.35 }, // the tremor staggers
 };
 /** Fire / poison / bleed spells that burn (damage-over-time) on hit: id → {duration ms, dmg per tick}. */
 const BURN_ON_HIT: Partial<Record<AbilityId, { ms: number; dmg: number }>> = {
@@ -2937,6 +2984,8 @@ const BURN_ON_HIT: Partial<Record<AbilityId, { ms: number; dmg: number }>> = {
   draining_touch: { ms: 2000, dmg: 6 },
   shadow_nova: { ms: 2200, dmg: 7 },
   rend: { ms: 2400, dmg: 5 },
+  wyrmfire_lance: { ms: 2600, dmg: 11 },
+  starfall: { ms: 2800, dmg: 12 },
 };
 
 /** Curse spells that weaken a monster's outgoing damage on hit: id → {duration ms, dmg-reduction}. */
@@ -2953,6 +3002,7 @@ const BUFF_ON_CAST: Partial<
   warcry: { id: 'might', ms: 8000, magnitude: 0.3 }, // +30% damage
   sprint: { id: 'haste', ms: 6000, magnitude: 0.35 }, // +35% attack speed & move
   renew: { id: 'regen', ms: 6000, magnitude: 10 }, // 10 hp/sec
+  battle_trance: { id: 'might', ms: 10_000, magnitude: 0.45 }, // the late-game War Cry
 };
 
 /** Shrine blessings — stronger and longer than the buff spells (a found-shrine reward, Diablo-style). */

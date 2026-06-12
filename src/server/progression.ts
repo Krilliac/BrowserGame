@@ -3,24 +3,29 @@
  * client XP bar. Everything here is deterministic (no I/O, no time, no randomness) so it can
  * be unit-tested (progression.test.ts) and reused on both sides of the wire.
  *
- * The curve is quadratic: xpForLevel(L) = 50 * (L-1) * L, giving 0, 100, 300, 600, 1000, ...
- * Each successive level costs 100 more XP than the last, a smooth RuneScape-ish ramp.
+ * The curve is EXPONENTIAL (the OSRS/Diablo long-chase shape): each level costs ~28% more XP
+ * than the last, starting from 90. Early levels still pop fast (level 2 after a few kills) but
+ * the climb stretches into hours through the teens and into a real endgame chase past 25 —
+ * cumulative: L5 ≈ 540, L10 ≈ 2.6k, L15 ≈ 9.8k, L20 ≈ 35k, L25 ≈ 120k, L30 ≈ 410k.
  */
+const XP_BASE = 90; // cost of level 1 -> 2
+const XP_GROWTH = 1.28; // per-level cost multiplier
 
 /** Total cumulative XP required to BE at the given level (level 1 => 0). */
 export function xpForLevel(level: number): number {
   const lvl = sanitizeLevel(level);
-  return 50 * (lvl - 1) * lvl;
+  // Geometric series: base * (growth^(L-1) - 1) / (growth - 1), rounded to whole XP.
+  return Math.round((XP_BASE * (Math.pow(XP_GROWTH, lvl - 1) - 1)) / (XP_GROWTH - 1));
 }
 
 /** The level a given total XP corresponds to (inverse of xpForLevel; level >= 1). */
 export function levelForXp(xp: number): number {
   const total = sanitizeXp(xp);
-  // Solve 50 * (L-1) * L <= xp for the largest integer L, then floor and clamp.
-  // 50L^2 - 50L - xp <= 0  =>  L <= (1 + sqrt(1 + xp/12.5)) / 2.
-  const level = Math.floor((1 + Math.sqrt(1 + total / 12.5)) / 2);
-  // Correct for any floating-point edge cases at exact boundaries.
-  let result = Math.max(1, level);
+  // Invert the geometric series for an initial guess, then correct at the rounded boundaries.
+  const guess = Math.floor(
+    1 + Math.log(1 + (total * (XP_GROWTH - 1)) / XP_BASE) / Math.log(XP_GROWTH),
+  );
+  let result = Math.max(1, guess);
   while (xpForLevel(result + 1) <= total) result++;
   while (result > 1 && xpForLevel(result) > total) result--;
   return result;
@@ -29,7 +34,7 @@ export function levelForXp(xp: number): number {
 /** XP awarded for killing a monster of the given level. */
 export function xpReward(mobLevel: number): number {
   const lvl = sanitizeLevel(mobLevel);
-  return 12 + lvl * 8;
+  return 8 + lvl * 5;
 }
 
 /** Player max HP at a given level (base 100, scaling up per level). */
