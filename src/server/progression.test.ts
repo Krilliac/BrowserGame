@@ -10,16 +10,36 @@ describe('progression (XP / leveling curve)', () => {
     }
   });
 
-  it('is exponential: each level costs ~28% more than the last (the hours-long chase)', () => {
-    for (let lvl = 2; lvl <= 35; lvl++) {
+  it('is piecewise exponential: steep through Act 1, easing past the level-20 knee', () => {
+    for (let lvl = 2; lvl <= 18; lvl++) {
       const prev = xpForLevel(lvl) - xpForLevel(lvl - 1);
       const next = xpForLevel(lvl + 1) - xpForLevel(lvl);
       expect(next / prev).toBeGreaterThan(1.25);
       expect(next / prev).toBeLessThan(1.31);
     }
-    // Pacing anchors: mid-game in the tens of thousands, endgame in the hundreds of thousands.
+    for (let lvl = 22; lvl <= 58; lvl++) {
+      const prev = xpForLevel(lvl) - xpForLevel(lvl - 1);
+      const next = xpForLevel(lvl + 1) - xpForLevel(lvl);
+      expect(next / prev).toBeGreaterThan(1.09);
+      expect(next / prev).toBeLessThan(1.15);
+    }
+    // Act pacing anchors: Act 1 exits ~L18-20 in the tens of thousands; Act 2 ends ~L40 under
+    // a million; the Act 3 finish line (~L60) is a multi-million chase, not an astronomical one.
     expect(xpForLevel(20)).toBeGreaterThan(30_000);
-    expect(xpForLevel(30)).toBeGreaterThan(380_000);
+    expect(xpForLevel(40)).toBeGreaterThan(600_000);
+    expect(xpForLevel(40)).toBeLessThan(900_000);
+    expect(xpForLevel(60)).toBeGreaterThan(6_500_000);
+    expect(xpForLevel(60)).toBeLessThan(9_000_000);
+  });
+
+  it('rewards Act 2/3 kills super-linearly so 20 levels per act stays hundreds of kills', () => {
+    expect(xpReward(18)).toBe(98); // linear band unchanged
+    expect(xpReward(30)).toBe(8 + 150 + 2 * 12 * 12); // 446
+    expect(xpReward(50)).toBe(8 + 250 + 2 * 32 * 32); // 2306
+    // Sanity: a level-40 player needs on the order of hundreds of same-level kills per level.
+    const perLevel = xpForLevel(41) - xpForLevel(40);
+    expect(perLevel / xpReward(40)).toBeGreaterThan(40);
+    expect(perLevel / xpReward(40)).toBeLessThan(200);
   });
 
   it('levelForXp is the exact inverse at level boundaries', () => {

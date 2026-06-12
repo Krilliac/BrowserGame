@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { World, type PlayerSave } from './world.js';
 import { InstanceManager } from './instance-manager.js';
 import { initGameDb, getContent } from './content.js';
+import { areaWorld, npcPos } from './test-support.js';
 
 initGameDb(':memory:');
 
-// Saelis the Riftkeeper stands at (760, 680) in town.
-const RIFTKEEPER = { x: 760, y: 680 };
+// Saelis the Riftkeeper in town — position from content (post-world-scale).
+const RIFTKEEPER = npcPos('town', 'riftkeeper');
 
 const BASE_SAVE: PlayerSave = {
   name: 'Riftrunner',
@@ -60,7 +61,7 @@ describe('rift tier scaling', () => {
 
 describe('paying the Riftkeeper', () => {
   it('takes the tier fee next to the Riftkeeper, within the unlocked tier range', () => {
-    const w = new World();
+    const w = areaWorld('town');
     w.populateNpcs('town');
     w.importPlayer(1, BASE_SAVE, RIFTKEEPER.x, RIFTKEEPER.y);
 
@@ -74,7 +75,7 @@ describe('paying the Riftkeeper', () => {
   });
 
   it('refuses away from the Riftkeeper and without the gold', () => {
-    const w = new World();
+    const w = areaWorld('town');
     w.populateNpcs('town');
     w.importPlayer(2, BASE_SAVE, 50, 50); // nowhere near Saelis
     expect(w.payForRift(2, 1)).toBe(false);

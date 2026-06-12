@@ -3,38 +3,51 @@
  * client XP bar. Everything here is deterministic (no I/O, no time, no randomness) so it can
  * be unit-tested (progression.test.ts) and reused on both sides of the wire.
  *
- * The curve is EXPONENTIAL (the OSRS/Diablo long-chase shape): each level costs ~28% more XP
- * than the last, starting from 90. Early levels still pop fast (level 2 after a few kills) but
- * the climb stretches into hours through the teens and into a real endgame chase past 25 —
- * cumulative: L5 ≈ 540, L10 ≈ 2.6k, L15 ≈ 9.8k, L20 ≈ 35k, L25 ≈ 120k, L30 ≈ 410k.
+ * The game is paced as THREE ACTS of roughly 20 levels each (Act 1 exits around 15-20, Act 2
+ * around 40, Act 3 runs to ~60). The curve is PIECEWISE EXPONENTIAL: a steep ~28%-per-level
+ * climb through the Act 1 band (so the opening act takes hours, not minutes), easing to
+ * ~12%-per-level beyond level 20 — paired with kill XP that scales up super-linearly for
+ * Act 2/3 monsters, so later acts stay a grind without needing astronomical totals.
+ * Cumulative: L10 ≈ 2.6k, L20 ≈ 35k, L30 ≈ 207k, L40 ≈ 741k, L50 ≈ 2.4M, L60 ≈ 7.6M.
  */
 const XP_BASE = 90; // cost of level 1 -> 2
-const XP_GROWTH = 1.28; // per-level cost multiplier
+const XP_GROWTH_ACT1 = 1.28; // per-level cost multiplier through the Act 1 band
+const XP_GROWTH_LATE = 1.12; // gentler multiplier beyond the knee (Acts 2-3)
+const XP_KNEE = 20; // the level where the growth rate eases
 
 /** Total cumulative XP required to BE at the given level (level 1 => 0). */
 export function xpForLevel(level: number): number {
   const lvl = sanitizeLevel(level);
-  // Geometric series: base * (growth^(L-1) - 1) / (growth - 1), rounded to whole XP.
-  return Math.round((XP_BASE * (Math.pow(XP_GROWTH, lvl - 1) - 1)) / (XP_GROWTH - 1));
+  // Two geometric series stitched at the knee, rounded to whole XP.
+  const act1Levels = Math.min(lvl - 1, XP_KNEE - 1);
+  let total = (XP_BASE * (Math.pow(XP_GROWTH_ACT1, act1Levels) - 1)) / (XP_GROWTH_ACT1 - 1);
+  if (lvl > XP_KNEE) {
+    const atKnee = XP_BASE * Math.pow(XP_GROWTH_ACT1, XP_KNEE - 1);
+    total += (atKnee * (Math.pow(XP_GROWTH_LATE, lvl - XP_KNEE) - 1)) / (XP_GROWTH_LATE - 1);
+  }
+  return Math.round(total);
 }
 
 /** The level a given total XP corresponds to (inverse of xpForLevel; level >= 1). */
 export function levelForXp(xp: number): number {
   const total = sanitizeXp(xp);
-  // Invert the geometric series for an initial guess, then correct at the rounded boundaries.
-  const guess = Math.floor(
-    1 + Math.log(1 + (total * (XP_GROWTH - 1)) / XP_BASE) / Math.log(XP_GROWTH),
-  );
-  let result = Math.max(1, guess);
+  // Walk up from a cheap guess; the correction loops keep it exact at rounded boundaries.
+  let result = 1;
   while (xpForLevel(result + 1) <= total) result++;
   while (result > 1 && xpForLevel(result) > total) result--;
   return result;
 }
 
-/** XP awarded for killing a monster of the given level. */
+/**
+ * XP awarded for killing a monster of the given level. Linear through the Act 1 band, then a
+ * quadratic bonus for Act 2/3 monsters — later acts' kills are worth real chunks, so 20 levels
+ * per act stays a grind of hundreds of kills, not thousands.
+ */
 export function xpReward(mobLevel: number): number {
   const lvl = sanitizeLevel(mobLevel);
-  return 8 + lvl * 5;
+  const base = 8 + lvl * 5;
+  const pastKnee = Math.max(0, lvl - 18);
+  return base + 2 * pastKnee * pastKnee;
 }
 
 /** Player max HP at a given level (base 100, scaling up per level). */

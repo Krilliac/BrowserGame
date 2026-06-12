@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { World } from './world.js';
+import type { World } from './world.js';
 import { initGameDb } from './content.js';
-import { EXPANSION_DECOR } from './db/seed-decor.js';
+import { areaWorld, decorPos } from './test-support.js';
 
 initGameDb(':memory:');
 
@@ -10,9 +10,9 @@ initGameDb(':memory:');
  * brushes against it, spilling a little gold (once — a smashed pot leaves the snapshot for good).
  */
 describe('breakable pots', () => {
-  // Use a real seeded placement so the test follows the data, not a magic coordinate.
-  const townPot = EXPANSION_DECOR.find((d) => d.areaId === 'town' && d.kind === 'pot')!;
-  const townWorld = (): World => new World(1600, 1200, { x: 800, y: 600 }, undefined, 'town');
+  // Use a real seeded placement (post-scale) so the test follows the data, never a coordinate.
+  const townPot = decorPos('town', 'pot');
+  const townWorld = (): World => areaWorld('town');
   const potsOf = (w: World) => w.snapshot().filter((e) => e.kind === 'pot');
 
   it('seeds pots in town and smashing pays out gold, exactly once per pot', () => {

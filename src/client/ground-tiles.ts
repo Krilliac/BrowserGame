@@ -218,6 +218,8 @@ const AREA_BIOME: Record<string, string> = {
   sundered_wastes: 'graveyard',
   blighted_spire: 'dungeon',
   rift: 'cursed', // the endgame rift — otherworldly corrupted ground fits its violet theme
+  duskhaven: 'frost', // the mountain village sits on glacial stone
+  abyssal_throne: 'cursed', // the deepest dark — corrupted ground under the Black Throne
 };
 
 /**

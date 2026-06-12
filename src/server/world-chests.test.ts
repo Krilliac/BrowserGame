@@ -1,28 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { World } from './world.js';
+import type { World } from './world.js';
 import { initGameDb } from './content.js';
+import { areaWorld, decorPos } from './test-support.js';
 
 initGameDb(':memory:');
 
 /**
- * Chests are 'chest' decor: the World spawns them as entities and pops one open when a player walks
- * up, spilling gold + gear on the ground (once). The town has a chest at (800, 985) inside the south
- * house. Chests appear in the snapshot with an `opened` flag so the client draws closed vs open.
+ * Chests are 'chest' decor: the World spawns them as entities and pops one open when a player
+ * walks up, spilling gold + gear on the ground (once). Positions come from content (post-scale).
+ * Chests appear in the snapshot with an `opened` flag so the client draws closed vs open.
  */
 describe('loot chests', () => {
-  const townWorld = (): World => new World(1600, 1200, { x: 800, y: 600 }, undefined, 'town');
-  const chestOf = (w: World) => w.snapshot().find((e) => e.kind === 'chest');
+  const chest = decorPos('town', 'chest');
+  const chestAt = (w: World) =>
+    w.snapshot().find((e) => e.kind === 'chest' && e.x === chest.x && e.y === chest.y);
 
   it('opens on approach and gives loot (gold), exactly once', () => {
-    const w = townWorld();
+    const w = areaWorld('town');
     const id = w.spawn('Looter');
-    expect(chestOf(w)?.opened).toBe(false); // starts closed
+    expect(chestAt(w)?.opened).toBe(false); // starts closed
     const beforeGold = w.playerStats(id)!.gold;
 
-    w.teleport(id, 800, 985); // walk onto the chest (inside the south house)
+    w.teleport(id, chest.x, chest.y); // walk onto the chest
     for (let i = 0; i < 3; i++) w.tick(0.05); // open + auto-collect the spilled loot at our feet
 
-    expect(chestOf(w)?.opened).toBe(true);
+    expect(chestAt(w)?.opened).toBe(true);
     const afterGold = w.playerStats(id)!.gold;
     expect(afterGold).toBeGreaterThan(beforeGold); // the chest's gold was collected
 
@@ -32,10 +34,10 @@ describe('loot chests', () => {
   });
 
   it('stays closed when no one is near', () => {
-    const w = townWorld();
+    const w = areaWorld('town');
     const id = w.spawn('Idler');
     w.teleport(id, 120, 120);
     w.tick(0.05);
-    expect(chestOf(w)?.opened).toBe(false);
+    expect(chestAt(w)?.opened).toBe(false);
   });
 });

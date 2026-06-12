@@ -4,8 +4,9 @@ import { EXPANSION_DECOR, type DecorRow } from './seed-decor.js';
 
 /**
  * The kinds the client can draw: sprite-backed kinds from src/client/decor-sprites.ts plus the
- * renderer's procedural light props (torch/candle/brazier). Deliberately excludes 'shrine' —
- * shrines are gameplay objects, placed sparingly by hand in seed.ts only.
+ * renderer's procedural light props (torch/candle/brazier). 'chest' and 'shrine' are gameplay
+ * objects (the World turns them into lootable chests and buff shrines), placed sparingly by
+ * the exploration pass.
  */
 const ALLOWED_KINDS = new Set([
   'pot',
@@ -26,7 +27,16 @@ const ALLOWED_KINDS = new Set([
   'torch',
   'candle',
   'brazier',
+  'chest',
+  'shrine',
 ]);
+
+/**
+ * Areas whose chests/shrines are seeded by seed.ts itself (town: 1 chest + 1 shrine,
+ * hollowroot: 2 chests + 2 shrines). The per-(area,kind) seed guard would silently drop any
+ * chest/shrine rows we added for them, so EXPANSION_DECOR must not contain any.
+ */
+const CHEST_SHRINE_SEEDED_ELSEWHERE = new Set(['town', 'hollowroot']);
 
 /** Margin from area edges, and the keep-clear radius around spawns / portal rect centers. */
 const EDGE_MARGIN = 60;
@@ -115,6 +125,28 @@ describe('EXPANSION_DECOR', () => {
         TOWN_HOUSES.some((h) => row.x >= h.x && row.x <= h.x2 && row.y >= h.y && row.y <= h.y2),
     ).map(label);
     expect(inside).toEqual([]);
+  });
+
+  it('adds chests and shrines only to areas seed.ts does not already cover', () => {
+    const clashes = EXPANSION_DECOR.filter(
+      (row) =>
+        (row.kind === 'chest' || row.kind === 'shrine') &&
+        CHEST_SHRINE_SEEDED_ELSEWHERE.has(row.areaId),
+    ).map(label);
+    expect(clashes).toEqual([]);
+  });
+
+  it('gives every other area 1-3 chests and 1-2 shrines to find', () => {
+    const wrong: string[] = [];
+    for (const areaId of Object.keys(AREAS)) {
+      if (CHEST_SHRINE_SEEDED_ELSEWHERE.has(areaId)) continue;
+      const rows = EXPANSION_DECOR.filter((r) => r.areaId === areaId);
+      const chests = rows.filter((r) => r.kind === 'chest').length;
+      const shrines = rows.filter((r) => r.kind === 'shrine').length;
+      if (chests < 1 || chests > 3) wrong.push(`${areaId}: ${chests} chests`);
+      if (shrines < 1 || shrines > 2) wrong.push(`${areaId}: ${shrines} shrines`);
+    }
+    expect(wrong).toEqual([]);
   });
 
   it(`places at most ${MAX_LIGHTS_PER_AREA} candles + braziers per area`, () => {

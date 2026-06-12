@@ -1,19 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { World } from './world.js';
+import type { World } from './world.js';
 import { initGameDb } from './content.js';
+import { areaWorld, npcPos } from './test-support.js';
 
 initGameDb(':memory:');
 
 /**
  * Gem combining at the Artificer: fuse 3 same-kind gems into one of the next tier. The World
- * re-validates artificer proximity, so each test stands the player on Coalhand (town's artificer).
+ * re-validates artificer proximity, so each test stands the player on Coalhand (town's artificer)
+ * at his content position (post-world-scale).
  */
 describe('gem combining (Artificer)', () => {
   function atArtificer(): { w: World; id: number } {
-    const w = new World();
-    w.populateNpcs('town'); // includes Coalhand the Artificer at (580, 560)
+    const w = areaWorld('town');
+    w.populateNpcs('town');
     const id = w.spawn('Smith');
-    w.teleport(id, 580, 560); // stand on the artificer so the proximity check passes
+    const artificer = npcPos('town', 'artificer');
+    w.teleport(id, artificer.x, artificer.y); // stand on the artificer for the proximity check
     return { w, id };
   }
 

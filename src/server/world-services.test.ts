@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { World, type PlayerSave } from './world.js';
+﻿import { describe, expect, it } from 'vitest';
+import type { World } from './world.js';
+import { type PlayerSave } from './world.js';
 import { initGameDb } from './content.js';
+import { areaWorld, npcPos } from './test-support.js';
 import type { ItemInstance } from '../shared/items.js';
 
 initGameDb(':memory:');
@@ -25,10 +27,11 @@ const BASE_SAVE: Omit<PlayerSave, 'gear' | 'equipment' | 'loot'> = {
 
 describe('gambler', () => {
   it('spends gold and adds a rolled item of the chosen slot to the bag', () => {
-    const w = new World();
+    const w = areaWorld('town');
     const id = w.spawn('Lucky');
-    w.populateNpcs('town'); // Lucky Marn (gambler) stands at (940, 560)
-    w.teleport(id, 940, 560);
+    w.populateNpcs('town'); // Lucky Marn, the town gambler
+    const gambler = npcPos('town', 'gambler');
+    w.teleport(id, gambler.x, gambler.y);
     w.giveItem(id, 'gold', 500);
 
     // Capture primitives before acting: playerStats().gear is a live reference, not a snapshot.
@@ -43,7 +46,7 @@ describe('gambler', () => {
   });
 
   it('does nothing away from the gambler (proximity is server-checked)', () => {
-    const w = new World();
+    const w = areaWorld('town');
     const id = w.spawn('Lucky');
     w.populateNpcs('town');
     w.teleport(id, 50, 50); // nowhere near Lucky Marn
@@ -69,15 +72,16 @@ describe('Artificer enchant + unsocket', () => {
   };
 
   it('reroll consumes gold + a rune shard and keeps the item affixed', () => {
-    const w = new World();
-    w.populateNpcs('town'); // Coalhand the Artificer at (580, 560)
+    const w = areaWorld('town');
+    w.populateNpcs('town'); // Coalhand the Artificer
     const save: PlayerSave = {
       ...BASE_SAVE,
       loot: [['rune_shard', 3]],
       gear: [affixedSword],
       equipment: {},
     };
-    w.importPlayer(1, save, 580, 560); // arrive standing on the artificer
+    const artificer = npcPos('town', 'artificer');
+    w.importPlayer(1, save, artificer.x, artificer.y); // arrive standing on the artificer
 
     const before = w.playerStats(1)!;
     w.enchant(1, 9001);
@@ -89,7 +93,7 @@ describe('Artificer enchant + unsocket', () => {
   });
 
   it('unsocket pops the gem back into the bag and frees the socket', () => {
-    const w = new World();
+    const w = areaWorld('town');
     w.populateNpcs('town');
     const socketedArmor: ItemInstance = {
       uid: 9002,
@@ -106,7 +110,8 @@ describe('Artificer enchant + unsocket', () => {
       gear: [],
       equipment: { chest: socketedArmor },
     };
-    w.importPlayer(2, save, 580, 560);
+    const artificer2 = npcPos('town', 'artificer');
+    w.importPlayer(2, save, artificer2.x, artificer2.y);
 
     w.unsocketGem(2, 'chest', 0);
     const after = w.playerStats(2)!;
@@ -133,10 +138,11 @@ describe('banker stash', () => {
     w.drainStashOffers().find((o) => o.playerId === playerId)?.items ?? [];
 
   it('deposit moves a bag item into the stash next to the banker', () => {
-    const w = new World();
-    w.populateNpcs('town'); // Vault Keeper (banker) stands at (1020, 560)
+    const w = areaWorld('town');
+    w.populateNpcs('town'); // the Vault Keeper (banker)
     const save: PlayerSave = { ...BASE_SAVE, loot: [], gear: [sword], equipment: {} };
-    w.importPlayer(1, save, 1020, 560);
+    const banker = npcPos('town', 'banker');
+    w.importPlayer(1, save, banker.x, banker.y);
 
     w.depositToStash(1, 7001);
     expect(w.playerStats(1)!.gear.find((g) => g.uid === 7001)).toBeUndefined();
@@ -144,10 +150,11 @@ describe('banker stash', () => {
   });
 
   it('withdraw moves a stashed item back into the bag', () => {
-    const w = new World();
+    const w = areaWorld('town');
     w.populateNpcs('town');
     const save: PlayerSave = { ...BASE_SAVE, loot: [], gear: [sword], equipment: {} };
-    w.importPlayer(2, save, 1020, 560);
+    const banker2 = npcPos('town', 'banker');
+    w.importPlayer(2, save, banker2.x, banker2.y);
 
     w.depositToStash(2, 7001); // bag -> stash
     w.drainStashOffers(); // clear the pending window so the next read is fresh
@@ -158,7 +165,7 @@ describe('banker stash', () => {
   });
 
   it('does nothing away from the banker (proximity is server-checked)', () => {
-    const w = new World();
+    const w = areaWorld('town');
     w.populateNpcs('town');
     const save: PlayerSave = { ...BASE_SAVE, loot: [], gear: [sword], equipment: {} };
     w.importPlayer(3, save, 50, 50); // nowhere near the Vault Keeper

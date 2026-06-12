@@ -12,6 +12,7 @@ import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 import { EXPANSION_AREA_MOBS, EXPANSION_LOOT } from './seed-expansion.js';
 import { EXPANSION_DECOR } from './seed-decor.js';
 import { ensureSpellTomeContent } from './seed-spells.js';
+import { FRONTIER_NPCS, FRONTIER_DECOR, FRONTIER_LOOT, FRONTIER_QUESTS } from './seed-frontier.js';
 
 /** Display names + colors for the non-equipment loot materials (and gold). */
 const MATERIALS: Record<string, { name: string; color: string }> = {
@@ -304,6 +305,101 @@ export function seed(db: Database): void {
   ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
   ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
   ensureExpansionContent(db); // hand-placed decor, new-monster rosters/loot, sprite tints
+  ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
+}
+
+/**
+ * Upsert the frontier content (the Duskhaven village + Abyssal Throne endgame dungeon) into an
+ * already-seeded DB. Areas/portals/themes/templates/rosters flow through ensureWorldExpansion;
+ * this covers the NPC, decor, loot, quest, and vendor-shelf rows. Idempotent like its siblings.
+ */
+function ensureFrontierContent(db: Database): void {
+  const npcExists = db.prepare('SELECT 1 FROM npcs WHERE area_id = ? AND name = ?');
+  const npcIns = db.prepare('INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)');
+  for (const n of FRONTIER_NPCS) {
+    if (!npcExists.get(n.areaId, n.name)) npcIns.run(n.areaId, n.name, n.x, n.y, n.hue, n.kind);
+  }
+
+  const decorKindCount = db.prepare(
+    'SELECT COUNT(*) AS n FROM decor WHERE area_id = ? AND kind = ?',
+  );
+  const decorIns = db.prepare(
+    'INSERT INTO decor (area_id,kind,x,y,x2,y2,color,scale) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  const byAreaKind = new Map<string, typeof FRONTIER_DECOR>();
+  for (const d of FRONTIER_DECOR) {
+    const key = `${d.areaId}/${d.kind}`;
+    byAreaKind.set(key, [...(byAreaKind.get(key) ?? []), d]);
+  }
+  for (const rows of byAreaKind.values()) {
+    const first = rows[0]!;
+    const { n } = decorKindCount.get(first.areaId, first.kind) as { n: number };
+    if (n > 0) continue;
+    for (const d of rows) {
+      decorIns.run(
+        d.areaId,
+        d.kind,
+        d.x,
+        d.y,
+        d.x2 ?? null,
+        d.y2 ?? null,
+        d.color ?? null,
+        d.scale ?? null,
+      );
+    }
+  }
+
+  const lootExists = db.prepare('SELECT 1 FROM loot_entry WHERE mob_template_id = ? LIMIT 1');
+  const lootIns = db.prepare(
+    'INSERT INTO loot_entry (mob_template_id,grp,item_id,weight,min_qty,max_qty,is_nothing,chance) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  const lootMobs = new Set(FRONTIER_LOOT.map((l) => l.mobTemplateId));
+  for (const mobId of lootMobs) {
+    if (lootExists.get(mobId)) continue;
+    for (const l of FRONTIER_LOOT) {
+      if (l.mobTemplateId !== mobId) continue;
+      lootIns.run(mobId, l.grp, l.itemId, l.weight, l.minQty, l.maxQty, l.isNothing, l.chance);
+    }
+  }
+
+  const insQuest = db.prepare(
+    'INSERT OR IGNORE INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item,turn_in_item,turn_in_count) VALUES (?,?,?,?,?,?,?,?,?,?)',
+  );
+  for (const q of FRONTIER_QUESTS) {
+    insQuest.run(
+      q.id,
+      q.name,
+      q.description,
+      q.targetMob,
+      q.targetCount,
+      q.rewardGold,
+      q.rewardXp,
+      q.rewardItem ?? null,
+      q.turnInItem ?? null,
+      q.turnInCount ?? 0,
+    );
+  }
+
+  // Duskhaven's Provisioner sells the Act 2 essentials (steel/mithril basics + a mid tome) so the
+  // village is a real outfitting stop, not just a bed.
+  const stockExists = db.prepare(
+    'SELECT 1 FROM vendor_stock WHERE area_id = ? AND npc_name = ? LIMIT 1',
+  );
+  const stockIns = db.prepare(
+    'INSERT INTO vendor_stock (area_id,npc_name,item_id,price,sort_order) VALUES (?,?,?,?,?)',
+  );
+  if (!stockExists.get('duskhaven', 'Maela the Provisioner')) {
+    const shelf: [string, number][] = [
+      ['steel_sword', 900],
+      ['steel_armor', 1100],
+      ['mithril_blade', 2400],
+      ['mithril_armor', 2800],
+      ['tome_divine_mending', 950],
+    ];
+    shelf.forEach(([itemId, price], i) =>
+      stockIns.run('duskhaven', 'Maela the Provisioner', itemId, price, i),
+    );
+  }
 }
 
 /**

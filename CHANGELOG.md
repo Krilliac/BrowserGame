@@ -25,6 +25,29 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **The world is 5× as long per side (25× the ground).** A single `WORLD_SCALE` applied where
+  content loads stretches every area, portal, spawn, NPC spot, and decor placement — zones are
+  now real expeditions. Monster rosters grow 4× (sparser frontier, every camp a hunt), dungeon
+  packs likewise. Authored data stays compact; tests read positions from content, never
+  hardcoded coordinates.
+- **Three-act structure.** Everything that existed is **Act 1** (the exponential curve walks
+  you out of it around level 15-20). The XP curve is now piecewise — steep ~28%/level through
+  the Act 1 band, easing to ~12%/level beyond 20 — with super-linear kill XP for Act 2/3
+  monsters, landing ~20 levels per act: L20 ≈ 35k total XP, L40 ≈ 741k, L60 ≈ 7.6M.
+
+### Added
+
+- **Duskhaven, the frontier village (Act 2's rest point).** A snow-dusted mountain settlement
+  through a new pass at the far end of Frostpeak: vendor (with an Act 2 shelf), healer, banker,
+  and quest-giver, hearth-lit and palisaded — the second safe anchor on the map.
+- **The Abyssal Throne (endgame dungeon).** Beyond the Blighted Spire: the darkest floor in
+  the game, packed level 30-40 — Abyssal Thralls, Duskfire Hexers, Thronespawn Ravagers, two
+  throne-guard bosses, and **Nyxathor, the Abyssal Sovereign** (level 40, the hardest fight in
+  the game; 2-4k gold and a 50,000 XP bounty quest).
+- **Exploration rewards everywhere.** ~45 treasure chests and shrines plus ~30 landmark prop
+  clusters (standing-stone rings, a fairy ring, a titan ribcage, a ruined chapel…) scattered
+  to the far corners of every zone — destinations worth the now-long walk.
+
 - **The world is HARD now (difficulty + pacing overhaul).** The game is rebalanced from a
   15-minute stroll into an hours-long climb:
   - **Exponential XP curve** — each level costs ~28% more than the last (L10 ≈ 2.6k total XP,

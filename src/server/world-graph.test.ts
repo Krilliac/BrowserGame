@@ -15,10 +15,12 @@ describe('world graph integrity', () => {
   const areas = c.areas();
   const ids = new Set(areas.map((a) => a.id));
 
-  it('ships the eight overworld areas plus the five dungeons and the rift', () => {
+  it('ships the overworld, the dungeons, the rift, and the frontier (village + throne)', () => {
     expect([...ids].sort()).toEqual([
+      'abyssal_throne',
       'blighted_spire',
       'crypt',
+      'duskhaven',
       'forgotten_catacombs',
       'frostpeak',
       'frozen_vault',

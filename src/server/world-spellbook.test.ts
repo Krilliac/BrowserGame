@@ -2,14 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { World } from './world.js';
 import { initGameDb } from './content.js';
 import { MAX_SPELL_RANK, STARTER_ABILITIES } from '../shared/combat.js';
+import { areaWorld, npcPosByName } from './test-support.js';
 
 initGameDb(':memory:');
 
 /** A town world with the Merchant placed, plus a player standing on top of the vendor. */
 function townWithShopper(): { w: World; id: number } {
-  const w = new World(1600, 1200, { x: 660, y: 560 }, undefined, 'town');
+  const w = areaWorld('town');
   w.populateNpcs('town');
-  const id = w.spawn('Shopper', { x: 660, y: 560 });
+  const merchant = npcPosByName('town', 'Merchant');
+  const id = w.spawn('Shopper', { x: merchant.x, y: merchant.y });
   return { w, id };
 }
 
@@ -215,16 +217,18 @@ describe('waypoint discovery', () => {
 describe('town service NPCs (healer + gambler)', () => {
   /** A town world with all service NPCs placed and a player on the gambler/healer row. */
   function townWithServices(): { w: World; id: number } {
-    const w = new World(1600, 1200, { x: 900, y: 560 }, undefined, 'town');
+    const w = areaWorld('town');
     w.populateNpcs('town');
-    const id = w.spawn('Patron', { x: 900, y: 560 }); // near Sister Oona (860) + Lucky Marn (940)
+    const id = w.spawn('Patron');
     return { w, id };
   }
+  const healer = npcPosByName('town', 'Sister Oona');
+  const gambler = npcPosByName('town', 'Lucky Marn');
 
   it('a healer fully restores HP and mana on interact', () => {
     const { w, id } = townWithServices();
     // Stand on the healer and damage the player first.
-    w.teleport(id, 860, 560);
+    w.teleport(id, healer.x, healer.y);
     w.setLevel(id, 10);
     // Drain HP/mana via a cast + simulated damage: cast costs mana; then check restore.
     w.giveItem(id, 'tome_lightning', 1);
@@ -239,7 +243,7 @@ describe('town service NPCs (healer + gambler)', () => {
 
   it('a gambler opens a window and rolls an item of the chosen slot for gold', () => {
     const { w, id } = townWithServices();
-    w.teleport(id, 940, 560); // stand on Lucky Marn
+    w.teleport(id, gambler.x, gambler.y); // stand on Lucky Marn
     w.interact(id);
     const offers = w.drainGambleOffers();
     expect(offers).toHaveLength(1);
@@ -382,9 +386,10 @@ describe('quest log state (the wire data for the quest-log UI)', () => {
 describe('collect / turn-in quests', () => {
   /** Town world with the quest-giver (Elder Maeve at 740,560) and a player beside her. */
   function townWithGiver(): { w: World; id: number } {
-    const w = new World(1600, 1200, { x: 740, y: 560 }, undefined, 'town');
+    const w = areaWorld('town');
     w.populateNpcs('town');
-    const id = w.spawn('Collector', { x: 740, y: 560 });
+    const giver = npcPosByName('town', 'Elder Maeve');
+    const id = w.spawn('Collector', { x: giver.x, y: giver.y });
     return { w, id };
   }
 

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { World, type PlayerSave } from './world.js';
 import { initGameDb } from './content.js';
+import { areaWorld, npcPos } from './test-support.js';
 
 initGameDb(':memory:');
 
-// Captain Aldric (recruiter) stands at (700, 620) in town.
-const RECRUITER = { x: 700, y: 620 };
+// Captain Aldric, the town recruiter — position from content (post-world-scale).
+const RECRUITER = npcPos('town', 'recruiter');
 
 const BASE_SAVE: PlayerSave = {
   name: 'Subject',
@@ -27,7 +28,7 @@ const hirelingsOf = (w: World) => w.snapshot().filter((e) => e.kind === 'hirelin
 
 describe('hiring at the recruiter', () => {
   it('deducts gold and spawns the companion beside the player', () => {
-    const w = new World();
+    const w = areaWorld('town');
     const id = w.spawn('Boss');
     w.populateNpcs('town');
     w.teleport(id, RECRUITER.x, RECRUITER.y);
@@ -44,7 +45,7 @@ describe('hiring at the recruiter', () => {
   });
 
   it('does nothing away from the recruiter, with bad types, or without gold', () => {
-    const w = new World();
+    const w = areaWorld('town');
     const id = w.spawn('Broke');
     w.populateNpcs('town');
 
@@ -57,7 +58,7 @@ describe('hiring at the recruiter', () => {
     w.hire(id, 'not_a_merc');
     expect(hirelingsOf(w)).toHaveLength(0);
 
-    const w2 = new World();
+    const w2 = areaWorld('town');
     const poor = w2.spawn('Penniless');
     w2.populateNpcs('town');
     w2.teleport(poor, RECRUITER.x, RECRUITER.y);
@@ -66,7 +67,7 @@ describe('hiring at the recruiter', () => {
   });
 
   it('re-hiring replaces the current companion (never two at once)', () => {
-    const w = new World();
+    const w = areaWorld('town');
     const id = w.spawn('Switcher');
     w.populateNpcs('town');
     w.teleport(id, RECRUITER.x, RECRUITER.y);
@@ -110,7 +111,7 @@ describe('hireling combat', () => {
 
 describe('hireling persistence', () => {
   it('the contract survives an area transfer and the companion respawns beside the player', () => {
-    const a = new World();
+    const a = areaWorld('town');
     a.populateNpcs('town');
     const id = a.spawn('Mover');
     a.teleport(id, RECRUITER.x, RECRUITER.y);

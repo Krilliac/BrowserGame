@@ -84,6 +84,19 @@ interface LootGroup {
   gear?: { chance: number; items: string[] };
 }
 
+/**
+ * Linear world scale applied at CONTENT LOAD: authored data (areas.ts, seed rows, decor, NPC
+ * spots) stays in its compact, hand-tunable coordinate system, and the served world comes out
+ * WORLD_SCALE× as long per side — zones become real expeditions, with landmarks, chests, and
+ * shrines worth walking to. Everything coordinate-bearing scales through this one boundary
+ * (dimensions, spawns, portals, NPCs, decor), so the sim, client, minimap, and collision all
+ * agree without touching the authored sources.
+ */
+const WORLD_SCALE = 5;
+/** Monster roster multiplier: the ground grows 25×, the packs grow 4× — sparser frontier, but
+ *  every roster is a real hunt (and respawns keep camps refilling). */
+const MOB_COUNT_SCALE = 4;
+
 export function loadContent(db: GameDatabase): Content {
   // Per-area environment themes (the data-driven look) — DEFAULT_THEME fills any area without a row.
   const themes = new Map<string, AreaTheme>();
@@ -95,9 +108,9 @@ export function loadContent(db: GameDatabase): Content {
   // fields only when non-null, so exactOptionalPropertyTypes stays happy.
   const decor = new Map<string, DecorProp[]>();
   for (const r of db.prepare('SELECT * FROM decor').all() as DecorRow[]) {
-    const prop: DecorProp = { kind: r.kind, x: r.x, y: r.y };
-    if (r.x2 !== null) prop.x2 = r.x2;
-    if (r.y2 !== null) prop.y2 = r.y2;
+    const prop: DecorProp = { kind: r.kind, x: r.x * WORLD_SCALE, y: r.y * WORLD_SCALE };
+    if (r.x2 !== null) prop.x2 = r.x2 * WORLD_SCALE;
+    if (r.y2 !== null) prop.y2 = r.y2 * WORLD_SCALE;
     if (r.color !== null) prop.color = r.color;
     if (r.scale !== null) prop.scale = r.scale;
     const list = decor.get(r.area_id) ?? [];
@@ -110,17 +123,22 @@ export function loadContent(db: GameDatabase): Content {
     const portals = (
       db.prepare('SELECT * FROM portals WHERE area_id = ?').all(a.id) as PortalRow[]
     ).map((p) => ({
-      rect: { x: p.rect_x, y: p.rect_y, w: p.rect_w, h: p.rect_h },
+      rect: {
+        x: p.rect_x * WORLD_SCALE,
+        y: p.rect_y * WORLD_SCALE,
+        w: p.rect_w * WORLD_SCALE,
+        h: p.rect_h * WORLD_SCALE,
+      },
       toArea: p.to_area,
-      toSpawn: { x: p.to_spawn_x, y: p.to_spawn_y },
+      toSpawn: { x: p.to_spawn_x * WORLD_SCALE, y: p.to_spawn_y * WORLD_SCALE },
       label: p.label,
     }));
     areas.set(a.id, {
       id: a.id,
       name: a.name,
-      width: a.width,
-      height: a.height,
-      spawn: { x: a.spawn_x, y: a.spawn_y },
+      width: a.width * WORLD_SCALE,
+      height: a.height * WORLD_SCALE,
+      spawn: { x: a.spawn_x * WORLD_SCALE, y: a.spawn_y * WORLD_SCALE },
       playerCap: a.player_cap,
       portals,
       theme: themes.get(a.id) ?? DEFAULT_THEME,
@@ -201,14 +219,20 @@ export function loadContent(db: GameDatabase): Content {
   const areaMobs = new Map<string, { templateId: string; count: number }[]>();
   for (const r of db.prepare('SELECT * FROM area_mobs').all() as AreaMobRow[]) {
     const list = areaMobs.get(r.area_id) ?? [];
-    list.push({ templateId: r.template_id, count: r.count });
+    list.push({ templateId: r.template_id, count: r.count * MOB_COUNT_SCALE });
     areaMobs.set(r.area_id, list);
   }
 
   const npcs = new Map<string, NpcDef[]>();
   for (const r of db.prepare('SELECT * FROM npcs').all() as NpcRow[]) {
     const list = npcs.get(r.area_id) ?? [];
-    list.push({ name: r.name, x: r.x, y: r.y, hue: r.hue, kind: r.kind });
+    list.push({
+      name: r.name,
+      x: r.x * WORLD_SCALE,
+      y: r.y * WORLD_SCALE,
+      hue: r.hue,
+      kind: r.kind,
+    });
     npcs.set(r.area_id, list);
   }
 

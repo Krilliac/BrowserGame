@@ -563,8 +563,9 @@ export class World {
   private populateDungeon(d: DungeonDef): void {
     const content = getContent();
     // A rift tier packs the dungeon denser and rolls champions far more often — risk and reward
-    // both ramp with the tier the player chose at the Riftkeeper.
-    const density = 1 + 0.15 * this.tier;
+    // both ramp with the tier the player chose at the Riftkeeper. The flat ×4 matches the
+    // world-scale roster bump (the floor is 25× the ground; the packs grow with it).
+    const density = 4 * (1 + 0.15 * this.tier);
     const eliteChance = Math.min(0.6, d.eliteChance + 0.03 * this.tier);
     const base = d.minMobs + Math.floor(Math.random() * (d.maxMobs - d.minMobs + 1));
     const count = Math.round(base * density);

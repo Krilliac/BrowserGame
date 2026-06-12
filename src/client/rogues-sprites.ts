@@ -200,6 +200,13 @@ const MOB_RULES: MobRule[] = [
   { re: /harpy/, sheet: 'monsters', label: 'harpy' },
   { re: /drake|dragon/, sheet: 'monsters', label: 'drake' },
   { re: /minotaur/, sheet: 'monsters', label: 'minotaur' },
+  // --- Abyssal Throne bestiary (seed-frontier.ts): specific words before the generics. ---
+  { re: /sovereign|nyxathor/, sheet: 'monsters', label: 'dragon' },
+  { re: /sentinel/, sheet: 'monsters', label: 'death-knight' },
+  { re: /magus/, sheet: 'monsters', label: 'unholy-cardinal' },
+  { re: /hexer/, sheet: 'monsters', label: 'hag' },
+  { re: /thrall/, sheet: 'monsters', label: 'zombie' },
+  { re: /ravager/, sheet: 'monsters', label: 'wendigo' },
   { re: /witch|hag/, sheet: 'monsters', label: 'hag' },
   { re: /bonecaller|pale king|crypt lord|lich/, sheet: 'monsters', label: 'lich' },
   { re: /runeseer|seer/, sheet: 'monsters', label: 'unholy-cardinal' },
@@ -260,6 +267,7 @@ const NPC_LABELS: Record<string, string> = {
   healer: 'priest',
   gambler: 'bandit',
   artificer: 'blacksmith',
+  banker: 'elderly-man',
 };
 
 export function npcSpriteCell(npcKind: string): SpriteCell | undefined {

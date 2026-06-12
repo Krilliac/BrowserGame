@@ -231,6 +231,31 @@ export const AREAS: Record<string, AreaDef> = {
         toSpawn: { x: 160, y: 1000 },
         label: 'The Sundered Wastes →',
       },
+      {
+        rect: { x: 0, y: 850, w: 50, h: 300 },
+        toArea: 'duskhaven',
+        toSpawn: { x: 1340, y: 620 },
+        label: '← Duskhaven Refuge',
+      },
+    ],
+  },
+
+  // The frontier village: a second rest point at the far end of the spine, off Frostpeak.
+  // A safe settlement (no area_mobs roster) — vendor, healer, banker, and quest-giver live here.
+  duskhaven: {
+    id: 'duskhaven',
+    name: 'Duskhaven',
+    width: 1500,
+    height: 1100,
+    spawn: { x: 750, y: 620 },
+    playerCap: 8,
+    portals: [
+      {
+        rect: { x: 1440, y: 470, w: 60, h: 260 },
+        toArea: 'frostpeak',
+        toSpawn: { x: 160, y: 1000 },
+        label: 'To Frostpeak Pass →',
+      },
     ],
   },
 
@@ -377,6 +402,31 @@ export const AREAS: Record<string, AreaDef> = {
         toArea: 'sundered_wastes',
         toSpawn: { x: 2280, y: 1000 },
         label: '← Back to the Wastes',
+      },
+      {
+        rect: { x: 2350, y: 1700, w: 50, h: 300 },
+        toArea: 'abyssal_throne',
+        toSpawn: { x: 750, y: 220 },
+        label: '↓ The Abyssal Throne',
+      },
+    ],
+  },
+
+  // The far corner of the world: the hardest dungeon in the game, beneath the Blighted Spire.
+  // Tuned for the level-30+ endgame — the Sovereign at its heart is the apex fight.
+  abyssal_throne: {
+    id: 'abyssal_throne',
+    name: 'The Abyssal Throne',
+    width: 1500,
+    height: 1300,
+    spawn: { x: 750, y: 220 },
+    playerCap: 4,
+    portals: [
+      {
+        rect: { x: 600, y: 0, w: 300, h: 50 },
+        toArea: 'blighted_spire',
+        toSpawn: { x: 2280, y: 1850 },
+        label: '↑ Flee the Throne',
       },
     ],
   },
@@ -668,6 +718,52 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
     gradeContrast: 1.12,
     spriteTint: '#cfe6b8',
   },
+  // Frontier mountain village: dark timber under snow-dusted blue-grey ground, light snowfall,
+  // and warm hearth-sparks drifting up — cold outside, welcoming around the fires.
+  duskhaven: {
+    groundBase: '#262d38',
+    groundSpeck: '#3a4452',
+    prop: 'rock',
+    propDensity: 0.04,
+    atmoColor: '#9db4d6',
+    atmoAlpha: 0.12,
+    outdoor: true,
+    particleColor: '#ffd9a0',
+    particleCount: 30,
+    particleRise: -10,
+    particleFlicker: true,
+    weather: 'snow',
+    weatherIntensity: 0.35,
+    fogColor: '#cdd8e6',
+    lightAmbient: 0.8,
+    gradeSaturation: 0.88,
+    gradeBrightness: 1,
+    gradeContrast: 1.05,
+    spriteTint: '#e6edf8',
+  },
+  // The Abyssal Throne: the darkest place in the game — near-black stone under a violet-red
+  // haze, heavy fog, embers raining down, and barely any light. Abandon hope.
+  abyssal_throne: {
+    groundBase: '#0d0a10',
+    groundSpeck: '#1c1018',
+    prop: 'pillar',
+    propDensity: 0.1,
+    atmoColor: '#2e0a1a',
+    atmoAlpha: 0.42,
+    outdoor: false,
+    particleColor: '#ff5a3a',
+    particleCount: 72,
+    particleRise: -16,
+    particleFlicker: true,
+    weather: 'fog',
+    weatherIntensity: 0.55,
+    fogColor: '#0a0508',
+    lightAmbient: 0.3,
+    gradeSaturation: 0.85,
+    gradeBrightness: 0.85,
+    gradeContrast: 1.2,
+    spriteTint: '#d8b0c0',
+  },
   // Void-scarred highland: bruised violet ground, drifting void-motes, a wrongness in the air.
   sundered_wastes: {
     groundBase: '#211a26',
@@ -819,6 +915,28 @@ export const DUNGEONS: Record<string, DungeonDef> = {
     eliteChance: 0.25,
     minMobs: 18,
     maxMobs: 26,
+  },
+  // The endgame dungeon beneath the Blighted Spire: the new Throne floor mobs plus the
+  // nastiest late-act monsters, the densest population, the highest elite chance, and the
+  // apex boss of the game on the throne itself.
+  abyssal_throne: {
+    pool: [
+      'abyss_thrall',
+      'duskfire_hexer',
+      'thronespawn_ravager',
+      'blight_knight',
+      'pyre_caster',
+      'blightgore_minotaur',
+      'obsidian_juggernaut',
+      'voidscale_drake',
+      'throne_magus',
+    ],
+    boss: 'nyxathor',
+    miniBoss: 'throne_sentinel',
+    miniBossChance: 0.55,
+    eliteChance: 0.4,
+    minMobs: 20,
+    maxMobs: 28,
   },
 };
 

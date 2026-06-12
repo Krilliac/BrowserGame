@@ -11,8 +11,10 @@ describe('content (SQLite-backed)', () => {
         .map((a) => a.id)
         .sort(),
     ).toEqual([
+      'abyssal_throne',
       'blighted_spire',
       'crypt',
+      'duskhaven',
       'forgotten_catacombs',
       'frostpeak',
       'frozen_vault',

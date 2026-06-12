@@ -12,6 +12,13 @@
  *
  * Pots are breakable entities (walk over them to smash them for gold), so they cluster
  * Diablo-style by doorways, walls, and dungeon corners — densest in the dungeons.
+ *
+ * The EXPLORATION PASS at the bottom adds things to FIND: treasure chests in the far
+ * corners (the World turns 'chest' decor into lootable entities), shrines beside new
+ * landmarks ('shrine' decor grants timed buffs), and distinctive prop clusters to
+ * navigate by. Chest/shrine rows are deliberately absent from town and hollowroot —
+ * seed.ts already seeds those kinds there, and the per-(area,kind) seed guard would
+ * silently drop any we added.
  */
 
 export interface DecorRow {
@@ -457,5 +464,336 @@ export const EXPANSION_DECOR: DecorRow[] = [
     { kind: 'pot', x: 366, y: 712, scale: 0.9 },
     { kind: 'pot', x: 1900, y: 800 },
     { kind: 'pot', x: 1916, y: 812 },
+  ]),
+
+  // ===================================================================================
+  // EXPLORATION PASS — rewards for walking to the far corners. Chests are lootable
+  // entities (gold + gear + potions, sometimes runes); shrines grant timed buffs and
+  // sit beside a landmark cluster so the buff marks a destination worth remembering.
+  // Skipped areas (seed.ts already seeds these kinds; the per-(area,kind) guard would
+  // drop duplicates): town has a chest + shrine, hollowroot has 2 chests + 2 shrines.
+  // Town also keeps its palisade-ring-only dressing — no landmark clusters there.
+  // ===================================================================================
+
+  // --- Gloomwood exploration: chests in three far corners, a stone ring in the
+  // southwest, a crystal garden in the northeast, ruins north, a skull grove east,
+  // and a thorn hollow on the south edge.
+  ...area('wilderness', [
+    // Far-corner chests.
+    { kind: 'chest', x: 130, y: 130, color: '#b9863f' },
+    { kind: 'chest', x: 170, y: 1870, color: '#b9863f' },
+    { kind: 'chest', x: 2300, y: 1080, color: '#b9863f' },
+    // The Old Ring: standing stones in the deep southwest, a shrine at their heart.
+    { kind: 'rock', x: 700, y: 1610 },
+    { kind: 'rock', x: 790, y: 1700, scale: 1.1 },
+    { kind: 'rock', x: 700, y: 1790 },
+    { kind: 'rock', x: 610, y: 1700 },
+    { kind: 'rock', x: 764, y: 1636, scale: 0.9 },
+    { kind: 'rock', x: 636, y: 1764 },
+    { kind: 'shrine', x: 690, y: 1690, color: '#7fd0ff' },
+    { kind: 'pot', x: 820, y: 1660 },
+    { kind: 'pot', x: 836, y: 1672, scale: 0.9 },
+    // Crystal garden on the northeast cliff, shrine glittering among the spars.
+    { kind: 'crystal', x: 2010, y: 150 },
+    { kind: 'crystal', x: 2090, y: 160 },
+    { kind: 'crystal', x: 2050, y: 240 },
+    { kind: 'crystal', x: 1980, y: 220 },
+    { kind: 'crystal', x: 2110, y: 230, scale: 1.3 },
+    { kind: 'shrine', x: 2080, y: 170, color: '#9a7fff' },
+    // The Hanging Grove: dead trees and a skull pile, east of center.
+    { kind: 'dead_tree', x: 1610, y: 1190 },
+    { kind: 'dead_tree', x: 1700, y: 1230, scale: 1.15 },
+    { kind: 'dead_tree', x: 1640, y: 1320 },
+    { kind: 'skull_pile', x: 1660, y: 1260 },
+    { kind: 'bones', x: 1590, y: 1280 },
+    // A ruined arch circle on the north road, pots still stacked inside.
+    { kind: 'ruin', x: 700, y: 220 },
+    { kind: 'ruin', x: 820, y: 220, scale: 1.1 },
+    { kind: 'ruin', x: 700, y: 300 },
+    { kind: 'ruin', x: 820, y: 300 },
+    { kind: 'pot', x: 760, y: 340 },
+    { kind: 'pot', x: 776, y: 352, scale: 0.9 },
+    // Thorn hollow along the south edge, between the marsh road and the crypt.
+    { kind: 'thorn_plant', x: 1520, y: 1780 },
+    { kind: 'thorn_plant', x: 1610, y: 1800 },
+    { kind: 'thorn_plant', x: 1540, y: 1870 },
+    { kind: 'thorn_plant', x: 1620, y: 1860, scale: 1.1 },
+    { kind: 'bones', x: 1570, y: 1830 },
+  ]),
+
+  // --- Shadow Crypt exploration: corner chests, and a grave-ring shrine in the
+  // south hall lit by two extra candles (8 lights total, under the 10 cap).
+  ...area('crypt', [
+    { kind: 'chest', x: 1290, y: 130, color: '#b9863f' },
+    { kind: 'chest', x: 130, y: 1290, color: '#b9863f' },
+    { kind: 'shrine', x: 700, y: 900, color: '#8c93a8' },
+    { kind: 'grave', x: 640, y: 840 },
+    { kind: 'grave', x: 760, y: 840 },
+    { kind: 'grave', x: 640, y: 960, scale: 1.1 },
+    { kind: 'grave', x: 760, y: 960 },
+    { kind: 'candle', x: 660, y: 900 },
+    { kind: 'candle', x: 740, y: 900 },
+  ]),
+
+  // --- Rotfen Marsh exploration: corner chests, a mushroom fairy ring southwest,
+  // witch-stones east, a drowned grove northeast, causeway ruins west, a bone fen south.
+  ...area('marsh', [
+    { kind: 'chest', x: 140, y: 140, color: '#b9863f' },
+    { kind: 'chest', x: 2070, y: 1660, color: '#b9863f' },
+    { kind: 'chest', x: 2060, y: 170, color: '#b9863f' },
+    // The fairy ring: glowing mushrooms in a perfect circle, a shrine at the center.
+    { kind: 'mushroom', x: 380, y: 1410 },
+    { kind: 'mushroom', x: 450, y: 1450 },
+    { kind: 'mushroom', x: 450, y: 1540, scale: 1.2 },
+    { kind: 'mushroom', x: 380, y: 1580 },
+    { kind: 'mushroom', x: 310, y: 1540 },
+    { kind: 'mushroom', x: 310, y: 1450 },
+    { kind: 'shrine', x: 370, y: 1500, color: '#9fd86a' },
+    // The witch-stones: four leaning rocks east, a second shrine between them.
+    { kind: 'rock', x: 1820, y: 770 },
+    { kind: 'rock', x: 1905, y: 800, scale: 1.15 },
+    { kind: 'rock', x: 1900, y: 890 },
+    { kind: 'rock', x: 1815, y: 870 },
+    { kind: 'shrine', x: 1862, y: 832, color: '#7fffd0' },
+    // Drowned grove in the northeast shallows.
+    { kind: 'dead_tree', x: 1930, y: 250 },
+    { kind: 'dead_tree', x: 2040, y: 270 },
+    { kind: 'dead_tree', x: 1960, y: 360, scale: 1.15 },
+    { kind: 'dead_tree', x: 2050, y: 380 },
+    { kind: 'bones', x: 1990, y: 320 },
+    // The old causeway: ruined arches west, pots unlooted between them.
+    { kind: 'ruin', x: 250, y: 760 },
+    { kind: 'ruin', x: 360, y: 760, scale: 0.9 },
+    { kind: 'ruin', x: 250, y: 860 },
+    { kind: 'ruin', x: 360, y: 860 },
+    { kind: 'pot', x: 300, y: 810 },
+    { kind: 'pot', x: 316, y: 822 },
+    // Bone fen south of center — something feeds here.
+    { kind: 'bones', x: 860, y: 1560 },
+    { kind: 'bones', x: 950, y: 1580 },
+    { kind: 'bones', x: 880, y: 1650 },
+    { kind: 'skull_pile', x: 920, y: 1620 },
+    { kind: 'thorn_plant', x: 820, y: 1620 },
+  ]),
+
+  // --- Emberdeep Mines exploration: chests in the deep southeast gallery and the
+  // northwest dead-end, and a crystal-garden shrine on the east wall.
+  ...area('mines', [
+    { kind: 'chest', x: 1760, y: 1560, color: '#b9863f' },
+    { kind: 'chest', x: 140, y: 150, color: '#b9863f' },
+    { kind: 'shrine', x: 1700, y: 900, color: '#ff8a3a' },
+    { kind: 'crystal', x: 1650, y: 850 },
+    { kind: 'crystal', x: 1760, y: 860, scale: 1.2 },
+    { kind: 'crystal', x: 1680, y: 960 },
+    { kind: 'crystal', x: 1770, y: 950 },
+    { kind: 'pot', x: 1720, y: 1590 },
+    { kind: 'pot', x: 1736, y: 1602, scale: 1.1 },
+  ]),
+
+  // --- Frostpeak Pass exploration: corner chests, a frozen monolith ring northwest,
+  // an ice garden southeast, a dead stand southwest, cairns north, an avalanche
+  // bonefield on the south edge.
+  ...area('frostpeak', [
+    { kind: 'chest', x: 140, y: 150, color: '#b9863f' },
+    { kind: 'chest', x: 150, y: 1850, color: '#b9863f' },
+    { kind: 'chest', x: 2060, y: 1860, color: '#b9863f' },
+    // The monolith ring: rimed stones and ice spars, a shrine frozen at the center.
+    { kind: 'rock', x: 340, y: 210 },
+    { kind: 'rock', x: 425, y: 300, scale: 1.1 },
+    { kind: 'rock', x: 340, y: 390 },
+    { kind: 'rock', x: 255, y: 300 },
+    { kind: 'crystal', x: 400, y: 240, scale: 1.1 },
+    { kind: 'crystal', x: 280, y: 360 },
+    { kind: 'shrine', x: 340, y: 300, color: '#cfe6ff' },
+    // The ice garden: crystal spars in the southeast lee, a second shrine among them.
+    { kind: 'crystal', x: 1900, y: 1480 },
+    { kind: 'crystal', x: 2010, y: 1500 },
+    { kind: 'crystal', x: 1930, y: 1600 },
+    { kind: 'crystal', x: 2020, y: 1590, scale: 1.25 },
+    { kind: 'crystal', x: 1860, y: 1560 },
+    { kind: 'shrine', x: 1950, y: 1540, color: '#7fd0ff' },
+    // A stand that died on its feet, southwest.
+    { kind: 'dead_tree', x: 310, y: 1650 },
+    { kind: 'dead_tree', x: 400, y: 1680 },
+    { kind: 'dead_tree', x: 330, y: 1760, scale: 1.1 },
+    { kind: 'bones', x: 380, y: 1740 },
+    { kind: 'skull_pile', x: 300, y: 1710 },
+    // Cairn field along the north ridge, travellers' pots beside the markers.
+    { kind: 'rock', x: 1660, y: 150 },
+    { kind: 'rock', x: 1750, y: 170 },
+    { kind: 'rock', x: 1690, y: 250 },
+    { kind: 'rock', x: 1780, y: 240, scale: 0.9 },
+    { kind: 'skull_pile', x: 1720, y: 200 },
+    { kind: 'pot', x: 1630, y: 230 },
+    { kind: 'pot', x: 1646, y: 242, scale: 0.9 },
+    // Avalanche bonefield on the south edge — what the slide buried.
+    { kind: 'bones', x: 1260, y: 1810 },
+    { kind: 'bones', x: 1350, y: 1830 },
+    { kind: 'bones', x: 1280, y: 1890 },
+    { kind: 'dead_tree', x: 1380, y: 1880 },
+    { kind: 'rock', x: 1220, y: 1860, scale: 1.2 },
+  ]),
+
+  // --- The Forgotten Catacombs exploration: corner chests and a grave-flanked shrine
+  // deep in the south hall.
+  ...area('forgotten_catacombs', [
+    { kind: 'chest', x: 1390, y: 1190, color: '#b9863f' },
+    { kind: 'chest', x: 130, y: 150, color: '#b9863f' },
+    { kind: 'shrine', x: 750, y: 1100, color: '#9a7fff' },
+    { kind: 'grave', x: 690, y: 1040 },
+    { kind: 'grave', x: 810, y: 1040 },
+    { kind: 'grave', x: 750, y: 1160, scale: 1.1 },
+  ]),
+
+  // --- The Shattered Rift exploration: corner chests and a void-crystal shrine at the
+  // bottom of the rift.
+  ...area('rift', [
+    { kind: 'chest', x: 1380, y: 160, color: '#b9863f' },
+    { kind: 'chest', x: 140, y: 1180, color: '#b9863f' },
+    { kind: 'shrine', x: 750, y: 1230, color: '#b08aff' },
+    { kind: 'crystal', x: 690, y: 1180 },
+    { kind: 'crystal', x: 810, y: 1180, scale: 1.2 },
+  ]),
+
+  // --- The Writhing Hive exploration: chests in the southeast nook and the west wall
+  // dead-end, and a shrine the growths have not yet swallowed.
+  ...area('writhing_hive', [
+    { kind: 'chest', x: 1310, y: 1230, color: '#b9863f' },
+    { kind: 'chest', x: 130, y: 640, color: '#b9863f' },
+    { kind: 'shrine', x: 770, y: 1180, color: '#9fd86a' },
+    { kind: 'horror_plant', x: 710, y: 1230 },
+    { kind: 'horror_plant', x: 830, y: 1210, scale: 0.9 },
+  ]),
+
+  // --- The Infernal Forge exploration: corner chests and a forge-shrine kept lit by
+  // one more brazier (4 lights total, under the 10 cap).
+  ...area('infernal_forge', [
+    { kind: 'chest', x: 1390, y: 150, color: '#b9863f' },
+    { kind: 'chest', x: 140, y: 640, color: '#b9863f' },
+    { kind: 'shrine', x: 750, y: 1180, color: '#ff8a3a' },
+    { kind: 'stalagmite', x: 690, y: 1130 },
+    { kind: 'stalagmite', x: 810, y: 1140, scale: 1.1 },
+    { kind: 'brazier', x: 750, y: 1120 },
+  ]),
+
+  // --- Duskhaven (frontier village, 1500x1100): a modest refuge cache — one chest
+  // tucked behind the southwest huts, and a cairn shrine on the northwest rise.
+  ...area('duskhaven', [
+    { kind: 'chest', x: 140, y: 960, color: '#b9863f' },
+    { kind: 'shrine', x: 200, y: 210, color: '#cfe6ff' },
+    { kind: 'rock', x: 150, y: 160 },
+    { kind: 'rock', x: 255, y: 170, scale: 1.1 },
+    { kind: 'rock', x: 160, y: 265 },
+    { kind: 'pot', x: 260, y: 230 },
+    { kind: 'pot', x: 276, y: 242, scale: 0.9 },
+  ]),
+
+  // --- The Abyssal Throne exploration: chests in the deep south corners, and a
+  // skull-flanked shrine on the approach to the Sovereign.
+  ...area('abyssal_throne', [
+    { kind: 'chest', x: 1390, y: 1190, color: '#b9863f' },
+    { kind: 'chest', x: 130, y: 1180, color: '#b9863f' },
+    { kind: 'shrine', x: 750, y: 1150, color: '#ff5a3a' },
+    { kind: 'skull_pile', x: 690, y: 1100 },
+    { kind: 'skull_pile', x: 810, y: 1110, scale: 1.2 },
+    { kind: 'ruin', x: 640, y: 1180 },
+    { kind: 'ruin', x: 860, y: 1180 },
+  ]),
+
+  // --- The Frozen Vault exploration: corner chests and an ice-crystal shrine in the
+  // deep south chamber.
+  ...area('frozen_vault', [
+    { kind: 'chest', x: 1390, y: 1190, color: '#b9863f' },
+    { kind: 'chest', x: 130, y: 150, color: '#b9863f' },
+    { kind: 'shrine', x: 750, y: 1150, color: '#7fffd0' },
+    { kind: 'crystal', x: 690, y: 1100 },
+    { kind: 'crystal', x: 810, y: 1110, scale: 1.2 },
+  ]),
+
+  // --- The Sundered Wastes exploration: corner chests, a ruin circle north, a
+  // void-crystal garden south, a horror grove northeast, a titan ribcage west, and a
+  // shattered monolith field southeast.
+  ...area('sundered_wastes', [
+    { kind: 'chest', x: 2280, y: 160, color: '#b9863f' },
+    { kind: 'chest', x: 2260, y: 1880, color: '#b9863f' },
+    { kind: 'chest', x: 300, y: 150, color: '#b9863f' },
+    // A circle of broken arches on the north rim, a shrine at the focus.
+    { kind: 'ruin', x: 1140, y: 250 },
+    { kind: 'ruin', x: 1260, y: 250 },
+    { kind: 'ruin', x: 1140, y: 360 },
+    { kind: 'ruin', x: 1260, y: 360, scale: 1.1 },
+    { kind: 'shrine', x: 1200, y: 300, color: '#c08adf' },
+    { kind: 'pot', x: 1300, y: 300 },
+    { kind: 'pot', x: 1316, y: 312, scale: 0.9 },
+    // Void-crystal garden in the deep south, a second shrine humming among the spars.
+    { kind: 'crystal', x: 1650, y: 1700 },
+    { kind: 'crystal', x: 1760, y: 1720, scale: 1.3 },
+    { kind: 'crystal', x: 1680, y: 1810 },
+    { kind: 'crystal', x: 1770, y: 1800 },
+    { kind: 'crystal', x: 1620, y: 1770 },
+    { kind: 'shrine', x: 1700, y: 1750, color: '#b08aff' },
+    // Horror grove on the northeast rim.
+    { kind: 'horror_plant', x: 2060, y: 350 },
+    { kind: 'horror_plant', x: 2150, y: 380 },
+    { kind: 'horror_plant', x: 2080, y: 460, scale: 1.2 },
+    { kind: 'bones', x: 2140, y: 440 },
+    { kind: 'skull_pile', x: 2020, y: 420 },
+    // The titan ribcage: the bones of something civilization-sized, west of the road.
+    { kind: 'bones', x: 460, y: 460 },
+    { kind: 'bones', x: 540, y: 470 },
+    { kind: 'bones', x: 470, y: 550 },
+    { kind: 'bones', x: 550, y: 540 },
+    { kind: 'skull_pile', x: 505, y: 505, scale: 1.3 },
+    // Shattered monolith field, southeast.
+    { kind: 'rock', x: 1960, y: 1450 },
+    { kind: 'rock', x: 2050, y: 1480, scale: 1.25 },
+    { kind: 'rock', x: 1980, y: 1560 },
+    { kind: 'crystal', x: 2060, y: 1550 },
+    { kind: 'bones', x: 1920, y: 1520 },
+  ]),
+
+  // --- The Blighted Spire exploration: chests at the far corners from the west gate,
+  // a ruined chapel north (2 more candles: 6 lights total, under the 10 cap), an
+  // overgrown cloister southwest, a skull cairn northeast, a blight garden east, and
+  // a fallen colonnade northwest.
+  ...area('blighted_spire', [
+    { kind: 'chest', x: 2280, y: 150, color: '#b9863f' },
+    { kind: 'chest', x: 2290, y: 1870, color: '#b9863f' },
+    { kind: 'chest', x: 1200, y: 1880, color: '#b9863f' },
+    // The ruined chapel: four arches, a shrine still tended by candlelight.
+    { kind: 'ruin', x: 1790, y: 195 },
+    { kind: 'ruin', x: 1910, y: 195, scale: 1.2 },
+    { kind: 'ruin', x: 1790, y: 315 },
+    { kind: 'ruin', x: 1910, y: 315 },
+    { kind: 'shrine', x: 1850, y: 255, color: '#aef07a' },
+    { kind: 'candle', x: 1820, y: 255 },
+    { kind: 'candle', x: 1880, y: 255 },
+    // The overgrown cloister: blight eating the old stone, a second shrine inside.
+    { kind: 'ruin', x: 650, y: 1750 },
+    { kind: 'ruin', x: 760, y: 1760 },
+    { kind: 'horror_plant', x: 680, y: 1850, scale: 1.2 },
+    { kind: 'horror_plant', x: 740, y: 1820 },
+    { kind: 'shrine', x: 700, y: 1795, color: '#9fd86a' },
+    { kind: 'pot', x: 620, y: 1800 },
+    { kind: 'pot', x: 636, y: 1812, scale: 0.9 },
+    // Skull cairn on the northeast battlement.
+    { kind: 'skull_pile', x: 2110, y: 460 },
+    { kind: 'skull_pile', x: 2190, y: 480, scale: 1.2 },
+    { kind: 'bones', x: 2130, y: 540 },
+    { kind: 'bones', x: 2200, y: 530 },
+    { kind: 'rock', x: 2070, y: 510 },
+    // Blight garden east of the processional way.
+    { kind: 'horror_plant', x: 1460, y: 1550 },
+    { kind: 'horror_plant', x: 1550, y: 1570 },
+    { kind: 'horror_plant', x: 1480, y: 1650 },
+    { kind: 'bones', x: 1540, y: 1630 },
+    { kind: 'skull_pile', x: 1500, y: 1600 },
+    // Fallen colonnade, northwest of the gate road.
+    { kind: 'ruin', x: 440, y: 200 },
+    { kind: 'ruin', x: 560, y: 200 },
+    { kind: 'ruin', x: 440, y: 300 },
+    { kind: 'ruin', x: 560, y: 300, scale: 0.9 },
+    { kind: 'pot', x: 500, y: 250 },
+    { kind: 'pot', x: 516, y: 262 },
   ]),
 ];

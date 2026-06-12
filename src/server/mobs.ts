@@ -969,6 +969,105 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     kiteRange: 280,
   },
 
+  // ===================================================================================
+  // The Abyssal Throne (the endgame dungeon, L30-40) — seeded via seed-frontier.ts.
+  // Floor mobs stay under hp 200 (so traits apply); the throne guards and the Sovereign
+  // are boss-tier (hp >= 200, traitless) with their own mechanics.
+  // ===================================================================================
+  abyss_thrall: {
+    id: 'abyss_thrall',
+    name: 'Abyssal Thrall',
+    hp: 170,
+    level: 30,
+    hue: 275,
+    speed: 125, // shuffling dead, but a lot of them
+    aggroRange: 380,
+    attackRange: 48,
+    damage: 30,
+    attackCooldownMs: 900,
+    behavior: 'melee',
+    telegraphMs: 240,
+  },
+  duskfire_hexer: {
+    id: 'duskfire_hexer',
+    name: 'Duskfire Hexer',
+    hp: 160,
+    level: 31,
+    hue: 315,
+    speed: 86,
+    aggroRange: 540,
+    attackRange: 440,
+    damage: 32,
+    attackCooldownMs: 1550,
+    behavior: 'ranged', // hurls shadow bolts (see MOB_SPELLS)
+    telegraphMs: 660,
+    projectileSpeed: 340,
+    kiteRange: 280,
+  },
+  thronespawn_ravager: {
+    id: 'thronespawn_ravager',
+    name: 'Thronespawn Ravager',
+    hp: 190,
+    level: 33,
+    hue: 350,
+    speed: 105,
+    aggroRange: 440,
+    attackRange: 230, // charge-trigger distance
+    damage: 38,
+    attackCooldownMs: 2200,
+    behavior: 'charger', // a corridor-length pounce
+    telegraphMs: 560,
+    dashSpeed: 640,
+  },
+  // The two throne guards: a slam elite and a ranged caster elite, roaming the floor.
+  throne_sentinel: {
+    id: 'throne_sentinel',
+    name: 'Sentinel of the Black Throne',
+    hp: 400,
+    level: 34,
+    hue: 310,
+    speed: 70,
+    aggroRange: 480,
+    attackRange: 80,
+    damage: 40,
+    attackCooldownMs: 1600,
+    behavior: 'melee', // a wide, readable slam
+    telegraphMs: 760,
+    slamRadius: 115,
+  },
+  throne_magus: {
+    id: 'throne_magus',
+    name: 'Magus of the Black Throne',
+    hp: 340,
+    level: 36,
+    hue: 265,
+    speed: 86,
+    aggroRange: 560,
+    attackRange: 450,
+    damage: 38,
+    attackCooldownMs: 1500,
+    behavior: 'ranged', // casts Thunder Lance (see MOB_SPELLS)
+    telegraphMs: 660,
+    projectileSpeed: 360,
+    kiteRange: 280,
+  },
+  // The apex boss of the game: a charging horror — survive the rush, punish the recovery.
+  nyxathor: {
+    id: 'nyxathor',
+    name: 'Nyxathor, the Abyssal Sovereign',
+    hp: 1500,
+    level: 40,
+    hue: 335,
+    speed: 84,
+    aggroRange: 600,
+    attackRange: 240, // charge-trigger distance
+    damage: 56,
+    attackCooldownMs: 2100,
+    behavior: 'charger',
+    telegraphMs: 680,
+    dashSpeed: 700,
+  },
+
   // --- The Blighted Spire (L27-32) ---
   blightgore_minotaur: {
     id: 'blightgore_minotaur',
@@ -995,6 +1094,7 @@ export interface AreaMobSpawn {
 /** Which monsters populate each area. Town is a safe zone. */
 export const AREA_MOBS: Record<string, AreaMobSpawn[]> = {
   town: [],
+  duskhaven: [], // the frontier village is a safe zone, like town
   wilderness: [
     { templateId: 'wolf', count: 6 },
     { templateId: 'sprite', count: 3 },
@@ -1064,6 +1164,9 @@ export const MOB_SPELLS: Record<string, AbilityId> = {
   gloomcap_myconid: 'poison_spit',
   crag_manticore: 'frostlance',
   voidscale_drake: 'cinderorb',
+  // Abyssal Throne casters.
+  duskfire_hexer: 'shadow_bolt',
+  throne_magus: 'thunderlance',
 };
 
 /**
@@ -1106,6 +1209,7 @@ export const MOB_TRAITS: Record<string, MobTrait[]> = {
   marsh_leech: ['pack'],
   gloomcap_myconid: ['pack'],
   riftwing_harpy: ['pack'],
+  abyss_thrall: ['pack'],
   bat: ['pack', 'craven'],
   carrion_swarm: ['pack', 'craven'],
   thistle_kobold: ['pack', 'craven'],
@@ -1123,6 +1227,7 @@ export const MOB_TRAITS: Record<string, MobTrait[]> = {
   ashen_warlock: ['craven'],
   pyre_caster: ['craven'],
   rotfen_naga: ['craven'],
+  duskfire_hexer: ['craven'],
   cinder_imp: ['craven', 'flanker'],
   // Brutes, orcs, ettins, golems, and beasts enrage when badly hurt.
   boar: ['enrage'],
@@ -1142,6 +1247,7 @@ export const MOB_TRAITS: Record<string, MobTrait[]> = {
   wraithfrost_stalker: ['flanker'],
   void_revenant: ['flanker'],
   basalt_basilisk: ['flanker'],
+  thronespawn_ravager: ['enrage', 'flanker'],
 };
 
 /**

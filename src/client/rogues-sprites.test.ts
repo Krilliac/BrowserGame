@@ -73,10 +73,17 @@ const SEEDED_MOB_NAMES = [
   'Riftwing Harpy',
   'Voidscale Drake',
   'Blightgore Minotaur',
+  // --- Abyssal Throne bestiary (seed-frontier.ts) ---
+  'Abyssal Thrall',
+  'Duskfire Hexer',
+  'Thronespawn Ravager',
+  'Sentinel of the Black Throne',
+  'Magus of the Black Throne',
+  'Nyxathor, the Abyssal Sovereign',
 ];
 
 /** NPC kinds from the content DB enum (src/server/db/editable.ts). */
-const NPC_KINDS = ['vendor', 'questgiver', 'healer', 'gambler', 'artificer'];
+const NPC_KINDS = ['vendor', 'questgiver', 'healer', 'gambler', 'artificer', 'banker'];
 
 describe('sprite sheet cell tables', () => {
   const tables = [
@@ -146,6 +153,13 @@ describe('mobSpriteCell', () => {
       sheet: 'monsters',
       ...MONSTER_CELLS['lycanthrope'],
     });
+    // The apex boss of the Abyssal Throne gets the dragon, not a generic archetype cell.
+    expect(mobSpriteCell('Nyxathor, the Abyssal Sovereign')).toEqual({
+      sheet: 'monsters',
+      ...MONSTER_CELLS['dragon'],
+    });
+    // "Duskfire Hexer" reads as a witch, not a fire imp or cultist.
+    expect(mobSpriteCell('Duskfire Hexer')).toEqual({ sheet: 'monsters', ...MONSTER_CELLS['hag'] });
   });
 
   it('returns undefined for names no rule recognizes', () => {
