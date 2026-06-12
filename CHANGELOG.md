@@ -25,6 +25,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Shrines.** Step onto a shrine (SQL `decor` kind `shrine`) to be blessed with a random timed
+  buff — Might (+40% damage), Haste (+40% move/attack), or Renewal (15 hp/s) — on the existing buff
+  system; the shrine then recharges on a 60s cooldown. Placed by the town bonfire and in the caves.
+- **Lootable world chests.** Chests (SQL `decor` kind `chest`, spawned as `chest` entities) pop open
+  when you walk up, spilling gold and rolled gear at your feet. One waits inside the south town house
+  (a reward for going indoors) and more hide in the Hollowroot Caverns.
+- **Solid house walls (no rubber-banding).** Houses are now enterable through the door but solid at
+  the walls, via a shared collision module that the authoritative server and the client predictor run
+  identically against the same footprint geometry — so collision adds no movement desync.
 - **Enterable houses with a fading roof.** Timber houses you can walk into: the renderer draws the
   floor and walls behind your character but the **roof above** it, then fades the roof to
   near-transparent while you stand inside the footprint, so you see your character indoors (Diablo II

@@ -104,7 +104,7 @@ shadow as actors. Columns:
 
 | Column | Meaning |
 |---|---|
-| `area_id`, `kind` | which area, and the prop kind the renderer draws (`palisade`/`gate`/`bonfire`/`tent`/`wagon`/`anvil`/`crate`/`barrel`/`hay`/`torch`/`house`) |
+| `area_id`, `kind` | which area, and the prop kind (`palisade`/`gate`/`bonfire`/`tent`/`wagon`/`anvil`/`crate`/`barrel`/`hay`/`torch`/`house`/`shrine`/`chest`) |
 | `x`, `y` | world position (point props), or the NW corner of the footprint (`house`) |
 | `x2`, `y2` | line props (`palisade`/fence): the far endpoint · `house`: the SE corner of the footprint (NULL for point props) |
 | `color` | optional cloth/wood tint (CSS hex; NULL = renderer default) |
@@ -113,6 +113,12 @@ shadow as actors. Columns:
 Props are loaded onto each `AreaDef.decor` and sent in the `content` packet, so adding a row (or
 redressing another area) needs no code change — just SQL and a restart (or `/reloadcontent`). Decor
 is purely cosmetic (no collision); gameplay stays server-authoritative.
+
+**A few decor kinds drive gameplay, not just visuals.** `shrine` blesses a player who steps within
+range with a random timed buff, then recharges (cooldown). `chest` is a placement marker the server
+turns into a lootable `chest` entity that pops open on approach, spilling gold + gear. `house`
+footprints are solid walls (a shared server/predictor collision module) with a passable south door.
+These read their positions from the same `decor` rows, so you place them with SQL like any other prop.
 
 **`house` is special — an enterable building.** Its footprint is the rect from `(x,y)` (NW corner)
 to `(x2,y2)` (SE corner), `color` tints the timber, and the door is centered on the south wall. The
