@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { initGameDb, getContent } from './content.js';
+import { DUNGEONS, isDungeon } from '../shared/areas.js';
 
 initGameDb(':memory:');
 
@@ -14,13 +15,14 @@ describe('world graph integrity', () => {
   const areas = c.areas();
   const ids = new Set(areas.map((a) => a.id));
 
-  it('ships the eight overworld areas plus the four dungeons', () => {
+  it('ships the eight overworld areas plus the five dungeons', () => {
     expect([...ids].sort()).toEqual([
       'blighted_spire',
       'crypt',
       'forgotten_catacombs',
       'frostpeak',
       'frozen_vault',
+      'hollowroot',
       'infernal_forge',
       'marsh',
       'mines',
@@ -81,6 +83,19 @@ describe('world graph integrity', () => {
       if (q.targetMob) expect(c.mobTemplate(q.targetMob), q.id).toBeDefined();
       if (q.rewardItem) expect(c.item(q.rewardItem), q.id).toBeDefined();
     }
+  });
+
+  it('the caves are a real dungeon and the town has enterable houses', () => {
+    // Hollowroot Caverns: the new "caves" branch, a procedural dungeon off Gloomwood.
+    expect(isDungeon('hollowroot')).toBe(true);
+    expect(c.area('hollowroot')?.name).toBe('Hollowroot Caverns');
+    const d = DUNGEONS.hollowroot!;
+    const refs = [...d.pool, d.boss, ...(d.miniBoss ? [d.miniBoss] : [])];
+    for (const id of refs) expect(c.mobTemplate(id), id).toBeDefined();
+    // Enterable houses are footprint decor (x,y → x2,y2) the renderer fades the roof of.
+    const houses = (c.area('town')?.decor ?? []).filter((p) => p.kind === 'house');
+    expect(houses.length).toBeGreaterThan(0);
+    expect(houses.every((h) => typeof h.x2 === 'number' && typeof h.y2 === 'number')).toBe(true);
   });
 
   it('new tiers exist: a quest for each new boss and reachable high-level content', () => {

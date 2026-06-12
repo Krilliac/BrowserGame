@@ -104,15 +104,23 @@ shadow as actors. Columns:
 
 | Column | Meaning |
 |---|---|
-| `area_id`, `kind` | which area, and the prop kind the renderer draws (`palisade`/`gate`/`bonfire`/`tent`/`wagon`/`anvil`/`crate`/`barrel`/`hay`/`torch`) |
-| `x`, `y` | world position |
-| `x2`, `y2` | line props only (`palisade`/fence): the far endpoint (NULL for point props) |
+| `area_id`, `kind` | which area, and the prop kind the renderer draws (`palisade`/`gate`/`bonfire`/`tent`/`wagon`/`anvil`/`crate`/`barrel`/`hay`/`torch`/`house`) |
+| `x`, `y` | world position (point props), or the NW corner of the footprint (`house`) |
+| `x2`, `y2` | line props (`palisade`/fence): the far endpoint · `house`: the SE corner of the footprint (NULL for point props) |
 | `color` | optional cloth/wood tint (CSS hex; NULL = renderer default) |
 | `scale` | optional size multiplier (NULL = `1`) |
 
 Props are loaded onto each `AreaDef.decor` and sent in the `content` packet, so adding a row (or
 redressing another area) needs no code change — just SQL and a restart (or `/reloadcontent`). Decor
 is purely cosmetic (no collision); gameplay stays server-authoritative.
+
+**`house` is special — an enterable building.** Its footprint is the rect from `(x,y)` (NW corner)
+to `(x2,y2)` (SE corner), `color` tints the timber, and the door is centered on the south wall. The
+renderer draws the floor and walls behind your character but the **roof above** it, then fades that
+roof to near-transparent while you stand inside the footprint — so you see your character indoors
+(Diablo II / RuneScape style). v1 has no wall collision (you walk in freely); solid walls without
+movement rubber-banding need a shared collision module used by both the server and the client
+predictor, which is a planned follow-up.
 
 ## Client mirrors the database too
 

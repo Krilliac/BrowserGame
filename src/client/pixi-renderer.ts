@@ -86,6 +86,18 @@ const DECOR_PALETTE = {
   emberDeep: '#d4471a', // outer flame
 } as const;
 
+// Enterable houses. The roof fades to near-transparent while the local player is inside its
+// footprint (expanded by HOUSE_INSIDE_MARGIN so the door threshold counts), eased frame-rate
+// independently at HOUSE_ROOF_FADE_RATE.
+const HOUSE_ROOF_INSIDE_ALPHA = 0.18;
+const HOUSE_ROOF_OUTSIDE_ALPHA = 1;
+const HOUSE_ROOF_FADE_RATE = 8; // per second (exp approach)
+const HOUSE_INSIDE_MARGIN = 10; // world px the footprint is expanded by for the inside test
+const HOUSE_WALL_HEIGHT = 30; // billboarded wall height (world px)
+const HOUSE_DOOR_WIDTH = 46; // gap left in the south wall, centered (world px)
+const HOUSE_ROOF_OVERHANG = 10; // roof oversteps the footprint by this on each side (world px)
+const HOUSE_ROOF_PEAK = 46; // height of the gable ridge above the wall tops (world px)
+
 const ITEM_COLORS: Record<string, string> = {
   gold: '#f2c14e',
   wolf_pelt: '#9c7a4d',
@@ -290,6 +302,10 @@ export class PixiRenderer {
   private readonly propLayer = new Container();
   private readonly actorLayer = new Container();
   private readonly fxLayer = new Container();
+  // Roofs of enterable houses live ABOVE the actor layer so a building occludes the character by
+  // default; each roof's alpha eases toward near-transparent while the local player is inside (see
+  // `houses` + the per-frame fade in update), revealing the player within — the D2/RuneScape look.
+  private readonly roofLayer = new Container();
   private readonly atmosphere = new Atmosphere();
   private readonly weather = new Weather();
   private readonly lighting = new Lighting();
@@ -312,6 +328,11 @@ export class PixiRenderer {
   // Cached fire flames (bonfire/torch). Their flame Graphics is redrawn each frame from the shared
   // animation clock so the camp visibly flickers — without rebuilding the whole decor container.
   private fireFlames: { gfx: Graphics; scale: number; seed: number }[] = [];
+  // Enterable houses: each roof Graphics (in roofLayer) plus the building's world-space footprint
+  // (NW + SE corners). Built once per area entry; only the roof's alpha updates each frame, easing
+  // toward HOUSE_ROOF_INSIDE_ALPHA when the local player stands within the footprint (+ a margin).
+  private houses: { roof: Container; minX: number; minY: number; maxX: number; maxY: number }[] =
+    [];
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
@@ -332,7 +353,10 @@ export class PixiRenderer {
     this.ground = new TilingSprite({ texture: Texture.WHITE, width: 100, height: 100 });
     this.actorLayer.sortableChildren = true;
     this.propLayer.sortableChildren = true;
-    this.world.addChild(this.propLayer, this.actorLayer, this.fxLayer);
+    this.roofLayer.sortableChildren = true;
+    // roofLayer is added LAST so house roofs draw in front of actors (occluding them) until they
+    // fade as the local player steps inside through the south door.
+    this.world.addChild(this.propLayer, this.actorLayer, this.fxLayer, this.roofLayer);
     this.fxLayer.addChild(this.fxGfx);
     this.fade.eventMode = 'none';
     // Draw order (back→front): ground, world, ambient motes, weather, the screen wash (day/night +
@@ -415,10 +439,14 @@ export class PixiRenderer {
     this.ground.texture = this.groundTexture(theme.groundBase, theme.groundSpeck);
 
     for (const child of this.propLayer.removeChildren()) child.destroy();
+    // Roofs live in their own layer above the actors — clear them too so leaving the area never
+    // leaks a previous area's house roofs over the new scene.
+    for (const child of this.roofLayer.removeChildren()) child.destroy();
 
     this.portalCenters = [];
     this.decorLights = [];
     this.fireFlames = [];
+    this.houses = [];
     for (const portal of area.portals) {
       const cx = portal.rect.x + portal.rect.w / 2;
       const cy = portal.rect.y + portal.rect.h / 2;
@@ -474,6 +502,13 @@ export class PixiRenderer {
 
   /** Build one decor prop as a y-sorted, shadowed Container at its world position. */
   private makeDecorProp(prop: DecorProp): Container {
+    // Houses own a footprint (NW corner = x,y; SE corner = x2,y2): they build their floor + walls
+    // into the returned prop container and register a separate roof in the roofLayer. Handled up
+    // front because their geometry is footprint-relative, not the point/line anchor below.
+    if (prop.kind === 'house' && prop.x2 !== undefined && prop.y2 !== undefined) {
+      return this.makeHouse(prop.x, prop.y, prop.x2, prop.y2, prop.color ?? DECOR_PALETTE.wood);
+    }
+
     const c = new Container();
     // Line props (palisade) anchor at their midpoint; point props at (x,y). The container's zIndex
     // is the world y of its anchor, so props sort against actors by depth (the back wall sits high).
@@ -777,6 +812,157 @@ export class PixiRenderer {
   }
 
   /**
+   * Build an enterable house from its world-space footprint (NW corner minX,minY → SE corner
+   * maxX,maxY). The floor + perimeter walls (with a door gap centered on the south edge) go into
+   * the returned prop container (in propLayer, BEHIND actors, so the player stands on the floor and
+   * in front of the walls). A separate gabled roof is built and registered in roofLayer + `houses`
+   * so it occludes the player from above until it fades when the player steps inside. `color` tints
+   * the timber. Built ONCE per area entry — only the roof alpha changes per frame.
+   */
+  private makeHouse(x: number, y: number, x2: number, y2: number, color: string): Container {
+    const minX = Math.min(x, x2);
+    const maxX = Math.max(x, x2);
+    const minY = Math.min(y, y2);
+    const maxY = Math.max(y, y2);
+    const w = maxX - minX;
+    const d = maxY - minY;
+
+    // Anchor the prop container at the footprint's NW corner; everything below is drawn relative to
+    // it in projected (pitched) space. zIndex by the south (near) edge so the building as a whole
+    // sorts roughly with nearby props — actors are a separate layer in front regardless.
+    const c = new Container();
+    c.position.set(minX, minY * PITCH);
+    c.zIndex = maxY;
+
+    const floor = new Graphics();
+    // Interior floor: the footprint as a pitched quad, a touch lighter/warmer than the ground so the
+    // room reads as a distinct boarded surface once the roof lifts.
+    floor.rect(0, 0, w, d * PITCH).fill({ color: this.shade(color, 0.35), alpha: 0.95 });
+    floor.rect(0, 0, w, d * PITCH).stroke({ width: 1, color: this.shade(color, -0.4), alpha: 0.4 });
+    // A few plank seams across the floor for texture.
+    for (let py = 12; py < d; py += 16) {
+      floor
+        .moveTo(0, py * PITCH)
+        .lineTo(w, py * PITCH)
+        .stroke({ width: 1, color: this.shade(color, -0.4), alpha: 0.18 });
+    }
+    c.addChild(floor);
+
+    // Soft shadow hugging the south + east walls (the sides away from the upper-left sun).
+    const sh = new Sprite(this.softShadowTexture());
+    sh.anchor.set(0.5, 0.5);
+    sh.width = w * 1.15;
+    sh.height = Math.max(28, d * PITCH * 0.8);
+    sh.alpha = SHADOW_ALPHA * 0.7;
+    sh.position.set(w / 2 + 8, d * PITCH + 6);
+    sh.skew.x = SHADOW_SKEW;
+    c.addChildAt(sh, 0);
+
+    const walls = new Graphics();
+    const wall = color;
+    const wallDark = this.shade(color, -0.35);
+    const wallLight = this.shade(color, 0.25);
+    const h = HOUSE_WALL_HEIGHT;
+    // Footprint corners in the container's projected space.
+    const nwY = 0;
+    const seY = d * PITCH;
+    // North (far) wall: a full billboarded strip standing up from the back edge.
+    walls.rect(0, nwY - h, w, h).fill({ color: wallDark });
+    walls.rect(0, nwY - h, w, 3).fill({ color: wallLight, alpha: 0.5 });
+    // West + east (side) walls: slanted quads from the back edge down to the near edge.
+    walls.poly([0, nwY, 0, nwY - h, 0, seY - h, 0, seY]).fill({ color: wall });
+    walls.poly([w, nwY, w, nwY - h, w, seY - h, w, seY]).fill({ color: wallDark });
+    // South (near, camera-facing) wall, split around a centered door gap.
+    const doorHalf = Math.min(HOUSE_DOOR_WIDTH, w * 0.6) / 2;
+    const doorCx = w / 2;
+    const leftEnd = doorCx - doorHalf;
+    const rightStart = doorCx + doorHalf;
+    walls.rect(0, seY - h, Math.max(0, leftEnd), h).fill({ color: wall });
+    walls.rect(rightStart, seY - h, Math.max(0, w - rightStart), h).fill({ color: wall });
+    // Door jambs framing the opening + a dark threshold so the doorway reads clearly.
+    walls.rect(leftEnd - 2, seY - h, 2, h).fill({ color: wallDark });
+    walls.rect(rightStart, seY - h, 2, h).fill({ color: wallDark });
+    walls.rect(leftEnd, seY - 4, doorHalf * 2, 4).fill({ color: '#1c140d', alpha: 0.6 });
+    c.addChild(walls);
+
+    // The roof is a separate object in roofLayer (drawn above actors). Register it + the footprint
+    // so update() can fade it when the local player is inside.
+    const roof = this.makeHouseRoof(minX, minY, maxX, maxY, color);
+    this.roofLayer.addChild(roof);
+    this.houses.push({ roof, minX, minY, maxX, maxY });
+    return c;
+  }
+
+  /**
+   * A peaked, gabled timber roof covering a house footprint (slightly overhanging), drawn as its own
+   * container so it can be placed in roofLayer above the actors and faded independently. The ridge
+   * runs east–west; two trapezoidal slopes fall to the front and back eaves, with the lit (back/upper)
+   * slope brighter than the shaded front slope. Positioned + z-sorted off the footprint's near edge.
+   */
+  private makeHouseRoof(
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number,
+    color: string,
+  ): Container {
+    const roof = new Container();
+    roof.position.set(minX, minY * PITCH);
+    roof.zIndex = maxY;
+    const w = maxX - minX;
+    const d = maxY - minY;
+    const o = HOUSE_ROOF_OVERHANG;
+    const peak = HOUSE_ROOF_PEAK;
+    // Eave line (top of the walls) and the ridge above it, all in projected space.
+    const backEaveY = -HOUSE_WALL_HEIGHT - o * PITCH;
+    const frontEaveY = d * PITCH - HOUSE_WALL_HEIGHT + o * PITCH;
+    const ridgeY = (backEaveY + frontEaveY) / 2 - peak;
+    const left = -o;
+    const right = w + o;
+    const g = new Graphics();
+    const roofShade = this.shade(color, -0.2);
+    const roofLit = this.shade(color, 0.18);
+    const roofDark = this.shade(color, -0.45);
+    // Back slope (faces up/away — catches the light) then the front slope (shaded), as two trapezoids
+    // meeting at the ridge. Drawing back-first lets the front slope overlap it along the ridge.
+    g.poly([left, backEaveY, right, backEaveY, right, ridgeY, left, ridgeY]).fill({
+      color: roofLit,
+    });
+    g.poly([left, frontEaveY, right, frontEaveY, right, ridgeY, left, ridgeY]).fill({
+      color: roofShade,
+    });
+    // Ridge beam + gable end caps (the triangular timber ends) for a built read.
+    g.moveTo(left, ridgeY).lineTo(right, ridgeY).stroke({ width: 2, color: roofDark });
+    g.poly([left, backEaveY, left, frontEaveY, left, ridgeY]).fill({ color: roofDark });
+    g.poly([right, backEaveY, right, frontEaveY, right, ridgeY]).fill({ color: roofDark });
+    // A couple of shingle/rafter lines down each slope.
+    for (let i = 1; i < 4; i++) {
+      const fx = left + ((right - left) * i) / 4;
+      g.moveTo(fx, ridgeY).lineTo(fx, backEaveY).stroke({ width: 1, color: roofDark, alpha: 0.3 });
+      g.moveTo(fx, ridgeY).lineTo(fx, frontEaveY).stroke({ width: 1, color: roofDark, alpha: 0.3 });
+    }
+    roof.addChild(g);
+    return roof;
+  }
+
+  /**
+   * Lighten (amount > 0) or darken (amount < 0) a CSS hex color toward white/black by `amount`
+   * (−1..1), returning `#rrggbb`. Used to derive timber highlight/shade tones from a house's color.
+   */
+  private shade(hex: string, amount: number): string {
+    const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+    if (!m) return hex;
+    const n = parseInt(m[1]!, 16);
+    const target = amount >= 0 ? 255 : 0;
+    const k = Math.abs(amount);
+    const mix = (ch: number): number => Math.round(ch + (target - ch) * k);
+    const r = mix((n >> 16) & 0xff);
+    const g = mix((n >> 8) & 0xff);
+    const b = mix(n & 0xff);
+    return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+  }
+
+  /**
    * Redraw every cached fire flame for this frame from the shared animation clock — a few stacked,
    * jittering teardrops (deep ember → mid → hot core). Cheap (a handful of polys per fire) and keyed
    * off `now` so the whole camp flickers in sync with the renderer's clock, never Date.now/random.
@@ -936,6 +1122,36 @@ export class PixiRenderer {
     }
 
     this.updateFx(state.fx);
+
+    // Fade house roofs based on whether the LOCAL player stands inside each footprint. Uses the
+    // authoritative self entity's world position (the camera trails it, so the actual entity is the
+    // truthful test). Eased frame-rate-independently off `dt` — no Date.now()/Math.random().
+    this.updateHouseRoofs(state.entities, state.selfId, dt);
+  }
+
+  /**
+   * Per-frame roof fade for every cached house. The local player is "inside" a house when its world
+   * position falls within the footprint expanded by HOUSE_INSIDE_MARGIN (so crossing the south-door
+   * threshold counts). Each roof's alpha eases toward HOUSE_ROOF_INSIDE_ALPHA when inside and
+   * HOUSE_ROOF_OUTSIDE_ALPHA when outside; only the alpha changes — geometry is never rebuilt.
+   */
+  private updateHouseRoofs(entities: EntityState[], selfId: number, dt: number): void {
+    if (this.houses.length === 0) return;
+    const self = entities.find((e) => e.id === selfId);
+    const k = 1 - Math.exp(-dt * HOUSE_ROOF_FADE_RATE); // exp approach, frame-rate independent
+    for (const house of this.houses) {
+      let inside = false;
+      if (self) {
+        const m = HOUSE_INSIDE_MARGIN;
+        inside =
+          self.x >= house.minX - m &&
+          self.x <= house.maxX + m &&
+          self.y >= house.minY - m &&
+          self.y <= house.maxY + m;
+      }
+      const target = inside ? HOUSE_ROOF_INSIDE_ALPHA : HOUSE_ROOF_OUTSIDE_ALPHA;
+      house.roof.alpha += (target - house.roof.alpha) * k;
+    }
   }
 
   /** Trigger a shake impulse for any death FX we haven't seen yet (newer than lastDeathT0). */

@@ -16,6 +16,7 @@ describe('content (SQLite-backed)', () => {
       'forgotten_catacombs',
       'frostpeak',
       'frozen_vault',
+      'hollowroot',
       'infernal_forge',
       'marsh',
       'mines',

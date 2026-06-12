@@ -25,6 +25,28 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Enterable houses with a fading roof.** Timber houses you can walk into: the renderer draws the
+  floor and walls behind your character but the **roof above** it, then fades the roof to
+  near-transparent while you stand inside the footprint, so you see your character indoors (Diablo II
+  / RuneScape style). Houses are SQL `decor` rows (`kind = 'house'`, footprint `(x,y)→(x2,y2)`,
+  timber `color`), placed in the starting town. v1 is cosmetic (no wall collision yet — solid walls
+  without movement rubber-banding need a shared server/predictor collision module, a planned
+  follow-up).
+- **Hollowroot Caverns — a new cave dungeon.** A procedural "caves" branch off Gloomwood (a damp,
+  near-dark cavern theme), reusing the dungeon system: a cave-dweller mob pool, an elite chance, a
+  boss, and a portal in and out. Reachable from the wilderness east edge.
+- **The town is a Diablo-II-style camp, defined in SQL.** Town set-dressing moved off the client into
+  a new `decor` content table (loaded onto `AreaDef.decor`, shipped in the `content` packet): a
+  spiked palisade ring with an east gate, a central bonfire, canvas tents, a merchant wagon, a
+  blacksmith anvil, crates/barrels/hay, and torch poles — all editable with SQL, no code change.
+- **A banker stash (the Vault).** A Vault Keeper banker NPC opens a two-column Vault: deposit bag
+  gear into a 60-slot stash, withdraw it back. Server-authoritative, proximity- and capacity-checked,
+  and persisted with the character.
+- **A codebase-wide exception/trap system.** A client global error trap (window error +
+  unhandledrejection) with a bounded log and an on-screen badge so a stray throw flashes a warning
+  instead of a blank screen; a pure UI overflow guard that keeps HUD panels on small/rotated screens;
+  and server-side `runGuarded` wrappers around the per-message dispatch and the per-tick loop so one
+  bad message or corrupt entity can't crash the server (with a failure tally on `/health`).
 - **Gem combining at the Artificer.** Fuse **3 matching gems into one of the next tier** (the Diablo
   cube), free — the gems are the cost. A "Combine gems" button in the Artificer window upgrades your
   first eligible stack each click, giving the flood of chipped gems a purpose. Server-authoritative

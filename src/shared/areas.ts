@@ -111,6 +111,12 @@ export const AREAS: Record<string, AreaDef> = {
         label: 'Shadow Crypt ↓',
       },
       {
+        rect: { x: 2340, y: 300, w: 60, h: 300 },
+        toArea: 'hollowroot',
+        toSpawn: { x: 760, y: 220 },
+        label: 'Hollowroot Caverns ⌖',
+      },
+      {
         rect: { x: 1000, y: 1940, w: 360, h: 60 },
         toArea: 'marsh',
         toSpawn: { x: 1100, y: 160 },
@@ -294,6 +300,23 @@ export const AREAS: Record<string, AreaDef> = {
         toArea: 'frostpeak',
         toSpawn: { x: 1110, y: 1850 },
         label: '↑ Leave the Vault',
+      },
+    ],
+  },
+  // A winding cave system off Gloomwood — the early-game "caves" branch (procedural, instanced).
+  hollowroot: {
+    id: 'hollowroot',
+    name: 'Hollowroot Caverns',
+    width: 1700,
+    height: 1500,
+    spawn: { x: 760, y: 220 },
+    playerCap: 4,
+    portals: [
+      {
+        rect: { x: 620, y: 0, w: 300, h: 50 },
+        toArea: 'wilderness',
+        toSpawn: { x: 2280, y: 450 },
+        label: '↑ Back to Gloomwood',
       },
     ],
   },
@@ -562,6 +585,28 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
     gradeContrast: 1.1,
     spriteTint: '#cfe0ff',
   },
+  // Damp underground cave: brown-grey wet rock, near-dark, dripping fog, faint mineral motes.
+  hollowroot: {
+    groundBase: '#241c16',
+    groundSpeck: '#322519',
+    prop: 'crystal',
+    propDensity: 0.12,
+    atmoColor: '#1a120a',
+    atmoAlpha: 0.34,
+    outdoor: false,
+    particleColor: '#9a8c70',
+    particleCount: 46,
+    particleRise: 16,
+    particleFlicker: false,
+    weather: 'fog',
+    weatherIntensity: 0.45,
+    fogColor: '#120c08',
+    lightAmbient: 0.42,
+    gradeSaturation: 0.82,
+    gradeBrightness: 0.9,
+    gradeContrast: 1.1,
+    spriteTint: '#d8c8a8',
+  },
   // Blight-choked citadel: black-green stone, drifting spores, an oppressive ruined grandeur.
   blighted_spire: {
     groundBase: '#1a221a',
@@ -692,6 +737,16 @@ export const DUNGEONS: Record<string, DungeonDef> = {
     eliteChance: 0.32,
     minMobs: 18,
     maxMobs: 26,
+  },
+  // The caves: an early branch off Gloomwood — cave-dwellers and burrowers, a molten depths boss.
+  hollowroot: {
+    pool: ['tusk_runner', 'plague_hound', 'grave_golem', 'magma_crawler', 'shardspine_hurler'],
+    boss: 'balthuzar',
+    miniBoss: 'abyssal_warden',
+    miniBossChance: 0.4,
+    eliteChance: 0.22,
+    minMobs: 15,
+    maxMobs: 22,
   },
 };
 

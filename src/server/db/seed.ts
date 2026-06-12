@@ -804,6 +804,14 @@ const TOWN_DECOR: readonly DecorProp[] = [
   { kind: 'torch', x: 1114, y: 808 },
   { kind: 'torch', x: 1120, y: 556 }, // gate, north post
   { kind: 'torch', x: 1120, y: 644 }, // gate, south post
+
+  // --- Enterable timber HOUSES (footprint = (x,y) NW corner → (x2,y2) SE corner; color = walls).
+  // The renderer fades each roof to near-transparent while you stand inside, so you can see your
+  // character within. Placed away from the camp, spawn, and NPC line so they read as their own
+  // buildings. Door is on the south wall (renderer convention).
+  { kind: 'house', x: 250, y: 360, x2: 420, y2: 500, color: '#7a5636' },
+  { kind: 'house', x: 1190, y: 360, x2: 1360, y2: 500, color: '#6e5a3e' },
+  { kind: 'house', x: 700, y: 920, x2: 900, y2: 1060, color: '#7a5636' },
 ];
 
 /** Insert every town decor prop. Called inside the fresh-DB seed transaction. */
