@@ -83,6 +83,12 @@ import {
   PLAYER_COLLISION_RADIUS,
 } from '../shared/collision.js';
 import { mulberry32 } from '../shared/math.js';
+import {
+  BOSS_SCRIPTS,
+  newBossScriptState,
+  stepBossScript,
+  type BossScriptState,
+} from './boss-scripts.js';
 import { rollRandomUnique } from '../shared/uniques.js';
 import {
   type AttributeSet,
@@ -158,6 +164,10 @@ const POT_GOLD_MAX = 14;
 const MOB_DMG_TUNING = 1.5;
 const MOB_HP_TUNING = 1.4;
 const MOB_AGGRO_TUNING = 1.2;
+// Per-level HP growth (×(1 + this×level)): early mobs barely change (L2 ≈ +10%), late mobs and
+// bosses get genuinely tanky (L18 ≈ +1.9×, L40 ≈ +3×) so player power growth never trivializes
+// a same-level fight. Calibrated against the pacing sim's one-shot-by-L8 finding.
+const LEVEL_HP_SCALE = 0.05;
 
 // Quick-use potion belt: instant restore on use, a shared use-cooldown, and a carry cap. Topped up
 // by the Healer and found in chests â€” the active-survival layer on top of passive regen.
@@ -371,6 +381,8 @@ interface Mob {
   /** Sim time (ms) until which this mob is ALERTED (hurt, or a packmate called for help) â€”
    *  alerted mobs hunt with greatly extended aggro reach instead of idling. */
   alertUntil: number;
+  /** Apex-boss phase-script cursor (only set for templates in BOSS_SCRIPTS). */
+  bossScript?: BossScriptState;
 }
 
 interface Projectile {
@@ -652,7 +664,13 @@ export class World {
     // Rift tier scaling: every spawn levels up (more XP per kill) and hits/lives harder.
     const tierHp = 1 + 0.35 * this.tier;
     const tierDmg = 1 + 0.18 * this.tier;
-    const hp = Math.round((mod ? template.hp * mod.hp : template.hp) * tierHp * MOB_HP_TUNING);
+    // Per-level HP scaling: player attack power climbs fast (gear + strength + skill nodes), so
+    // without this a mid-level mob dies in one hit and the danger evaporates. Scaling HP with the
+    // template's level keeps same-level fights at several hits — and makes the apex bosses tanky.
+    const levelHp = 1 + LEVEL_HP_SCALE * template.level;
+    const hp = Math.round(
+      (mod ? template.hp * mod.hp : template.hp) * tierHp * MOB_HP_TUNING * levelHp,
+    );
     this.mobs.set(id, {
       id,
       templateId: template.id,
@@ -1386,7 +1404,11 @@ export class World {
     if (!p) return false;
     const template = getContent().mobTemplate(templateId);
     if (!template) return false;
-    this.createMob(template, p.x + (this.rand() - 0.5) * 60, p.y + (this.rand() - 0.5) * 60);
+    this.createMob(
+      template,
+      clamp(p.x + (this.rand() - 0.5) * 60, 0, this.width),
+      clamp(p.y + (this.rand() - 0.5) * 60, 0, this.height),
+    );
     return true;
   }
 
@@ -1634,6 +1656,12 @@ export class World {
   cast(id: number, abilityId: AbilityId, dx: number, dy: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
+    // Validate the aim at the boundary: a hostile client can put NaN/Infinity in dx/dy, which
+    // would poison player.facing and spawn a NaN-position projectile broadcast to everyone.
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) {
+      dx = Math.cos(player.facing);
+      dy = Math.sin(player.facing);
+    }
     const ability = getContent().ability(abilityId);
     if (!ability) return;
     // Loot = your build: you can only cast spells you have learned (from a spellbook). A hostile
@@ -2065,6 +2093,63 @@ export class World {
           mob.attackCd = template.attackCooldownMs * mob.statuses.cooldownFactor();
         }
         continue;
+      }
+
+      // Apex bosses run a scripted phase loop (move/cast/summon/shout choreography) layered over
+      // their normal brawling AI. The script returns an action to take this tick, an empty object
+      // to stand still (a scripted pause), or null to fall through to stepMob (the brawl window).
+      const script = BOSS_SCRIPTS[mob.templateId];
+      if (script) {
+        if (!mob.bossScript) mob.bossScript = newBossScriptState();
+        const action = stepBossScript(
+          script,
+          mob.bossScript,
+          this.now,
+          mob.maxHp > 0 ? mob.hp / mob.maxHp : 1,
+          mob.x,
+          mob.y,
+          this.width,
+          this.height,
+        );
+        if (action !== null) {
+          if (action.shout) this.broadcastNotice(action.shout);
+          if (action.cast) {
+            mob.telegraphFacing = mob.facing;
+            this.castMobSpell(mob, template, action.cast);
+            mob.attackCd = template.attackCooldownMs * mob.statuses.cooldownFactor();
+          }
+          if (action.summon) {
+            const add = getContent().mobTemplate(action.summon.templateId);
+            if (add) {
+              for (let s = 0; s < action.summon.count; s++) {
+                const ang = this.rand() * Math.PI * 2;
+                const r = this.rand() * action.summon.radius;
+                this.createMob(
+                  add,
+                  clamp(mob.x + Math.cos(ang) * r, 0, this.width),
+                  clamp(mob.y + Math.sin(ang) * r, 0, this.height),
+                  true, // forced elite — the boss's honor guard
+                );
+              }
+            }
+          }
+          if (action.move) {
+            const speed = template.speed * moveMul * mob.spdMult;
+            const resolved = resolveCircleMove(
+              mob.x,
+              mob.y,
+              clamp(mob.x + action.move.vx * speed * dt, 0, this.width),
+              clamp(mob.y + action.move.vy * speed * dt, 0, this.height),
+              PLAYER_COLLISION_RADIUS,
+              this.wallList(),
+            );
+            mob.x = resolved.x;
+            mob.y = resolved.y;
+            mob.facing = action.move.facing;
+          }
+          continue; // the script owns this tick
+        }
+        // null: the brawl — fall through to normal AI below.
       }
 
       const view: MobView = { x: mob.x, y: mob.y, template, attackReady: mob.attackCd <= 0 };
@@ -2716,6 +2801,11 @@ export class World {
     this.notices.push({ playerId, text });
   }
 
+  /** Notify every living player in the instance (boss shouts, area-wide events). */
+  private broadcastNotice(text: string): void {
+    for (const p of this.players.values()) if (!p.dead) this.notices.push({ playerId: p.id, text });
+  }
+
   /** Drain per-player system notices (quest completions, level-ups) for the host to deliver. */
   drainNotices(): { playerId: number; text: string }[] {
     const drained = this.notices;
@@ -2886,6 +2976,7 @@ export class World {
     mob.homeX = mob.x;
     mob.homeY = mob.y;
     mob.attackCd = 0;
+    delete mob.bossScript; // a fresh fight starts the phase loop from the top
   }
 
   private outOfBounds(x: number, y: number): boolean {

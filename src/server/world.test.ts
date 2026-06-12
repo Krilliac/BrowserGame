@@ -21,6 +21,20 @@ describe('World (authoritative simulation)', () => {
     expect(entity?.x).toBeCloseTo(WORLD_WIDTH / 2 + PLAYER_SPEED, 5);
   });
 
+  it('rejects a non-finite cast aim (NaN/Infinity never poison facing or projectiles)', () => {
+    const world = new World();
+    const id = world.spawn('Caster');
+    // A hostile client can put junk in dx/dy; the boundary must sanitize it.
+    world.cast(id, 'fireball', Number.NaN, Number.NaN);
+    world.cast(id, 'fireball', Number.POSITIVE_INFINITY, 0);
+    world.tick(0.05);
+    for (const e of world.snapshot()) {
+      expect(Number.isFinite(e.x)).toBe(true);
+      expect(Number.isFinite(e.y)).toBe(true);
+      expect(Number.isFinite(e.facing)).toBe(true);
+    }
+  });
+
   it('clamps players to the world bounds (no escaping the map)', () => {
     const world = new World();
     const id = world.spawn('Wanderer');

@@ -19,9 +19,11 @@ describe('party shared XP + quest credit', () => {
     w.toggleGod(killer);
 
     const before = w.playerStats(buddy)!.xp;
-    for (let t = 0; t < 400 && w.playerStats(buddy)!.xp === before; t++) {
-      w.spawnMobAt(killer, 'wolf');
-      w.cast(killer, 'slash', 1, 0);
+    for (let t = 0; t < 800 && w.playerStats(buddy)!.xp === before; t++) {
+      const wolf = w.snapshot().find((e) => e.kind === 'mob' && e.hp > 0);
+      if (!wolf) w.spawnMobAt(killer, 'wolf');
+      // Aim at the wolf — crowd separation can nudge a spawn off the due-east axis.
+      else w.cast(killer, 'slash', wolf.x - 800, wolf.y - 600);
       w.tick(0.05);
     }
     expect(w.playerStats(buddy)!.xp).toBeGreaterThan(before); // buddy shared the kill XP
