@@ -537,8 +537,10 @@ export class PixiRenderer {
       const cy = portal.rect.y + portal.rect.h / 2;
       this.portalCenters.push({ x: cx, y: cy });
       const pad = new Graphics();
+      // The drawn pad is capped: the TRIGGER can be generous, but the visual should read as a
+      // discrete gateway, never a region-sized wall of light.
       pad
-        .ellipse(0, 0, portal.rect.w, portal.rect.h * PITCH)
+        .ellipse(0, 0, Math.min(portal.rect.w, 150), Math.min(portal.rect.h, 90) * PITCH)
         .fill({ color: '#c9a24b', alpha: 0.22 })
         .stroke({ width: 2, color: '#e7d9b0' });
       pad.position.set(cx, cy * PITCH);
@@ -1347,6 +1349,7 @@ export class PixiRenderer {
       else if (e.kind === 'item') this.updateItem(e);
       else if (e.kind === 'chest') this.updateChest(e);
       else if (e.kind === 'pot') this.updatePot(e);
+      else if (e.kind === 'den') this.updateDen(e);
       else this.updateActor(e, e.id === state.selfId);
     }
     for (const [id, view] of this.views) {
@@ -1832,6 +1835,38 @@ export class PixiRenderer {
         this.propShadow(container, 8, 4);
         container.addChild(g);
       }
+      this.actorLayer.addChild(container);
+      this.views.set(e.id, view);
+    }
+    view.seen = true;
+    view.container.position.set(e.x, e.y * PITCH);
+    view.container.zIndex = e.y;
+  }
+
+  /**
+   * A den entrance (cellar hatch / hidden burrow): step onto it and the server descends you into
+   * a fresh private mini-dungeon. Drawn as a dark pit with a stone rim and ladder rungs, labeled
+   * so the find reads as a discovery.
+   */
+  private updateDen(e: EntityState): void {
+    let view = this.views.get(e.id);
+    if (!view) {
+      const container = new Container();
+      view = { container, topY: 0, lastX: e.x, lastY: e.y, lastHp: 0, flashUntil: 0, seen: true };
+      const g = new Graphics();
+      g.ellipse(0, 0, 26, 14).fill({ color: '#070605' });
+      g.ellipse(0, 0, 26, 14).stroke({ width: 3, color: '#4a4038' });
+      g.moveTo(-8, -5).lineTo(-8, 8).stroke({ width: 2, color: '#6a5a42' });
+      g.moveTo(8, -5).lineTo(8, 8).stroke({ width: 2, color: '#6a5a42' });
+      g.moveTo(-8, 1).lineTo(8, 1).stroke({ width: 2, color: '#6a5a42' });
+      container.addChild(g);
+      const label = new Text({
+        text: e.name || 'Den',
+        style: { fontFamily: 'system-ui', fontSize: 12, fill: '#cab98f' },
+      });
+      label.anchor.set(0.5, 1);
+      label.position.set(0, -18);
+      container.addChild(label);
       this.actorLayer.addChild(container);
       this.views.set(e.id, view);
     }

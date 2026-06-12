@@ -74,7 +74,7 @@ import {
   stepHireling,
   type HirelingTemplate,
 } from './hirelings.js';
-import { DUNGEONS, type DungeonDef, type Rect } from '../shared/areas.js';
+import { DUNGEONS, isDungeon, type DungeonDef, type Rect } from '../shared/areas.js';
 import { resolveCircleMove, wallsForDecor, PLAYER_COLLISION_RADIUS } from '../shared/collision.js';
 import { rollRandomUnique } from '../shared/uniques.js';
 import {
@@ -447,6 +447,13 @@ export class World {
   private chests: { id: number; x: number; y: number; opened: boolean }[] | null = null;
   // Breakable pots for this area, lazily built from 'pot' decor (null = not yet built).
   private pots: { id: number; x: number; y: number; broken: boolean }[] | null = null;
+  // Den entrances (cellar hatches under houses + hidden dens in the wild), rolled per instance
+  // (null = not yet built). Stepping onto one descends into a fresh private mini-dungeon.
+  private dens: { id: number; x: number; y: number; name: string }[] | null = null;
+  /** Pending den descents for the host to resolve (instance transfer is host-level). */
+  private denEntries: { playerId: number }[] = [];
+  /** Players already queued for a descent this drain cycle (no double-fires while standing). */
+  private readonly denPending = new Set<number>();
 
   private readonly players = new Map<number, Player>();
   private readonly mobs = new Map<number, Mob>();
@@ -563,9 +570,9 @@ export class World {
   private populateDungeon(d: DungeonDef): void {
     const content = getContent();
     // A rift tier packs the dungeon denser and rolls champions far more often — risk and reward
-    // both ramp with the tier the player chose at the Riftkeeper. The flat ×4 matches the
+    // both ramp with the tier the player chose at the Riftkeeper. The flat ×8 matches the
     // world-scale roster bump (the floor is 25× the ground; the packs grow with it).
-    const density = 4 * (1 + 0.15 * this.tier);
+    const density = 8 * (1 + 0.15 * this.tier);
     const eliteChance = Math.min(0.6, d.eliteChance + 0.03 * this.tier);
     const base = d.minMobs + Math.floor(Math.random() * (d.maxMobs - d.minMobs + 1));
     const count = Math.round(base * density);
@@ -1773,6 +1780,7 @@ export class World {
       this.checkShrines(player);
       this.checkChests(player);
       this.checkPots(player);
+      this.checkDens(player);
     }
   }
 
@@ -1809,15 +1817,107 @@ export class World {
     }
   }
 
-  /** The area's chests, built once from its 'chest' decor (each gets a stable entity id). */
+  /**
+   * The area's chests, built once per instance: the authored 'chest' decor PLUS a random roll —
+   * every instance hides a few extra chests at fresh spots (dens always hold at least one), so
+   * exploring the same zone twice still pays.
+   */
   private chestList(): { id: number; x: number; y: number; opened: boolean }[] {
     if (this.chests === null) {
       const decor = getContent().area(this.areaId)?.decor ?? [];
       this.chests = decor
         .filter((d) => d.kind === 'chest')
         .map((d) => ({ id: this.allocId(), x: d.x, y: d.y, opened: false }));
+      const bonus =
+        this.areaId === 'den' ? 1 + Math.floor(Math.random() * 2) : Math.floor(Math.random() * 3);
+      for (let i = 0; i < bonus; i++) {
+        this.chests.push({
+          id: this.allocId(),
+          x: this.randomMobX(),
+          y: this.randomMobY(),
+          opened: false,
+        });
+      }
     }
     return this.chests;
+  }
+
+  /**
+   * Den entrances for this instance, rolled ONCE lazily — the Diablo cellar loop. Every house
+   * footprint has a 50% chance of a cellar hatch in its interior, and open country (any
+   * non-dungeon area with monsters) hides 2-4 dens at random spots. Each instance re-rolls, so
+   * the world never reads the same twice.
+   */
+  private denList(): { id: number; x: number; y: number; name: string }[] {
+    if (this.dens === null) {
+      this.dens = [];
+      if (this.areaId !== 'den' && !isDungeon(this.areaId)) {
+        const area = getContent().area(this.areaId);
+        for (const d of area?.decor ?? []) {
+          if (d.kind !== 'house' || d.x2 === undefined || d.y2 === undefined) continue;
+          if (Math.random() < 0.5) continue;
+          // Tucked into the house interior, clear of the south-edge doorway.
+          const hx = d.x + (d.x2 - d.x) * (0.25 + Math.random() * 0.5);
+          const hy = d.y + (d.y2 - d.y) * 0.35;
+          this.dens.push({ id: this.allocId(), x: hx, y: hy, name: 'Cellar' });
+        }
+        if ((area?.decor?.length ?? 0) > 0 && getContent().areaMobs(this.areaId).length > 0) {
+          const count = 2 + Math.floor(Math.random() * 3);
+          for (let i = 0; i < count; i++) {
+            const x = this.randomMobX();
+            const y = this.randomMobY();
+            // Never within a screen of the arrival point — dens are found, not tripped over.
+            if (Math.hypot(x - this.spawnPoint.x, y - this.spawnPoint.y) < 500) continue;
+            this.dens.push({ id: this.allocId(), x, y, name: 'Hidden Den' });
+          }
+        }
+      }
+    }
+    return this.dens;
+  }
+
+  /** Queue a descent for any player standing on a den entrance (the host resolves transfers). */
+  private checkDens(player: Player): void {
+    if (this.denPending.has(player.id)) return;
+    for (const den of this.denList()) {
+      if (Math.hypot(player.x - den.x, player.y - den.y) > 34) continue;
+      this.denPending.add(player.id);
+      this.denEntries.push({ playerId: player.id });
+      return;
+    }
+  }
+
+  /** Drain pending den descents for the host (InstanceManager.openDen does the transfer). */
+  drainDenEntries(): { playerId: number }[] {
+    const drained = this.denEntries;
+    this.denEntries = [];
+    for (const e of drained) this.denPending.delete(e.playerId);
+    return drained;
+  }
+
+  /**
+   * Populate a DEN instance: a small private cellar stocked from the SOURCE area's roster (so a
+   * Gloomwood cellar crawls with Gloomwood things), an elevated champion chance, and sometimes a
+   * beefed-up den boss. The guaranteed chest comes from chestList's den roll.
+   */
+  populateDen(sourceAreaId: string): void {
+    const content = getContent();
+    let roster = content.areaMobs(sourceAreaId);
+    if (roster.length === 0) roster = content.areaMobs('wilderness');
+    const templates = roster
+      .map((s) => content.mobTemplate(s.templateId))
+      .filter((t): t is MobTemplate => !!t && t.hp < 200);
+    if (templates.length === 0) return;
+    const count = 10 + Math.floor(Math.random() * 7);
+    for (let i = 0; i < count; i++) {
+      const t = templates[Math.floor(Math.random() * templates.length)]!;
+      this.createMob(t, this.randomMobX(), this.randomMobY(), false, false, 0.35);
+    }
+    // Sometimes the den has a landlord: the toughest local template, forced elite.
+    if (Math.random() < 0.35) {
+      const boss = templates.reduce((a, b) => (b.level > a.level ? b : a));
+      this.createMob(boss, this.width / 2, this.height * 0.4, true);
+    }
   }
 
   /** The area's breakable pots, built once from its 'pot' decor (each gets a stable entity id). */
@@ -2839,6 +2939,20 @@ export class World {
         name: '',
         hue: 0,
         kind: 'pot',
+        facing: 0,
+        hp: 0,
+        maxHp: 0,
+        level: 0,
+      });
+    }
+    for (const den of this.denList()) {
+      out.push({
+        id: den.id,
+        x: den.x,
+        y: den.y,
+        name: den.name,
+        hue: 0,
+        kind: 'den',
         facing: 0,
         hp: 0,
         maxHp: 0,

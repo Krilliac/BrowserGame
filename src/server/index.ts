@@ -769,6 +769,19 @@ setInterval(() => {
         }
       }
 
+      // Resolve den descents: a player stepped onto a cellar hatch or hidden den — collect the
+      // requests first (opening a den mutates the instance list), then transfer like a portal.
+      const denDescents: { playerId: number; instanceId: string }[] = [];
+      for (const instance of manager.list()) {
+        for (const entry of instance.world.drainDenEntries()) {
+          denDescents.push({ playerId: entry.playerId, instanceId: instance.id });
+        }
+      }
+      for (const d of denDescents) {
+        const ev = manager.openDen(d.instanceId, d.playerId);
+        if (ev) transfers.push(ev);
+      }
+
       // Apply portal crossings: update routing and tell the player their area changed.
       for (const ev of transfers) {
         const p = players.get(ev.entityId);

@@ -256,6 +256,12 @@ export const AREAS: Record<string, AreaDef> = {
         toSpawn: { x: 160, y: 1000 },
         label: 'To Frostpeak Pass →',
       },
+      {
+        rect: { x: 0, y: 470, w: 60, h: 260 },
+        toArea: 'grimfrost_barrow',
+        toSpawn: { x: 160, y: 760 },
+        label: '← The Grimfrost Barrows',
+      },
     ],
   },
 
@@ -409,6 +415,12 @@ export const AREAS: Record<string, AreaDef> = {
         toSpawn: { x: 750, y: 220 },
         label: '↓ The Abyssal Throne',
       },
+      {
+        rect: { x: 0, y: 250, w: 50, h: 300 },
+        toArea: 'sunken_pass',
+        toSpawn: { x: 1690, y: 760 },
+        label: '← The Sunken Pass',
+      },
     ],
   },
 
@@ -427,6 +439,205 @@ export const AREAS: Record<string, AreaDef> = {
         toArea: 'blighted_spire',
         toSpawn: { x: 2280, y: 1850 },
         label: '↑ Flee the Throne',
+      },
+    ],
+  },
+
+  // ===================================================================================
+  // Act 2 combat zones (L21-31): the frontier road west of Duskhaven, a spine of three
+  // zones that loops back to the Blighted Spire — the doorstep of the Abyssal Throne.
+  // duskhaven → grimfrost_barrow → howling_barrens → sunken_pass → blighted_spire.
+  // ===================================================================================
+  // A glacier graveyard: the frontier's dead, interred in ice that is no longer still.
+  grimfrost_barrow: {
+    id: 'grimfrost_barrow',
+    name: 'The Grimfrost Barrows',
+    width: 1800,
+    height: 1400,
+    spawn: { x: 160, y: 760 },
+    playerCap: 8,
+    portals: [
+      {
+        rect: { x: 0, y: 620, w: 50, h: 260 },
+        toArea: 'duskhaven',
+        toSpawn: { x: 160, y: 600 },
+        label: '← Back to Duskhaven',
+      },
+      {
+        rect: { x: 1750, y: 620, w: 50, h: 260 },
+        toArea: 'howling_barrens',
+        toSpawn: { x: 160, y: 760 },
+        label: 'The Howling Barrens →',
+      },
+    ],
+  },
+  // Wind-scoured pine barrens: the trees lean away from a wind that never stops.
+  howling_barrens: {
+    id: 'howling_barrens',
+    name: 'The Howling Barrens',
+    width: 1800,
+    height: 1400,
+    spawn: { x: 160, y: 760 },
+    playerCap: 8,
+    portals: [
+      {
+        rect: { x: 0, y: 620, w: 50, h: 260 },
+        toArea: 'grimfrost_barrow',
+        toSpawn: { x: 1690, y: 760 },
+        label: '← The Grimfrost Barrows',
+      },
+      {
+        rect: { x: 1750, y: 620, w: 50, h: 260 },
+        toArea: 'sunken_pass',
+        toSpawn: { x: 160, y: 760 },
+        label: 'The Sunken Pass →',
+      },
+    ],
+  },
+  // A drowned mountain pass: the old road east, half-swallowed by black meltwater. Its
+  // far gate opens at the foot of the Blighted Spire; the south road leads on to Vhal'reth.
+  sunken_pass: {
+    id: 'sunken_pass',
+    name: 'The Sunken Pass',
+    width: 1800,
+    height: 1400,
+    spawn: { x: 160, y: 760 },
+    playerCap: 8,
+    portals: [
+      {
+        rect: { x: 0, y: 620, w: 50, h: 260 },
+        toArea: 'howling_barrens',
+        toSpawn: { x: 1690, y: 760 },
+        label: '← The Howling Barrens',
+      },
+      {
+        rect: { x: 1750, y: 620, w: 50, h: 260 },
+        toArea: 'blighted_spire',
+        toSpawn: { x: 160, y: 400 },
+        label: 'The Blighted Spire →',
+      },
+      {
+        rect: { x: 780, y: 1350, w: 300, h: 50 },
+        toArea: 'vhalreth',
+        toSpawn: { x: 900, y: 160 },
+        label: "↓ Vhal'reth, the Last City",
+      },
+    ],
+  },
+
+  // ===================================================================================
+  // Act 3 (L40-60): Vhal'reth, the last city, and the dead lands beyond it.
+  // sunken_pass → vhalreth → ashveil_desert → shattered_causeway → voidmarch →
+  // the_unmade_court (the final dungeon).
+  // ===================================================================================
+  // The Act 3 hub: a walled stone city, warm and grand — the last lit place in the world.
+  // A safe settlement (no area_mobs roster) with the full service row (seed-acts.ts).
+  vhalreth: {
+    id: 'vhalreth',
+    name: "Vhal'reth, the Last City",
+    width: 1800,
+    height: 1200,
+    spawn: { x: 900, y: 640 },
+    playerCap: 12,
+    portals: [
+      {
+        rect: { x: 760, y: 0, w: 280, h: 50 },
+        toArea: 'sunken_pass',
+        toSpawn: { x: 930, y: 1240 },
+        label: '↑ The Sunken Pass',
+      },
+      {
+        rect: { x: 1740, y: 520, w: 60, h: 260 },
+        toArea: 'ashveil_desert',
+        toSpawn: { x: 160, y: 700 },
+        label: 'The Ashveil Desert →',
+      },
+    ],
+  },
+  // An ash desert: the burned world east of the city, grey dunes under a smothered sun.
+  ashveil_desert: {
+    id: 'ashveil_desert',
+    name: 'The Ashveil Desert',
+    width: 1800,
+    height: 1400,
+    spawn: { x: 160, y: 700 },
+    playerCap: 8,
+    portals: [
+      {
+        rect: { x: 0, y: 570, w: 50, h: 260 },
+        toArea: 'vhalreth',
+        toSpawn: { x: 1620, y: 650 },
+        label: "← Vhal'reth",
+      },
+      {
+        rect: { x: 1750, y: 620, w: 50, h: 260 },
+        toArea: 'shattered_causeway',
+        toSpawn: { x: 160, y: 760 },
+        label: 'The Shattered Causeway →',
+      },
+    ],
+  },
+  // A broken bridge over nothing: a mile of shattered stone road across a starless chasm.
+  shattered_causeway: {
+    id: 'shattered_causeway',
+    name: 'The Shattered Causeway',
+    width: 1800,
+    height: 1400,
+    spawn: { x: 160, y: 760 },
+    playerCap: 8,
+    portals: [
+      {
+        rect: { x: 0, y: 620, w: 50, h: 260 },
+        toArea: 'ashveil_desert',
+        toSpawn: { x: 1690, y: 750 },
+        label: '← The Ashveil Desert',
+      },
+      {
+        rect: { x: 1750, y: 620, w: 50, h: 260 },
+        toArea: 'voidmarch',
+        toSpawn: { x: 160, y: 760 },
+        label: 'The Voidmarch →',
+      },
+    ],
+  },
+  // The last land: where the world frays into the void. The Unmade Court waits below.
+  voidmarch: {
+    id: 'voidmarch',
+    name: 'The Voidmarch',
+    width: 1800,
+    height: 1400,
+    spawn: { x: 160, y: 760 },
+    playerCap: 8,
+    portals: [
+      {
+        rect: { x: 0, y: 620, w: 50, h: 260 },
+        toArea: 'shattered_causeway',
+        toSpawn: { x: 1690, y: 760 },
+        label: '← The Shattered Causeway',
+      },
+      {
+        rect: { x: 780, y: 1350, w: 300, h: 50 },
+        toArea: 'the_unmade_court',
+        toSpawn: { x: 750, y: 220 },
+        label: '↓ The Unmade Court',
+      },
+    ],
+  },
+  // The final dungeon (L55-60): the throne room of the thing unmaking the world.
+  // Procedural like the other dungeons (see DUNGEONS below); Athraxis is the true end.
+  the_unmade_court: {
+    id: 'the_unmade_court',
+    name: 'The Unmade Court',
+    width: 1500,
+    height: 1300,
+    spawn: { x: 750, y: 220 },
+    playerCap: 4,
+    portals: [
+      {
+        rect: { x: 600, y: 0, w: 300, h: 50 },
+        toArea: 'voidmarch',
+        toSpawn: { x: 930, y: 1230 },
+        label: '↑ Flee the Court',
       },
     ],
   },
@@ -764,6 +975,183 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
     gradeContrast: 1.2,
     spriteTint: '#d8b0c0',
   },
+  // Glacier graveyard: pale blue ice over old graves, slow snow, a cold that feels watched.
+  grimfrost_barrow: {
+    groundBase: '#26303c',
+    groundSpeck: '#36424f',
+    prop: 'grave',
+    propDensity: 0.1,
+    atmoColor: '#9db4d6',
+    atmoAlpha: 0.16,
+    outdoor: true,
+    particleColor: '#dfe9f5',
+    particleCount: 56,
+    particleRise: 5,
+    particleFlicker: false,
+    weather: 'snow',
+    weatherIntensity: 0.55,
+    fogColor: '#c2cedd',
+    lightAmbient: 0.78,
+    gradeSaturation: 0.85,
+    gradeBrightness: 0.98,
+    gradeContrast: 1.08,
+    spriteTint: '#dce6f4',
+  },
+  // Wind-scoured pine barrens: grey-green murk, streaming fog, motes torn sideways by the gale.
+  howling_barrens: {
+    groundBase: '#1d241e',
+    groundSpeck: '#28321f',
+    prop: 'tree',
+    propDensity: 0.12,
+    atmoColor: '#3d4a5a',
+    atmoAlpha: 0.18,
+    outdoor: true,
+    particleColor: '#cfd8e2',
+    particleCount: 60,
+    particleRise: 12,
+    particleFlicker: false,
+    weather: 'fog',
+    weatherIntensity: 0.45,
+    fogColor: '#9aa6b4',
+    lightAmbient: 0.7,
+    gradeSaturation: 0.85,
+    gradeBrightness: 0.94,
+    gradeContrast: 1.08,
+    spriteTint: '#d6dde8',
+  },
+  // Drowned mountain pass: black meltwater under driving rain — the only rain in the game.
+  sunken_pass: {
+    groundBase: '#1a222a',
+    groundSpeck: '#243240',
+    prop: 'rock',
+    propDensity: 0.1,
+    atmoColor: '#1e3242',
+    atmoAlpha: 0.26,
+    outdoor: true,
+    particleColor: '#7fa8c0',
+    particleCount: 50,
+    particleRise: 10,
+    particleFlicker: false,
+    weather: 'rain',
+    weatherIntensity: 0.6,
+    fogColor: '#2c3a48',
+    lightAmbient: 0.6,
+    gradeSaturation: 0.85,
+    gradeBrightness: 0.9,
+    gradeContrast: 1.1,
+    spriteTint: '#c4d4e2',
+  },
+  // The last city: warm hearth-light on old stone — bright, grand, and defiantly alive.
+  vhalreth: {
+    groundBase: '#3a342c',
+    groundSpeck: '#4a4236',
+    prop: 'none',
+    propDensity: 0,
+    atmoColor: '#ffd9a0',
+    atmoAlpha: 0.1,
+    outdoor: true,
+    particleColor: '#ffd9a0',
+    particleCount: 40,
+    particleRise: -12,
+    particleFlicker: true,
+    weather: 'none',
+    weatherIntensity: 0.5,
+    fogColor: '#cfd6e0',
+    lightAmbient: 1,
+    gradeSaturation: 1.05,
+    gradeBrightness: 1.05,
+    gradeContrast: 1.02,
+    spriteTint: '#fff2dc',
+  },
+  // Ash desert: grey dunes, drifting ash, a sun smothered to a bruise.
+  ashveil_desert: {
+    groundBase: '#2a2420',
+    groundSpeck: '#3a3028',
+    prop: 'rock',
+    propDensity: 0.08,
+    atmoColor: '#5a4632',
+    atmoAlpha: 0.24,
+    outdoor: true,
+    particleColor: '#d8c0a0',
+    particleCount: 64,
+    particleRise: 14,
+    particleFlicker: true,
+    weather: 'fog',
+    weatherIntensity: 0.4,
+    fogColor: '#6a5a48',
+    lightAmbient: 0.62,
+    gradeSaturation: 0.8,
+    gradeBrightness: 0.92,
+    gradeContrast: 1.1,
+    spriteTint: '#e0d0bc',
+  },
+  // Shattered causeway: broken stone over a starless chasm, pale motes falling off the edge.
+  shattered_causeway: {
+    groundBase: '#211f26',
+    groundSpeck: '#2e2b36',
+    prop: 'pillar',
+    propDensity: 0.12,
+    atmoColor: '#2a2440',
+    atmoAlpha: 0.28,
+    outdoor: true,
+    particleColor: '#a8a0c8',
+    particleCount: 52,
+    particleRise: -6,
+    particleFlicker: true,
+    weather: 'fog',
+    weatherIntensity: 0.5,
+    fogColor: '#1c1828',
+    lightAmbient: 0.55,
+    gradeSaturation: 0.85,
+    gradeBrightness: 0.9,
+    gradeContrast: 1.14,
+    spriteTint: '#ccc4dc',
+  },
+  // The Voidmarch: the world fraying — violet-black ground, void-motes, almost no light left.
+  voidmarch: {
+    groundBase: '#171221',
+    groundSpeck: '#241a33',
+    prop: 'crystal',
+    propDensity: 0.1,
+    atmoColor: '#220a33',
+    atmoAlpha: 0.34,
+    outdoor: true,
+    particleColor: '#b07ae8',
+    particleCount: 66,
+    particleRise: -10,
+    particleFlicker: true,
+    weather: 'fog',
+    weatherIntensity: 0.55,
+    fogColor: '#120a1c',
+    lightAmbient: 0.45,
+    gradeSaturation: 0.9,
+    gradeBrightness: 0.88,
+    gradeContrast: 1.16,
+    spriteTint: '#cdb4e4',
+  },
+  // The Unmade Court: past the end of the world — darker than the Throne, lit only by what
+  // the Court has not yet unmade.
+  the_unmade_court: {
+    groundBase: '#0e0a14',
+    groundSpeck: '#1c1226',
+    prop: 'pillar',
+    propDensity: 0.12,
+    atmoColor: '#1c0a2e',
+    atmoAlpha: 0.44,
+    outdoor: false,
+    particleColor: '#c89aff',
+    particleCount: 72,
+    particleRise: 18,
+    particleFlicker: true,
+    weather: 'fog',
+    weatherIntensity: 0.6,
+    fogColor: '#0a0610',
+    lightAmbient: 0.28,
+    gradeSaturation: 0.8,
+    gradeBrightness: 0.84,
+    gradeContrast: 1.22,
+    spriteTint: '#d4c0e8',
+  },
   // Void-scarred highland: bruised violet ground, drifting void-motes, a wrongness in the air.
   sundered_wastes: {
     groundBase: '#211a26',
@@ -937,6 +1325,27 @@ export const DUNGEONS: Record<string, DungeonDef> = {
     eliteChance: 0.4,
     minMobs: 20,
     maxMobs: 28,
+  },
+  // The final dungeon (L55-60), past the Voidmarch: the nastiest Act 3 floor mobs plus the
+  // Court's two named guards (the Oracle roams the floor; the Executioner is the near-certain
+  // bonus encounter). Athraxis, the Unmade God, holds the court itself — the true end.
+  the_unmade_court: {
+    pool: [
+      'null_revenant',
+      'causeway_golem',
+      'voidtouched_centaur',
+      'ashveil_gorgon',
+      'cinderbone_archer',
+      'duskfire_hexer',
+      'thronespawn_ravager',
+      'court_oracle',
+    ],
+    boss: 'athraxis',
+    miniBoss: 'court_executioner',
+    miniBossChance: 0.7,
+    eliteChance: 0.45,
+    minMobs: 22,
+    maxMobs: 30,
   },
 };
 

@@ -796,4 +796,50 @@ export const EXPANSION_DECOR: DecorRow[] = [
     { kind: 'pot', x: 500, y: 250 },
     { kind: 'pot', x: 516, y: 262 },
   ]),
+
+  // ===================================================================================
+  // Acts exploration pass — chests + shrines for the Act 2 road and Act 3 areas
+  // (seed-acts.ts owns their landmark dressing; ONLY the chest/shrine kinds live here
+  // so the per-(area,kind) seed guards never collide between the two packs).
+  // ===================================================================================
+  ...area('grimfrost_barrow', [
+    { kind: 'chest', x: 1640, y: 160, color: '#b9863f' },
+    { kind: 'chest', x: 1650, y: 1240, color: '#b9863f' },
+    { kind: 'shrine', x: 460, y: 500, color: '#cfe6ff' }, // beside the grave rows
+  ]),
+  ...area('howling_barrens', [
+    { kind: 'chest', x: 1640, y: 160, color: '#b9863f' },
+    { kind: 'chest', x: 160, y: 1240, color: '#b9863f' },
+    { kind: 'shrine', x: 640, y: 340, color: '#9fd8c0' }, // in the leaning pines
+  ]),
+  ...area('sunken_pass', [
+    { kind: 'chest', x: 160, y: 160, color: '#b9863f' },
+    { kind: 'chest', x: 1640, y: 1240, color: '#b9863f' },
+    { kind: 'shrine', x: 1000, y: 940, color: '#7fa8c0' }, // above the drowned ruin
+  ]),
+  // Vhal'reth: the chest waits inside the southwest house; the shrine flanks the hearth.
+  ...area('vhalreth', [
+    { kind: 'chest', x: 360, y: 860, color: '#b9863f' },
+    { kind: 'shrine', x: 820, y: 860, color: '#ffd9a0' },
+  ]),
+  ...area('ashveil_desert', [
+    { kind: 'chest', x: 1640, y: 160, color: '#b9863f' },
+    { kind: 'chest', x: 300, y: 1240, color: '#b9863f' },
+    { kind: 'shrine', x: 900, y: 760, color: '#d8c0a0' }, // by the bleached bones
+  ]),
+  ...area('shattered_causeway', [
+    { kind: 'chest', x: 1640, y: 160, color: '#b9863f' },
+    { kind: 'chest', x: 160, y: 1240, color: '#b9863f' },
+    { kind: 'shrine', x: 1300, y: 560, color: '#a8a0c8' }, // under the fallen span
+  ]),
+  ...area('voidmarch', [
+    { kind: 'chest', x: 1640, y: 160, color: '#b9863f' },
+    { kind: 'chest', x: 1640, y: 1240, color: '#b9863f' },
+    { kind: 'shrine', x: 1200, y: 960, color: '#b07ae8' }, // beneath the void crystal
+  ]),
+  ...area('the_unmade_court', [
+    { kind: 'chest', x: 1390, y: 1190, color: '#b9863f' },
+    { kind: 'chest', x: 130, y: 1180, color: '#b9863f' },
+    { kind: 'shrine', x: 750, y: 1150, color: '#c89aff' }, // the approach to the Court
+  ]),
 ];

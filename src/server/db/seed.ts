@@ -13,6 +13,7 @@ import { EXPANSION_AREA_MOBS, EXPANSION_LOOT } from './seed-expansion.js';
 import { EXPANSION_DECOR } from './seed-decor.js';
 import { ensureSpellTomeContent } from './seed-spells.js';
 import { FRONTIER_NPCS, FRONTIER_DECOR, FRONTIER_LOOT, FRONTIER_QUESTS } from './seed-frontier.js';
+import { ACTS_NPCS, ACTS_DECOR, ACTS_LOOT, ACTS_QUESTS, ACTS_VENDOR_STOCK } from './seed-acts.js';
 
 /** Display names + colors for the non-equipment loot materials (and gold). */
 const MATERIALS: Record<string, { name: string; color: string }> = {
@@ -306,6 +307,174 @@ export function seed(db: Database): void {
   ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
   ensureExpansionContent(db); // hand-placed decor, new-monster rosters/loot, sprite tints
   ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
+  ensureActsContent(db); // the Act 2 road + all of Act 3 (Vhalreth, its zones, the Unmade Court)
+  ensureDenContent(db); // the generic cellar/den interior (procedural mini-dungeon shell)
+}
+
+/**
+ * Upsert the Act 2/3 content (the combat road off Duskhaven, the city of Vhalreth, the Act 3
+ * zones, and the Unmade Court) into an already-seeded DB. Same idempotent guards as the
+ * frontier; areas/portals/themes/templates/rosters flow through ensureWorldExpansion.
+ */
+function ensureActsContent(db: Database): void {
+  const npcExists = db.prepare('SELECT 1 FROM npcs WHERE area_id = ? AND name = ?');
+  const npcIns = db.prepare('INSERT INTO npcs (area_id,name,x,y,hue,kind) VALUES (?,?,?,?,?,?)');
+  for (const n of ACTS_NPCS) {
+    if (!npcExists.get(n.areaId, n.name)) npcIns.run(n.areaId, n.name, n.x, n.y, n.hue, n.kind);
+  }
+
+  const decorKindCount = db.prepare(
+    'SELECT COUNT(*) AS n FROM decor WHERE area_id = ? AND kind = ?',
+  );
+  const decorIns = db.prepare(
+    'INSERT INTO decor (area_id,kind,x,y,x2,y2,color,scale) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  const byAreaKind = new Map<string, typeof ACTS_DECOR>();
+  for (const d of ACTS_DECOR) {
+    const key = `${d.areaId}/${d.kind}`;
+    byAreaKind.set(key, [...(byAreaKind.get(key) ?? []), d]);
+  }
+  for (const rows of byAreaKind.values()) {
+    const first = rows[0]!;
+    const { n } = decorKindCount.get(first.areaId, first.kind) as { n: number };
+    if (n > 0) continue;
+    for (const d of rows) {
+      decorIns.run(
+        d.areaId,
+        d.kind,
+        d.x,
+        d.y,
+        d.x2 ?? null,
+        d.y2 ?? null,
+        d.color ?? null,
+        d.scale ?? null,
+      );
+    }
+  }
+
+  const lootExists = db.prepare('SELECT 1 FROM loot_entry WHERE mob_template_id = ? LIMIT 1');
+  const lootIns = db.prepare(
+    'INSERT INTO loot_entry (mob_template_id,grp,item_id,weight,min_qty,max_qty,is_nothing,chance) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  const lootMobs = new Set(ACTS_LOOT.map((l) => l.mobTemplateId));
+  for (const mobId of lootMobs) {
+    if (lootExists.get(mobId)) continue;
+    for (const l of ACTS_LOOT) {
+      if (l.mobTemplateId !== mobId) continue;
+      lootIns.run(mobId, l.grp, l.itemId, l.weight, l.minQty, l.maxQty, l.isNothing, l.chance);
+    }
+  }
+
+  const insQuest = db.prepare(
+    'INSERT OR IGNORE INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item,turn_in_item,turn_in_count) VALUES (?,?,?,?,?,?,?,?,?,?)',
+  );
+  for (const q of ACTS_QUESTS) {
+    insQuest.run(
+      q.id,
+      q.name,
+      q.description,
+      q.targetMob,
+      q.targetCount,
+      q.rewardGold,
+      q.rewardXp,
+      q.rewardItem ?? null,
+      q.turnInItem ?? null,
+      q.turnInCount ?? 0,
+    );
+  }
+
+  const stockExists = db.prepare(
+    'SELECT 1 FROM vendor_stock WHERE area_id = ? AND npc_name = ? LIMIT 1',
+  );
+  const stockIns = db.prepare(
+    'INSERT INTO vendor_stock (area_id,npc_name,item_id,price,sort_order) VALUES (?,?,?,?,?)',
+  );
+  const stockVendors = new Set(ACTS_VENDOR_STOCK.map((s) => `${s.areaId}/${s.npcName}`));
+  for (const key of stockVendors) {
+    const [areaId, npcName] = key.split('/') as [string, string];
+    if (stockExists.get(areaId, npcName)) continue;
+    for (const s of ACTS_VENDOR_STOCK) {
+      if (s.areaId !== areaId || s.npcName !== npcName) continue;
+      stockIns.run(s.areaId, s.npcName, s.itemId, s.price, s.sortOrder);
+    }
+  }
+
+  // Tint-variant recolors: Act 2/3 monsters reusing earlier sprite sheets read as their own
+  // creatures through the sprite_tints system (one source, many palettes).
+  const tintIns = db.prepare('INSERT OR IGNORE INTO sprite_tints (target,tint) VALUES (?,?)');
+  const ACT_TINTS: [string, string][] = [
+    ['mob:ash_dire_wolf', '#c8beb4'], // ash-grey wolf
+    ['mob:barrow_wight', '#b8d0e8'], // grave-frost wraith
+    ['mob:drowned_hulk', '#8fb4b8'], // waterlogged zombie
+    ['mob:null_revenant', '#b09ad0'], // void reaper
+    ['mob:causeway_golem', '#a8a4b8'], // pale bridge-stone
+    ['mob:court_executioner', '#d0a0b8'], // court-rose death-knight
+    ['mob:athraxis', '#9a86b4'], // the hollowed angel, void-dimmed
+  ];
+  for (const [target, tint] of ACT_TINTS) tintIns.run(target, tint);
+}
+
+/**
+ * The DEN: one small generic cellar interior that every procedural mini-dungeon instance uses
+ * (house basements + hidden wilderness dens, the Diablo cellar loop). The exit portal's authored
+ * destination is a placeholder — the InstanceManager routes a den's exit back to wherever the
+ * player descended (Instance.returnTo). Authored tiny: the world scale turns 260×200 into a
+ * cellar-sized 1300×1000 room. Idempotent on the area id.
+ */
+function ensureDenContent(db: Database): void {
+  if (db.prepare('SELECT 1 FROM areas WHERE id = ?').get('den')) return;
+  db.prepare(
+    'INSERT INTO areas (id,name,width,height,spawn_x,spawn_y,player_cap) VALUES (?,?,?,?,?,?,?)',
+  ).run('den', 'A Forgotten Cellar', 260, 200, 130, 140, 4);
+  db.prepare(
+    `INSERT INTO area_theme
+       (area_id,ground_base,ground_speck,prop,prop_density,atmo_color,atmo_alpha,outdoor,
+        particle_color,particle_count,particle_rise,particle_flicker,weather,weather_intensity,
+        fog_color,light_ambient,grade_saturation,grade_brightness,grade_contrast,sprite_tint)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    'den',
+    '#171310',
+    '#241d16',
+    'none',
+    0,
+    '#120c08',
+    0.38,
+    0,
+    '#caa46a',
+    14,
+    4,
+    1,
+    'none',
+    0.5,
+    '#0a0806',
+    0.42,
+    0.8,
+    0.92,
+    1.12,
+    '#cfc4b0',
+  );
+  db.prepare(
+    'INSERT INTO portals (area_id,rect_x,rect_y,rect_w,rect_h,to_area,to_spawn_x,to_spawn_y,label) VALUES (?,?,?,?,?,?,?,?,?)',
+  ).run('den', 115, 4, 30, 14, 'town', 160, 120, '↑ Climb out');
+  const decorIns = db.prepare(
+    'INSERT INTO decor (area_id,kind,x,y,x2,y2,color,scale) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  const DEN_DECOR: [string, number, number][] = [
+    ['candle', 30, 30],
+    ['candle', 228, 36],
+    ['candle', 132, 178],
+    ['pot', 40, 168],
+    ['pot', 52, 162],
+    ['pot', 216, 170],
+    ['pot', 224, 178],
+    ['bones', 80, 60],
+    ['bones', 196, 132],
+    ['crate', 36, 60],
+    ['barrel', 226, 64],
+    ['rock', 130, 100],
+  ];
+  for (const [kind, x, y] of DEN_DECOR) decorIns.run('den', kind, x, y, null, null, null, null);
 }
 
 /**

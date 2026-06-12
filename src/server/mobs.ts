@@ -1084,6 +1084,297 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     telegraphMs: 580,
     dashSpeed: 610,
   },
+
+  // ===================================================================================
+  // Act 2 road bestiary (L21-31) — the zones west of Duskhaven (seed-acts.ts): the
+  // Grimfrost Barrows, the Howling Barrens, and the Sunken Pass. Floor mobs stay under
+  // hp 200 (traits apply); Maelgor is the road's mid-boss.
+  // ===================================================================================
+  barrow_wight: {
+    id: 'barrow_wight',
+    name: 'Barrow Wight',
+    hp: 165,
+    level: 21,
+    hue: 235,
+    speed: 115,
+    aggroRange: 380,
+    attackRange: 48,
+    damage: 26,
+    attackCooldownMs: 950,
+    behavior: 'melee', // drains with a grave-cold touch (see MOB_SPELLS)
+    telegraphMs: 260,
+  },
+  cairn_banshee: {
+    id: 'cairn_banshee',
+    name: 'Cairn Banshee',
+    hp: 140,
+    level: 22,
+    hue: 250,
+    speed: 88,
+    aggroRange: 520,
+    attackRange: 430,
+    damage: 27,
+    attackCooldownMs: 1550,
+    behavior: 'ranged', // wails shadow bolts across the ice (see MOB_SPELLS)
+    telegraphMs: 640,
+    projectileSpeed: 340,
+    kiteRange: 270,
+  },
+  barrens_warg: {
+    id: 'barrens_warg',
+    name: 'Barrens Warg',
+    hp: 175,
+    level: 24,
+    hue: 215,
+    speed: 150, // pack-hunter of the pines
+    aggroRange: 380,
+    attackRange: 46,
+    damage: 28,
+    attackCooldownMs: 820,
+    behavior: 'melee',
+    telegraphMs: 200,
+  },
+  hexpine_shaman: {
+    id: 'hexpine_shaman',
+    name: 'Hexpine Shaman',
+    hp: 160,
+    level: 26,
+    hue: 100,
+    speed: 84,
+    aggroRange: 520,
+    attackRange: 430,
+    damage: 30,
+    attackCooldownMs: 1600,
+    behavior: 'ranged', // a support caster — roars itself into a frenzy (see MOB_SUPPORT)
+    telegraphMs: 650,
+    projectileSpeed: 340,
+    kiteRange: 270,
+  },
+  drowned_hulk: {
+    id: 'drowned_hulk',
+    name: 'Drowned Hulk',
+    hp: 195,
+    level: 29,
+    hue: 175,
+    speed: 60, // waterlogged and slow, and it will not stay down (see MOB_SUPPORT)
+    aggroRange: 320,
+    attackRange: 64,
+    damage: 36,
+    attackCooldownMs: 1600,
+    behavior: 'melee',
+    telegraphMs: 560,
+    slamRadius: 90,
+  },
+  tidegrave_lurker: {
+    id: 'tidegrave_lurker',
+    name: 'Tidegrave Lurker',
+    hp: 180,
+    level: 30,
+    hue: 185,
+    speed: 110,
+    aggroRange: 430,
+    attackRange: 225, // charge-trigger distance
+    damage: 38,
+    attackCooldownMs: 2200,
+    behavior: 'charger', // erupts from the floodwater
+    telegraphMs: 560,
+    dashSpeed: 620,
+  },
+  // The Act 2 road's mid-boss, holding the Sunken Pass gate (quest: pass_tidewarden).
+  maelgor: {
+    id: 'maelgor',
+    name: 'Maelgor, the Tidewarden',
+    hp: 330,
+    level: 31,
+    hue: 195,
+    speed: 66,
+    aggroRange: 500,
+    attackRange: 84,
+    damage: 42,
+    attackCooldownMs: 1600,
+    behavior: 'melee',
+    telegraphMs: 760,
+    slamRadius: 125,
+  },
+
+  // ===================================================================================
+  // Act 3 bestiary (L40-60) — the dead lands beyond Vhal'reth (seed-acts.ts): the
+  // Ashveil Desert, the Shattered Causeway, the Voidmarch, and the Unmade Court.
+  // Floor mobs stay under hp 200; the zone mid-bosses, the Court's guards, and
+  // Athraxis are boss-tier with their own mechanics.
+  // ===================================================================================
+  ash_dire_wolf: {
+    id: 'ash_dire_wolf',
+    name: 'Ashen Dire Wolf',
+    hp: 175,
+    level: 40,
+    hue: 20,
+    speed: 145, // dune pack-hunter
+    aggroRange: 380,
+    attackRange: 46,
+    damage: 42,
+    attackCooldownMs: 850,
+    behavior: 'melee',
+    telegraphMs: 210,
+  },
+  cinderbone_archer: {
+    id: 'cinderbone_archer',
+    name: 'Cinderbone Archer',
+    hp: 160,
+    level: 41,
+    hue: 24,
+    speed: 92,
+    aggroRange: 540,
+    attackRange: 450,
+    damage: 44,
+    attackCooldownMs: 1500,
+    behavior: 'ranged', // looses cinder orbs (see MOB_SPELLS)
+    telegraphMs: 620,
+    projectileSpeed: 360,
+    kiteRange: 280,
+  },
+  ashveil_gorgon: {
+    id: 'ashveil_gorgon',
+    name: 'Ashveil Gorgon',
+    hp: 190,
+    level: 43,
+    hue: 140,
+    speed: 86,
+    aggroRange: 540,
+    attackRange: 440,
+    damage: 46,
+    attackCooldownMs: 1650,
+    behavior: 'ranged', // a petrifying gaze — frost lances that slow (see MOB_SPELLS)
+    telegraphMs: 660,
+    projectileSpeed: 340,
+    kiteRange: 280,
+  },
+  causeway_golem: {
+    id: 'causeway_golem',
+    name: 'Causeway Golem',
+    hp: 195,
+    level: 45,
+    hue: 240,
+    speed: 62, // the bridge's old wardens, still keeping the toll
+    aggroRange: 330,
+    attackRange: 66,
+    damage: 50,
+    attackCooldownMs: 1650,
+    behavior: 'melee',
+    telegraphMs: 600,
+    slamRadius: 95,
+  },
+  voidtouched_centaur: {
+    id: 'voidtouched_centaur',
+    name: 'Voidtouched Centaur',
+    hp: 180,
+    level: 46,
+    hue: 285,
+    speed: 120,
+    aggroRange: 450,
+    attackRange: 235, // charge-trigger distance
+    damage: 52,
+    attackCooldownMs: 2200,
+    behavior: 'charger', // a lance-charge out of the murk (see MOB_SUPPORT: sprint)
+    telegraphMs: 540,
+    dashSpeed: 650,
+  },
+  null_revenant: {
+    id: 'null_revenant',
+    name: 'Null Revenant',
+    hp: 195,
+    level: 49,
+    hue: 265,
+    speed: 128,
+    aggroRange: 400,
+    attackRange: 50,
+    damage: 55,
+    attackCooldownMs: 900,
+    behavior: 'melee',
+    telegraphMs: 240,
+  },
+  // The Ashveil Desert's mid-boss (quest: ash_tyrant).
+  sarghul: {
+    id: 'sarghul',
+    name: 'Sarghul, the Ash-Tyrant',
+    hp: 450,
+    level: 44,
+    hue: 28,
+    speed: 70,
+    aggroRange: 500,
+    attackRange: 86,
+    damage: 58,
+    attackCooldownMs: 1600,
+    behavior: 'melee',
+    telegraphMs: 780,
+    slamRadius: 130,
+  },
+  // The Voidmarch's mid-boss (quest: void_matron).
+  vessirah: {
+    id: 'vessirah',
+    name: "Vess'irah, the Void Hag",
+    hp: 520,
+    level: 52,
+    hue: 305,
+    speed: 80,
+    aggroRange: 560,
+    attackRange: 450,
+    damage: 60,
+    attackCooldownMs: 1500,
+    behavior: 'ranged', // hurls arcane orbs (see MOB_SPELLS)
+    telegraphMs: 700,
+    projectileSpeed: 360,
+    kiteRange: 290,
+  },
+  // The Unmade Court's two named guards: a slam elite and a caster elite.
+  court_executioner: {
+    id: 'court_executioner',
+    name: 'Executioner of the Unmade Court',
+    hp: 660,
+    level: 57,
+    hue: 345,
+    speed: 72,
+    aggroRange: 520,
+    attackRange: 88,
+    damage: 68,
+    attackCooldownMs: 1600,
+    behavior: 'melee', // a wide, readable slam
+    telegraphMs: 780,
+    slamRadius: 130,
+  },
+  court_oracle: {
+    id: 'court_oracle',
+    name: 'Oracle of the Unmade Court',
+    hp: 580,
+    level: 58,
+    hue: 270,
+    speed: 84,
+    aggroRange: 580,
+    attackRange: 460,
+    damage: 64,
+    attackCooldownMs: 1500,
+    behavior: 'ranged', // casts Thunder Lance (see MOB_SPELLS)
+    telegraphMs: 680,
+    projectileSpeed: 370,
+    kiteRange: 290,
+  },
+  // The true end of the game: a hollowed god on an unmade throne. Slow, enormous slams —
+  // learn the rhythm or be erased.
+  athraxis: {
+    id: 'athraxis',
+    name: 'Athraxis, the Unmade God',
+    hp: 3000,
+    level: 60,
+    hue: 55,
+    speed: 82,
+    aggroRange: 620,
+    attackRange: 96,
+    damage: 78,
+    attackCooldownMs: 1500,
+    behavior: 'melee',
+    telegraphMs: 880,
+    slamRadius: 160,
+  },
 };
 
 export interface AreaMobSpawn {
@@ -1139,6 +1430,50 @@ export const AREA_MOBS: Record<string, AreaMobSpawn[]> = {
     { templateId: 'ruin_colossus', count: 3 },
     { templateId: 'throne_tyrant', count: 1 },
   ],
+  // --- Act 2 road (L21-31): Duskhaven → the Blighted Spire ---
+  grimfrost_barrow: [
+    { templateId: 'barrow_wight', count: 5 },
+    { templateId: 'cairn_banshee', count: 4 },
+    { templateId: 'void_revenant', count: 4 },
+    { templateId: 'obsidian_juggernaut', count: 3 },
+  ],
+  howling_barrens: [
+    { templateId: 'barrens_warg', count: 5 },
+    { templateId: 'riftwing_harpy', count: 4 },
+    { templateId: 'hexpine_shaman', count: 3 },
+    { templateId: 'voidscale_drake', count: 3 },
+    { templateId: 'blight_knight', count: 3 },
+  ],
+  sunken_pass: [
+    { templateId: 'drowned_hulk', count: 5 },
+    { templateId: 'tidegrave_lurker', count: 4 },
+    { templateId: 'pyre_caster', count: 3 },
+    { templateId: 'ruin_colossus', count: 3 },
+    { templateId: 'maelgor', count: 1 },
+  ],
+  // --- Act 3 (L40-52): the dead lands beyond Vhal'reth ---
+  vhalreth: [], // the last city is a safe zone, like town
+  ashveil_desert: [
+    { templateId: 'ash_dire_wolf', count: 5 },
+    { templateId: 'cinderbone_archer', count: 4 },
+    { templateId: 'ashveil_gorgon', count: 3 },
+    { templateId: 'thronespawn_ravager', count: 3 },
+    { templateId: 'sarghul', count: 1 },
+  ],
+  shattered_causeway: [
+    { templateId: 'causeway_golem', count: 5 },
+    { templateId: 'voidtouched_centaur', count: 4 },
+    { templateId: 'abyss_thrall', count: 4 },
+    { templateId: 'cinderbone_archer', count: 3 },
+    { templateId: 'blightgore_minotaur', count: 3 },
+  ],
+  voidmarch: [
+    { templateId: 'null_revenant', count: 5 },
+    { templateId: 'duskfire_hexer', count: 4 },
+    { templateId: 'ashveil_gorgon', count: 3 },
+    { templateId: 'throne_magus', count: 3 },
+    { templateId: 'vessirah', count: 1 },
+  ],
 };
 
 /**
@@ -1167,6 +1502,14 @@ export const MOB_SPELLS: Record<string, AbilityId> = {
   // Abyssal Throne casters.
   duskfire_hexer: 'shadow_bolt',
   throne_magus: 'thunderlance',
+  // Act 2 road casters.
+  barrow_wight: 'draining_touch', // a grave-cold melee drain
+  cairn_banshee: 'shadow_bolt',
+  // Act 3 casters.
+  cinderbone_archer: 'cinderorb',
+  ashveil_gorgon: 'frostlance', // the petrifying gaze — slows on hit
+  vessirah: 'arcane_orb',
+  court_oracle: 'thunderlance',
 };
 
 /**
@@ -1181,6 +1524,9 @@ export const MOB_SUPPORT: Record<string, AbilityId> = {
   avalanche_shade: 'sprint',
   fen_strangler: 'sprint',
   gnarlfang_lycan: 'sprint', // a pack-hunter that bursts to close the gap
+  hexpine_shaman: 'warcry', // roars itself into a frenzy mid-fight
+  drowned_hulk: 'renew', // the waterlogged dead knit themselves back together
+  voidtouched_centaur: 'sprint', // bursts to set up its lance-charge
 };
 
 /**
@@ -1248,6 +1594,20 @@ export const MOB_TRAITS: Record<string, MobTrait[]> = {
   void_revenant: ['flanker'],
   basalt_basilisk: ['flanker'],
   thronespawn_ravager: ['enrage', 'flanker'],
+  // Act 2 road bestiary.
+  barrow_wight: ['flanker'],
+  cairn_banshee: ['craven'],
+  barrens_warg: ['pack', 'flanker'],
+  hexpine_shaman: ['craven'],
+  drowned_hulk: ['enrage'],
+  tidegrave_lurker: ['flanker'],
+  // Act 3 bestiary.
+  ash_dire_wolf: ['pack'],
+  cinderbone_archer: ['craven'],
+  ashveil_gorgon: ['craven'],
+  causeway_golem: ['enrage'],
+  voidtouched_centaur: ['flanker'],
+  null_revenant: ['enrage', 'flanker'],
 };
 
 /**

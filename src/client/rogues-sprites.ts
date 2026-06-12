@@ -207,6 +207,16 @@ const MOB_RULES: MobRule[] = [
   { re: /hexer/, sheet: 'monsters', label: 'hag' },
   { re: /thrall/, sheet: 'monsters', label: 'zombie' },
   { re: /ravager/, sheet: 'monsters', label: 'wendigo' },
+  // --- Acts 2-3 bestiary (seed-acts.ts): specific words before the generics. ---
+  { re: /wight/, sheet: 'monsters', label: 'wraith' },
+  { re: /shaman/, sheet: 'monsters', label: 'orc-wizard' },
+  { re: /drowned|hulk/, sheet: 'monsters', label: 'zombie' },
+  { re: /lurker/, sheet: 'monsters', label: 'lampreymander' },
+  { re: /gorgon/, sheet: 'monsters', label: 'gorgon' },
+  { re: /centaur/, sheet: 'monsters', label: 'centaur' },
+  { re: /executioner/, sheet: 'monsters', label: 'death-knight' },
+  { re: /oracle/, sheet: 'monsters', label: 'unholy-cardinal' },
+  { re: /athraxis/, sheet: 'monsters', label: 'angel' }, // the Unmade God: a hollowed angel
   { re: /witch|hag/, sheet: 'monsters', label: 'hag' },
   { re: /bonecaller|pale king|crypt lord|lich/, sheet: 'monsters', label: 'lich' },
   { re: /runeseer|seer/, sheet: 'monsters', label: 'unholy-cardinal' },

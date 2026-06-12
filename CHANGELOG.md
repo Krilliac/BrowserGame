@@ -37,6 +37,26 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Acts 2 and 3 — the rest of the map (8 new areas, 18 new monsters).** The Act 2 road runs
+  Duskhaven → Grimfrost Barrow → the Howling Barrens → the Sunken Pass (the game's first rain
+  zone), forking east to the Blighted Spire and south to **Vhalreth, the city** — Act 3's safe
+  hub with every service (including the priciest vendor shelf in the game and the four
+  otherwise drop-only chase tomes as an endgame gold sink). Act 3 marches Ashveil Desert → the
+  Shattered Causeway → Voidmarch → **the Unmade Court**, the final dungeon, where court guards
+  defend **Athraxis, the Unmade God** (level 60, hp 3000 — the true end, with a 150,000 XP /
+  20,000 gold bounty). Mid-bosses (Maelgor the Tidewarden, Sarghul the Ash-Tyrant, Vess'irah
+  the Void Hag) anchor quests along the way; several Act 2/3 monsters are tint-variant
+  recolors of earlier sprites via the `sprite_tints` system (the ash-grey dire wolf, the
+  waterlogged hulk, the hollowed-angel final boss).
+- **Dens — the Diablo cellar loop (procedural dungeons everywhere).** Every instance rolls its
+  own secrets: each house footprint has a 50% chance of a **cellar hatch** inside, and open
+  country hides 2-4 **hidden dens** at random spots. Stepping on one descends into a fresh,
+  private cellar-sized dungeon stocked from the local area's roster (35% chance of a beefed-up
+  den landlord), holding guaranteed chests; the exit climbs back out where you went down. Plus
+  **random bonus chests** rolled into every instance beyond the authored treasure.
+- **Portal + density tuning for the 5× world.** Portal triggers scale only 2× (centers fully)
+  and the drawn pad is capped to a discrete gateway; overworld monster rosters go 4×→10× and
+  dungeon packs 4×→8×.
 - **Duskhaven, the frontier village (Act 2's rest point).** A snow-dusted mountain settlement
   through a new pass at the far end of Frostpeak: vendor (with an Act 2 shelf), healer, banker,
   and quest-giver, hearth-lit and palisaded — the second safe anchor on the map.

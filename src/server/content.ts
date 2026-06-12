@@ -93,9 +93,12 @@ interface LootGroup {
  * agree without touching the authored sources.
  */
 const WORLD_SCALE = 5;
-/** Monster roster multiplier: the ground grows 25×, the packs grow 4× — sparser frontier, but
- *  every roster is a real hunt (and respawns keep camps refilling). */
-const MOB_COUNT_SCALE = 4;
+/** Monster roster multiplier: the ground grows 25×, the packs grow 10× — still a sparser
+ *  frontier than the old per-screen density, but the hunt is never far. */
+const MOB_COUNT_SCALE = 10;
+/** Portal TRIGGER spans scale less than the world (a generous pad, not a wall of light);
+ *  their centers scale fully so they stay where the map says they are. */
+const PORTAL_SPAN_SCALE = 2;
 
 export function loadContent(db: GameDatabase): Content {
   // Per-area environment themes (the data-driven look) — DEFAULT_THEME fills any area without a row.
@@ -122,17 +125,20 @@ export function loadContent(db: GameDatabase): Content {
   for (const a of db.prepare('SELECT * FROM areas').all() as AreaRow[]) {
     const portals = (
       db.prepare('SELECT * FROM portals WHERE area_id = ?').all(a.id) as PortalRow[]
-    ).map((p) => ({
-      rect: {
-        x: p.rect_x * WORLD_SCALE,
-        y: p.rect_y * WORLD_SCALE,
-        w: p.rect_w * WORLD_SCALE,
-        h: p.rect_h * WORLD_SCALE,
-      },
-      toArea: p.to_area,
-      toSpawn: { x: p.to_spawn_x * WORLD_SCALE, y: p.to_spawn_y * WORLD_SCALE },
-      label: p.label,
-    }));
+    ).map((p) => {
+      // Scale the rect's CENTER by the world scale but its span by the (smaller) portal span
+      // scale — the pad stays findable without becoming a region-sized wall of light.
+      const cx = (p.rect_x + p.rect_w / 2) * WORLD_SCALE;
+      const cy = (p.rect_y + p.rect_h / 2) * WORLD_SCALE;
+      const w = p.rect_w * PORTAL_SPAN_SCALE;
+      const h = p.rect_h * PORTAL_SPAN_SCALE;
+      return {
+        rect: { x: cx - w / 2, y: cy - h / 2, w, h },
+        toArea: p.to_area,
+        toSpawn: { x: p.to_spawn_x * WORLD_SCALE, y: p.to_spawn_y * WORLD_SCALE },
+        label: p.label,
+      };
+    });
     areas.set(a.id, {
       id: a.id,
       name: a.name,

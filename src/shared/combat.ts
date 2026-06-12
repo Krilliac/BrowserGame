@@ -15,7 +15,8 @@ export type EntityKind =
   | 'npc'
   | 'chest'
   | 'hireling'
-  | 'pot';
+  | 'pot'
+  | 'den';
 
 // AbilityId is derived from the ABILITIES table below (see the declaration), so adding a spell to
 // that one object automatically extends the id type, ABILITY_ORDER, and the content seeding.

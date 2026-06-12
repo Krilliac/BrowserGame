@@ -40,7 +40,8 @@ describe('InstanceManager', () => {
     start.world.setInput(p.entityId, { up: false, down: false, left: false, right: true });
 
     let transfer;
-    for (let i = 0; i < 200 && !transfer; i++) {
+    // The world is 5× as long: crossing half the town to the east gate takes a real walk now.
+    for (let i = 0; i < 600 && !transfer; i++) {
       const events = mgr.tick(0.1);
       transfer = events.find((e) => e.entityId === p.entityId);
     }

@@ -8,6 +8,8 @@ export interface Instance {
   id: string;
   areaId: string;
   world: World;
+  /** Set on DEN instances: any portal out returns to this spot (where the player descended). */
+  returnTo?: { areaId: string; x: number; y: number };
 }
 
 export interface Placement {
@@ -108,6 +110,32 @@ export class InstanceManager {
     };
   }
 
+  /**
+   * Descend into a DEN: a fresh, private cellar-sized instance populated from the SOURCE area's
+   * roster, whose exit returns to the exact spot the player went down (offset a step so the
+   * hatch doesn't immediately re-trigger). Always a new instance — every den is its own roll.
+   */
+  openDen(fromInstanceId: string, entityId: number): TransferEvent | null {
+    const from = this.instances.get(fromInstanceId);
+    const den = getContent().area('den');
+    if (!from || !den) return null;
+    const stats = from.world.playerStats(entityId);
+    const save = from.world.exportPlayer(entityId);
+    if (!stats || !save) return null;
+    const dest = this.spawnInstance(den);
+    dest.returnTo = { areaId: from.areaId, x: stats.x + 70, y: stats.y + 40 };
+    dest.world.populateDen(from.areaId);
+    from.world.remove(entityId);
+    dest.world.importPlayer(entityId, save, den.spawn.x, den.spawn.y);
+    this.gc(from);
+    return {
+      entityId,
+      fromInstanceId: from.id,
+      toInstanceId: dest.id,
+      toAreaId: den.id,
+    };
+  }
+
   remove(instanceId: string, entityId: number): void {
     const instance = this.instances.get(instanceId);
     if (!instance) return;
@@ -188,20 +216,22 @@ export class InstanceManager {
         const portal = area.portals.find((p) => pointInRect(entity.x, entity.y, p.rect));
         if (!portal) continue;
 
-        const target = getContent().area(portal.toArea);
+        // Den exits ignore the portal's authored destination: you come back up the same hatch.
+        const target = getContent().area(instance.returnTo?.areaId ?? portal.toArea);
         if (!target) continue;
         const dest = this.pickInstance(target);
+        const spawnAt = instance.returnTo ?? portal.toSpawn;
 
         // Carry the player's full persistent state (xp, gold, loot, gear, quests) across.
         const save = instance.world.exportPlayer(entity.id);
         instance.world.remove(entity.id);
         if (save) {
-          dest.world.importPlayer(entity.id, save, portal.toSpawn.x, portal.toSpawn.y);
+          dest.world.importPlayer(entity.id, save, spawnAt.x, spawnAt.y);
         } else {
           dest.world.spawn(entity.name, {
             id: entity.id,
-            x: portal.toSpawn.x,
-            y: portal.toSpawn.y,
+            x: spawnAt.x,
+            y: spawnAt.y,
             hue: entity.hue,
           });
         }

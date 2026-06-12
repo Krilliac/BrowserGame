@@ -25,10 +25,10 @@ describe('procedural dungeon population', () => {
       const world = buildDungeon(areaId);
       const mobs = world.snapshot().filter((e) => e.kind === 'mob');
 
-      // Pack size in 4×[minMobs, maxMobs] (the world-scale density bump) + 1 boss (+ an
+      // Pack size in 8×[minMobs, maxMobs] (the world-scale density bump) + 1 boss (+ an
       // optional mini-boss).
-      expect(mobs.length, `${areaId} pack`).toBeGreaterThanOrEqual(def.minMobs * 4 + 1);
-      expect(mobs.length, `${areaId} pack`).toBeLessThanOrEqual(def.maxMobs * 4 + 2);
+      expect(mobs.length, `${areaId} pack`).toBeGreaterThanOrEqual(def.minMobs * 8 + 1);
+      expect(mobs.length, `${areaId} pack`).toBeLessThanOrEqual(def.maxMobs * 8 + 2);
 
       // The named boss is present (bosses never roll elite, so the name is exact).
       const bossName = getContent().mobTemplate(def.boss)!.name;

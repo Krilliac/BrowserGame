@@ -220,6 +220,16 @@ const AREA_BIOME: Record<string, string> = {
   rift: 'cursed', // the endgame rift — otherworldly corrupted ground fits its violet theme
   duskhaven: 'frost', // the mountain village sits on glacial stone
   abyssal_throne: 'cursed', // the deepest dark — corrupted ground under the Black Throne
+  // Act 2 road (seed-acts.ts).
+  grimfrost_barrow: 'frost', // a graveyard cut into glacial ice
+  howling_barrens: 'forest', // wind-bent pines; the grey grade does the howling
+  sunken_pass: 'marsh', // a drowned road — waterlogged dark ground
+  // Act 3 (seed-acts.ts).
+  vhalreth: 'dungeon', // the last city stands on worked stone
+  ashveil_desert: 'graveyard', // cracked dead earth under the ash
+  shattered_causeway: 'crypt', // broken stone slabs and rubble
+  voidmarch: 'cursed', // the world fraying into the void
+  the_unmade_court: 'cursed', // past the end of the world
 };
 
 /**

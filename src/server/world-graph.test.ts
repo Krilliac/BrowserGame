@@ -15,22 +15,31 @@ describe('world graph integrity', () => {
   const areas = c.areas();
   const ids = new Set(areas.map((a) => a.id));
 
-  it('ships the overworld, the dungeons, the rift, and the frontier (village + throne)', () => {
+  it('ships the overworld, the dungeons, the rift, the frontier, and the den shell', () => {
     expect([...ids].sort()).toEqual([
       'abyssal_throne',
+      'ashveil_desert',
       'blighted_spire',
       'crypt',
+      'den',
       'duskhaven',
       'forgotten_catacombs',
       'frostpeak',
       'frozen_vault',
+      'grimfrost_barrow',
       'hollowroot',
+      'howling_barrens',
       'infernal_forge',
       'marsh',
       'mines',
       'rift',
+      'shattered_causeway',
       'sundered_wastes',
+      'sunken_pass',
+      'the_unmade_court',
       'town',
+      'vhalreth',
+      'voidmarch',
       'wilderness',
       'writhing_hive',
     ]);
@@ -42,9 +51,9 @@ describe('world graph integrity', () => {
         expect(ids.has(p.toArea), `${a.id} → ${p.toArea}`).toBe(true);
       }
     }
-    // BFS from town must reach every area (the spine + spurs are actually connected). The rift
-    // is the one exception: it opens only via the Riftkeeper NPC, never an inbound portal —
-    // but its own exit portal must still lead home.
+    // BFS from town must reach every area (the spine + spurs are actually connected). Two
+    // exceptions enter without inbound portals: the rift (opened by the Riftkeeper) and the
+    // den (entered via per-instance hatches) — but their own exits must still lead home.
     const seen = new Set<string>(['town']);
     const queue = ['town'];
     while (queue.length) {
@@ -56,8 +65,9 @@ describe('world graph integrity', () => {
         }
       }
     }
-    expect([...seen].sort()).toEqual([...ids].filter((id) => id !== 'rift').sort());
+    expect([...seen].sort()).toEqual([...ids].filter((id) => id !== 'rift' && id !== 'den').sort());
     expect(c.area('rift')!.portals.map((p) => p.toArea)).toEqual(['town']);
+    expect(c.area('den')!.portals).toHaveLength(1); // the climb-out (rerouted per instance)
   });
 
   it('arrival spawns are clear of every portal rect in the destination area', () => {

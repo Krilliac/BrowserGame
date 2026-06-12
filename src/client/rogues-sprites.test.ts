@@ -80,6 +80,26 @@ const SEEDED_MOB_NAMES = [
   'Sentinel of the Black Throne',
   'Magus of the Black Throne',
   'Nyxathor, the Abyssal Sovereign',
+  // --- Act 2 road bestiary (seed-acts.ts) ---
+  'Barrow Wight',
+  'Cairn Banshee',
+  'Barrens Warg',
+  'Hexpine Shaman',
+  'Drowned Hulk',
+  'Tidegrave Lurker',
+  'Maelgor, the Tidewarden',
+  // --- Act 3 bestiary (seed-acts.ts) ---
+  'Ashen Dire Wolf',
+  'Cinderbone Archer',
+  'Ashveil Gorgon',
+  'Causeway Golem',
+  'Voidtouched Centaur',
+  'Null Revenant',
+  'Sarghul, the Ash-Tyrant',
+  "Vess'irah, the Void Hag",
+  'Executioner of the Unmade Court',
+  'Oracle of the Unmade Court',
+  'Athraxis, the Unmade God',
 ];
 
 /** NPC kinds from the content DB enum (src/server/db/editable.ts). */
@@ -160,6 +180,17 @@ describe('mobSpriteCell', () => {
     });
     // "Duskfire Hexer" reads as a witch, not a fire imp or cultist.
     expect(mobSpriteCell('Duskfire Hexer')).toEqual({ sheet: 'monsters', ...MONSTER_CELLS['hag'] });
+    // The final boss is the hollowed angel, not a generic god/king archetype.
+    expect(mobSpriteCell('Athraxis, the Unmade God')).toEqual({
+      sheet: 'monsters',
+      ...MONSTER_CELLS['angel'],
+    });
+    // "Maelgor, the Tidewarden" falls through to the warden generic (death-knight),
+    // not the drowned/lurker rules around it.
+    expect(mobSpriteCell('Maelgor, the Tidewarden')).toEqual({
+      sheet: 'monsters',
+      ...MONSTER_CELLS['death-knight'],
+    });
   });
 
   it('returns undefined for names no rule recognizes', () => {
