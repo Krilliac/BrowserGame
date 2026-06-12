@@ -25,6 +25,13 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Potions + a quick-use belt.** Health (Q) and mana (R) potions restore instantly on a short shared
+  cooldown — the active-survival layer over passive regen. Carried in a capped belt that persists with
+  the character; the Healer refills it and chests stock it. Server-authoritative count + cooldown, with
+  a HUD belt that greys out while recharging.
+- **Unique items (named legendaries).** A new `unique` rarity and 12 hand-authored named legendaries
+  on real base items, each with signature fixed affixes — the loot chase. A slim chance on any gear
+  drop (4× from bosses, better from chests) mints one; they show their name, colored gold.
 - **Shrines.** Step onto a shrine (SQL `decor` kind `shrine`) to be blessed with a random timed
   buff — Might (+40% damage), Haste (+40% move/attack), or Renewal (15 hp/s) — on the existing buff
   system; the shrine then recharges on a 60s cooldown. Placed by the town bonfire and in the caves.
