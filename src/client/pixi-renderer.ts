@@ -209,6 +209,13 @@ const TINT_SLOW = 0x88bbff;
 const TINT_WEAKEN = 0xb088c0; // sickly violet — a cursed/weakened monster
 const TINT_ENRAGE = 0xff7b5a; // hot orange-red — a self-buffed (enraged/hasted) monster
 
+/** Parse a CSS `#rrggbb` hex color to a 0xRRGGBB number for the additive light layer (which takes
+ * numeric colors); falls back to a cool blue if the string isn't a 6-digit hex. */
+function hexToNum(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  return m ? parseInt(m[1]!, 16) : 0x7fd0ff;
+}
+
 function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) | 0;
   h = (h ^ (h >> 13)) * 1274126177;
@@ -275,6 +282,14 @@ interface ActorView {
   dyingUntil?: number;
   /** Item views only: spawn time, for a brief loot-pop arc when the drop appears. */
   spawnT?: number;
+  /** Chest views only: the closed-body group, the open-body group, and the per-frame closed glint. */
+  closedG?: Container;
+  openG?: Container;
+  glintG?: Graphics;
+  /** Chest views only: the last `opened` state we rendered, so we only toggle on a change. */
+  chestOpened?: boolean;
+  /** Chest views only: a per-chest phase seed so a row of chests doesn't sparkle in lockstep. */
+  seed?: number;
   topY: number;
   lastX: number;
   lastY: number;
@@ -328,6 +343,10 @@ export class PixiRenderer {
   // Cached fire flames (bonfire/torch). Their flame Graphics is redrawn each frame from the shared
   // animation clock so the camp visibly flickers — without rebuilding the whole decor container.
   private fireFlames: { gfx: Graphics; scale: number; seed: number }[] = [];
+  // Cached shrine orbs (the floating glowing gem atop each shrine pedestal). Like fireFlames, each
+  // orb's Graphics is redrawn every frame from the animation clock so it bobs + pulses without
+  // rebuilding the decor container. Built once per area entry in drawShrine.
+  private shrineOrbs: { gfx: Graphics; color: string; seed: number }[] = [];
   // Enterable houses: each roof Graphics (in roofLayer) plus the building's world-space footprint
   // (NW + SE corners). Built once per area entry; only the roof's alpha updates each frame, easing
   // toward HOUSE_ROOF_INSIDE_ALPHA when the local player stands within the footprint (+ a margin).
@@ -446,6 +465,7 @@ export class PixiRenderer {
     this.portalCenters = [];
     this.decorLights = [];
     this.fireFlames = [];
+    this.shrineOrbs = [];
     this.houses = [];
     for (const portal of area.portals) {
       const cx = portal.rect.x + portal.rect.w / 2;
@@ -548,6 +568,14 @@ export class PixiRenderer {
         break;
       case 'torch':
         this.drawTorch(c, prop.x, prop.y);
+        break;
+      case 'shrine':
+        this.drawShrine(c, prop.x, prop.y, prop.color ?? '#7fd0ff');
+        break;
+      case 'chest':
+        // Chests are authoritative ENTITIES (they carry the live `opened` state) drawn in the
+        // entity path. These decor rows are just the server's placement markers — render nothing
+        // here, or every chest would draw twice (once as decor, once as the entity).
         break;
       default:
         // Unknown kind: a low stone marker so bad data fails visibly but harmlessly.
@@ -809,6 +837,60 @@ export class PixiRenderer {
       color: FIRE_LIGHT,
       flicker: true,
     });
+  }
+
+  /**
+   * A small magical shrine: a tilted stone pedestal/obelisk topped by a floating glowing orb tinted
+   * by `color` (the shrine's glow hue). The orb is registered in fireFlames so update() re-draws it
+   * each frame — a gentle bob + halo pulse off the shared animation clock (never Date.now/random) —
+   * and a soft COOL glow is recorded in decorLights so it blooms on the additive light overlay at
+   * night, like the torch/bonfire. Purely cosmetic decor — no state.
+   */
+  private drawShrine(c: Container, wx: number, wy: number, color: string): void {
+    this.propShadow(c, 16, 8);
+    const stone = new Graphics();
+    // A stepped stone base, then a tapered obelisk/pedestal rising to where the orb floats.
+    stone.ellipse(0, 0, 16, 16 * PITCH).fill({ color: DECOR_PALETTE.stone });
+    stone.rect(-13, -8, 26, 8).fill({ color: DECOR_PALETTE.stone });
+    stone.rect(-13, -8, 26, 2).fill({ color: '#88837a', alpha: 0.6 }); // lit top step
+    // Tapered pillar (wider base, narrower neck) with a shaded right side for form.
+    stone.poly([-8, -8, 8, -8, 5, -40, -5, -40]).fill({ color: '#7c776d' });
+    stone.poly([0, -8, 8, -8, 5, -40, 0, -40]).fill({ color: '#000000', alpha: 0.2 });
+    // A small notched cradle at the top the orb hovers above.
+    stone.poly([-7, -40, 7, -40, 4, -46, -4, -46]).fill({ color: '#605b52' });
+    c.addChild(stone);
+
+    // The floating orb sits above the pedestal; its Graphics is redrawn each frame for the pulse.
+    const orb = new Graphics();
+    orb.position.set(0, -54);
+    c.addChild(orb);
+    this.shrineOrbs.push({ gfx: orb, color, seed: hash2(wx | 0, (wy | 0) + 11) * 6.28 });
+    // A soft cool magical glow on the additive overlay, gently pulsing (flicker = a slow breathe).
+    this.decorLights.push({
+      x: wx,
+      y: wy - 50,
+      radius: 150,
+      color: hexToNum(color),
+      flicker: true,
+    });
+  }
+
+  /**
+   * Redraw every cached shrine orb for this frame from the shared animation clock — a tinted gem
+   * core wrapped in two soft halo rings, bobbing and pulsing gently. Cheap (a few circles per orb)
+   * and keyed off `now`, so shrines breathe in sync with the renderer's clock (never Date.now/random).
+   */
+  private updateShrineOrbs(now: number): void {
+    const t = now / 1000;
+    for (const { gfx, color, seed } of this.shrineOrbs) {
+      const bob = Math.sin(t * 1.6 + seed) * 2.5; // slow vertical float
+      const pulse = 0.82 + 0.18 * Math.sin(t * 2.2 + seed * 1.7); // gentle halo breathe
+      gfx.clear();
+      gfx.circle(0, bob, 13 * pulse).fill({ color, alpha: 0.16 }); // outer halo
+      gfx.circle(0, bob, 8 * pulse).fill({ color, alpha: 0.3 }); // inner halo
+      gfx.circle(0, bob, 4.5).fill({ color, alpha: 0.95 }); // bright gem core
+      gfx.circle(-1.4, bob - 1.4, 1.6).fill({ color: '#ffffff', alpha: 0.85 }); // glint highlight
+    }
   }
 
   /**
@@ -1086,6 +1168,8 @@ export class PixiRenderer {
     }
     // Live flicker for the cached campfire/torch flames (drawn from this same clock — never random).
     this.updateFireFlames(now);
+    // Gentle bob + halo pulse for the cached shrine orbs (same clock — never Date.now/random).
+    this.updateShrineOrbs(now);
     this.lighting.update(
       lights,
       sw,
@@ -1111,6 +1195,7 @@ export class PixiRenderer {
     for (const e of state.entities) {
       if (e.kind === 'projectile') this.updateProjectile(e);
       else if (e.kind === 'item') this.updateItem(e);
+      else if (e.kind === 'chest') this.updateChest(e);
       else this.updateActor(e, e.id === state.selfId);
     }
     for (const [id, view] of this.views) {
@@ -1514,6 +1599,133 @@ export class PixiRenderer {
       const age = performance.now() - (view.spawnT ?? 0);
       drop.y = age < LOOT_POP_MS ? -Math.sin((age / LOOT_POP_MS) * Math.PI) * LOOT_POP_HEIGHT : 0;
     }
+  }
+
+  /**
+   * A wooden treasure chest with iron banding, drawn in the ENTITY path (it carries the live
+   * `opened` state) — y-sorted with a soft ground shadow like other actors. Built once, then we just
+   * toggle between a cached CLOSED body (lid down, with a faint warm sparkle so players notice it)
+   * and a cached OPEN body (lid back, empty interior) when `opened` flips. The closed glint is a
+   * cheap per-frame redraw off the renderer's clock (never Date.now/random). The authoritative chest
+   * is THIS entity; its decor placement marker is skipped, so it never double-draws.
+   */
+  private updateChest(e: EntityState): void {
+    let view = this.views.get(e.id);
+    if (!view) {
+      const container = new Container();
+      // Soft directional ground shadow, matching the actors' baked-sun look.
+      const shadow = new Sprite(this.softShadowTexture());
+      shadow.anchor.set(0.5, 0.5);
+      shadow.width = 36;
+      shadow.height = 16;
+      shadow.alpha = SHADOW_ALPHA;
+      shadow.position.set(16 * SHADOW_OFFSET_X, 8 * SHADOW_OFFSET_Y);
+      shadow.skew.x = SHADOW_SKEW;
+      container.addChild(shadow);
+
+      const closedG = this.drawChestClosed();
+      const openG = this.drawChestOpen();
+      // The closed-state glint (a faint warm sparkle), redrawn per frame; lives in the closed group.
+      const glintG = new Graphics();
+      closedG.addChild(glintG);
+
+      container.addChild(closedG, openG);
+      view = {
+        container,
+        shadow,
+        closedG,
+        openG,
+        glintG,
+        topY: -28,
+        lastX: e.x,
+        lastY: e.y,
+        lastHp: 0,
+        flashUntil: 0,
+        seen: true,
+        seed: hash2(e.id, e.id * 3) * 6.28,
+      };
+      this.actorLayer.addChild(container);
+      this.views.set(e.id, view);
+    }
+    view.seen = true;
+    view.container.position.set(e.x, e.y * PITCH);
+    view.container.zIndex = e.y;
+
+    const opened = e.opened === true;
+    // Toggle bodies only when the state actually changes (cheap: just visibility).
+    if (view.chestOpened !== opened) {
+      if (view.closedG) view.closedG.visible = !opened;
+      if (view.openG) view.openG.visible = opened;
+      view.chestOpened = opened;
+    }
+    // A faint warm sparkle on a closed chest so it reads as lootable; gone once opened.
+    if (view.glintG) {
+      if (opened) {
+        view.glintG.clear();
+      } else {
+        const t = performance.now() / 1000;
+        const pulse = 0.55 + 0.45 * Math.sin(t * 2.4 + (view.seed ?? 0));
+        view.glintG.clear();
+        // A soft halo over the lid plus a tiny twinkle on the lock — both breathing with the clock.
+        view.glintG.circle(0, -14, 16).fill({ color: '#ffe7a8', alpha: 0.1 * pulse });
+        view.glintG.circle(0, -11, 2.2 * (0.7 + 0.3 * pulse)).fill({
+          color: '#fff3c8',
+          alpha: 0.85 * pulse,
+        });
+      }
+    }
+  }
+
+  /** The CLOSED chest body: a banded wooden box with a domed lid, iron lock, and corner straps. */
+  private drawChestClosed(): Container {
+    const c = new Container();
+    const g = new Graphics();
+    const wood = DECOR_PALETTE.wood;
+    const woodDark = DECOR_PALETTE.woodDark;
+    const woodLight = DECOR_PALETTE.woodLight;
+    const iron = DECOR_PALETTE.iron;
+    const ironLight = DECOR_PALETTE.ironLight;
+    // Box body.
+    g.rect(-16, -16, 32, 16).fill({ color: wood });
+    g.rect(-16, -6, 32, 6).fill({ color: woodDark }); // shaded lower band
+    // Domed lid (an arc) sitting on top of the body.
+    g.moveTo(-16, -16).arc(0, -16, 16, Math.PI, 0).fill({ color: woodLight });
+    g.moveTo(-16, -16).lineTo(16, -16).stroke({ width: 1.5, color: woodDark, alpha: 0.6 });
+    // Iron banding: two vertical straps + a horizontal strap across the lid seam.
+    for (const sx of [-9, 9]) g.rect(sx - 2, -26, 4, 26).fill({ color: iron });
+    g.rect(-16, -17, 32, 3).fill({ color: iron });
+    g.rect(-16, -17, 32, 1).fill({ color: ironLight, alpha: 0.6 });
+    // Lock plate + keyhole at the front center.
+    g.rect(-4, -13, 8, 7).fill({ color: ironLight });
+    g.rect(-4, -13, 8, 7).stroke({ width: 1, color: '#2a2a30' });
+    g.circle(0, -10, 1.4).fill({ color: '#1c1c20' });
+    c.addChild(g);
+    return c;
+  }
+
+  /** The OPEN chest body: the box with its lid tilted back and a dark, empty interior. */
+  private drawChestOpen(): Container {
+    const c = new Container();
+    c.visible = false; // closed by default; updateChest flips visibility
+    const g = new Graphics();
+    const wood = DECOR_PALETTE.wood;
+    const woodDark = DECOR_PALETTE.woodDark;
+    const woodLight = DECOR_PALETTE.woodLight;
+    const iron = DECOR_PALETTE.iron;
+    // Box body (same footprint as closed).
+    g.rect(-16, -16, 32, 16).fill({ color: wood });
+    g.rect(-16, -6, 32, 6).fill({ color: woodDark });
+    for (const sx of [-9, 9]) g.rect(sx - 2, -16, 4, 16).fill({ color: iron });
+    // Hollow interior: a dark rim recessed into the open box (empty — the loot is gone).
+    g.moveTo(-13, -16).arc(0, -16, 13, Math.PI, 0).fill({ color: '#1a130c' });
+    g.ellipse(0, -16, 13, 4).fill({ color: '#0f0b07' });
+    g.ellipse(0, -16, 13, 4).stroke({ width: 1, color: woodLight, alpha: 0.4 }); // lit inner edge
+    // The lid, tilted back and up behind the box (a flattened dome rotated open).
+    g.moveTo(-15, -28).arc(0, -28, 15, Math.PI, 0, true).fill({ color: woodLight });
+    g.moveTo(-15, -28).lineTo(15, -28).stroke({ width: 1.5, color: woodDark, alpha: 0.6 });
+    g.rect(-15, -29, 30, 3).fill({ color: iron }); // lid banding
+    c.addChild(g);
+    return c;
   }
 
   private updateFx(fx: TimedFx[]): void {
