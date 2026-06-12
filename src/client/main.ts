@@ -24,6 +24,7 @@ import { Sound } from './sound.js';
 import { Predictor } from './predictor.js';
 import { wallsForDecor } from '../shared/collision.js';
 import { drawBelt } from './belt.js';
+import { ATTRIBUTE_KEYS, ATTRIBUTE_LABELS, ATTRIBUTE_EFFECTS } from '../shared/attributes.js';
 import { installErrorTrap, getLatestError } from './error-trap.js';
 import { clampPanelRect } from './ui-guard.js';
 import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
@@ -181,6 +182,7 @@ let shopPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 // Character panel (paper doll): open with C; each slot box is a click target to unequip.
 let charOpen = false;
 const charSlotRects: { slot: string; x: number; y: number; w: number; h: number }[] = [];
+const attrButtonRects: { attr: string; x: number; y: number; w: number; h: number }[] = [];
 let charPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 
 // Quest log panel: open with L; available quests have an "Accept" click target.
@@ -327,6 +329,11 @@ window.addEventListener('pointerdown', (e) => {
   if (waypointOpen && handleWaypointClick(e.clientX, e.clientY)) return;
   // Clicks on the open character panel unequip a slot and never fall through to a cast.
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
+    const ab = attrButtonRects.find((b) => inRect(e.clientX, e.clientY, b));
+    if (ab) {
+      net.sendAllocateAttr(ab.attr);
+      return;
+    }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
     if (cs) net.sendUnequip(cs.slot);
     return;
@@ -504,6 +511,11 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
   if (waypointOpen && handleWaypointClick(e.clientX, e.clientY)) return;
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
+    const ab = attrButtonRects.find((b) => inRect(e.clientX, e.clientY, b));
+    if (ab) {
+      net.sendAllocateAttr(ab.attr);
+      return;
+    }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
     if (cs) net.sendUnequip(cs.slot);
     return;
@@ -1053,8 +1065,9 @@ function drawCharSlot(slot: string, bx: number, by: number, bw: number, bh: numb
 /** The Diablo-style character / equipment panel (toggled with C). Tap a slot to unequip. */
 function drawCharacterPanel(): void {
   charSlotRects.length = 0;
+  attrButtonRects.length = 0;
   const pw = 384;
-  const ph = 430;
+  const ph = 566;
   const px = 20;
   const py = 56;
   charPanelRect = { x: px, y: py, w: pw, h: ph };
@@ -1095,6 +1108,47 @@ function drawCharacterPanel(): void {
   right.forEach((s, i) => drawCharSlot(s, px + 14 + bw + 12, sy + i * (bh + gap), bw, bh));
   const lastY = sy + 6 * (bh + gap);
   drawCharSlot('mainhand', px + 14, lastY, pw - 28, bh);
+
+  // --- Attributes (allocate points earned on level-up) ---
+  const ay = lastY + bh + 16;
+  hud.textAlign = 'left';
+  hud.font = 'bold 13px system-ui, sans-serif';
+  hud.fillStyle = '#e7d9b0';
+  hud.fillText('Attributes', px + 14, ay);
+  hud.textAlign = 'right';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.fillStyle = net.you.attrPoints > 0 ? '#7fe07f' : '#8a8f99';
+  hud.fillText(`${net.you.attrPoints} points`, px + pw - 14, ay);
+
+  const rowH = 26;
+  ATTRIBUTE_KEYS.forEach((key, i) => {
+    const ry = ay + 12 + i * rowH;
+    hud.textAlign = 'left';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.fillStyle = '#cfd3da';
+    hud.fillText(ATTRIBUTE_LABELS[key], px + 14, ry + 14);
+    hud.font = 'bold 13px system-ui, sans-serif';
+    hud.fillStyle = '#f2c14e';
+    hud.fillText(String(net.you.attributes[key]), px + 116, ry + 14);
+    hud.font = '10px system-ui, sans-serif';
+    hud.fillStyle = '#8a8f99';
+    hud.fillText(ATTRIBUTE_EFFECTS[key], px + 150, ry + 14);
+    // A [+] button, active only when there are points to spend.
+    const can = net.you.attrPoints > 0;
+    const bx = px + pw - 14 - 24;
+    const btn = { attr: key, x: bx, y: ry, w: 24, h: 20 };
+    if (can) attrButtonRects.push(btn);
+    hud.fillStyle = can ? 'rgba(127,224,127,0.18)' : 'rgba(255,255,255,0.04)';
+    hud.fillRect(btn.x, btn.y, btn.w, btn.h);
+    hud.strokeStyle = can ? '#7fe07f' : 'rgba(201,162,75,0.25)';
+    hud.lineWidth = 1;
+    hud.strokeRect(btn.x, btn.y, btn.w, btn.h);
+    hud.fillStyle = can ? '#cfeccf' : '#6b707a';
+    hud.font = 'bold 14px system-ui, sans-serif';
+    hud.textAlign = 'center';
+    hud.fillText('+', btn.x + 12, btn.y + 15);
+  });
+  hud.textAlign = 'left';
 }
 
 /** The quest log (toggle with L). Active quests show progress bars; available ones an Accept button. */

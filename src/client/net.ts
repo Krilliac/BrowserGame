@@ -13,6 +13,7 @@ import {
 } from '../shared/protocol.js';
 import type { AbilityId } from '../shared/combat.js';
 import type { ItemInstance } from '../shared/items.js';
+import { type AttributeSet, emptyAttributes } from '../shared/attributes.js';
 
 export interface ChatLine {
   from: string;
@@ -40,6 +41,8 @@ export interface SelfStats {
   loot: Record<string, number>;
   gear: ItemInstance[];
   potions: { health: number; mana: number };
+  attributes: AttributeSet;
+  attrPoints: number;
   respawnIn: number;
   power: number;
   critChance: number;
@@ -89,6 +92,8 @@ export class Net {
     loot: {},
     gear: [],
     potions: { health: 0, mana: 0 },
+    attributes: emptyAttributes(),
+    attrPoints: 0,
     respawnIn: 0,
     power: 0,
     critChance: 0.15,
@@ -254,6 +259,10 @@ export class Net {
     this.send({ t: 'use_potion', kind });
   }
 
+  sendAllocateAttr(attr: string): void {
+    this.send({ t: 'allocate_attr', attr });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
@@ -302,6 +311,8 @@ export class Net {
           loot: msg.loot,
           gear: msg.gear,
           potions: msg.potions ?? { health: 0, mana: 0 },
+          attributes: msg.attributes ?? emptyAttributes(),
+          attrPoints: msg.attrPoints ?? 0,
           respawnIn: msg.respawnIn,
           power: msg.power,
           critChance: msg.critChance,

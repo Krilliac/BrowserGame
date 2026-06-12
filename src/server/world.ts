@@ -66,6 +66,14 @@ import {
 import { DUNGEONS, type DungeonDef, type Rect } from '../shared/areas.js';
 import { resolveCircleMove, wallsForDecor, PLAYER_COLLISION_RADIUS } from '../shared/collision.js';
 import { rollRandomUnique } from '../shared/uniques.js';
+import {
+  type AttributeSet,
+  attributeBonuses,
+  emptyAttributes,
+  toAttributeSet,
+  ATTRIBUTE_KEYS,
+  ATTR_POINTS_PER_LEVEL,
+} from '../shared/attributes.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { getContent, type QuestDef } from './content.js';
@@ -208,6 +216,12 @@ interface Player {
   damageTakenMult: number;
   /** Bonus HP regenerated per second from +vigor affixes (added to base regen). */
   vigor: number;
+  /** Bonus mana/sec from the Energy attribute (added to base mana regen). */
+  manaRegenBonus: number;
+  /** Allocatable attributes (strength/vitality/dexterity/energy) feeding derived stats. */
+  attributes: AttributeSet;
+  /** Unspent attribute points (earned on level-up). */
+  attrPoints: number;
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
@@ -245,6 +259,10 @@ export interface PlayerSave {
   stash?: ItemInstance[];
   /** Potion belt counts (absent on pre-potion saves — defaults to the starting amount). */
   potions?: { health: number; mana: number };
+  /** Allocated attributes (absent on pre-attribute saves — granted retroactively on load). */
+  attributes?: AttributeSet;
+  /** Unspent attribute points (absent on old saves). */
+  attrPoints?: number;
   /** Equipped gear by doll slot; partial-friendly so older saves migrate cleanly. */
   equipment: Record<string, ItemInstance | null>;
   god: boolean;
@@ -1066,6 +1084,11 @@ export class World {
       armor += gems.armor;
       vigor += gems.vigor;
     }
+    // Attribute bonuses (strength→power, vitality→maxHp, dexterity→crit, energy→mana regen).
+    const attr = attributeBonuses(player.attributes);
+    power += attr.power;
+    bonusHp += attr.maxHp;
+    crit += attr.critChance;
     player.power = power;
     player.critChance = crit;
     player.multishot = multishot;
@@ -1075,6 +1098,7 @@ export class World {
     // Armor reduces incoming damage (stacking with the corrupted +fragile penalty), capped at 50%.
     player.damageTakenMult = damageTaken * Math.max(0.5, 1 - armor / 100);
     player.vigor = vigor; // flat HP/sec added to base regen in tickPlayers
+    player.manaRegenBonus = attr.manaRegen;
     player.maxHp = Math.max(1, maxHpForLevel(player.level) + bonusHp);
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
@@ -1139,7 +1163,19 @@ export class World {
     const p = this.players.get(id);
     if (!p) return;
     p.xp = Math.max(0, p.xp + amount);
-    p.level = levelForXp(p.xp);
+    const newLevel = levelForXp(p.xp);
+    if (newLevel > p.level) p.attrPoints += (newLevel - p.level) * ATTR_POINTS_PER_LEVEL;
+    p.level = newLevel;
+    this.recomputeStats(p);
+  }
+
+  /** Spend one attribute point to raise an attribute (server-authoritative; ignores invalid input). */
+  allocateAttribute(id: number, attr: string): void {
+    const p = this.players.get(id);
+    if (!p || p.attrPoints <= 0) return;
+    if (!(ATTRIBUTE_KEYS as string[]).includes(attr)) return;
+    p.attributes[attr as keyof AttributeSet]++;
+    p.attrPoints--;
     this.recomputeStats(p);
   }
 
@@ -1192,6 +1228,9 @@ export class World {
       stash: [],
       potions: { health: POTION_START, mana: POTION_START },
       potionReadyAt: 0,
+      manaRegenBonus: 0,
+      attributes: emptyAttributes(),
+      attrPoints: 0,
       equipment: emptyEquipment(),
       power: 0,
       critChance: BASE_CRIT_CHANCE,
@@ -1233,6 +1272,8 @@ export class World {
       gear: [...p.gear],
       stash: [...p.stash],
       potions: { ...p.potions },
+      attributes: { ...p.attributes },
+      attrPoints: p.attrPoints,
       equipment: { ...p.equipment },
       god: p.god,
       quests: [...p.quests],
@@ -1256,6 +1297,15 @@ export class World {
     p.potions = save.potions
       ? { health: save.potions.health, mana: save.potions.mana }
       : { health: POTION_START, mana: POTION_START };
+    // Attributes: restore them, or for a pre-attribute save grant the points the character has earned
+    // across its levels retroactively (so existing characters get their fair allotment to spend).
+    if (save.attributes) {
+      p.attributes = toAttributeSet(save.attributes);
+      p.attrPoints = Math.max(0, Math.floor(save.attrPoints ?? 0));
+    } else {
+      p.attributes = emptyAttributes();
+      p.attrPoints = Math.max(0, (save.level - 1) * ATTR_POINTS_PER_LEVEL);
+    }
     p.equipment = { ...emptyEquipment(), ...save.equipment };
     p.god = save.god;
     p.quests = new Map(save.quests);
@@ -1402,7 +1452,10 @@ export class World {
         if (this.now >= player.respawnAt) this.respawnPlayer(player);
         continue;
       }
-      player.mana = Math.min(PLAYER_MAX_MANA, player.mana + MANA_REGEN_PER_SEC * dt);
+      player.mana = Math.min(
+        PLAYER_MAX_MANA,
+        player.mana + (MANA_REGEN_PER_SEC + player.manaRegenBonus) * dt,
+      );
       // Base HP regen plus any +vigor from equipped gear.
       player.hp = Math.min(player.maxHp, player.hp + (HP_REGEN_PER_SEC + player.vigor) * dt);
       // Advance self-buffs; an active REGEN buff heals over time on top of base regen.
@@ -2066,7 +2119,11 @@ export class World {
     p.xp += xp;
     const newLevel = levelForXp(p.xp);
     if (newLevel > p.level) {
-      this.notify(p.id, `You reached level ${newLevel}!`);
+      p.attrPoints += (newLevel - p.level) * ATTR_POINTS_PER_LEVEL; // earn attribute points per level
+      this.notify(
+        p.id,
+        `You reached level ${newLevel}! (+${ATTR_POINTS_PER_LEVEL} attribute points)`,
+      );
       this.events.push({ kind: 'levelup', x: p.x, y: p.y, value: newLevel });
     }
     p.level = newLevel;
@@ -2306,6 +2363,8 @@ export class World {
         loot: Record<string, number>;
         gear: ItemInstance[];
         potions: { health: number; mana: number };
+        attributes: AttributeSet;
+        attrPoints: number;
         respawnIn: number;
         power: number;
         critChance: number;
@@ -2338,6 +2397,8 @@ export class World {
       loot: Object.fromEntries(p.loot),
       gear: p.gear,
       potions: { ...p.potions },
+      attributes: { ...p.attributes },
+      attrPoints: p.attrPoints,
       respawnIn: p.dead ? Math.max(0, Math.ceil(p.respawnAt - this.now)) : 0,
       power: p.power,
       critChance: p.critChance,

@@ -11,6 +11,7 @@
 import type { AbilityId, Ability, EntityKind, FxEvent } from './combat.js';
 import type { AreaDef } from './areas.js';
 import type { ItemInstance } from './items.js';
+import type { AttributeSet } from './attributes.js';
 
 /** One quest's state for the client quest log. */
 export interface QuestState {
@@ -192,6 +193,8 @@ export type ClientMessage =
   | { t: 'stash_withdraw'; uid: number }
   /** Quaff a quick-use belt potion (instant restore, server-validated count + cooldown). */
   | { t: 'use_potion'; kind: 'health' | 'mana' }
+  /** Spend one attribute point on an attribute (server validates the pool + the key). */
+  | { t: 'allocate_attr'; attr: string }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
@@ -232,6 +235,10 @@ export type ServerMessage =
       gear: ItemInstance[];
       /** Quick-use belt: counts of each potion kind. */
       potions: { health: number; mana: number };
+      /** Allocated attributes (strength/vitality/dexterity/energy). */
+      attributes: AttributeSet;
+      /** Unspent attribute points to allocate. */
+      attrPoints: number;
       /** Milliseconds until respawn while dead (0 when alive). */
       respawnIn: number;
       /** Attack power from the equipped weapon (added to every hit). */
