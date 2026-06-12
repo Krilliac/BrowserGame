@@ -23,6 +23,7 @@ import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
 import { Predictor } from './predictor.js';
 import { wallsForDecor } from '../shared/collision.js';
+import { drawBelt } from './belt.js';
 import { installErrorTrap, getLatestError } from './error-trap.js';
 import { clampPanelRect } from './ui-guard.js';
 import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
@@ -287,8 +288,24 @@ window.addEventListener('keydown', (e) => {
     renderer.adjustZoom(0.1); // zoom the camera in (RS/Diablo-style)
   } else if (e.key === '-' || e.key === '_') {
     renderer.adjustZoom(-0.1); // zoom the camera out
+  } else if (e.key.toLowerCase() === 'q') {
+    usePotion('health'); // quick-use belt: health flask
+  } else if (e.key.toLowerCase() === 'r') {
+    usePotion('mana'); // quick-use belt: mana flask
   }
 });
+
+// Quick-use potion belt. The server validates the count + cooldown; the client mirrors the cooldown
+// (POTION_COOLDOWN_MS) so the belt greys out responsively and we don't spam the socket.
+const POTION_CD_MS = 2500;
+let potionReadyAt = 0;
+function usePotion(kind: 'health' | 'mana'): void {
+  if (performance.now() < potionReadyAt) return;
+  const have = kind === 'health' ? net.you.potions.health : net.you.potions.mana;
+  if (have <= 0) return;
+  net.sendUsePotion(kind);
+  potionReadyAt = performance.now() + POTION_CD_MS;
+}
 
 function nearbyNpc(): EntityState | undefined {
   if (!self) return undefined;
@@ -1417,6 +1434,21 @@ function drawHud(): void {
 
   drawMinimap(w);
   drawInventory(w);
+
+  // Quick-use potion belt (Q health / R mana), to the left of the hotbar.
+  const potReady = performance.now() >= potionReadyAt;
+  drawBelt(
+    hud,
+    { w, h },
+    {
+      health: net.you.potions.health,
+      mana: net.you.potions.mana,
+      healthKey: 'Q',
+      manaKey: 'R',
+      healthReady: potReady,
+      manaReady: potReady,
+    },
+  );
 
   const npc = nearbyNpc();
   if (npc && !net.you.dead && !net.shop && !net.gamble && !net.artificer) {

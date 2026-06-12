@@ -14,7 +14,7 @@
 
 import type { ItemSlot } from './equipment.js';
 
-export type Rarity = 'common' | 'magic' | 'rare' | 'epic' | 'legendary' | 'corrupted';
+export type Rarity = 'common' | 'magic' | 'rare' | 'epic' | 'legendary' | 'corrupted' | 'unique';
 
 /**
  * The normal-roll rarities, most to least common. **Corrupted is excluded on purpose** — it never
@@ -45,6 +45,9 @@ export const RARITY: Record<Rarity, RarityDef> = {
   legendary: { name: 'Legendary', weight: 11, statMult: 3.2, variance: 0.22, color: '#ff7a1a' },
   // Never weighted-rolled (weight 0); only born from corruption. The strongest base stats of all.
   corrupted: { name: 'Corrupted', weight: 0, statMult: 3.9, variance: 0.25, color: '#ff2d6f' },
+  // Never weighted-rolled (weight 0); only minted by the unique roller. A named, fixed-affix drop —
+  // the loot chase. Top-tier base stats; its signature powers come from its hand-authored affixes.
+  unique: { name: 'Unique', weight: 0, statMult: 3.6, variance: 0.18, color: '#bfa05a' },
 };
 
 /** Roll a rarity tier by weight. Deterministic given `rng`. */
@@ -318,6 +321,7 @@ export function affixName(a: Affix): { kind: 'prefix' | 'suffix'; word: string }
  * name; rarity is conveyed by color, not a "Magic/Rare" word.
  */
 export function instanceTitle(inst: ItemInstance, baseName: string): string {
+  if (inst.name) return inst.name; // unique items carry a hand-authored name
   const affixes = inst.affixes ?? [];
   if (affixes.length === 0) return baseName;
   const prefixes: string[] = [];
@@ -364,6 +368,8 @@ export interface ItemInstance {
   affixes: Affix[];
   /** Gem sockets: each entry is a socketed gem id or null (empty). Absent on pre-gem saves/gear. */
   sockets?: (string | null)[];
+  /** Unique items only: the hand-authored name shown instead of the affix-composed title. */
+  name?: string;
 }
 
 /** How many gem sockets a piece of gear of this rarity rolls. Sockets are a valued, rarer perk. */
@@ -375,6 +381,7 @@ export function socketCountFor(rarity: Rarity): number {
     epic: 2,
     legendary: 2,
     corrupted: 1,
+    unique: 2,
   };
   return counts[rarity];
 }
@@ -442,6 +449,7 @@ export function rollCorruptedInstance(
 
 /** Display name: the base name, prefixed with the rarity for anything above common. */
 export function instanceName(inst: ItemInstance, baseName: string): string {
+  if (inst.name) return inst.name; // unique items carry a hand-authored name
   return inst.rarity === 'common' ? baseName : `${RARITY[inst.rarity].name} ${baseName}`;
 }
 

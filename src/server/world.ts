@@ -65,6 +65,7 @@ import {
 } from './mobs.js';
 import { DUNGEONS, type DungeonDef, type Rect } from '../shared/areas.js';
 import { resolveCircleMove, wallsForDecor, PLAYER_COLLISION_RADIUS } from '../shared/collision.js';
+import { rollRandomUnique } from '../shared/uniques.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { getContent, type QuestDef } from './content.js';
@@ -109,6 +110,17 @@ const SHRINE_COOLDOWN_MS = 60_000;
 const CHEST_RADIUS = 52;
 const CHEST_GOLD_MIN = 25;
 const CHEST_GOLD_MAX = 90;
+// Quick-use potion belt: instant restore on use, a shared use-cooldown, and a carry cap. Topped up
+// by the Healer and found in chests — the active-survival layer on top of passive regen.
+const POTION_CAP = 8;
+const POTION_START = 3; // a new character starts with a few of each
+const POTION_HEAL = 70; // HP restored by a health potion
+const POTION_MANA = 60; // mana restored by a mana potion
+const POTION_COOLDOWN_MS = 2500;
+// Unique (named legendary) drop chances: the loot chase. A slim base chance on any gear drop, better
+// from a chest. Elites/bosses already drop more gear, so they roll the base chance more often.
+const UNIQUE_DROP_CHANCE = 0.02;
+const CHEST_UNIQUE_CHANCE = 0.08;
 // Artificer service costs (flat, predictable): reroll an item's affixes for gold + a rune shard;
 // pop a socketed gem back to the bag for gold.
 export const ARTIFICER_REROLL_GOLD = 250;
@@ -206,6 +218,10 @@ interface Player {
   input: InputState;
   lastSeq: number;
   cooldowns: Map<AbilityId, number>;
+  /** Quick-use potion belt: counts of each kind, capped at POTION_CAP. */
+  potions: { health: number; mana: number };
+  /** Sim time (ms) when the belt can be used again (a shared use-cooldown across both potions). */
+  potionReadyAt: number;
   /** Active temporary self-buffs (might / haste / regen) from buff spells. */
   buffs: StatusSet;
   /** Active debuffs applied by enemy spells (slow / burn / weaken). */
@@ -227,6 +243,8 @@ export interface PlayerSave {
   gear: ItemInstance[];
   /** Banked stash gear (absent on pre-stash saves — defaults to empty). */
   stash?: ItemInstance[];
+  /** Potion belt counts (absent on pre-potion saves — defaults to the starting amount). */
+  potions?: { health: number; mana: number };
   /** Equipped gear by doll slot; partial-friendly so older saves migrate cleanly. */
   equipment: Record<string, ItemInstance | null>;
   god: boolean;
@@ -576,8 +594,27 @@ export class World {
   private healAtNpc(player: Player, npcName: string): void {
     player.hp = player.maxHp;
     player.mana = PLAYER_MAX_MANA;
+    player.potions.health = POTION_CAP; // the Healer also refills your belt
+    player.potions.mana = POTION_CAP;
     this.events.push({ kind: 'levelup', x: player.x, y: player.y, value: player.level });
-    this.notify(player.id, `${npcName} mends your wounds — fully restored.`);
+    this.notify(player.id, `${npcName} mends your wounds and refills your belt.`);
+  }
+
+  /** Quaff a belt potion: instant restore, shared use-cooldown. No-op if empty, full, dead, or cooling. */
+  usePotion(id: number, kind: 'health' | 'mana'): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    if (this.now < player.potionReadyAt) return;
+    if (kind === 'health') {
+      if (player.potions.health <= 0 || player.hp >= player.maxHp) return;
+      player.potions.health--;
+      player.hp = Math.min(player.maxHp, player.hp + POTION_HEAL);
+    } else {
+      if (player.potions.mana <= 0 || player.mana >= PLAYER_MAX_MANA) return;
+      player.potions.mana--;
+      player.mana = Math.min(PLAYER_MAX_MANA, player.mana + POTION_MANA);
+    }
+    player.potionReadyAt = this.now + POTION_COOLDOWN_MS;
   }
 
   /**
@@ -1153,6 +1190,8 @@ export class World {
       loot: new Map(),
       gear: [],
       stash: [],
+      potions: { health: POTION_START, mana: POTION_START },
+      potionReadyAt: 0,
       equipment: emptyEquipment(),
       power: 0,
       critChance: BASE_CRIT_CHANCE,
@@ -1193,6 +1232,7 @@ export class World {
       loot: [...p.loot],
       gear: [...p.gear],
       stash: [...p.stash],
+      potions: { ...p.potions },
       equipment: { ...p.equipment },
       god: p.god,
       quests: [...p.quests],
@@ -1213,6 +1253,9 @@ export class World {
     p.loot = new Map(save.loot);
     p.gear = [...save.gear];
     p.stash = [...(save.stash ?? [])]; // pre-stash saves start with an empty bank
+    p.potions = save.potions
+      ? { health: save.potions.health, mana: save.potions.mana }
+      : { health: POTION_START, mana: POTION_START };
     p.equipment = { ...emptyEquipment(), ...save.equipment };
     p.god = save.god;
     p.quests = new Map(save.quests);
@@ -1455,8 +1498,14 @@ export class World {
         CHEST_GOLD_MIN + Math.floor(Math.random() * (CHEST_GOLD_MAX - CHEST_GOLD_MIN + 1));
       this.dropGround('gold', gold, c.x, c.y);
       const corrupt = this.corruption() * CORRUPT_DROP_MAX;
-      this.dropBonusGear(c.x, c.y, 1, corrupt); // one good piece...
+      this.dropBonusGear(c.x, c.y, 1, corrupt, CHEST_UNIQUE_CHANCE); // one good piece (rare unique)...
       if (Math.random() < 0.4) this.dropBonusGear(c.x, c.y, 0, corrupt); // ...sometimes a second
+      // A chest also stocks your belt with a couple of potions.
+      player.potions.health = Math.min(
+        POTION_CAP,
+        player.potions.health + 1 + (Math.random() < 0.5 ? 1 : 0),
+      );
+      if (Math.random() < 0.6) player.potions.mana = Math.min(POTION_CAP, player.potions.mana + 1);
       this.notify(player.id, 'You pry open a chest!');
     }
   }
@@ -1816,12 +1865,19 @@ export class World {
       };
       const def = content.item(stack.item);
       if (def && def.kind === 'equip') {
-        // A gear drop rolls a *random* equippable (any slot) for full variety; the loot table just
-        // controls how often gear drops. Relabel the ground item so the glint matches the piece.
-        const base = this.randomEquipBase() ?? asBaseItem(def);
-        if (base) {
-          item.itemId = base.id;
-          item.instance = this.rollGear(base, 0, corruptedChance);
+        // The loot chase: a slim chance (better from bosses) the gear is instead a named unique.
+        const uniqueChance = isBoss ? UNIQUE_DROP_CHANCE * 4 : UNIQUE_DROP_CHANCE;
+        if (Math.random() < uniqueChance) {
+          item.instance = rollRandomUnique(this.allocId());
+          item.itemId = item.instance.baseId;
+        } else {
+          // A gear drop rolls a *random* equippable (any slot) for full variety; the loot table just
+          // controls how often gear drops. Relabel the ground item so the glint matches the piece.
+          const base = this.randomEquipBase() ?? asBaseItem(def);
+          if (base) {
+            item.itemId = base.id;
+            item.instance = this.rollGear(base, 0, corruptedChance);
+          }
         }
       }
       this.items.set(id, item);
@@ -1877,7 +1933,19 @@ export class World {
   }
 
   /** Drop one random equipment piece as a rolled, rarity-bumped instance (elite + bounty rewards). */
-  private dropBonusGear(x: number, y: number, rarityBump: number, corruptedChance: number): void {
+  private dropBonusGear(
+    x: number,
+    y: number,
+    rarityBump: number,
+    corruptedChance: number,
+    uniqueChance = 0,
+  ): void {
+    // The loot chase: a slim chance the piece is instead a named unique (its own base + fixed affixes).
+    if (uniqueChance > 0 && Math.random() < uniqueChance) {
+      const inst = rollRandomUnique(this.allocId());
+      this.dropGround(inst.baseId, 1, x, y).instance = inst;
+      return;
+    }
     const base = this.randomEquipBase();
     if (!base) return;
     const ground = this.dropGround(base.id, 1, x, y);
@@ -2237,6 +2305,7 @@ export class World {
         gold: number;
         loot: Record<string, number>;
         gear: ItemInstance[];
+        potions: { health: number; mana: number };
         respawnIn: number;
         power: number;
         critChance: number;
@@ -2268,6 +2337,7 @@ export class World {
       gold: p.gold,
       loot: Object.fromEntries(p.loot),
       gear: p.gear,
+      potions: { ...p.potions },
       respawnIn: p.dead ? Math.max(0, Math.ceil(p.respawnAt - this.now)) : 0,
       power: p.power,
       critChance: p.critChance,

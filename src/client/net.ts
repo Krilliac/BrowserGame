@@ -39,6 +39,7 @@ export interface SelfStats {
   gold: number;
   loot: Record<string, number>;
   gear: ItemInstance[];
+  potions: { health: number; mana: number };
   respawnIn: number;
   power: number;
   critChance: number;
@@ -87,6 +88,7 @@ export class Net {
     gold: 0,
     loot: {},
     gear: [],
+    potions: { health: 0, mana: 0 },
     respawnIn: 0,
     power: 0,
     critChance: 0.15,
@@ -248,6 +250,10 @@ export class Net {
     this.send({ t: 'stash_withdraw', uid });
   }
 
+  sendUsePotion(kind: 'health' | 'mana'): void {
+    this.send({ t: 'use_potion', kind });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
@@ -295,6 +301,7 @@ export class Net {
           gold: msg.gold,
           loot: msg.loot,
           gear: msg.gear,
+          potions: msg.potions ?? { health: 0, mana: 0 },
           respawnIn: msg.respawnIn,
           power: msg.power,
           critChance: msg.critChance,

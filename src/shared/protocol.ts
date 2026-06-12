@@ -190,6 +190,8 @@ export type ClientMessage =
   | { t: 'stash_deposit'; uid: number }
   /** Banker: move a stashed gear instance back into the bag. */
   | { t: 'stash_withdraw'; uid: number }
+  /** Quaff a quick-use belt potion (instant restore, server-validated count + cooldown). */
+  | { t: 'use_potion'; kind: 'health' | 'mana' }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
@@ -228,6 +230,8 @@ export type ServerMessage =
       loot: Record<string, number>;
       /** Unequipped gear instances held in the bag (each with rolled rarity + stats). */
       gear: ItemInstance[];
+      /** Quick-use belt: counts of each potion kind. */
+      potions: { health: number; mana: number };
       /** Milliseconds until respawn while dead (0 when alive). */
       respawnIn: number;
       /** Attack power from the equipped weapon (added to every hit). */

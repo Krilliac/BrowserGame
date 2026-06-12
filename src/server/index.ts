@@ -428,6 +428,13 @@ wss.on('connection', (socket) => {
             }
             break;
           }
+          case 'use_potion': {
+            const p = players.get(entityId);
+            if (p && (msg.kind === 'health' || msg.kind === 'mana')) {
+              manager.get(p.instanceId)?.world.usePotion(entityId, msg.kind);
+            }
+            break;
+          }
           case 'waypoint': {
             const p = players.get(entityId);
             if (!p || typeof msg.areaId !== 'string') break;
