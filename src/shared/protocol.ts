@@ -11,6 +11,24 @@
 import type { AbilityId, Ability, EntityKind, FxEvent } from './combat.js';
 import type { AreaDef } from './areas.js';
 import type { ItemInstance } from './items.js';
+import type { AttributeSet } from './attributes.js';
+
+/** One quest's state for the client quest log. */
+export interface QuestState {
+  id: string;
+  name: string;
+  description: string;
+  /** 'kill' = slay N mobs (auto-progress); 'collect' = turn N items in to a quest-giver. */
+  kind: 'kill' | 'collect';
+  targetCount: number;
+  /** Kills so far, or items currently held toward a collect quest (0 for available/done). */
+  progress: number;
+  status: 'available' | 'active' | 'done';
+  /** Reward summary for the log (gold/xp + optional item name). */
+  rewardGold: number;
+  rewardXp: number;
+  rewardItem: string | null;
+}
 
 /** Item display/stat info sent to the client (mirrors the server's content DB items). */
 export interface ItemInfo {
@@ -23,7 +41,43 @@ export interface ItemInfo {
   hp: number | null;
   color: string | null;
   sellValue: number;
+  /** Spellbooks only: the ability this book teaches (null for everything else). */
+  teaches: string | null;
 }
+
+/** Largest party size (leader + members). */
+export const MAX_PARTY_SIZE = 5;
+
+/** One member of a player's party, as shown in the party roster. */
+export interface PartyMember {
+  id: number;
+  name: string;
+  level: number;
+  hp: number;
+  maxHp: number;
+  /** Area id the member is currently in (parties span instances/areas). */
+  areaId: string;
+  /** True while the member has a live connection. */
+  online: boolean;
+  /** True for the party leader. */
+  leader: boolean;
+}
+
+/** Maximum friends per player. */
+export const MAX_FRIENDS = 50;
+
+/** One entry in a player's friends list. */
+export interface FriendInfo {
+  name: string;
+  online: boolean;
+  /** Area the friend is in when online (empty when offline). */
+  areaId: string;
+  /** Friend's level when online (0 when offline/unknown). */
+  level: number;
+}
+
+/** Chat channel a message belongs to, so the client can color/route it. */
+export type ChatChannel = 'say' | 'system' | 'party' | 'whisper';
 
 /** Simulation tick rate in Hz. Overridable via the TICK_RATE env var on the server. */
 export const DEFAULT_TICK_RATE = 20;
@@ -68,12 +122,19 @@ export interface EntityState {
   qty?: number;
   /** Gear drops only: rarity tier, so the client can color the ground glint. */
   rarity?: string;
-  /** Status bitflags for rendering tints (1 = slowed, 2 = burning). */
+  /**
+   * Status bitflags for rendering tints / buff pips. Monster debuffs: 1 = slowed, 2 = burning,
+   * 4 = weakened. Local-player buffs: 8 = might, 16 = haste, 32 = regen.
+   */
   flags?: number;
   /** Mobs only: true for an elite/champion (the client draws a marker + scales it up). */
   elite?: boolean;
   /** NPCs only: their role, so the client shows the right prompt + marker ('vendor' | 'questgiver'). */
   npcKind?: string;
+  /** Chests only: true once looted, so the client draws it open and stops prompting. */
+  opened?: boolean;
+  /** SQL sprite color override (#rrggbb, multiplied at render) — same source, many variations. */
+  tint?: string;
 }
 
 /** Directional intent for one frame, normalized to -1..1 on each axis. */
@@ -92,19 +153,74 @@ export type ClientMessage =
   /** Cast an ability aimed in direction (dx, dy); the server normalizes and validates. */
   | { t: 'cast'; ability: AbilityId; dx: number; dy: number }
   | { t: 'chat'; text: string }
-  /** Interact with a nearby NPC (e.g. sell loot to the town vendor). */
+  /** Interact with a nearby NPC (open a vendor's shop / talk to a quest-giver). */
   | { t: 'interact' }
   /** Equip a gear instance from the player's bag, by its unique id. */
   | { t: 'equip'; uid: number }
   /** Unequip the item in a doll slot (head/chest/mainhand/ring1/…) back to the bag. */
   | { t: 'unequip'; slot: string }
+  /** Read a spellbook from the bag: learn its spell (or rank it up). Server validates ownership. */
+  | { t: 'learn'; itemId: string }
+  /** Accept an available quest from the quest-log panel. Server validates it exists + isn't taken. */
+  | { t: 'accept_quest'; questId: string }
+  /** Invite another online player to a party by name (server resolves the target + caps size). */
+  | { t: 'party_invite'; targetName: string }
+  /** Accept the pending party invite (if any). */
+  | { t: 'party_accept' }
+  /** Decline the pending party invite (if any). */
+  | { t: 'party_decline' }
+  /** Leave the current party (the leader leaving disbands or promotes). */
+  | { t: 'party_leave' }
+  /** Add a player to the friends list by name. */
+  | { t: 'friend_add'; name: string }
+  /** Remove a friend by name. */
+  | { t: 'friend_remove'; name: string }
+  /** Send a private whisper to another player by name. */
+  | { t: 'whisper'; to: string; text: string }
+  /** Socket a held gem into the first open socket on your equipped gear. */
+  | { t: 'socket_gem'; gemId: string }
+  /** Gamble gold for a random item of the given equip slot (at a nearby gambler NPC). */
+  | { t: 'gamble'; slot: string }
+  /** Hire a mercenary of the given type (at a nearby recruiter NPC; server validates gold). */
+  | { t: 'hire'; type: string }
+  /** Open an endgame rift at a difficulty tier (at the Riftkeeper; server validates tier + gold). */
+  | { t: 'open_rift'; tier: number }
+  /** Fast-travel to a previously-discovered area (server validates discovery). */
+  | { t: 'waypoint'; areaId: string }
+  /** Artificer: reroll a bag gear instance's affixes for gold + a rune shard. */
+  | { t: 'enchant'; uid: number }
+  /** Artificer: pop the gem out of an equipped item's socket back into the bag for gold. */
+  | { t: 'unsocket_gem'; slot: string; index: number }
+  /** Artificer: fuse 3 held gems of one kind into one of the next tier. */
+  | { t: 'combine_gems' }
+  /** Banker: move a bag gear instance into the stash (storage). */
+  | { t: 'stash_deposit'; uid: number }
+  /** Banker: move a stashed gear instance back into the bag. */
+  | { t: 'stash_withdraw'; uid: number }
+  /** Quaff a quick-use belt potion (instant restore, server-validated count + cooldown). */
+  | { t: 'use_potion'; kind: 'health' | 'mana' }
+  /** Spend one attribute point on an attribute (server validates the pool + the key). */
+  | { t: 'allocate_attr'; attr: string }
+  /** Spend one skill point to allocate a passive node (server validates points + prerequisites). */
+  | { t: 'allocate_skill'; nodeId: string }
+  /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
+  | { t: 'buy'; itemId: string }
+  /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
+  | { t: 'sell' }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string };
 
 /** Messages the server sends to clients. */
 export type ServerMessage =
-  /** Game content from the server's SQLite DB, sent once on connect (areas, spells, items). */
-  | { t: 'content'; areas: AreaDef[]; abilities: Ability[]; items: ItemInfo[] }
+  /** Game content from the server's SQLite DB, sent once on connect (areas, spells, items).
+   *  `tints` are SQL sprite color overrides ('decor:<kind>' etc.) applied at render time. */
+  | {
+      t: 'content';
+      areas: AreaDef[];
+      abilities: Ability[];
+      items: ItemInfo[];
+      tints?: Record<string, string>;
+    }
   | {
       t: 'welcome';
       id: number;
@@ -132,6 +248,16 @@ export type ServerMessage =
       loot: Record<string, number>;
       /** Unequipped gear instances held in the bag (each with rolled rarity + stats). */
       gear: ItemInstance[];
+      /** Quick-use belt: counts of each potion kind. */
+      potions: { health: number; mana: number };
+      /** Allocated attributes (strength/vitality/dexterity/energy). */
+      attributes: AttributeSet;
+      /** Unspent attribute points to allocate. */
+      attrPoints: number;
+      /** Allocated passive skill-tree node ids. */
+      skills: string[];
+      /** Unspent skill points to allocate. */
+      skillPoints: number;
       /** Milliseconds until respawn while dead (0 when alive). */
       respawnIn: number;
       /** Attack power from the equipped weapon (added to every hit). */
@@ -140,16 +266,43 @@ export type ServerMessage =
       critChance: number;
       /** Equipped gear by doll slot (head/chest/mainhand/ring1/… → instance or null). */
       equipment: Record<string, ItemInstance | null>;
+      /** Spells this character has learned: ability id → rank (1..MAX_SPELL_RANK). */
+      known: Record<string, number>;
+      /** Quest log: available + active (with progress) + completed quests. */
+      quests: QuestState[];
+      /** Area ids this character has visited (the waypoint fast-travel list). */
+      discovered: string[];
       /** Area corruption 0..1 (drives the client's darkening of the scene). */
       corruption: number;
       /** Authoritative position + last input the server processed (client reconciliation). */
       x: number;
       y: number;
       ackSeq: number;
+      /** Effective move multiplier (weather × affix × haste × slow) for the client predictor. */
+      moveMul: number;
     }
+  /** A nearby vendor's shop contents (sent when the player interacts with a vendor NPC). */
+  | { t: 'shop'; vendor: string; stock: { itemId: string; price: number }[] }
+  /** The player's stash (bank) contents — sent on opening a banker and after each deposit/withdraw. */
+  | { t: 'stash'; items: ItemInstance[]; cap: number }
+  /**
+   * The receiving player's full party state. `members` is empty when not in a party;
+   * `inviteFrom` is set when an unanswered invite is pending (so the client can prompt).
+   */
+  | { t: 'party'; members: PartyMember[]; inviteFrom?: string }
+  /** The receiving player's full friends list with live presence. */
+  | { t: 'friends'; list: FriendInfo[] }
+  /** Open the gambling window (sent when interacting with a gambler NPC); `cost` is per pull. */
+  | { t: 'gamble_open'; cost: number }
+  /** Open the hire window (sent when interacting with a recruiter NPC). */
+  | { t: 'hire_open'; offers: { type: string; name: string; cost: number }[] }
+  /** Open the rift window (sent when interacting with the Riftkeeper); fee = tier × costBase. */
+  | { t: 'rift_open'; maxTier: number; costBase: number }
+  /** Open the Artificer window (sent when interacting with an artificer NPC). */
+  | { t: 'artificer_open'; rerollCost: number; unsocketCost: number }
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
-  | { t: 'chat'; from: string; text: string }
+  | { t: 'chat'; from: string; text: string; channel?: ChatChannel }
   | { t: 'admin_result'; ok: boolean; message: string };
 
 export function encode(msg: ClientMessage | ServerMessage): string {

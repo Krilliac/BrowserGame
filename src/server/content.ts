@@ -1,6 +1,6 @@
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
-import type { AreaDef } from '../shared/areas.js';
+import type { AreaDef, DecorProp } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
 import type { MobTemplate } from './mobs.js';
@@ -14,12 +14,14 @@ import type { MobTemplate } from './mobs.js';
 export interface ItemDef {
   id: string;
   name: string;
-  kind: string; // 'equip' | 'loot' | 'currency'
+  kind: string; // 'equip' | 'loot' | 'currency' | 'spellbook'
   slot: string | null; // item slot for equippables (head/chest/mainhand/ring/…)
   power: number | null;
   hp: number | null;
   color: string | null;
   sellValue: number;
+  /** Spellbooks only: the ability id this book teaches. */
+  teaches: string | null;
 }
 
 export interface NpcDef {
@@ -38,6 +40,18 @@ export interface QuestDef {
   targetCount: number;
   rewardGold: number;
   rewardXp: number;
+  /** Optional item granted on completion (e.g. a spellbook). */
+  rewardItem: string | null;
+  /** Collect quests: the item id to turn in (null for kill quests). */
+  turnInItem: string | null;
+  /** Collect quests: how many of {@link turnInItem} to turn in. */
+  turnInCount: number;
+}
+
+/** One row on a vendor's shelf. */
+export interface StockEntry {
+  itemId: string;
+  price: number;
 }
 
 export interface Content {
@@ -54,7 +68,13 @@ export interface Content {
   npcs(areaId: string): NpcDef[];
   quests(): QuestDef[];
   quest(id: string): QuestDef | undefined;
+  /** What the named vendor in the given area sells (empty for non-vendors). */
+  vendorStock(areaId: string, npcName: string): StockEntry[];
   rollLoot(mobTemplateId: string, rng?: () => number): { item: string; qty: number }[];
+  /** SQL sprite color override for a target ('mob:<id>' | 'npc:<kind>' | 'decor:<kind>' | …). */
+  spriteTint(target: string): string | undefined;
+  /** All sprite color overrides (shipped to the client in the content packet). */
+  spriteTints(): Record<string, string>;
 }
 
 interface LootGroup {
@@ -69,6 +89,20 @@ export function loadContent(db: GameDatabase): Content {
   const themes = new Map<string, AreaTheme>();
   for (const r of db.prepare('SELECT * FROM area_theme').all() as AreaThemeRow[]) {
     themes.set(r.area_id, rowToTheme(r));
+  }
+
+  // Static set-dressing props per area (tents, palisade, bonfire…). Optional columns map to optional
+  // fields only when non-null, so exactOptionalPropertyTypes stays happy.
+  const decor = new Map<string, DecorProp[]>();
+  for (const r of db.prepare('SELECT * FROM decor').all() as DecorRow[]) {
+    const prop: DecorProp = { kind: r.kind, x: r.x, y: r.y };
+    if (r.x2 !== null) prop.x2 = r.x2;
+    if (r.y2 !== null) prop.y2 = r.y2;
+    if (r.color !== null) prop.color = r.color;
+    if (r.scale !== null) prop.scale = r.scale;
+    const list = decor.get(r.area_id) ?? [];
+    list.push(prop);
+    decor.set(r.area_id, list);
   }
 
   const areas = new Map<string, AreaDef>();
@@ -90,6 +124,7 @@ export function loadContent(db: GameDatabase): Content {
       playerCap: a.player_cap,
       portals,
       theme: themes.get(a.id) ?? DEFAULT_THEME,
+      decor: decor.get(a.id) ?? [],
     });
   }
 
@@ -126,7 +161,18 @@ export function loadContent(db: GameDatabase): Content {
       hp: r.hp,
       color: r.color,
       sellValue: r.sell_value,
+      teaches: r.teaches,
     });
+  }
+
+  const stock = new Map<string, StockEntry[]>();
+  for (const r of db
+    .prepare('SELECT * FROM vendor_stock ORDER BY sort_order')
+    .all() as VendorStockRow[]) {
+    const key = `${r.area_id}/${r.npc_name}`;
+    const list = stock.get(key) ?? [];
+    list.push({ itemId: r.item_id, price: r.price });
+    stock.set(key, list);
   }
 
   const mobTemplates = new Map<string, MobTemplate>();
@@ -174,6 +220,9 @@ export function loadContent(db: GameDatabase): Content {
     targetCount: q.target_count,
     rewardGold: q.reward_gold,
     rewardXp: q.reward_xp,
+    rewardItem: q.reward_item ?? null,
+    turnInItem: q.turn_in_item ?? null,
+    turnInCount: q.turn_in_count ?? 0,
   }));
 
   const loot = new Map<string, LootGroup>();
@@ -201,6 +250,16 @@ export function loadContent(db: GameDatabase): Content {
     }
   }
 
+  // SQL sprite color overrides: multiply-tints applied at render time so one image source spawns
+  // many variations (and the look can be pushed dark/gritty) without editing the files.
+  const tints = new Map<string, string>();
+  for (const r of db.prepare('SELECT * FROM sprite_tints').all() as {
+    target: string;
+    tint: string;
+  }[]) {
+    tints.set(r.target, r.tint);
+  }
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -215,6 +274,7 @@ export function loadContent(db: GameDatabase): Content {
     npcs: (areaId) => npcs.get(areaId) ?? [],
     quests: () => quests,
     quest: (id) => quests.find((q) => q.id === id),
+    vendorStock: (areaId, npcName) => stock.get(`${areaId}/${npcName}`) ?? [],
     rollLoot: (mobId, rng = Math.random) => {
       const g = loot.get(mobId);
       if (!g) return [];
@@ -228,6 +288,8 @@ export function loadContent(db: GameDatabase): Content {
       }
       return out;
     },
+    spriteTint: (target) => tints.get(target),
+    spriteTints: () => Object.fromEntries(tints),
   };
 }
 
@@ -320,6 +382,16 @@ interface AreaThemeRow {
   grade_contrast: number;
   sprite_tint: string;
 }
+interface DecorRow {
+  area_id: string;
+  kind: string;
+  x: number;
+  y: number;
+  x2: number | null;
+  y2: number | null;
+  color: string | null;
+  scale: number | null;
+}
 interface PortalRow {
   rect_x: number;
   rect_y: number;
@@ -354,6 +426,14 @@ interface ItemRow {
   hp: number | null;
   color: string | null;
   sell_value: number;
+  teaches: string | null;
+}
+interface VendorStockRow {
+  area_id: string;
+  npc_name: string;
+  item_id: string;
+  price: number;
+  sort_order: number;
 }
 interface MobRow {
   id: string;
@@ -394,6 +474,9 @@ interface QuestRow {
   target_count: number;
   reward_gold: number;
   reward_xp: number;
+  reward_item: string | null;
+  turn_in_item: string | null;
+  turn_in_count: number;
 }
 interface LootRow {
   mob_template_id: string;

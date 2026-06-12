@@ -18,6 +18,8 @@ queries) into in-memory structures the simulation reads. Tables (`src/server/db/
 | `area_mobs` | Which monsters spawn in which area, and how many |
 | `loot_entry` | Per-monster drop tables (always / weighted main / rare / gear) |
 | `npcs` | Static NPCs (the town vendor) per area |
+| `decor` | Static set-dressing **props** per area (the town's tents, palisade, bonfire, torches…) |
+| `sprite_tints` | **Sprite color overrides** — multiply a #rrggbb over any source so one image spawns many (dark/gritty) variations. Targets: `mob:<template_id>`, `npc:<kind>`, `hireling:<type>`, `decor:<kind>` |
 | `quests` | Quest definitions (schema seeded with a sample) |
 
 ## How it works
@@ -56,6 +58,10 @@ UPDATE npcs SET x = 800, y = 600 WHERE name = 'Merchant';
 
 -- Re-skin an area's environment (see area_theme below)
 UPDATE area_theme SET ground_base = '#2a1830', weather = 'snow' WHERE area_id = 'town';
+
+-- Place a set-dressing prop (see decor below): a torch, a tent, a wall segment…
+INSERT INTO decor (area_id, kind, x, y) VALUES ('town','torch',900,700);
+INSERT INTO decor (area_id, kind, x, y, x2, y2) VALUES ('town','palisade',470,440,1130,440);
 ```
 
 All of these take effect on the next server start — no code change. (Gameplay numbers are
@@ -88,6 +94,40 @@ This is **live-editable without a restart**: the `/settheme <area> <key> <value>
 and re-broadcasts the `content` packet so every connected client re-skins in place. After a direct
 `sqlite3` edit, `/reloadcontent` does the same. Values are always validated server-side
 (`coerceThemeValue`) — the client never asserts theme state.
+
+## Set-dressing props — the town's *objects* are data too (`decor`)
+
+Static props (the starting town's Diablo-II-style camp: a spiked **palisade** wall, a central
+**bonfire**, canvas **tents**, a merchant **wagon**, an **anvil**, **crates**/**barrels**/**hay**,
+and **torch** poles) are authoritative SQL rows, **not** client-hardcoded. Each `decor` row is one
+prop in world coordinates; the client renders it with the same 2.5D projection, y-sorting, and soft
+shadow as actors. Columns:
+
+| Column | Meaning |
+|---|---|
+| `area_id`, `kind` | which area, and the prop kind (`palisade`/`gate`/`bonfire`/`tent`/`wagon`/`anvil`/`crate`/`barrel`/`hay`/`torch`/`house`/`shrine`/`chest`) |
+| `x`, `y` | world position (point props), or the NW corner of the footprint (`house`) |
+| `x2`, `y2` | line props (`palisade`/fence): the far endpoint · `house`: the SE corner of the footprint (NULL for point props) |
+| `color` | optional cloth/wood tint (CSS hex; NULL = renderer default) |
+| `scale` | optional size multiplier (NULL = `1`) |
+
+Props are loaded onto each `AreaDef.decor` and sent in the `content` packet, so adding a row (or
+redressing another area) needs no code change — just SQL and a restart (or `/reloadcontent`). Decor
+is purely cosmetic (no collision); gameplay stays server-authoritative.
+
+**A few decor kinds drive gameplay, not just visuals.** `shrine` blesses a player who steps within
+range with a random timed buff, then recharges (cooldown). `chest` is a placement marker the server
+turns into a lootable `chest` entity that pops open on approach, spilling gold + gear. `house`
+footprints are solid walls (a shared server/predictor collision module) with a passable south door.
+These read their positions from the same `decor` rows, so you place them with SQL like any other prop.
+
+**`house` is special — an enterable building.** Its footprint is the rect from `(x,y)` (NW corner)
+to `(x2,y2)` (SE corner), `color` tints the timber, and the door is centered on the south wall. The
+renderer draws the floor and walls behind your character but the **roof above** it, then fades that
+roof to near-transparent while you stand inside the footprint — so you see your character indoors
+(Diablo II / RuneScape style). v1 has no wall collision (you walk in freely); solid walls without
+movement rubber-banding need a shared collision module used by both the server and the client
+predictor, which is a planned follow-up.
 
 ## Client mirrors the database too
 

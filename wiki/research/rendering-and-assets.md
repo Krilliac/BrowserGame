@@ -167,3 +167,43 @@ Recommendation: combat SFX (slash/fireball/arrow/frostbolt impacts, level-up, de
 - OpenGameArt top-down packs: https://opengameart.org/content/top-down-dungeon-pack , https://opengameart.org/content/top-down-rpg-pixel-art , https://opengameart.org/content/cc0-resources , https://lpc.opengameart.org/content/top-down-2d-rpg
 - itch.io CC0 tilesets: https://itch.io/game-assets/assets-cc0/tag-tileset , https://itch.io/game-assets/assets-cc0/tag-tilemap
 - Audio (CC0/CC-BY): https://opengameart.org/content/cc0-sound-effects , https://sonniss.com/gameaudiogdc/ , https://freesound.org/browse/tags/cc0/ , https://pixabay.com/sound-effects/search/cc0/ , https://kenney.nl/
+
+---
+
+## Drop-in plan: more monster sprites (current state, June 2026)
+
+The renderer (`src/client/pixi-renderer.ts`) maps entities to sprite **sheets** via `sheetKey(e)`,
+animates them with `lpcClips()` (the standard 64×64 LPC block layout), and falls back to procedural
+hue-tinted shapes when there's no match. Today it ships four character sheets — `hero`, `skeleton`,
+`wolf`, `bat` (+ a 1.6× `boss` reusing the skeleton) — reused across archetypes (humanoid/undead →
+skeleton, beast → wolf, flyer → bat). Flyers hover above a planted shadow for a 3D height read.
+Amorphous mobs (oozes, golems, imps, colossi, demons) stay procedural on purpose.
+
+**The cheapest path to real variety is more LPC sheets**, because they drop straight into the
+existing pipeline — no renderer changes, just data:
+
+1. Download an LPC-format sheet (832×1344, the 21-row block layout) into `public/assets/sprites/`.
+2. Add a `SHEETS` entry: `{ src, fw: 64, fh: 64, scale, clips: lpcClips() }`.
+3. Add a `sheetKey` branch matching the mob's name/archetype.
+4. Credit it in `public/assets/sprites/CREDITS.md` (LPC is **CC-BY-SA 3.0 / GPLv3** — attribution +
+   share-alike on derived art).
+
+Highest-value sheets to source next (each covers a cluster of currently-procedural mobs):
+
+| Want | Covers | Source |
+|---|---|---|
+| **Slime / ooze** | bile_ooze, carrion_swarm, marsh_leech | https://opengameart.org/content/lpc-slime |
+| **Goblin / imp** | cinder_imp, sprite-likes | https://opengameart.org/content/lpc-goblin |
+| **Orc / brute** | bog_shambler, grave_golem, blight_knight, ruin_colossus | https://opengameart.org/content/lpc-orc |
+| **Demon / fire** | magma_crawler, molten_colossus, balthuzar, pyre_caster | https://lpc.opengameart.org/content/lpc-monsters |
+| **Spider / insect** | shardspine_hurler, thornling, hive mobs | https://opengameart.org/content/lpc-spider |
+
+CC0 alternatives (no attribution, but **not** LPC-layout — they need a small custom `Sheet`/`clips`
+mapping rather than `lpcClips()`): the Kenney roguelike/RPG pack is **already in**
+`public/assets/tiles/kenney_roguelike_rpg.png` with many unused creature tiles; plus
+https://kenney.nl/assets/roguelike-rpg-pack and https://kenney.nl/assets/tiny-dungeon . Use these
+when no LPC equivalent exists.
+
+Verification: after wiring, run the screenshot harness (`npm run build && node scripts/screenshot.mjs`)
+and walk into the relevant zone to confirm the sprite + its shadow align (sprites anchor at the feet;
+a wrong `fw/fh`/`scale` shows as a floating or clipped sprite).

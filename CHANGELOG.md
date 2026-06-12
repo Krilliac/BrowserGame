@@ -8,6 +8,340 @@ versioning once it stabilizes.
 
 ### Fixed
 
+- **Movement rubber-banding (now fixed properly, predictor-aware).** Player move speed scaled by
+  weather, +move affixes/gems, the Haste buff, and enemy Slow debuff — but the client predictor
+  integrated raw `PLAYER_SPEED`, so any of those (especially the now-common monster Slow) made the
+  predicted position race ahead and snap back. The server now sends the player's **effective move
+  multiplier** in the `you` packet, and the predictor integrates with it (recording it per input so
+  reconciliation replays exactly) — so move-slow / haste / +move gear all work with **no
+  rubber-banding**.
+- **Ranged/spell auto-attack from range.** Clicking a monster now auto-attacks with your *selected*
+  attack at *its* range — a ranged or spell primary fires from a distance instead of walking you
+  into melee; the chase stops just inside that range. Basic Slash still closes to melee.
+- **The Artificer was non-functional.** Its NPC kind fell back to `vendor` when an area was
+  populated (the runtime kind allowlist omitted `artificer`), so Coalhand opened a shop and every
+  artificer action (reroll / unsocket / combine) silently failed its proximity check. The allowlist
+  now includes `artificer`, restoring the whole crafting window. (Found by the new gem-combine tests.)
+
+### Added
+
+- **SQL sprite color overrides (`sprite_tints`).** A new content table multiply-tints any rendered
+  source — `mob:<template_id>`, `npc:<kind>`, `hireling:<type>`, `decor:<kind>` — so one image
+  spawns many variations (and the look can be pushed dark and gritty) without ever editing the
+  files. Entity tints are stamped server-side onto the snapshot; decor tints ship in the content
+  packet and multiply with each decor row's own `color` column and the area's sprite tint.
+  Live-editable (`/set sprite_tints <target> tint <hex>`, or SQL + `/reloadcontent`). Seeded with
+  gritty examples (moonlit graves, mossy gloom canopy, putrid/drowned monster recolors).
+- **Breakable pots.** 'pot' decor rows spawn as smashable entities: brush against one and it
+  shatters in a sparkle, spilling a little gold (occasionally topping up a belt potion). Placed
+  in Diablo-style clusters through every dungeon and the town.
+- **Hand-placed set-dressing everywhere (324 props).** Every one of the 14 areas now has authored
+  decor: graveyards in the crypts, stalagmite-and-mushroom caves, horror-plant cursed zones,
+  supply caches in the mines, pots by the town vendors — plus animated **candles** and
+  **braziers** (RF Catacombs frame loops) that flicker on the light layer.
+- **12 new monsters from the 32rogues roster.** Thistle Kobold, Mosshide Orc, Shadowmaw Bear,
+  Rotfen Naga, Fen Ettin (slammer), Gloomcap Myconid, Basalt Basilisk (charger), Gnarlfang Lycan,
+  Crag Manticore, Riftwing Harpy, Voidscale Drake, and the Blightgore Minotaur — spread across
+  the overworld with tuned stats, spells, and loot; the mid/late picks join the rift pool.
+- **Endgame rifts (The Shattered Rift).** Saelis the Riftkeeper in town opens a **fresh, private
+  rift instance** at a difficulty tier you choose (one tier unlocks per 3 levels, up to 10; the
+  fee is 100g × tier — an endgame gold sink). The tier scales everything: +2 monster levels per
+  tier (more XP), +35% HP and +18% damage per tier, ~15% denser packs, and a climbing champion
+  chance. The rift rolls a chaotic cross-act roster with the Voidmaw Devourer at the bottom;
+  exit through the portal home and the instance dissolves. Re-opening re-rolls everything.
+  Also fixed in passing: portals now transfer **only players** — a hireling (or mob) crossing a
+  portal pad could previously be re-spawned as a ghost "player" on the other side.
+- **Real pack art across the whole game (curated-asset integration).** The 13 extracted Downloads
+  packs (see `public/assets/INVENTORY.md`) now feed the renderer and HUD via four new data modules:
+  - **Tiled ground per biome** (`ground-tiles.ts`) — every area bakes a 16×16-tile pattern of real
+    floor tiles (forest grass + wildflowers, catacomb brick, cursed earth, cracked graveyard dirt,
+    slate dungeon, volcanic/glacial stone…) replacing the procedural speckle; procedural stays as
+    the fallback.
+  - **A sprite for every monster** (`rogues-sprites.ts`) — all 48 mob templates map to 32rogues
+    creature cells; mobs without an animated LPC sheet (slimes, golems, demons, spiders…) now draw
+    a real static sprite with facing-flip + walk/idle bob instead of a colored orb. Service NPCs
+    get distinct townsfolk figures (shopkeep, priest, blacksmith…).
+  - **Decor sprites** (`decor-sprites.ts`) — 16 prop kinds (graves, bones, dead trees, rocks,
+    crystals, mushrooms, stalagmites, ruins, pots, horror plants, barrel, crate…) with up to 6
+    position-hashed variants each, used by both SQL `decor` rows and theme-density props.
+  - **HUD item icons** (`item-icons.ts`) — bag/stash/belt cells draw real pixel-art icons (94 gear
+    mappings + 25 gems + 10 runes + tomes/materials/potions) with the old colored-rect fallback.
+  Only the ~640KB of curated sprites the game loads are committed (`public/assets/curated/`); raw
+  packs stay on disk, attribution recorded in `public/assets/CREDITS.md`.
+- **Hirelings (mercenary companions).** Captain Aldric, the town Recruiter, hires out a melee
+  **Guard** or a kiting **Marksman** for a level-scaled gold fee. The companion follows you,
+  fights nearby monsters (kill credit — XP and quests — flows to you), scales with your level,
+  draws monster aggro, and crosses areas at your side. If it dies the contract is void: hire
+  anew in town. Server-authoritative (`src/server/hirelings.ts` + `world.ts`); a new `hireling`
+  entity kind on the wire and a recruiter window on the client.
+- **Potions + a quick-use belt.** Health (Q) and mana (R) potions restore instantly on a short shared
+  cooldown — the active-survival layer over passive regen. Carried in a capped belt that persists with
+  the character; the Healer refills it and chests stock it. Server-authoritative count + cooldown, with
+  a HUD belt that greys out while recharging.
+- **Unique items (named legendaries).** A new `unique` rarity and 12 hand-authored named legendaries
+  on real base items, each with signature fixed affixes — the loot chase. A slim chance on any gear
+  drop (4× from bosses, better from chests) mints one; they show their name, colored gold.
+- **Shrines.** Step onto a shrine (SQL `decor` kind `shrine`) to be blessed with a random timed
+  buff — Might (+40% damage), Haste (+40% move/attack), or Renewal (15 hp/s) — on the existing buff
+  system; the shrine then recharges on a 60s cooldown. Placed by the town bonfire and in the caves.
+- **Lootable world chests.** Chests (SQL `decor` kind `chest`, spawned as `chest` entities) pop open
+  when you walk up, spilling gold and rolled gear at your feet. One waits inside the south town house
+  (a reward for going indoors) and more hide in the Hollowroot Caverns.
+- **Solid house walls (no rubber-banding).** Houses are now enterable through the door but solid at
+  the walls, via a shared collision module that the authoritative server and the client predictor run
+  identically against the same footprint geometry — so collision adds no movement desync.
+- **Enterable houses with a fading roof.** Timber houses you can walk into: the renderer draws the
+  floor and walls behind your character but the **roof above** it, then fades the roof to
+  near-transparent while you stand inside the footprint, so you see your character indoors (Diablo II
+  / RuneScape style). Houses are SQL `decor` rows (`kind = 'house'`, footprint `(x,y)→(x2,y2)`,
+  timber `color`), placed in the starting town. v1 is cosmetic (no wall collision yet — solid walls
+  without movement rubber-banding need a shared server/predictor collision module, a planned
+  follow-up).
+- **Hollowroot Caverns — a new cave dungeon.** A procedural "caves" branch off Gloomwood (a damp,
+  near-dark cavern theme), reusing the dungeon system: a cave-dweller mob pool, an elite chance, a
+  boss, and a portal in and out. Reachable from the wilderness east edge.
+- **The town is a Diablo-II-style camp, defined in SQL.** Town set-dressing moved off the client into
+  a new `decor` content table (loaded onto `AreaDef.decor`, shipped in the `content` packet): a
+  spiked palisade ring with an east gate, a central bonfire, canvas tents, a merchant wagon, a
+  blacksmith anvil, crates/barrels/hay, and torch poles — all editable with SQL, no code change.
+- **A banker stash (the Vault).** A Vault Keeper banker NPC opens a two-column Vault: deposit bag
+  gear into a 60-slot stash, withdraw it back. Server-authoritative, proximity- and capacity-checked,
+  and persisted with the character.
+- **A codebase-wide exception/trap system.** A client global error trap (window error +
+  unhandledrejection) with a bounded log and an on-screen badge so a stray throw flashes a warning
+  instead of a blank screen; a pure UI overflow guard that keeps HUD panels on small/rotated screens;
+  and server-side `runGuarded` wrappers around the per-message dispatch and the per-tick loop so one
+  bad message or corrupt entity can't crash the server (with a failure tally on `/health`).
+- **Gem combining at the Artificer.** Fuse **3 matching gems into one of the next tier** (the Diablo
+  cube), free — the gems are the cost. A "Combine gems" button in the Artificer window upgrades your
+  first eligible stack each click, giving the flood of chipped gems a purpose. Server-authoritative
+  (re-validates artificer proximity); new `combine_gems` message + `nextGemTier` helper.
+
+### Changed
+
+- **Renderer — more 3D + wider sprite coverage.** Flying monsters (bats, sprites, shades, wraiths)
+  now **hover elevated above a smaller, fainter planted shadow** — a real height/parallax cue (the
+  D2/D3 look). And far more monsters get a real animated sprite instead of a flat procedural blob:
+  the LPC sheets are reused by archetype (humanoid/undead → skeleton, canine/beast → wolf, flyer →
+  bat, big named undead bosses → the imposing 1.6× boss sprite); amorphous mobs (oozes, golems,
+  colossi) still use procedural shapes, which suit them better than a mismatched sprite.
+- **Spell merchant — rotating, capped shelf + higher prices.** The Merchant no longer dumps its
+  whole catalog (which overflowed the panel): it shows its basic gear plus a **rotating window of a
+  few spell tomes**, cycling the selection every few minutes, and **tome prices are scaled up** (a
+  gold sink that keeps drops the exciting acquisition path). Display and the buy check share one
+  source, so you can only buy what's currently on the shelf, at the shown price.
+- **Renderer — trailing follow camera + a more oblique tilt (toward the Diablo III / RuneScape
+  look).** The camera now eases toward the player each frame instead of being bolted to it, so the
+  view *follows* like RuneScape/Diablo (large jumps through portals still snap). The world plane is
+  raked a little more (a lower foreshorten) so the ground reads as more 3D and less straight-down.
+  The smoothed camera drives both drawing and click-to-move picking, so targeting stays aligned.
+  Added **camera zoom** (`=`/`-`), defaulting a touch zoomed-in for a more intimate framing — the
+  zoom feeds the projection and click-picking so everything stays aligned at any level.
+- **Controls — click-to-move + targeting + remappable hotbar (ARPG redesign).** Movement is now
+  **click-to-move only** (WASD and the touch joystick are gone): left-click the ground to walk
+  there, left-click a monster to **select + chase** it. A selected monster is **auto-attacked**
+  with your basic Slash whenever it's in reach — no key needed. Spells stay **manual** and
+  **auto-aim at the selected target** (no manual aiming): fire them from the **6-slot hotbar**
+  (keys `1`–`6`, or click a slot). The hotbar is a **sliding window over your known spells** —
+  **scroll the wheel over the bar to rotate every spell through it at once**, lining up your
+  rotation in the 1–6 positions — and scrolling **locks during combat** (for ~4s after you deal or
+  take damage) so you can't re-plan mid-fight. Newly-learned spells appear automatically. Movement is
+  synthesized client-side into the existing 8-direction input, so the authoritative server,
+  prediction, and reconciliation are untouched (no protocol change). Fresh characters start knowing
+  **only the Slash auto-attack** — every spell is acquired loot. Added `PixiRenderer.screenToWorld`
+  to invert the tilted projection for click picking; removed `input.ts` (joystick) as dead code.
+
+### Added
+
+- **Monsters cast spells.** Caster monsters now hurl real abilities instead of generic bolts — a
+  Hooded Cultist throws a **Shadow Bolt** that burns you, a Rime Archer a **Frostbolt** that slows
+  you, a Mire Spitter **Poison Spit**, the Fenwitch **Venom**, deep/ashen casters fire/cinder, and so
+  on — and the spell's on-hit effect now **debuffs the player** (you can be slowed, burned, or
+  weakened, shown as red HUD chips and a tint). Other monsters are **support casters**: War Cry
+  enrages them (more damage), Sprint hastes them, Renew self-heals — enraged mobs glow hot orange.
+  Built on the same status engine as player buffs: a generic mob-cast dispatches by spell kind
+  (projectile / melee-nova / heal / self-buff), so any ability can be handed to a monster. Player
+  debuffs clear on death. Config lives in code (`MOB_SPELLS` / `MOB_SUPPORT`), so no DB migration.
+- **Gems for every build stat.** Sockets are no longer limited to power/HP/crit/multishot — five new
+  gem families drop and slot in: **Emerald** (life steal), **Amethyst** (attack speed), **Jade**
+  (move speed), **Onyx** (armor), and **Opal** (vigor regen), each across three tiers. Combined with
+  the new Armor/Vigor affixes, socketing is now a real lever for any build, not just raw damage.
+- **New act-3 zone — The Blighted Spire (L27–32).** A blight-choked citadel opens off the east edge
+  of the Sundered Wastes, raising the ceiling again. Blight Knights, **Pyre Casters** (who hurl
+  Meteor — burning you, via the monster-spell system), and Ruin Colossi guard it, with the act boss
+  **Vorzel, the Throne-Tyrant** (L32) and a bounty quest rewarding the Tome of Cataclysm. The Last
+  Warden gives quests at the entrance. Four new monster templates; all seeded idempotently.
+- **New act-2 zone — The Sundered Wastes (L20–26).** A void-scarred highland opens off the east edge
+  of Frostpeak Pass, raising the level ceiling past the Pale King. It's stalked by Void Revenants,
+  Ashen Warlocks, Obsidian Juggernauts and Hollow Runeseers, and ruled by a new act boss —
+  **Xal'thirun, the Unmaker** (L26), with a bounty quest that rewards the Tome of the Thunder Lance.
+  Three new monster templates join the bestiary; the zone, its theme, the entrance/return portals,
+  the monster roster, the boss gold drop, and the quests all seed idempotently into an existing DB.
+  A quest-giver — **The Exiled Seer** — stands near the arrival point (matching every other zone),
+  offering a side bounty to thin the Void Revenants.
+- **Two new gear affixes — Armor & Vigor.** Gear can now roll **+% armor** (incoming damage reduced,
+  stacking with the corrupted +fragile penalty, capped at 50%) and **+HP/sec Vigor** (passive regen
+  on top of the base). They flow through the whole loot system — rolled by rarity, named in the
+  Diablo title style (Sturdy/Plated/Ironclad… / …of Health/Vitality/Renewal), and shown on the stat
+  line — widening defensive/sustain builds alongside the existing offensive affixes.
+- **Temporary buffs & a curse debuff.** Three self-cast buff spells join the book: **War Cry**
+  (+30% damage), **Sprint** (+35% attack speed & movement), and **Renew** (a heal-over-time) — each a
+  timed buff that stacks on top of your gear. Monsters can now be **weakened** (their outgoing damage
+  cut) by curse spells — Curse of Decay both slows *and* weakens, and Draining Touch / Shadow Nova
+  sap a monster's bite. All run through the existing timed-status engine (now extended with
+  weaken/might/haste/regen and floored so nothing zeroes out). The HUD shows active buff pips, and
+  weakened monsters take a sickly violet tint. Surfaced via the existing entity status-flags (no new
+  wire fields). The three new tomes drop in-world and sell on the Merchant.
+- **Procedural Diablo-style dungeons + tougher spawns.** Four instanced **dungeons** now hang off the
+  overworld via portals — **The Forgotten Catacombs** (off Gloomwood, L4–9), **The Writhing Hive**
+  (off Rotfen Marsh, L9–15), **The Infernal Forge** (off Emberdeep Mines, L15–20), and **The Frozen
+  Vault** (off Frostpeak, L19–24). Each is **repopulated from scratch on entry**: a random-sized pack
+  drawn from the dungeon's monster pool at random positions, an **elevated elite ("champion") chance**
+  (up to 0.32 vs the overworld 0.09), a **named boss** (Maggath, Vorraxia, Bal'thuzar, Kaldris), and
+  sometimes a bonus tanky **mini-boss**. A low player-cap keeps them near-private, so re-entering
+  re-rolls the whole dungeon. Adds **20 new monster templates** (a full dungeon bestiary across every
+  bracket + four bosses) and four dark dungeon themes. Overworld monsters now also **re-randomize
+  their position when they respawn**, so cleared ground refills somewhere new instead of the same
+  spots. All of it seeds idempotently into an existing DB (areas, themes, portals, monsters — no
+  wipe). The drop pool widening from the previous entry means dungeon kills surface the full loot set.
+  Each dungeon also has a **boss-bounty quest** (clear Maggath / Vorraxia / Bal'thuzar / Kaldris) that
+  rewards a spell tome, giving the descent a goal.
+- **Huge content drop — 34 new spells + 74 new gear bases.** The spellbook grows from 9 to **43
+  abilities**: a full elemental line (ember/frost/spark bolts, frost & inferno **novas**, chain
+  spark, glacier spike, thunder lance…), an occult & nature line (shadow bolt, poison spit, arcane
+  orb, radiant smite, curses, **3 new heals**), and a martial line (quick jab, whirlwind,
+  bladestorm, crushing smash, rend, hamstring, throwing axe…). Novas are expressed as full-circle
+  (360°) melee, so AoE needed no new engine system. New chilling/bleed spells slow or burn on hit.
+  The loot pool grows from ~24 to **~98 gear bases** across every slot and tier (rough → runed):
+  evocative weapons, armor, and jewelry. Because the drop system already rolls a *random* base for
+  every gear drop and a *random* tome for every book drop, registering these instantly widens all
+  loot — every kill can now surface far more variety. All new content seeds idempotently into an
+  existing DB (no wipe). `AbilityId` now derives from the ability table, so future spells extend the
+  type for free. (Generated by parallel content-design subagents, then balance-merged.)
+- **Artificer NPC — enchanting + gem unsocketing.** Coalhand the Artificer joins the town: press E
+  to open a crafting window that **rerolls a bag item's affixes** (250g + 1 rune shard — corrupted
+  gear rerolls its buff/debuff pair) or **pops a gem out of equipped gear** back into the bag (120g),
+  freeing the socket. Both are server-authoritative (proximity + cost + ownership re-validated). New
+  `enchant` / `unsocket_gem` messages, an `artificer_open` panel packet, and an `artificer-panel.ts`
+  renderer. This completes the gems system (socket → reroll → unsocket).
+- **Renderer — real loot icons (3D-feel pass, slice 6).** Ground drops now use the sourced sprite
+  icons that were already bundled but unused: gold renders as a few coins / a stack / a big pile by
+  stack size, and **gems drop as their actual gem icon** (ruby/sapphire/topaz/diamond) instead of a
+  generic glowing dot. (Bulk new-art sourcing + atlasing — more monsters, a Tiled ground — remains
+  future work needing the asset pipeline + per-asset CC-BY review, per
+  `wiki/research/renderer-3d-feel-and-animation.md` §6.)
+- **Renderer — depth, atmosphere & bloom (3D-feel pass, slices 3–5).** A **camera dolly** seats the
+  player below screen-center so more world shows ahead (a tilted-camera depth cue), and actors get a
+  subtle **faux-perspective scale** (closer = bigger, clamped) — the D2/D3 depth read. The vignette
+  now also washes the screen edges toward the area's **fog color, desaturated** (atmospheric
+  perspective: the periphery recedes). And a quality-gated **bloom** (`pixi-filters` AdvancedBloom at
+  half resolution) makes the torch / portal / spell glow bloom on desktop, while phones
+  (`navigator.maxTouchPoints > 0`) get it disabled for zero GPU cost. New `post-fx.ts` module; the
+  atmosphere edge-fog is baked + cached (rebuilt only when the fog color or viewport changes).
+- **Renderer — sprite animation system (3D-feel pass, slice 2).** The old "idle-vs-walk frame index"
+  becomes a real state machine: **idle / walk / attack / cast / hurt / death**, driven by movement
+  and the server's existing `FxEvent`s (no new wire fields). Characters now swing on a melee/slam,
+  cast on a spell, flinch when hit, and **hold a corpse pose on death** (lingering ~0.9s before the
+  view is swept). The full Universal-LPC block rows (slash/spellcast/hurt — previously unused) are
+  now animated. Built on a new pure, unit-tested `animation-controller.ts` (9 tests: priority,
+  one-shot completion, dirless hurt, terminal death, walk-only fallback); the renderer pre-resolves
+  (row,col) per frame with zero allocation. Animation stays 100% cosmetic and server-authoritative.
+- **Renderer — soft directional shadows (3D-feel pass, slice 1).** Actors now cast a soft,
+  baked-radial ground shadow that's offset and skewed toward a fixed "sun" (upper-left), so
+  characters read as *planted* and lit from a consistent direction (the Diablo 2 look) instead of
+  floating over a hard symmetric ellipse. Built on a once-baked shadow texture (zero per-frame
+  cost); the local player keeps its gold ground-ring. First of the sequenced rendering slices in
+  `wiki/research/renderer-3d-feel-and-animation.md` (animation system, depth/parallax, atmosphere,
+  bloom, and asset upgrades follow).
+- **Waypoints / fast-travel (press M).** Characters now remember every area they've visited; a
+  waypoint map lists discovered areas and lets you instantly travel to any of them (carrying full
+  state, the same export/import as a portal). Discovery persists in the save and grandfathers in for
+  old saves (the area you load into is always discovered). New `waypoint` message +
+  `InstanceManager.teleport`; the server only honors travel to a discovered area.
+- **Collect / turn-in quests (a new quest type).** Quests can now require turning in N of an item
+  (consumed) instead of slaying mobs. Talk to a quest-giver to hand in a completed collect quest —
+  the quest log shows live held/needed progress and a "turn in at a quest-giver" hint. Two new
+  quests: *Warm Hides* (8 Wolf Pelts) and *Old Bones* (12 Bones). New `quests.turn_in_item` /
+  `turn_in_count` columns (migrated), `QuestState.kind` on the wire, and a shared `completeQuest`
+  path so kill + collect rewards behave identically.
+- **Town services — Healer + Gambler NPCs.** **Sister Oona** (healer) fully restores HP/mana on
+  interact — a free QoL stop. **Lucky Marn** (gambler, the D3-Kadala pattern) opens a window where
+  you spend gold for a **random item of a chosen equip slot** (cost `50 + 30 × level`, scaling
+  forever as a gold sink) — could be junk, could be rare. New `gamble`/`gamble_open` messages,
+  `shared/gamble.ts` (11 tests), a `gamble-panel.ts` renderer, and two seeded NPCs (added
+  idempotently to existing DBs). `npc.kind` now includes `healer`/`gambler`.
+- **Gems + sockets (Diablo-style).** Gear now rolls **gem sockets** by rarity (magic/rare 1, epic/
+  legendary 2, corrupted 1). Gems drop from monsters (2%/12%/60% normal/elite/boss) as their own
+  stackable item kind — three families × three tiers (Ruby→power, Sapphire→hp, Topaz→crit) plus a
+  rare tier-3 Diamond (+1 projectile). Tap a gem in the bag to socket it into the first open socket
+  on your equipped gear (server-authoritative, auto-targeted); socketed gems fold into your stats
+  via `recomputeStats`, and the character panel shows filled/empty socket pips. Built on
+  `src/shared/gems.ts` (15 unit tests) with socket plumbing on `ItemInstance`.
+- **Player parties (press P).** Invite the nearest player (or `/invite <name>`), accept/decline,
+  and leave from a party panel showing each member's name, level, live HP bar, and area. Parties are
+  host-level so they span areas/instances; a kill **shares full XP + quest credit** with every
+  co-member present in the same instance (grouping is rewarded, not taxed). The leader leaving
+  promotes the next member; a party of one disbands. New `PartyRegistry` (server) with 19 unit
+  tests, a `setPartyResolver` hook so the pure per-instance `World` can credit teammates, and a
+  `party` packet. Cap 5.
+- **Friends list + whispers (press F).** A persistent friends list (stored in a new `friends` table,
+  per character token) with live presence — online/offline, level, and current area — plus private
+  whispers. `/friend <name>`, `/unfriend <name>`, `/w <name> <msg>` (the panel's per-friend buttons
+  prefill a whisper or remove a friend). New `SocialRegistry` (server) with 13 unit tests; presence
+  updates as players join, move between areas, and disconnect, pushing fresh lists to watchers.
+- **Chat channels.** Messages now carry a channel (`say`/`system`/`party`/`whisper`) and the client
+  tints them — whispers purple, party blue, system gold — so social chatter reads at a glance.
+- **Quest log UI (press L).** A panel listing every quest as available / active / completed, sorted
+  with live objectives first: active quests show a progress bar (e.g. 3/5), available quests have an
+  **Accept** button, and each row shows its gold/XP/item reward. Quest state now rides the `you`
+  packet (`QuestState[]`), and a new `accept_quest` message lets the panel accept a quest directly
+  (server validates it exists and isn't already taken). Turn-in stays automatic on the killing blow.
+- **Spells are loot — the spellbook system.** Abilities are no longer all free at spawn. Fresh
+  characters know only **Slash + Fireball**; the rest are learned from **spellbook items** that drop
+  from monsters (0.4% normal / 3% elite / 30% boss), are awarded by quests (Wolf Cull now grants the
+  *Tome of Mending*), or are bought from the town Merchant. Re-reading a known tome **ranks the spell
+  up** (Diablo 1 rule: +12% effect per rank, to rank 5). Casting is gated server-side on learned
+  spells — a client can't cast what it never learned. The hotbar shows locked slots with a padlock
+  and rank pips on learned ones. New `items.teaches` column + `STARTER_ABILITIES`/`MAX_SPELL_RANK`;
+  pre-spellbook saves grandfather in all six spells at rank 1. Design:
+  `wiki/research/spell-acquisition-design.md`.
+- **Vendor shops — buy as well as sell.** Pressing **E** on a vendor now opens a **shop window**
+  (buy gear + tomes for gold; an explicit *Sell all* button; Esc closes) instead of instantly
+  dumping your bag. Server-side `buy`/`sell` re-validate proximity, stock membership, and gold every
+  time; vendor gear rolls **common** (a floor, so drops stay the jackpot). New `vendor_stock` table.
+- **Three new areas — the spine grows from 3 zones to 6.** **Rotfen Marsh** (L8–12, a poison-themed
+  branch off Gloomwood), **Emberdeep Mines** (L12–16, volcanic, past the Crypt), and **Frostpeak
+  Pass** (L15–20, ice highlands, ending at the Pale King). 13 new monster templates across the
+  fodder/tank/ranged/charger/boss roles (reusing the existing AI behaviors), each area with its own
+  data-driven theme, drop tables, and a boss; two new gear tiers (**steel**, **mithril**) and three
+  new materials give each zone a loot identity. Quest-givers stand at each new area's arrival point.
+- **More quests.** Boss-hunt quests for the Fenwitch, Forge Tyrant, and Pale King (plus a crypt
+  skeleton cull), each rewarding gold, XP, and a spellbook — a natural progression chain.
+- **Bot stress harness (`tools/bots/`).** Headless clients that speak the real wire protocol: a
+  `WANDER/FIGHT/LOOT/VENDOR/PORTAL_HOP` state machine, a `stress` runner that ramps N bots and
+  reports tick/snapshot metrics against pass/fail thresholds, and a `chaos` client that fuzzes the
+  protocol boundary. Wired into `npm test`; `npm run stress` / `npm run chaos` to drive it.
+
+### Fixed
+
+- **Oversized-frame server crash (DoS).** A single inbound WebSocket frame larger than the 4 KB cap
+  raised an unhandled per-socket `error` event that killed the **whole** server process. The
+  connection callback now handles `error` and terminates just that socket. (Found by the new chaos
+  bot.)
+- **`giveItem` now credits gold to the wallet** instead of stuffing it into a bag stack, so GM
+  `/give gold` and quest/vendor gold flows are consistent.
+- **Windows: the prod server now serves the page.** `serveStatic` decided "site root" *after*
+  `path.normalize`, which on Windows turns `/` into `\\` — so `/` missed the index.html branch and
+  404'd (the built client never loaded; the screenshot harness showed the dev fallback text). Root
+  is now detected from the raw URL before normalization.
+- **Hardening from an adversarial bug-hunt pass** (4 confirmed findings, fixed + regression-tested):
+  a dead player could `learn`/rank spells (now gated like `cast`/`buy`/`sell`); a negative
+  `vendor_stock` price would *add* gold on purchase (`buy` now rejects non-positive prices); an
+  out-of-range `giveItem` quantity could spin the tick loop forever (now clamped to 10 000); and a
+  malformed/oversized `shop` packet could crash or freeze the client (stock is now validated as an
+  array and capped at 60 rows on the client). Also grandfathers an empty learned-spells list so a
+  save can never produce a spell-less character.
+
 - **Character no longer resets when crossing a portal** — area transfers now carry the player's full
   persistent state (level, XP, HP/mana, gold, loot, equipment, quests) between instances
   (`World.exportPlayer`/`importPlayer`); previously crossing a portal wiped progression.

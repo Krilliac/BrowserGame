@@ -1,5 +1,7 @@
 import { clamp, moveVector } from '../shared/movement.js';
 import { PLAYER_SPEED, type InputState } from '../shared/protocol.js';
+import { resolveCircleMove, PLAYER_COLLISION_RADIUS } from '../shared/collision.js';
+import type { Rect } from '../shared/areas.js';
 
 /**
  * Client-side prediction + server reconciliation (Gambetta's model). The local player is simulated
@@ -21,11 +23,21 @@ export class Predictor {
   private seq = 0;
   private width = 2000;
   private height = 2000;
-  private pending: { seq: number; input: InputState }[] = [];
+  // Solid wall colliders for the current area (house footprints). Set on area change from the same
+  // decor the server uses, so prediction resolves collisions identically (no rubber-banding).
+  private walls: readonly Rect[] = [];
+  // Each pending input records the speed multiplier active when it was sent, so replaying it during
+  // reconciliation integrates exactly like the server did (which scales by weather/affix/buff/slow).
+  private pending: { seq: number; input: InputState; moveMul: number }[] = [];
 
   setBounds(width: number, height: number): void {
     this.width = width;
     this.height = height;
+  }
+
+  /** Set the current area's solid walls (must be the SAME geometry the server collides against). */
+  setWalls(walls: readonly Rect[]): void {
+    this.walls = walls;
   }
 
   /** Drop prediction (e.g. on area change); the next reconcile re-initializes from authority. */
@@ -34,14 +46,18 @@ export class Predictor {
     this.pending = [];
   }
 
-  /** Advance the local prediction by one fixed step and record the input. Returns its seq. */
-  step(input: InputState, dt: number): number {
+  /**
+   * Advance the local prediction by one fixed step and record the input. `moveMul` is the server's
+   * current effective move multiplier (weather × +move affix × haste × slow), so prediction matches
+   * the authoritative integration; defaults to 1 if the server hasn't reported one yet.
+   */
+  step(input: InputState, dt: number, moveMul = 1): number {
     this.seq++;
     const p = { x: this.x, y: this.y };
-    this.apply(input, dt, p);
+    this.apply(input, dt, p, moveMul);
     this.x = p.x;
     this.y = p.y;
-    this.pending.push({ seq: this.seq, input });
+    this.pending.push({ seq: this.seq, input, moveMul });
     if (this.pending.length > 240) this.pending.shift();
     return this.seq;
   }
@@ -57,7 +73,7 @@ export class Predictor {
     }
     while (this.pending.length && this.pending[0]!.seq <= ackSeq) this.pending.shift();
     const p = { x: ax, y: ay };
-    for (const cmd of this.pending) this.apply(cmd.input, dt, p);
+    for (const cmd of this.pending) this.apply(cmd.input, dt, p, cmd.moveMul);
     const err = Math.hypot(p.x - this.x, p.y - this.y);
     if (err > SNAP_DIST) {
       this.x = p.x;
@@ -68,9 +84,26 @@ export class Predictor {
     }
   }
 
-  private apply(input: InputState, dt: number, target: { x: number; y: number }): void {
+  private apply(
+    input: InputState,
+    dt: number,
+    target: { x: number; y: number },
+    moveMul: number,
+  ): void {
     const { dx, dy } = moveVector(input);
-    target.x = clamp(target.x + dx * PLAYER_SPEED * dt, 0, this.width);
-    target.y = clamp(target.y + dy * PLAYER_SPEED * dt, 0, this.height);
+    const speed = PLAYER_SPEED * moveMul;
+    const nx = clamp(target.x + dx * speed * dt, 0, this.width);
+    const ny = clamp(target.y + dy * speed * dt, 0, this.height);
+    // Same resolveCircleMove the server runs, against the same walls — keeps prediction in lockstep.
+    const resolved = resolveCircleMove(
+      target.x,
+      target.y,
+      nx,
+      ny,
+      PLAYER_COLLISION_RADIUS,
+      this.walls,
+    );
+    target.x = resolved.x;
+    target.y = resolved.y;
   }
 }

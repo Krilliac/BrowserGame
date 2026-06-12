@@ -61,6 +61,53 @@ export class InstanceManager {
     return { instanceId: instance.id, entityId, areaId: area.id };
   }
 
+  /**
+   * Fast-travel a player to another area's spawn (the waypoint system), carrying their full
+   * persistent state — the same export/import dance as a portal crossing, but triggered on demand
+   * rather than by stepping into a rect. Returns the transfer, or null if the area/player is gone.
+   */
+  teleport(fromInstanceId: string, entityId: number, toAreaId: string): TransferEvent | null {
+    const from = this.instances.get(fromInstanceId);
+    const target = getContent().area(toAreaId);
+    if (!from || !target) return null;
+    const save = from.world.exportPlayer(entityId);
+    if (!save) return null;
+    const dest = this.pickInstance(target);
+    from.world.remove(entityId);
+    dest.world.importPlayer(entityId, save, target.spawn.x, target.spawn.y);
+    this.gc(from);
+    return {
+      entityId,
+      fromInstanceId: from.id,
+      toInstanceId: dest.id,
+      toAreaId: target.id,
+    };
+  }
+
+  /**
+   * Open a FRESH rift instance at a difficulty tier and move the player into it. Unlike
+   * teleport(), this never joins an existing instance — every opening is private, so the rift
+   * re-rolls per run and the tier belongs to whoever paid for it. The instance is GC'd like any
+   * other once it empties (leaving via the exit portal or disconnecting).
+   */
+  openRift(fromInstanceId: string, entityId: number, tier: number): TransferEvent | null {
+    const from = this.instances.get(fromInstanceId);
+    const target = getContent().area('rift');
+    if (!from || !target) return null;
+    const save = from.world.exportPlayer(entityId);
+    if (!save) return null;
+    const dest = this.spawnInstance(target, tier);
+    from.world.remove(entityId);
+    dest.world.importPlayer(entityId, save, target.spawn.x, target.spawn.y);
+    this.gc(from);
+    return {
+      entityId,
+      fromInstanceId: from.id,
+      toInstanceId: dest.id,
+      toAreaId: target.id,
+    };
+  }
+
   remove(instanceId: string, entityId: number): void {
     const instance = this.instances.get(instanceId);
     if (!instance) return;
@@ -108,7 +155,7 @@ export class InstanceManager {
     return open[0] ?? this.spawnInstance(area);
   }
 
-  private spawnInstance(area: AreaDef): Instance {
+  private spawnInstance(area: AreaDef, tier = 0): Instance {
     const id = `${area.id}#${++this.instanceSeq}`;
     const world = new World(
       area.width,
@@ -117,6 +164,7 @@ export class InstanceManager {
       () => this.nextEntityId++,
       area.id,
       this.corruption,
+      tier,
     );
     world.populateMobs(area.id);
     world.populateNpcs(area.id);
@@ -134,6 +182,9 @@ export class InstanceManager {
       if (!area || area.portals.length === 0) continue;
 
       for (const entity of instance.world.snapshot()) {
+        // Only PLAYERS portal-transfer. A hireling (or a wandering mob) crossing the rect must
+        // not be exported — exportPlayer would miss and it would respawn as a ghost "player".
+        if (entity.kind !== 'player') continue;
         const portal = area.portals.find((p) => pointInRect(entity.x, entity.y, p.rect));
         if (!portal) continue;
 

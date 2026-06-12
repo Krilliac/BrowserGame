@@ -27,12 +27,22 @@ Thumbs.db
 # Test / coverage
 coverage/
 .vitest/
+tools/bots/last-run.json
+
+# Screenshot harness output
+shots-3d/
+bg-shots/
 
 # Vite cache
 .vite/
 
 # Never commit raw asset archives (extract them instead)
 public/assets/**/*.zip
+# Raw extracted asset packs (~169MB, mostly unused source/.aseprite/sample files). They stay on
+# disk for the renderer-integration work; only the specific curated sprites the renderer loads get
+# committed (force-add them under public/assets/curated/). The manifest IS tracked (see below).
+public/assets/*/
+!public/assets/curated/
 game.db
 game.db-shm
 game.db-wal

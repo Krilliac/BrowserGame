@@ -96,3 +96,45 @@ describe('StatusSet (timed status effects)', () => {
     expect(effects.size).toBe(0);
   });
 });
+
+describe('StatusSet (buffs + the weaken debuff)', () => {
+  it('defaults all buff/debuff factors to neutral when empty', () => {
+    const s = new StatusSet();
+    expect(s.weakenFactor()).toBe(1);
+    expect(s.damageFactor()).toBe(1);
+    expect(s.cooldownFactor()).toBe(1);
+    expect(s.moveFactor()).toBe(1);
+  });
+
+  it('weaken reduces outgoing damage (1 - magnitude) with a floor', () => {
+    const s = new StatusSet();
+    s.apply('weaken', 1000, 0.4);
+    expect(s.weakenFactor()).toBeCloseTo(0.6, 5);
+    s.apply('weaken', 1000, 5); // clamps up to the floor
+    expect(s.weakenFactor()).toBe(0.25);
+  });
+
+  it('might raises outgoing damage and haste both speeds attacks and movement', () => {
+    const s = new StatusSet();
+    s.apply('might', 1000, 0.3);
+    s.apply('haste', 1000, 0.35);
+    expect(s.damageFactor()).toBeCloseTo(1.3, 5);
+    expect(s.cooldownFactor()).toBeCloseTo(0.65, 5);
+    expect(s.moveFactor()).toBeCloseTo(1.35, 5);
+  });
+
+  it('floors the haste cooldown factor so attacks never become instant', () => {
+    const s = new StatusSet();
+    s.apply('haste', 1000, 5);
+    expect(s.cooldownFactor()).toBe(0.4);
+  });
+
+  it('regen heals magnitude * dt and expires', () => {
+    const s = new StatusSet();
+    s.apply('regen', 1000, 10); // 10 hp/s for 1s
+    expect(s.tick(500).regenHeal).toBeCloseTo(5, 5);
+    expect(s.tick(500).regenHeal).toBeCloseTo(5, 5);
+    expect(s.has('regen')).toBe(false);
+    expect(s.tick(500).regenHeal).toBe(0);
+  });
+});

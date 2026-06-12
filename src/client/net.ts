@@ -1,13 +1,30 @@
 import { SnapshotBuffer } from './interp.js';
 import { ClientContentStore } from './content-store.js';
 import type { TimedFx } from './draw.js';
-import { decodeServer, encode, type InputState, type ServerMessage } from '../shared/protocol.js';
+import {
+  decodeServer,
+  encode,
+  type ChatChannel,
+  type FriendInfo,
+  type InputState,
+  type PartyMember,
+  type QuestState,
+  type ServerMessage,
+} from '../shared/protocol.js';
 import type { AbilityId } from '../shared/combat.js';
 import type { ItemInstance } from '../shared/items.js';
+import { type AttributeSet, emptyAttributes } from '../shared/attributes.js';
 
 export interface ChatLine {
   from: string;
   text: string;
+  channel?: ChatChannel;
+}
+
+/** The local player's party view (empty members = solo; inviteFrom set on a pending invite). */
+export interface PartyView {
+  members: PartyMember[];
+  inviteFrom?: string;
 }
 
 export interface SelfStats {
@@ -23,14 +40,30 @@ export interface SelfStats {
   gold: number;
   loot: Record<string, number>;
   gear: ItemInstance[];
+  potions: { health: number; mana: number };
+  attributes: AttributeSet;
+  attrPoints: number;
+  skills: string[];
+  skillPoints: number;
   respawnIn: number;
   power: number;
   critChance: number;
   equipment: Record<string, ItemInstance | null>;
+  known: Record<string, number>;
+  quests: QuestState[];
+  discovered: string[];
   corruption: number;
   x: number;
   y: number;
   ackSeq: number;
+  /** Effective move multiplier — fed to the predictor so prediction matches the server. */
+  moveMul: number;
+}
+
+/** A vendor's shop contents, set when a `shop` packet arrives and cleared when the panel closes. */
+export interface ShopState {
+  vendor: string;
+  stock: { itemId: string; price: number }[];
 }
 
 const MAX_CHAT_LINES = 50;
@@ -60,15 +93,40 @@ export class Net {
     gold: 0,
     loot: {},
     gear: [],
+    potions: { health: 0, mana: 0 },
+    attributes: emptyAttributes(),
+    attrPoints: 0,
+    skills: [],
+    skillPoints: 0,
     respawnIn: 0,
     power: 0,
     critChance: 0.15,
     equipment: {},
+    known: {},
+    quests: [],
+    discovered: [],
     corruption: 0,
     x: 0,
     y: 0,
     ackSeq: 0,
+    moveMul: 1,
   };
+  /** The currently-open vendor shop (null when no shop panel is open). */
+  shop: ShopState | null = null;
+  /** The local player's party (roster + pending invite). */
+  party: PartyView = { members: [] };
+  /** The local player's friends list with live presence. */
+  friends: FriendInfo[] = [];
+  /** Open gambling window (per-pull cost), or null when no gambler panel is open. */
+  gamble: { cost: number } | null = null;
+  /** Open recruiter hire window (mercenary offers), or null when no hire panel is open. */
+  hire: { offers: { type: string; name: string; cost: number }[] } | null = null;
+  /** Open Riftkeeper window (tier range + fee), or null when no rift panel is open. */
+  rift: { maxTier: number; costBase: number } | null = null;
+  /** Open Artificer window (service costs), or null when no artificer panel is open. */
+  artificer: { rerollCost: number; unsocketCost: number } | null = null;
+  /** Open banker stash (stored items + capacity), or null when no stash panel is open. */
+  stash: { items: ItemInstance[]; cap: number } | null = null;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
   authRev = 0;
   /** Bumped whenever a content packet arrives — drives a live re-skin (theme edits, hot reload). */
@@ -137,6 +195,102 @@ export class Net {
     this.send({ t: 'unequip', slot });
   }
 
+  sendLearn(itemId: string): void {
+    this.send({ t: 'learn', itemId });
+  }
+
+  sendAcceptQuest(questId: string): void {
+    this.send({ t: 'accept_quest', questId });
+  }
+
+  sendPartyInvite(targetName: string): void {
+    this.send({ t: 'party_invite', targetName });
+  }
+
+  sendPartyAccept(): void {
+    this.send({ t: 'party_accept' });
+  }
+
+  sendPartyDecline(): void {
+    this.send({ t: 'party_decline' });
+  }
+
+  sendPartyLeave(): void {
+    this.send({ t: 'party_leave' });
+  }
+
+  sendFriendAdd(name: string): void {
+    this.send({ t: 'friend_add', name });
+  }
+
+  sendFriendRemove(name: string): void {
+    this.send({ t: 'friend_remove', name });
+  }
+
+  sendWhisper(to: string, text: string): void {
+    this.send({ t: 'whisper', to, text });
+  }
+
+  sendSocketGem(gemId: string): void {
+    this.send({ t: 'socket_gem', gemId });
+  }
+
+  sendGamble(slot: string): void {
+    this.send({ t: 'gamble', slot });
+  }
+
+  sendHire(type: string): void {
+    this.send({ t: 'hire', type });
+  }
+
+  sendOpenRift(tier: number): void {
+    this.send({ t: 'open_rift', tier });
+  }
+
+  sendWaypoint(areaId: string): void {
+    this.send({ t: 'waypoint', areaId });
+  }
+
+  sendEnchant(uid: number): void {
+    this.send({ t: 'enchant', uid });
+  }
+
+  sendUnsocketGem(slot: string, index: number): void {
+    this.send({ t: 'unsocket_gem', slot, index });
+  }
+
+  sendCombineGems(): void {
+    this.send({ t: 'combine_gems' });
+  }
+
+  sendStashDeposit(uid: number): void {
+    this.send({ t: 'stash_deposit', uid });
+  }
+
+  sendStashWithdraw(uid: number): void {
+    this.send({ t: 'stash_withdraw', uid });
+  }
+
+  sendUsePotion(kind: 'health' | 'mana'): void {
+    this.send({ t: 'use_potion', kind });
+  }
+
+  sendAllocateAttr(attr: string): void {
+    this.send({ t: 'allocate_attr', attr });
+  }
+
+  sendAllocateSkill(nodeId: string): void {
+    this.send({ t: 'allocate_skill', nodeId });
+  }
+
+  sendBuy(itemId: string): void {
+    this.send({ t: 'buy', itemId });
+  }
+
+  sendSell(): void {
+    this.send({ t: 'sell' });
+  }
+
   private send(msg: Parameters<typeof encode>[0]): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(msg));
   }
@@ -144,7 +298,7 @@ export class Net {
   private handle(msg: ServerMessage): void {
     switch (msg.t) {
       case 'content':
-        this.content.load(msg.areas, msg.abilities, msg.items);
+        this.content.load(msg.areas, msg.abilities, msg.items, msg.tints);
         this.contentRev++;
         break;
       case 'welcome':
@@ -176,25 +330,84 @@ export class Net {
           gold: msg.gold,
           loot: msg.loot,
           gear: msg.gear,
+          potions: msg.potions ?? { health: 0, mana: 0 },
+          attributes: msg.attributes ?? emptyAttributes(),
+          attrPoints: msg.attrPoints ?? 0,
+          skills: msg.skills ?? [],
+          skillPoints: msg.skillPoints ?? 0,
           respawnIn: msg.respawnIn,
           power: msg.power,
           critChance: msg.critChance,
           equipment: msg.equipment,
+          known: msg.known,
+          quests: msg.quests,
+          discovered: msg.discovered,
           corruption: msg.corruption,
           x: msg.x,
           y: msg.y,
           ackSeq: msg.ackSeq,
+          moveMul: msg.moveMul,
         };
         this.authRev++;
+        break;
+      case 'shop':
+        // Defensive: never trust the frame's shape. Drop a non-array stock and cap its size so a
+        // malformed/hostile 'shop' message can't crash or freeze the renderer.
+        if (Array.isArray(msg.stock)) {
+          this.shop = { vendor: String(msg.vendor ?? 'Vendor'), stock: msg.stock.slice(0, 60) };
+        }
+        break;
+      case 'stash':
+        // Defensive: a malformed/hostile 'stash' message can't crash the panel.
+        this.stash = {
+          items: Array.isArray(msg.items) ? msg.items.slice(0, 200) : [],
+          cap: typeof msg.cap === 'number' ? msg.cap : 0,
+        };
+        break;
+      case 'party':
+        this.party = Array.isArray(msg.members)
+          ? { members: msg.members, ...(msg.inviteFrom ? { inviteFrom: msg.inviteFrom } : {}) }
+          : { members: [] };
+        break;
+      case 'friends':
+        this.friends = Array.isArray(msg.list) ? msg.list : [];
+        break;
+      case 'gamble_open':
+        this.gamble = { cost: typeof msg.cost === 'number' ? msg.cost : 0 };
+        break;
+      case 'hire_open':
+        this.hire = { offers: Array.isArray(msg.offers) ? msg.offers.slice(0, 8) : [] };
+        break;
+      case 'rift_open':
+        this.rift = {
+          maxTier: typeof msg.maxTier === 'number' ? Math.max(1, Math.min(20, msg.maxTier)) : 1,
+          costBase: typeof msg.costBase === 'number' ? msg.costBase : 0,
+        };
+        break;
+      case 'artificer_open':
+        this.artificer = {
+          rerollCost: typeof msg.rerollCost === 'number' ? msg.rerollCost : 0,
+          unsocketCost: typeof msg.unsocketCost === 'number' ? msg.unsocketCost : 0,
+        };
         break;
       case 'area_changed':
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
         this.snapshots.clear(); // forget the old area's entities immediately
         this.fx.length = 0;
+        this.shop = null; // close any open shop when we leave the area
+        this.gamble = null;
+        this.hire = null;
+        this.rift = null;
+        this.artificer = null;
+        this.stash = null;
         break;
       case 'chat':
-        this.chat.push({ from: msg.from, text: msg.text });
+        this.chat.push(
+          msg.channel
+            ? { from: msg.from, text: msg.text, channel: msg.channel }
+            : { from: msg.from, text: msg.text },
+        );
         if (this.chat.length > MAX_CHAT_LINES) this.chat.shift();
         break;
       case 'admin_result':

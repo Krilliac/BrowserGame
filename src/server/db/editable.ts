@@ -117,12 +117,13 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     label: 'item',
     columns: {
       name: { type: 'text' },
-      kind: { type: 'enum', values: ['equip', 'loot', 'currency'] },
+      kind: { type: 'enum', values: ['equip', 'loot', 'currency', 'spellbook', 'gem'] },
       slot: { type: 'enum', values: ['weapon', 'armor'], nullable: true },
       power: { type: 'real', min: 0, max: 9999, nullable: true },
       hp: { type: 'real', min: 0, max: 99999, nullable: true },
       color: { type: 'color', nullable: true },
       sell_value: { type: 'int', min: 0, max: 1000000 },
+      teaches: { type: 'text', nullable: true },
     },
   },
 
@@ -153,6 +154,9 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       target_count: { type: 'int', min: 0, max: 100000 },
       reward_gold: { type: 'int', min: 0, max: 100000000 },
       reward_xp: { type: 'int', min: 0, max: 100000000 },
+      reward_item: { type: 'text', nullable: true },
+      turn_in_item: { type: 'text', nullable: true },
+      turn_in_count: { type: 'int', min: 0, max: 100000 },
     },
   },
 
@@ -190,7 +194,41 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       x: { type: 'int', min: 0, max: 100000 },
       y: { type: 'int', min: 0, max: 100000 },
       hue: { type: 'real', min: 0, max: 360 },
-      kind: { type: 'enum', values: ['vendor'] },
+      kind: {
+        type: 'enum',
+        values: [
+          'vendor',
+          'questgiver',
+          'healer',
+          'gambler',
+          'artificer',
+          'banker',
+          'recruiter',
+          'riftkeeper',
+        ],
+      },
+    },
+  },
+
+  sprite_tints: {
+    pk: 'target',
+    label: 'sprite tint',
+    note: 'multiply color over a sprite source: mob:<id> | npc:<kind> | hireling:<type> | decor:<kind>',
+    columns: {
+      tint: { type: 'text' },
+    },
+  },
+
+  vendor_stock: {
+    pk: 'id',
+    label: 'shop item',
+    note: 'reload to apply to open shops',
+    columns: {
+      area_id: { type: 'text' },
+      npc_name: { type: 'text' },
+      item_id: { type: 'text' },
+      price: { type: 'int', min: 0, max: 100000000 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
     },
   },
 

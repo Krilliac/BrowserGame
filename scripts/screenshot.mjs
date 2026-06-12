@@ -3,8 +3,10 @@
 //
 // Usage: npm run build && node scripts/screenshot.mjs [outDir]
 //   - Starts the prod server (serves the built client + ws on one port).
-//   - Opens it in headless Chromium, captures the start area, walks east into the
-//     wilderness (to show terrain + monsters + combat), and captures again.
+//   - Opens it in headless Chromium, captures the start area, then click-to-moves east into
+//     the wilderness (to show terrain + monsters + combat), and captures again.
+//   - Controls are click-to-move: left-click the ground to walk there, left-click a mob to
+//     select it (basic auto-attack engages in range); spells fire from hotbar keys 1-6.
 //
 // Requires: `npm run build` first, and `npx playwright install chromium`.
 
@@ -35,16 +37,20 @@ try {
   await page.screenshot({ path: `${OUT}/01-town.png` });
   console.log(`[screenshot] wrote ${OUT}/01-town.png`);
 
-  // Walk east through the portal into the wilderness, casting as we go.
-  await page.keyboard.down('d');
-  await sleep(7000);
-  await page.keyboard.up('d');
+  // Click-to-move east through the portal into the wilderness (repeated clicks near the right
+  // edge keep walking that way as the camera follows).
+  for (let i = 0; i < 12; i++) {
+    await page.mouse.click(1200, 400);
+    await sleep(650);
+  }
+  await sleep(1000);
+  // Click near screen center to select a nearby monster — basic auto-attack engages in range.
+  await page.mouse.click(740, 400);
   await sleep(1500);
-  // Fire a couple of spells toward screen center-right to show projectiles/FX.
-  await page.mouse.move(900, 380);
+  // Fire whatever spells sit on the hotbar (slots 1-6) to show projectiles/FX.
   for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('1');
     await page.keyboard.press('2');
-    await page.keyboard.press('3');
     await sleep(250);
   }
   await sleep(500);

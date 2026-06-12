@@ -33,9 +33,8 @@
 - [x] Status effects — Frostbolt slow, Fireball burn.
 - [x] **Sprite art + audio** — LPC character/monster sprites with facing-driven animation, plus a
       sound manager (cast SFX + per-area ambient). Assets bundled in `public/assets/` (CC0-first).
-- [ ] Use the remaining sourced art: **tilemap ground** from the Kenney/OGA tiles, **item-icon
-      sprites** (coins/gems) and **spell-FX sprite strips** (fireball/arrow/frost/explosion) to
-      replace the procedural projectile/item/FX graphics.
+- [x] Use the remaining sourced art — superseded by the **curated-pack integration** below;
+      spell-FX strips and coin/gem item sprites were wired earlier.
 - [x] Spell-FX sprites (fireball/frost strips + explosion on death) and item-icon sprites
       (coin/gem) wired into the renderer with procedural fallbacks.
 - [x] Inventory panel — non-gold loot now sent in the `you` message and shown in a HUD "Bag".
@@ -67,12 +66,60 @@
 - [x] Quests wired into gameplay (/accept, kill-tracking, rewards + notices); area-transfer
       persistence fix (character keeps progression across portals).
 - [ ] More chat channels (global/party/guild/whisper) + moderation (/mute /kick /ignore).
-- [ ] Shop to *buy* gear; banking; gear rarity/affixes; parties/guilds/trade.
+- [x] **Spells are loot (spellbook system)** — abilities acquired from drops/quests/vendor as tomes;
+      duplicate-reads rank a spell up; casting gated server-side on learned spells; starter loadout
+      Slash+Fireball; legacy saves grandfathered. Design: `wiki/research/spell-acquisition-design.md`.
+- [x] **Shop to *buy* gear** — vendors open a buy/sell shop (E); `vendor_stock` table; common-rolled
+      vendor gear; explicit sell. (Gear rarity/affixes already shipped.)
+- [x] **3 new areas** — Rotfen Marsh (L8–12), Emberdeep Mines (L12–16), Frostpeak Pass (L15–20):
+      13 new mobs, steel+mithril gear tiers, themes, drop tables, bosses, quest-givers. World graph
+      now 6 areas (spine + marsh spur). Integrity-tested (`world-graph.test.ts`).
+- [x] **Bot stress harness** (`tools/bots/`) — headless FSM bots, stress runner with metrics +
+      thresholds, protocol-fuzzing chaos client. `npm run stress` / `npm run chaos`.
+- [ ] **Deferred from the ARPG research** (`wiki/research/arpg-design-research.md`): collect/turn-in
+      & named-elite quest *types*; gambler / healer / crafter (Artificer) NPCs + gold sinks;
+      area-scoped quest offers; hard portal gates (boss-kill / quest-key); waypoints; biome hazard
+      gimmicks (poison pools, lava cracks, death-explosions); vendor stock rotation + sealed-tome gamble.
+- [x] **Parties** — host-level grouping (invite/accept/leave, leader promotion), shared XP + quest
+      credit for co-members in the same instance, roster UI (P). `party.ts` + tests.
+- [x] **Friends + whispers** — persistent friends list with live presence, social panel (F),
+      `/friend` `/unfriend` `/w`, chat channels (say/party/whisper/system). `social.ts` + tests.
+- [x] **Quest log UI** (L) — available/active/completed with progress bars + accept buttons.
+- [x] **Gems + sockets** — gem drops, sockets rolled on gear, tap-to-socket, stat folding,
+      socket pips in the character panel. `shared/gems.ts` + tests.
+- [x] **Healer + Gambler NPCs** — Sister Oona (free full restore) and Lucky Marn (slot-targeted
+      gold gamble, cost 50+30×level). `shared/gamble.ts` + tests.
+- [x] **Collect/turn-in quest type** — turn N items in to a quest-giver; live held/needed progress
+      in the quest log. (*Warm Hides*, *Old Bones*.) `quests.turn_in_item`/`turn_in_count`.
+- [x] **Waypoints** — discovered-area fast-travel (press M); discovery persists, `teleport` carries
+      full state. `InstanceManager.teleport`.
+- [x] **Hirelings** — Guard/Marksman mercenaries from the town Recruiter (Captain Aldric);
+      follow + fight + owner kill credit; level-scaled fee; contract voids on death.
+      `server/hirelings.ts` + `world-hirelings.test.ts`.
+- [x] **Endgame rifts** — the Riftkeeper (Saelis) opens a fresh private rift at a chosen tier
+      (level-gated, gold fee); tier scales mob level/HP/damage/density/champions. Cross-act
+      roster, Voidmaw Devourer boss, exit portal home. `world-rifts.test.ts`.
+- [ ] **Enchanting NPC (Artificer)** — reroll/add affixes for gold + materials; gem unsocketing.
+- [ ] **Explore/discover quest type**; chain quests.
+- [ ] Banking; guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
 - [ ] Tilemap ground from hand-authored Tiled maps (the bundled tiles suit authored maps better
       than a single-tile fill; procedural ground kept for now).
 - [ ] More abilities, level-up effects, monster status visuals.
+- [x] **Renderer 3D-feel + animation pass** (`wiki/research/renderer-3d-feel-and-animation.md`):
+      soft directional shadows; a real sprite **animation system** (idle/walk/attack/cast/hurt/death,
+      `animation-controller.ts`, driven by FxEvents); camera dolly + faux-perspective depth scale;
+      atmospheric edge-fog; quality-gated bloom (`post-fx.ts`); real gold/gem loot icons. Verified via
+      the screenshot harness (also fixed a Windows static-serve bug + a Pixi-v8 filters-null crash).
+- [x] **Curated-pack asset integration** — 13 extracted packs (`public/assets/INVENTORY.md`) wired
+      in: per-biome tiled ground (`ground-tiles.ts`), a 32rogues sprite for **every** mob template +
+      distinct NPC figures (`rogues-sprites.ts`), 16 decor-sprite kinds with variants
+      (`decor-sprites.ts`), and real HUD item icons (`item-icons.ts`). Curated sprites committed
+      under `public/assets/curated/`; attribution in `public/assets/CREDITS.md`.
+- [ ] **Renderer — remaining asset upgrade**: a Tiled `.tmj` hand-authored ground via
+      `@pixi/tilemap`, composite LPC equipment layers — needs the asset pipeline (Free Texture
+      Packer) + human CC-BY attribution review.
 
 ## Research-driven adoptions (from `wiki/research/`)
 

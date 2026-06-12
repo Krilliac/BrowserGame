@@ -19,8 +19,10 @@ npm run dev
 - the **authoritative game server** (`tsx watch src/server/index.ts`) on port `8080`, and
 - the **Vite client** on port `5173`, which proxies `/ws` to the server.
 
-Open the printed Vite url. Move with **WASD / arrow keys**. Open a second tab to see live
-multiplayer — both tabs are driven by the same server simulation.
+Open the printed Vite url. **Left-click the ground to walk** there; **left-click a monster** to
+select it (your basic attack auto-engages in range). Cast spells from the **hotbar** (keys `1`–`6`
+or click a slot); `Shift`+scroll a slot to swap which spell sits there. Open a second tab to see
+live multiplayer — both tabs are driven by the same server simulation.
 
 ## Verify your environment
 

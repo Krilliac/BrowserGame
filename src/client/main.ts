@@ -2,7 +2,7 @@ import { Application } from 'pixi.js';
 import { isPinnedToBottom } from './chat.js';
 import {
   affixLabel,
-  instanceName,
+  instanceTitle,
   isDebuff,
   RARITY,
   type Affix,
@@ -10,18 +10,38 @@ import {
   type Rarity,
 } from '../shared/items.js';
 import { SLOT_LABELS } from '../shared/equipment.js';
-import { Input } from './input.js';
+import { drawPartyPanel, type PartyButton } from './party-panel.js';
+import { drawSocialPanel, type SocialButton } from './social-panel.js';
+import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
+import { drawHirePanel, type HireButton } from './hire-panel.js';
+import { drawRiftPanel, type RiftButton } from './rift-panel.js';
+import { loadItemIcons } from './item-icons.js';
+import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
+import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
+import { drawStashPanel, type StashButton } from './stash-panel.js';
+import { drawInventoryPanel, type InventoryButton } from './inventory-panel.js';
 import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
 import { Predictor } from './predictor.js';
-import type { AbilityId } from '../shared/combat.js';
-import type { EntityState } from '../shared/protocol.js';
+import { wallsForDecor } from '../shared/collision.js';
+import { drawBelt } from './belt.js';
+import { ATTRIBUTE_KEYS, ATTRIBUTE_LABELS, ATTRIBUTE_EFFECTS } from '../shared/attributes.js';
+import { drawSkillTree, type SkillTreeButton } from './skilltree-panel.js';
+import { installErrorTrap, getLatestError } from './error-trap.js';
+import { clampPanelRect } from './ui-guard.js';
+import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
+import type { EntityState, InputState } from '../shared/protocol.js';
 
 const gameCanvas = document.getElementById('game') as HTMLCanvasElement;
 const hudCanvas = document.getElementById('hud') as HTMLCanvasElement;
 const hud = hudCanvas.getContext('2d')!;
+
+// Trap uncaught errors/rejections so a stray throw flashes a HUD badge instead of a blank screen.
+let lastErrorAt = 0;
+installErrorTrap({ onError: () => (lastErrorAt = performance.now()) });
+
 const statusEl = document.getElementById('status')!;
 const popEl = document.getElementById('pop')!;
 const chatEl = document.getElementById('chat')!;
@@ -57,6 +77,7 @@ const name =
 const net = new Net(name);
 const renderer = new PixiRenderer(app, net.content);
 await renderer.loadAssets();
+void loadItemIcons(); // HUD item icons (bag/stash/belt) — panels fall back until loaded
 net.connect();
 
 const sound = new Sound();
@@ -64,9 +85,6 @@ sound.load();
 const unlockAudio = (): void => sound.unlock();
 window.addEventListener('pointerdown', unlockAudio, { once: true });
 window.addEventListener('keydown', unlockAudio, { once: true });
-
-const input = new Input();
-input.attach(gameCanvas);
 
 // Reserve right-click for the game: suppress the browser's native context menu (copy image,
 // etc.) everywhere except editable fields, so right-click paste still works in the chat box.
@@ -80,9 +98,10 @@ window.addEventListener('contextmenu', (e) => {
 const predictor = new Predictor();
 const STEP_DT = 1 / 30;
 let lastAreaId = '';
+let lastWallsAreaId = '';
 let lastAuthRev = 0;
 setInterval(() => {
-  const sample = input.sample();
+  const sample = moveSample();
   if (net.areaId !== lastAreaId) {
     predictor.reset();
     lastAreaId = net.areaId;
@@ -93,17 +112,63 @@ setInterval(() => {
   }
   const area = net.content.area(net.areaId);
   if (area) predictor.setBounds(area.width, area.height);
-  const seq = predictor.ready ? predictor.step(sample, STEP_DT) : 0;
+  // Feed the predictor the area's solid walls once its content is available (which may arrive after
+  // the area change). Same geometry the server collides against → collision with no rubber-banding.
+  if (area && net.areaId !== lastWallsAreaId) {
+    predictor.setWalls(wallsForDecor(area.decor ?? []));
+    lastWallsAreaId = net.areaId;
+  }
+  const seq = predictor.ready ? predictor.step(sample, STEP_DT, net.you.moveMul) : 0;
   net.sendInput(sample, seq);
+
+  // Auto-attack the selected target with your primary attack when it's in range. A melee primary
+  // (the default Slash) swings up close; a ranged/spell primary fires from its own, longer range —
+  // so picking a ranged spell makes you attack from a distance instead of walking into melee.
+  const tgt = targetMob();
+  if (tgt && self) {
+    const ability = net.content.ability(autoAttackAbility());
+    if (ability && Math.hypot(tgt.x - self.x, tgt.y - self.y) <= ability.range) {
+      castAbility(ability.id as AbilityId);
+    }
+  }
 }, 1000 * STEP_DT);
 
 // --- Combat input ---------------------------------------------------------------------
 let mouseX = window.innerWidth / 2;
 let mouseY = window.innerHeight / 2;
-let hasMouse = false;
 let selected: AbilityId = 'slash';
 const cooldownEnd: Record<string, number> = {};
-const slotRects: { ability: AbilityId; x: number; y: number; w: number; h: number }[] = [];
+
+// --- Click-to-move + targeting --------------------------------------------------------
+// Left-click the ground to walk there; left-click a mob to select it (chase + auto-attack).
+// Movement is synthesized client-side into the same 8-direction InputState the server already
+// understands, so no protocol/server change is needed — prediction & reconciliation are untouched.
+let moveTarget: { x: number; y: number } | null = null;
+let targetId: number | null = null;
+const PICK_RADIUS = 26; // world px of slop around a mob when picking a click target
+const MOVE_STOP_RADIUS = 8; // stop this close to a ground move-target (avoids 8-dir jitter)
+
+// --- Scrolling 6-slot hotbar ----------------------------------------------------------
+// The bar is a sliding window over your known spells: keys 1-6 cast the spells currently shown.
+// Scroll the wheel over the bar to rotate ALL spells through it at once (so you can line up your
+// rotation in the 1-6 positions). Scrolling is locked for COMBAT_LOCK_MS after any damage dealt
+// or taken, so you can't re-plan mid-fight.
+const HOTBAR_SIZE = 6;
+let hotbarOffset = 0; // rotation of the known-spell window across the 6 slots
+const COMBAT_LOCK_MS = 4000;
+let lastCombatT = -Infinity; // performance.now() of the last damage dealt/taken
+let lastKnownHp = 0; // tracks net.you.hp to detect "took damage" (enters combat)
+// Whole-bar bounds, refreshed each draw, so the wheel handler knows when the cursor is over it.
+let hotbarRect: { x: number; y: number; w: number; h: number } | null = null;
+
+const slotRects: {
+  slot: number;
+  ability: AbilityId | null;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}[] = [];
 const bagRects: {
   uid: number;
   x: number;
@@ -111,10 +176,45 @@ const bagRects: {
   w: number;
   h: number;
 }[] = [];
+// Spellbook entries in the Bag (tap to read/learn) and shop rows (tap to buy) + the sell/close buttons.
+const learnRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
+// Gem entries in the Bag (tap to socket into equipped gear).
+const socketRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
+const shopRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
+let shopSellRect: { x: number; y: number; w: number; h: number } | null = null;
+let shopCloseRect: { x: number; y: number; w: number; h: number } | null = null;
+let shopPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 // Character panel (paper doll): open with C; each slot box is a click target to unequip.
 let charOpen = false;
 const charSlotRects: { slot: string; x: number; y: number; w: number; h: number }[] = [];
+const attrButtonRects: { attr: string; x: number; y: number; w: number; h: number }[] = [];
 let charPanelRect: { x: number; y: number; w: number; h: number } | null = null;
+
+// Quest log panel: open with L; available quests have an "Accept" click target.
+let questOpen = false;
+const questAcceptRects: { id: string; x: number; y: number; w: number; h: number }[] = [];
+let questPanelRect: { x: number; y: number; w: number; h: number } | null = null;
+
+// Party panel (P) and friends panel (F): the renderer modules return their own clickable buttons.
+let partyOpen = false;
+let socialOpen = false;
+let partyButtons: PartyButton[] = [];
+let socialButtons: SocialButton[] = [];
+let gambleButtons: GambleButton[] = [];
+let hireButtons: HireButton[] = [];
+let riftButtons: RiftButton[] = [];
+// Waypoint / fast-travel panel: open with M.
+let waypointOpen = false;
+let waypointButtons: WaypointButton[] = [];
+let artificerButtons: ArtificerButton[] = [];
+let stashButtons: StashButton[] = [];
+let skillTreeButtons: SkillTreeButton[] = [];
+let skillOpen = false; // toggle the passive skill tree (K)
+// Mirrors the server's MAX_BAG_GEAR (src/server/world.ts) — the bag/stash panel shows bag fullness.
+const MAX_BAG_GEAR = 30;
+// Inventory panel (I): the full bag of unequipped gear (up to 30), tap to equip.
+let inventoryOpen = false;
+let inventoryButtons: InventoryButton[] = [];
 
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
@@ -129,24 +229,108 @@ let lastContentRev = 0;
 
 window.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') {
-    hasMouse = true;
     mouseX = e.clientX;
     mouseY = e.clientY;
   }
 });
 
+// Scroll the wheel over the hotbar to rotate every spell through it at once (out of combat only).
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (!hotbarRect || !inRect(mouseX, mouseY, hotbarRect)) return;
+    e.preventDefault();
+    scrollHotbar(e.deltaY > 0 ? 1 : -1);
+  },
+  { passive: false },
+);
+
 window.addEventListener('keydown', (e) => {
   if (document.activeElement === chatInputEl) return;
-  const ability = net.content.abilityOrder().find((id) => net.content.ability(id)?.key === e.key);
-  if (ability) {
-    selected = ability;
-    castAbility(ability);
+  if (e.key === 'Escape' && net.shop) {
+    net.shop = null; // close the shop
+    return;
+  }
+  if (e.key === 'Escape' && net.gamble) {
+    net.gamble = null;
+    return;
+  }
+  if (e.key === 'Escape' && net.hire) {
+    net.hire = null;
+    return;
+  }
+  if (e.key === 'Escape' && net.rift) {
+    net.rift = null;
+    return;
+  }
+  if (e.key === 'Escape' && net.artificer) {
+    net.artificer = null;
+    return;
+  }
+  if (e.key === 'Escape' && net.stash) {
+    net.stash = null;
+    return;
+  }
+  if (e.key === 'Escape' && skillOpen) {
+    skillOpen = false;
+    return;
+  }
+  if (e.key === 'Escape' && questOpen) {
+    questOpen = false;
+    return;
+  }
+  if (e.key === 'Escape' && (partyOpen || socialOpen || waypointOpen || inventoryOpen)) {
+    partyOpen = false;
+    socialOpen = false;
+    waypointOpen = false;
+    inventoryOpen = false;
+    return;
+  }
+  const slotIdx = '123456'.indexOf(e.key);
+  if (slotIdx >= 0) {
+    const ab = displayedAbility(slotIdx);
+    if (ab) {
+      selected = ab;
+      castAbility(ab);
+    }
   } else if (e.key.toLowerCase() === 'e') {
     net.sendInteract(); // server validates NPC proximity
   } else if (e.key.toLowerCase() === 'c') {
     charOpen = !charOpen; // toggle the character/equipment panel
+  } else if (e.key.toLowerCase() === 'l') {
+    questOpen = !questOpen; // toggle the quest log
+  } else if (e.key.toLowerCase() === 'p') {
+    partyOpen = !partyOpen; // toggle the party panel
+  } else if (e.key.toLowerCase() === 'f') {
+    socialOpen = !socialOpen; // toggle the friends panel
+  } else if (e.key.toLowerCase() === 'm') {
+    waypointOpen = !waypointOpen; // toggle the waypoint / fast-travel map
+  } else if (e.key.toLowerCase() === 'i') {
+    inventoryOpen = !inventoryOpen; // toggle the full inventory
+  } else if (e.key.toLowerCase() === 'k') {
+    skillOpen = !skillOpen; // toggle the passive skill tree
+  } else if (e.key === '=' || e.key === '+') {
+    renderer.adjustZoom(0.1); // zoom the camera in (RS/Diablo-style)
+  } else if (e.key === '-' || e.key === '_') {
+    renderer.adjustZoom(-0.1); // zoom the camera out
+  } else if (e.key.toLowerCase() === 'q') {
+    usePotion('health'); // quick-use belt: health flask
+  } else if (e.key.toLowerCase() === 'r') {
+    usePotion('mana'); // quick-use belt: mana flask
   }
 });
+
+// Quick-use potion belt. The server validates the count + cooldown; the client mirrors the cooldown
+// (POTION_COOLDOWN_MS) so the belt greys out responsively and we don't spam the socket.
+const POTION_CD_MS = 2500;
+let potionReadyAt = 0;
+function usePotion(kind: 'health' | 'mana'): void {
+  if (performance.now() < potionReadyAt) return;
+  const have = kind === 'health' ? net.you.potions.health : net.you.potions.mana;
+  if (have <= 0) return;
+  net.sendUsePotion(kind);
+  potionReadyAt = performance.now() + POTION_CD_MS;
+}
 
 function nearbyNpc(): EntityState | undefined {
   if (!self) return undefined;
@@ -155,10 +339,39 @@ function nearbyNpc(): EntityState | undefined {
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
+  // An open shop captures clicks (buy / sell / close) and never falls through to a cast.
+  if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
+  if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
+  if (net.hire && handleHireClick(e.clientX, e.clientY)) return;
+  if (net.rift && handleRiftClick(e.clientX, e.clientY)) return;
+  if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
+  if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
+  if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
+  if (inventoryOpen && handleInventoryClick(e.clientX, e.clientY)) return;
+  // The quest log captures clicks (accept buttons / panel body) and never falls through to a cast.
+  if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
+  if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
+  if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
+  if (waypointOpen && handleWaypointClick(e.clientX, e.clientY)) return;
   // Clicks on the open character panel unequip a slot and never fall through to a cast.
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
+    const ab = attrButtonRects.find((b) => inRect(e.clientX, e.clientY, b));
+    if (ab) {
+      net.sendAllocateAttr(ab.attr);
+      return;
+    }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
     if (cs) net.sendUnequip(cs.slot);
+    return;
+  }
+  const book = learnRects.find((b) => inRect(e.clientX, e.clientY, b));
+  if (book) {
+    net.sendLearn(book.itemId);
+    return;
+  }
+  const gem = socketRects.find((g) => inRect(e.clientX, e.clientY, g));
+  if (gem) {
+    net.sendSocketGem(gem.itemId);
     return;
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
@@ -168,24 +381,214 @@ window.addEventListener('pointerdown', (e) => {
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
-    selected = slot.ability;
-    castAbility(slot.ability);
+    if (slot.ability) {
+      selected = slot.ability;
+      castAbility(slot.ability);
+    }
   } else if (e.target === gameCanvas) {
-    castAbility(selected);
+    worldClick(e.clientX, e.clientY);
   }
 });
 
-// Touch tap-vs-drag: a drag drives the move joystick (input.ts); a quick stationary tap on the
-// world casts the selected ability toward the tapped point. HUD/bag/slot taps are handled here.
+/** The nearest other player entity to the local player (for "invite nearest"), or undefined. */
+function nearestPlayer(): EntityState | undefined {
+  if (!self) return undefined;
+  let best: EntityState | undefined;
+  let bestDist = Infinity;
+  for (const e of entities) {
+    if (e.kind !== 'player' || e.id === net.selfId) continue;
+    const d = Math.hypot(e.x - self.x, e.y - self.y);
+    if (d < bestDist) {
+      best = e;
+      bestDist = d;
+    }
+  }
+  return best;
+}
+
+/** Route a click inside the open party panel. Returns true if it was consumed. */
+function handlePartyClick(x: number, y: number): boolean {
+  const btn = partyButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'invite-nearest') {
+    const target = nearestPlayer();
+    if (target) net.sendPartyInvite(target.name);
+  } else if (btn.action === 'accept') {
+    net.sendPartyAccept();
+  } else if (btn.action === 'decline') {
+    net.sendPartyDecline();
+  } else if (btn.action === 'leave') {
+    net.sendPartyLeave();
+  }
+  return true;
+}
+
+/** Route a click inside the open friends panel. Returns true if it was consumed. */
+function handleSocialClick(x: number, y: number): boolean {
+  const btn = socialButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'remove') {
+    net.sendFriendRemove(btn.name);
+  } else if (btn.action === 'whisper') {
+    // Prefill the chat box with a whisper command for the player to finish typing.
+    chatInputEl.value = `/w ${btn.name} `;
+    chatInputEl.focus();
+  }
+  return true;
+}
+
+/** Route a click inside the open quest log. Returns true if it was consumed. */
+function handleQuestClick(x: number, y: number): boolean {
+  const accept = questAcceptRects.find((r) => inRect(x, y, r));
+  if (accept) {
+    net.sendAcceptQuest(accept.id);
+    return true;
+  }
+  return questPanelRect ? inRect(x, y, questPanelRect) : false;
+}
+
+/** Route a click inside the open waypoint panel. Returns true if it was consumed. */
+function handleWaypointClick(x: number, y: number): boolean {
+  const btn = waypointButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') waypointOpen = false;
+  else if (btn.action === 'travel' && btn.areaId) {
+    net.sendWaypoint(btn.areaId);
+    waypointOpen = false;
+  }
+  return true;
+}
+
+/** Route a click inside the open inventory panel. Returns true if it was consumed. */
+function handleInventoryClick(x: number, y: number): boolean {
+  const btn = inventoryButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') inventoryOpen = false;
+  else if (btn.action === 'equip' && btn.uid !== undefined) net.sendEquip(btn.uid);
+  return true;
+}
+
+/** Route a click inside the open Artificer panel. Returns true if it was consumed. */
+function handleArtificerClick(x: number, y: number): boolean {
+  const btn = artificerButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.artificer = null;
+  else if (btn.action === 'reroll' && btn.uid !== undefined) net.sendEnchant(btn.uid);
+  else if (btn.action === 'combine') net.sendCombineGems();
+  else if (btn.action === 'unsocket' && btn.slot && btn.index !== undefined) {
+    net.sendUnsocketGem(btn.slot, btn.index);
+  }
+  return true;
+}
+
+/** Route a click inside the open Skill Tree panel. Returns true if it was consumed. */
+function handleSkillTreeClick(x: number, y: number): boolean {
+  const btn = skillTreeButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  net.sendAllocateSkill(btn.nodeId); // server validates points + prerequisites
+  return true;
+}
+
+/** Route a click inside the open Vault (stash) panel. Returns true if it was consumed. */
+function handleStashClick(x: number, y: number): boolean {
+  const btn = stashButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.stash = null;
+  else if (btn.action === 'deposit' && btn.uid !== undefined) net.sendStashDeposit(btn.uid);
+  else if (btn.action === 'withdraw' && btn.uid !== undefined) net.sendStashWithdraw(btn.uid);
+  return true;
+}
+
+/** Route a click inside the open gambling panel. Returns true if it was consumed. */
+function handleGambleClick(x: number, y: number): boolean {
+  const btn = gambleButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.gamble = null;
+  else if (btn.action === 'gamble' && btn.slot) net.sendGamble(btn.slot);
+  return true;
+}
+
+/** Route a click inside the open recruiter panel. Returns true if it was consumed. */
+function handleHireClick(x: number, y: number): boolean {
+  const btn = hireButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.hire = null;
+  else if (btn.action === 'hire' && btn.type) {
+    net.sendHire(btn.type);
+    net.hire = null; // hired (or refused server-side with a notice) — close the window
+  }
+  return true;
+}
+
+/** Route a click inside the open Riftkeeper panel. Returns true if it was consumed. */
+function handleRiftClick(x: number, y: number): boolean {
+  const btn = riftButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.rift = null;
+  else if (btn.action === 'open' && btn.tier !== undefined) {
+    net.sendOpenRift(btn.tier);
+    net.rift = null; // the server transfers us (or refuses with a notice) — close the window
+  }
+  return true;
+}
+
+/** Route a click inside the open shop panel. Returns true if it was consumed. */
+function handleShopClick(x: number, y: number): boolean {
+  if (shopCloseRect && inRect(x, y, shopCloseRect)) {
+    net.shop = null;
+    return true;
+  }
+  if (shopSellRect && inRect(x, y, shopSellRect)) {
+    net.sendSell();
+    return true;
+  }
+  const row = shopRects.find((s) => inRect(x, y, s));
+  if (row) {
+    net.sendBuy(row.itemId);
+    return true;
+  }
+  // Clicks anywhere inside the panel are swallowed so they don't cast through it.
+  return shopPanelRect ? inRect(x, y, shopPanelRect) : false;
+}
+
+// Touch: a quick stationary tap on the world walks there (or selects a tapped mob), mirroring a
+// desktop left-click. HUD/bag/slot taps are handled here; a tap on a hotbar slot casts that spell.
 const TAP_MAX_MOVE = 18; // px of travel still counted as a tap, not a drag
 const TAP_MAX_MS = 260;
 let touchStart: { x: number; y: number; t: number } | null = null;
 
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
+  if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
+  if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
+  if (net.hire && handleHireClick(e.clientX, e.clientY)) return;
+  if (net.rift && handleRiftClick(e.clientX, e.clientY)) return;
+  if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
+  if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
+  if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
+  if (inventoryOpen && handleInventoryClick(e.clientX, e.clientY)) return;
+  if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
+  if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
+  if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
+  if (waypointOpen && handleWaypointClick(e.clientX, e.clientY)) return;
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
+    const ab = attrButtonRects.find((b) => inRect(e.clientX, e.clientY, b));
+    if (ab) {
+      net.sendAllocateAttr(ab.attr);
+      return;
+    }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
     if (cs) net.sendUnequip(cs.slot);
+    return;
+  }
+  const book = learnRects.find((b) => inRect(e.clientX, e.clientY, b));
+  if (book) {
+    net.sendLearn(book.itemId);
+    return;
+  }
+  const gem = socketRects.find((g) => inRect(e.clientX, e.clientY, g));
+  if (gem) {
+    net.sendSocketGem(gem.itemId);
     return;
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
@@ -195,11 +598,13 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
   if (slot) {
-    selected = slot.ability;
-    castAbility(slot.ability);
+    if (slot.ability) {
+      selected = slot.ability;
+      castAbility(slot.ability);
+    }
     return;
   }
-  // A world touch: remember it so pointerup can tell a tap (attack) from a drag (move).
+  // A world touch: remember it so pointerup can tell a tap (move/select) from a drag.
   touchStart = { x: e.clientX, y: e.clientY, t: performance.now() };
 });
 
@@ -209,16 +614,54 @@ gameCanvas.addEventListener('pointerup', (e) => {
   const heldMs = performance.now() - touchStart.t;
   touchStart = null;
   if (moved <= TAP_MAX_MOVE && heldMs <= TAP_MAX_MS) {
-    // Aim from the player (always screen-center, camera follows) toward the tapped point.
-    castAbility(selected, {
-      dx: e.clientX - window.innerWidth / 2,
-      dy: e.clientY - window.innerHeight / 2,
-    });
+    worldClick(e.clientX, e.clientY);
   }
 });
 
+/**
+ * Intercept social slash-commands typed in chat and turn them into typed protocol messages.
+ * Returns true if the text was a social command (so it isn't also sent as public chat).
+ *   /invite <name> · /party leave (or /pleave) · /friend <name> · /unfriend <name> · /w|/whisper <name> <msg>
+ */
+function handleSocialCommand(text: string): boolean {
+  const m = /^\/(\w+)\s*(.*)$/.exec(text);
+  if (!m) return false;
+  const cmd = m[1]!.toLowerCase();
+  const rest = m[2]!.trim();
+  switch (cmd) {
+    case 'invite':
+      if (rest) net.sendPartyInvite(rest);
+      return true;
+    case 'pleave':
+      net.sendPartyLeave();
+      return true;
+    case 'party':
+      if (rest.toLowerCase() === 'leave') net.sendPartyLeave();
+      return true;
+    case 'friend':
+    case 'addfriend':
+      if (rest) net.sendFriendAdd(rest);
+      return true;
+    case 'unfriend':
+    case 'removefriend':
+      if (rest) net.sendFriendRemove(rest);
+      return true;
+    case 'w':
+    case 'whisper':
+    case 'tell': {
+      const sp = rest.indexOf(' ');
+      if (sp > 0) net.sendWhisper(rest.slice(0, sp), rest.slice(sp + 1));
+      return true;
+    }
+    default:
+      return false; // not a social command — let it through as normal chat/other commands
+  }
+}
+
 function castAbility(abilityId: AbilityId, aimOverride?: { dx: number; dy: number }): void {
   if (net.you.dead || !self) return;
+  // You can only cast spells you have learned (from a spellbook) — mirrors the server's gate.
+  if (!(abilityId in net.you.known)) return;
   const ability = net.content.ability(abilityId);
   if (!ability) return;
   if ((cooldownEnd[abilityId] ?? 0) > performance.now()) return;
@@ -226,14 +669,152 @@ function castAbility(abilityId: AbilityId, aimOverride?: { dx: number; dy: numbe
   const aim = aimOverride ?? computeAim();
   net.sendCast(abilityId, aim.dx, aim.dy);
   cooldownEnd[abilityId] = performance.now() + ability.cooldownMs;
+  // Casting an offensive ability counts as "in combat" (locks hotbar remapping). Heals don't.
+  if (ability.kind !== 'heal') lastCombatT = performance.now();
 }
 
+/**
+ * The ability used to auto-attack the selected target: your `selected` damaging spell if you know it
+ * (so a ranged/projectile pick is fired from range), otherwise the free basic Slash. Heals/buffs are
+ * never an auto-attack, so selecting one leaves Slash as the fallback.
+ */
+function autoAttackAbility(): AbilityId {
+  if (selected in net.you.known) {
+    const a = net.content.ability(selected);
+    if (a && a.kind !== 'heal') return selected;
+  }
+  return 'slash';
+}
+
+// Spells auto-aim at the selected target (no manual aiming): the chosen mob, else the nearest
+// mob, else straight ahead. Returns a direction vector from the player.
 function computeAim(): { dx: number; dy: number } {
   if (!self) return { dx: 1, dy: 0 };
-  if (hasMouse) return { dx: mouseX - window.innerWidth / 2, dy: mouseY - window.innerHeight / 2 };
-  const mob = nearestMob();
-  if (mob) return { dx: mob.x - self.x, dy: mob.y - self.y };
+  const t = targetMob() ?? nearestMob();
+  if (t) return { dx: t.x - self.x, dy: t.y - self.y };
   return { dx: Math.cos(self.facing), dy: Math.sin(self.facing) };
+}
+
+/** The currently selected mob entity, or undefined (clears a stale target id as a side effect). */
+function targetMob(): EntityState | undefined {
+  if (targetId === null) return undefined;
+  const m = entities.find((e) => e.id === targetId && e.kind === 'mob');
+  if (!m) {
+    targetId = null;
+    return undefined;
+  }
+  return m;
+}
+
+/** Pick the mob nearest a world-space point, within a generous slop radius, or undefined. */
+function pickMob(wx: number, wy: number): EntityState | undefined {
+  let best: EntityState | undefined;
+  let bestD = PICK_RADIUS + MOB_RADIUS;
+  for (const e of entities) {
+    if (e.kind !== 'mob') continue;
+    const d = Math.hypot(e.x - wx, e.y - wy);
+    if (d < bestD) {
+      best = e;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+/** A left-click / tap on the world: select a mob under the cursor, else walk to the point. */
+function worldClick(screenX: number, screenY: number): void {
+  if (net.you.dead) return;
+  const w = renderer.screenToWorld(screenX, screenY);
+  const mob = pickMob(w.x, w.y);
+  if (mob) {
+    targetId = mob.id; // select + chase (moveSample steers toward it, auto-attack engages)
+    moveTarget = null; // drop any pending ground move so we don't walk off when the mob dies
+  } else {
+    targetId = null;
+    moveTarget = { x: w.x, y: w.y };
+  }
+}
+
+const DIR_THRESHOLD = Math.cos((Math.PI * 3) / 8); // cos(67.5°): clean 8-way sectors
+
+/** Quantize a heading (radians) into the boolean 8-direction InputState the server understands. */
+function dirToInput(angle: number): InputState {
+  const cx = Math.cos(angle);
+  const cy = Math.sin(angle);
+  return {
+    right: cx > DIR_THRESHOLD,
+    left: cx < -DIR_THRESHOLD,
+    down: cy > DIR_THRESHOLD,
+    up: cy < -DIR_THRESHOLD,
+  };
+}
+
+/**
+ * Synthesize this tick's movement from the click-to-move target: chase the selected mob (stopping
+ * just inside melee reach) or walk toward a ground point (stopping on arrival). Idle otherwise.
+ */
+function moveSample(): InputState {
+  const idle: InputState = { up: false, down: false, left: false, right: false };
+  if (net.you.dead) {
+    moveTarget = null;
+    return idle;
+  }
+  const px = predictor.ready ? predictor.x : net.you.x;
+  const py = predictor.ready ? predictor.y : net.you.y;
+  const mob = targetMob();
+  let tx: number;
+  let ty: number;
+  let stop: number;
+  if (mob) {
+    tx = mob.x;
+    ty = mob.y;
+    // Stop just inside the primary attack's range: melee closes to the target, ranged/spell holds
+    // back and fires from a distance rather than walking into melee.
+    stop = (net.content.ability(autoAttackAbility())?.range ?? 78) * 0.8;
+  } else if (moveTarget) {
+    tx = moveTarget.x;
+    ty = moveTarget.y;
+    stop = MOVE_STOP_RADIUS;
+  } else {
+    return idle;
+  }
+  const dx = tx - px;
+  const dy = ty - py;
+  if (Math.hypot(dx, dy) <= stop) {
+    if (!mob) moveTarget = null; // arrived at a ground point — stop walking
+    return idle;
+  }
+  return dirToInput(Math.atan2(dy, dx));
+}
+
+// --- Hotbar helpers -------------------------------------------------------------------
+/** Scrolling the hotbar is locked for a few seconds after dealing or taking damage. */
+function inCombat(): boolean {
+  return performance.now() - lastCombatT < COMBAT_LOCK_MS;
+}
+
+/** Learned ability ids, in canonical order. */
+function knownAbilityIds(): AbilityId[] {
+  return net.content.abilityOrder().filter((id) => id in net.you.known);
+}
+
+/**
+ * The spell shown in hotbar slot `i` — a sliding window over the known spells, rotated by
+ * `hotbarOffset`. Slots past the number of known spells are empty (null).
+ */
+function displayedAbility(i: number): AbilityId | null {
+  const known = knownAbilityIds();
+  const n = known.length;
+  if (n === 0 || i >= n) return null;
+  return known[(((hotbarOffset + i) % n) + n) % n] ?? null;
+}
+
+/** Rotate the whole bar by one (every slot shifts together). Locked in combat. */
+function scrollHotbar(dir: number): void {
+  if (inCombat()) return; // can't re-plan your rotation mid-fight
+  const n = knownAbilityIds().length;
+  if (n <= 1) return; // nothing to rotate
+  hotbarOffset = (((hotbarOffset + dir) % n) + n) % n;
 }
 
 function nearestMob(): EntityState | undefined {
@@ -254,7 +835,6 @@ function nearestMob(): EntityState | undefined {
 // --- Chat input wiring ----------------------------------------------------------------
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && document.activeElement !== chatInputEl) {
-    input.clearKeys();
     chatInputEl.focus();
     e.preventDefault();
   }
@@ -262,7 +842,6 @@ window.addEventListener('keydown', (e) => {
 // Focusing chat marks it active: the log becomes interactive (scrollbar + wheel) on any device,
 // and the wheel listener below routes scrolling to it.
 chatInputEl.addEventListener('focus', () => {
-  input.clearKeys();
   chatEl.classList.add('chat-active');
 });
 chatInputEl.addEventListener('blur', () => chatEl.classList.remove('chat-active'));
@@ -282,7 +861,7 @@ window.addEventListener(
 chatInputEl.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     const text = chatInputEl.value;
-    if (text.trim().length > 0) net.sendChat(text);
+    if (text.trim().length > 0 && !handleSocialCommand(text.trim())) net.sendChat(text);
     chatInputEl.value = '';
     chatInputEl.blur();
     e.preventDefault();
@@ -305,6 +884,15 @@ function syncChatLog(): void {
   chatLogEl.replaceChildren();
   for (const line of net.chat) {
     const div = document.createElement('div');
+    // Tint the line by channel so whispers/party/system read at a glance.
+    div.style.color =
+      line.channel === 'whisper'
+        ? '#d6a8ff'
+        : line.channel === 'party'
+          ? '#7fc4ff'
+          : line.channel === 'system'
+            ? '#e7c869'
+            : '';
     const who = document.createElement('span');
     who.className = 'chat-who';
     who.textContent = `${line.from}: `;
@@ -334,6 +922,11 @@ function frame(): void {
   const now = performance.now();
   entities = net.snapshots.sample(now - INTERP_DELAY_MS);
   self = entities.find((e) => e.id === net.selfId);
+
+  // Taking damage (hp dropped) enters combat, which locks hotbar remapping for a few seconds.
+  if (lastKnownHp > 0 && net.you.hp < lastKnownHp) lastCombatT = now;
+  lastKnownHp = net.you.hp;
+
   let camX = self ? self.x : 0;
   let camY = self ? self.y : 0;
 
@@ -374,7 +967,130 @@ function frame(): void {
   sound.fromFx(net.fx);
   drawHud();
   if (charOpen) drawCharacterPanel();
+  if (questOpen) drawQuestPanel();
+  else {
+    questPanelRect = null;
+    questAcceptRects.length = 0;
+  }
+  if (partyOpen) {
+    partyButtons = drawPartyPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      net.party,
+      net.selfId,
+    );
+  } else {
+    partyButtons = [];
+  }
+  if (socialOpen) {
+    socialButtons = drawSocialPanel(hud, { w: hudCanvas.width, h: hudCanvas.height }, net.friends);
+  } else {
+    socialButtons = [];
+  }
+  if (waypointOpen) {
+    const areas = net.you.discovered.map((aid) => ({
+      id: aid,
+      name: net.content.area(aid)?.name ?? aid,
+    }));
+    waypointButtons = drawWaypointPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      areas,
+      net.areaId,
+    );
+  } else {
+    waypointButtons = [];
+  }
+  if (inventoryOpen) {
+    inventoryButtons = drawInventoryPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      { gear: net.you.gear, nameOf: instLabel, statSegments: instStatSegments },
+    );
+  } else {
+    inventoryButtons = [];
+  }
+  if (net.artificer) {
+    artificerButtons = drawArtificerPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      {
+        gear: net.you.gear,
+        equipment: net.you.equipment,
+        gold: net.you.gold,
+        rerollCost: net.artificer.rerollCost,
+        unsocketCost: net.artificer.unsocketCost,
+        nameOf: instLabel,
+        gemName: (id) => net.content.item(id)?.name ?? prettyItem(id),
+        gemColor: (id) => net.content.item(id)?.color ?? '#d6a8ff',
+      },
+    );
+  } else {
+    artificerButtons = [];
+  }
+  if (net.stash) {
+    stashButtons = drawStashPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      {
+        bag: net.you.gear,
+        stash: net.stash.items,
+        cap: net.stash.cap,
+        bagCap: MAX_BAG_GEAR,
+        nameOf: instLabel,
+      },
+    );
+  } else {
+    stashButtons = [];
+  }
+  if (skillOpen) {
+    skillTreeButtons = drawSkillTree(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      { allocated: new Set(net.you.skills), points: net.you.skillPoints },
+    );
+  } else {
+    skillTreeButtons = [];
+  }
+  if (net.gamble) {
+    gambleButtons = drawGamblePanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      net.gamble.cost,
+      net.you.gold,
+    );
+  } else {
+    gambleButtons = [];
+  }
+  if (net.hire) {
+    hireButtons = drawHirePanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      net.hire.offers,
+      net.you.gold,
+    );
+  } else {
+    hireButtons = [];
+  }
+  if (net.rift) {
+    riftButtons = drawRiftPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      net.rift,
+      net.you.gold,
+    );
+  } else {
+    riftButtons = [];
+  }
+  if (net.shop) drawShopPanel();
+  else {
+    shopPanelRect = null;
+    shopSellRect = null;
+    shopCloseRect = null;
+    shopRects.length = 0;
+  }
   if (!net.connected) drawReconnect();
+  drawErrorBadge();
 
   const area = net.content.area(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
@@ -412,6 +1128,22 @@ function drawCharSlot(slot: string, bx: number, by: number, bw: number, bh: numb
       .map((s) => s.text)
       .join('  ');
     hud.fillText(fitText(stats, bw - 12), bx + 6, by + 37);
+    // Socket pips along the right edge: filled diamond (gem color) or hollow (empty socket).
+    const sockets = inst.sockets ?? [];
+    sockets.forEach((gemId, i) => {
+      const sx = bx + bw - 12 - i * 13;
+      const sy = by + 12;
+      hud.font = '11px system-ui, sans-serif';
+      hud.textAlign = 'center';
+      if (gemId) {
+        hud.fillStyle = net.content.item(gemId)?.color ?? '#d6a8ff';
+        hud.fillText('◆', sx, sy);
+      } else {
+        hud.fillStyle = 'rgba(214,168,255,0.45)';
+        hud.fillText('◇', sx, sy);
+      }
+    });
+    hud.textAlign = 'left';
   } else {
     hud.fillStyle = '#565b64';
     hud.font = 'italic 10px system-ui, sans-serif';
@@ -423,8 +1155,9 @@ function drawCharSlot(slot: string, bx: number, by: number, bw: number, bh: numb
 /** The Diablo-style character / equipment panel (toggled with C). Tap a slot to unequip. */
 function drawCharacterPanel(): void {
   charSlotRects.length = 0;
+  attrButtonRects.length = 0;
   const pw = 384;
-  const ph = 430;
+  const ph = 566;
   const px = 20;
   const py = 56;
   charPanelRect = { x: px, y: py, w: pw, h: ph };
@@ -465,6 +1198,243 @@ function drawCharacterPanel(): void {
   right.forEach((s, i) => drawCharSlot(s, px + 14 + bw + 12, sy + i * (bh + gap), bw, bh));
   const lastY = sy + 6 * (bh + gap);
   drawCharSlot('mainhand', px + 14, lastY, pw - 28, bh);
+
+  // --- Attributes (allocate points earned on level-up) ---
+  const ay = lastY + bh + 16;
+  hud.textAlign = 'left';
+  hud.font = 'bold 13px system-ui, sans-serif';
+  hud.fillStyle = '#e7d9b0';
+  hud.fillText('Attributes', px + 14, ay);
+  hud.textAlign = 'right';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.fillStyle = net.you.attrPoints > 0 ? '#7fe07f' : '#8a8f99';
+  hud.fillText(`${net.you.attrPoints} points`, px + pw - 14, ay);
+
+  const rowH = 26;
+  ATTRIBUTE_KEYS.forEach((key, i) => {
+    const ry = ay + 12 + i * rowH;
+    hud.textAlign = 'left';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.fillStyle = '#cfd3da';
+    hud.fillText(ATTRIBUTE_LABELS[key], px + 14, ry + 14);
+    hud.font = 'bold 13px system-ui, sans-serif';
+    hud.fillStyle = '#f2c14e';
+    hud.fillText(String(net.you.attributes[key]), px + 116, ry + 14);
+    hud.font = '10px system-ui, sans-serif';
+    hud.fillStyle = '#8a8f99';
+    hud.fillText(ATTRIBUTE_EFFECTS[key], px + 150, ry + 14);
+    // A [+] button, active only when there are points to spend.
+    const can = net.you.attrPoints > 0;
+    const bx = px + pw - 14 - 24;
+    const btn = { attr: key, x: bx, y: ry, w: 24, h: 20 };
+    if (can) attrButtonRects.push(btn);
+    hud.fillStyle = can ? 'rgba(127,224,127,0.18)' : 'rgba(255,255,255,0.04)';
+    hud.fillRect(btn.x, btn.y, btn.w, btn.h);
+    hud.strokeStyle = can ? '#7fe07f' : 'rgba(201,162,75,0.25)';
+    hud.lineWidth = 1;
+    hud.strokeRect(btn.x, btn.y, btn.w, btn.h);
+    hud.fillStyle = can ? '#cfeccf' : '#6b707a';
+    hud.font = 'bold 14px system-ui, sans-serif';
+    hud.textAlign = 'center';
+    hud.fillText('+', btn.x + 12, btn.y + 15);
+  });
+  hud.textAlign = 'left';
+}
+
+/** The quest log (toggle with L). Active quests show progress bars; available ones an Accept button. */
+function drawQuestPanel(): void {
+  questAcceptRects.length = 0;
+  const quests = net.you.quests ?? [];
+  // Order: active first, then available, then done — the player's eye goes to live objectives.
+  const rank = (s: string): number => (s === 'active' ? 0 : s === 'available' ? 1 : 2);
+  const sorted = [...quests].sort((a, b) => rank(a.status) - rank(b.status));
+
+  const pw = 420;
+  const rowH = 58;
+  const headerH = 44;
+  const ph = Math.min(hudCanvas.height - 80, headerH + Math.max(1, sorted.length) * rowH + 12);
+  const px = hudCanvas.width / 2 - pw / 2;
+  const py = 56;
+  questPanelRect = { x: px, y: py, w: pw, h: ph };
+
+  hud.fillStyle = 'rgba(8,9,13,0.93)';
+  hud.fillRect(px, py, pw, ph);
+  hud.strokeStyle = '#c9a24b';
+  hud.lineWidth = 2;
+  hud.strokeRect(px, py, pw, ph);
+
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 15px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText('Quest Log', px + 14, py + 24);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#8a8f99';
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillText('L or Esc to close', px + pw - 14, py + 24);
+
+  if (sorted.length === 0) {
+    hud.textAlign = 'center';
+    hud.fillStyle = '#8a8f99';
+    hud.font = 'italic 12px system-ui, sans-serif';
+    hud.fillText(
+      'No quests yet — talk to a quest-giver (the gold ! markers).',
+      px + pw / 2,
+      py + 74,
+    );
+    return;
+  }
+
+  const statusColor: Record<string, string> = {
+    active: '#f2c14e',
+    available: '#9fb0c0',
+    done: '#6b9a5a',
+  };
+  sorted.forEach((q, i) => {
+    const ry = py + headerH + i * rowH;
+    hud.textAlign = 'left';
+    hud.fillStyle = statusColor[q.status] ?? '#d7dbe3';
+    hud.font = 'bold 13px system-ui, sans-serif';
+    const tag = q.status === 'done' ? '✓ ' : q.status === 'active' ? '▸ ' : '· ';
+    hud.fillText(fitText(tag + q.name, pw - 120), px + 14, ry + 14);
+
+    hud.fillStyle = '#9aa3b2';
+    hud.font = '10px system-ui, sans-serif';
+    const desc =
+      q.kind === 'collect' && q.status === 'active'
+        ? `${q.description}  (turn in at a quest-giver)`
+        : q.description;
+    hud.fillText(fitText(desc, pw - 28), px + 14, ry + 30);
+
+    // Reward line.
+    const rewardItemName = q.rewardItem
+      ? (net.content.item(q.rewardItem)?.name ?? q.rewardItem)
+      : '';
+    const reward = `+${q.rewardGold}g +${q.rewardXp}xp${rewardItemName ? ` · ${rewardItemName}` : ''}`;
+    hud.fillStyle = '#7d828c';
+    hud.font = '10px system-ui, sans-serif';
+    hud.fillText(fitText(reward, pw - 120), px + 14, ry + 44);
+
+    if (q.status === 'active') {
+      // Progress bar on the right.
+      const bw = 90;
+      const bx = px + pw - bw - 14;
+      const frac = q.targetCount > 0 ? Math.min(1, q.progress / q.targetCount) : 0;
+      hud.fillStyle = 'rgba(0,0,0,0.5)';
+      hud.fillRect(bx, ry + 18, bw, 12);
+      hud.fillStyle = '#8ac34a';
+      hud.fillRect(bx, ry + 18, bw * frac, 12);
+      hud.strokeStyle = 'rgba(201,162,75,0.5)';
+      hud.lineWidth = 1;
+      hud.strokeRect(bx, ry + 18, bw, 12);
+      hud.fillStyle = '#fff';
+      hud.font = '9px system-ui, sans-serif';
+      hud.textAlign = 'center';
+      hud.fillText(`${q.progress}/${q.targetCount}`, bx + bw / 2, ry + 27);
+    } else if (q.status === 'available') {
+      // Accept button.
+      const bw = 78;
+      const bx = px + pw - bw - 14;
+      const rect = { id: q.id, x: bx, y: ry + 14, w: bw, h: 22 };
+      questAcceptRects.push(rect);
+      hud.fillStyle = 'rgba(60,90,60,0.6)';
+      hud.fillRect(rect.x, rect.y, rect.w, rect.h);
+      hud.strokeStyle = 'rgba(201,162,75,0.6)';
+      hud.lineWidth = 1;
+      hud.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      hud.fillStyle = '#e7d9b0';
+      hud.font = 'bold 11px system-ui, sans-serif';
+      hud.textAlign = 'center';
+      hud.fillText('Accept', rect.x + rect.w / 2, rect.y + 15);
+    }
+
+    if (i < sorted.length - 1) {
+      hud.strokeStyle = 'rgba(255,255,255,0.06)';
+      hud.lineWidth = 1;
+      hud.beginPath();
+      hud.moveTo(px + 10, ry + rowH - 4);
+      hud.lineTo(px + pw - 10, ry + rowH - 4);
+      hud.stroke();
+    }
+  });
+}
+
+/** The vendor shop window (opened by E on a vendor). Tap a row to buy; a button sells the bag. */
+function drawShopPanel(): void {
+  const shop = net.shop;
+  if (!shop || !Array.isArray(shop.stock)) return;
+  shopRects.length = 0;
+  const pw = 320;
+  const rowH = 30;
+  const headerH = 58;
+  const footerH = 40;
+  const ph = headerH + shop.stock.length * rowH + footerH;
+  // Center, then clamp on-screen so a tall stock list on a short/rotated phone can't run off-edge.
+  const view = { w: hudCanvas.width, h: hudCanvas.height };
+  const clamped = clampPanelRect(
+    { x: view.w / 2 - pw / 2, y: view.h / 2 - ph / 2, w: pw, h: ph },
+    view,
+  );
+  const px = clamped.x;
+  const py = clamped.y;
+  shopPanelRect = { x: px, y: py, w: pw, h: ph };
+
+  hud.fillStyle = 'rgba(8,9,13,0.94)';
+  hud.fillRect(px, py, pw, ph);
+  hud.strokeStyle = '#c9a24b';
+  hud.lineWidth = 2;
+  hud.strokeRect(px, py, pw, ph);
+
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 15px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText(shop.vendor, px + 14, py + 24);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#f2c14e';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.fillText(`${net.you.gold} gold`, px + pw - 14, py + 24);
+
+  // Close button (top-right X).
+  shopCloseRect = { x: px + pw - 26, y: py + 6, w: 20, h: 20 };
+  hud.fillStyle = '#9aa3b2';
+  hud.font = 'bold 14px system-ui, sans-serif';
+  hud.textAlign = 'center';
+  hud.fillText('✕', shopCloseRect.x + 10, shopCloseRect.y + 15);
+
+  hud.fillStyle = '#8a8f99';
+  hud.font = '11px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText('Tap an item to buy · Esc to close', px + 14, py + 44);
+
+  shop.stock.forEach((entry, i) => {
+    const ry = py + headerH + i * rowH;
+    const def = net.content.item(entry.itemId);
+    const afford = net.you.gold >= entry.price;
+    shopRects.push({ itemId: entry.itemId, x: px + 8, y: ry, w: pw - 16, h: rowH - 4 });
+    hud.fillStyle = afford ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.2)';
+    hud.fillRect(px + 8, ry, pw - 16, rowH - 4);
+    hud.strokeStyle = 'rgba(201,162,75,0.25)';
+    hud.lineWidth = 1;
+    hud.strokeRect(px + 8, ry, pw - 16, rowH - 4);
+    hud.textAlign = 'left';
+    hud.fillStyle = def?.color ?? '#d7dbe3';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.fillText(fitText(def?.name ?? prettyItem(entry.itemId), pw - 90), px + 16, ry + 17);
+    hud.textAlign = 'right';
+    hud.fillStyle = afford ? '#f2c14e' : '#a05050';
+    hud.font = '12px system-ui, sans-serif';
+    hud.fillText(`${entry.price}g`, px + pw - 16, ry + 17);
+  });
+
+  // Sell-all button along the bottom (the old E-to-sell behavior, now explicit).
+  shopSellRect = { x: px + 14, y: py + ph - 32, w: pw - 28, h: 24 };
+  hud.fillStyle = 'rgba(120,60,60,0.5)';
+  hud.fillRect(shopSellRect.x, shopSellRect.y, shopSellRect.w, shopSellRect.h);
+  hud.strokeStyle = 'rgba(201,162,75,0.5)';
+  hud.strokeRect(shopSellRect.x, shopSellRect.y, shopSellRect.w, shopSellRect.h);
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.textAlign = 'center';
+  hud.fillText('Sell all loot & spare gear', px + pw / 2, shopSellRect.y + 16);
 }
 
 /** Dim the scene and show an animated "Reconnecting…" overlay while the socket is down. */
@@ -483,19 +1453,34 @@ function drawReconnect(): void {
   hud.fillText('Lost connection to the server — retrying every second', w / 2, h / 2 + 22);
 }
 
+/** A small corner badge shown for a few seconds after the error trap catches an uncaught throw. */
+function drawErrorBadge(): void {
+  if (lastErrorAt === 0 || performance.now() - lastErrorAt > 6000) return;
+  const err = getLatestError();
+  hud.fillStyle = 'rgba(120,20,20,0.85)';
+  hud.fillRect(8, 8, 240, 22);
+  hud.strokeStyle = '#e06a6a';
+  hud.lineWidth = 1;
+  hud.strokeRect(8, 8, 240, 22);
+  hud.fillStyle = '#ffd7d7';
+  hud.font = '11px system-ui, sans-serif';
+  hud.textAlign = 'left';
+  hud.fillText(`⚠ ${(err?.message ?? 'error').slice(0, 34)}`, 14, 23);
+}
+
 function drawHud(): void {
   const w = hudCanvas.width;
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
 
-  const slot = 48;
+  const slot = 52;
   const gap = 10;
-  const order = net.content.abilityOrder();
-  const count = order.length;
+  const count = HOTBAR_SIZE;
   const panelW = count * slot + (count - 1) * gap;
   const panelX = w / 2 - panelW / 2;
-  const slotsY = h - 60;
+  const slotsY = h - 64;
   const now = performance.now();
+  const locked = inCombat();
 
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'left';
@@ -519,48 +1504,120 @@ function drawHud(): void {
   );
 
   slotRects.length = 0;
-  order.forEach((id, i) => {
-    const ability = net.content.ability(id);
-    if (!ability) return;
+  for (let i = 0; i < count; i++) {
+    const id = displayedAbility(i);
     const x = panelX + i * (slot + gap);
-    slotRects.push({ ability: id, x, y: slotsY, w: slot, h: slot });
+    // Each slot casts on click; scrolling anywhere over the bar rotates the whole window.
+    slotRects.push({ slot: i, ability: id, x, y: slotsY, w: slot, h: slot });
+    const ability = id ? net.content.ability(id) : undefined;
 
     hud.fillStyle = 'rgba(0,0,0,0.55)';
     hud.fillRect(x, slotsY, slot, slot);
-    hud.globalAlpha = net.you.mana < ability.manaCost ? 0.3 : 0.85;
-    hud.fillStyle = ability.color;
-    hud.fillRect(x + 4, slotsY + 4, slot - 8, slot - 8);
-    hud.globalAlpha = 1;
 
-    const remaining = (cooldownEnd[id] ?? 0) - now;
-    if (remaining > 0) {
-      const frac = Math.min(1, remaining / ability.cooldownMs);
-      hud.fillStyle = 'rgba(0,0,0,0.6)';
-      hud.fillRect(x, slotsY + slot * (1 - frac), slot, slot * frac);
+    if (ability && id) {
+      const rank = net.you.known[id] ?? 1;
+      hud.globalAlpha = net.you.mana < ability.manaCost ? 0.3 : 0.9;
+      hud.fillStyle = ability.color;
+      hud.fillRect(x + 4, slotsY + 4, slot - 8, slot - 8);
+      hud.globalAlpha = 1;
+
+      const remaining = (cooldownEnd[id] ?? 0) - now;
+      if (remaining > 0) {
+        const frac = Math.min(1, remaining / ability.cooldownMs);
+        hud.fillStyle = 'rgba(0,0,0,0.6)';
+        hud.fillRect(x, slotsY + slot * (1 - frac), slot, slot * frac);
+      }
+
+      hud.fillStyle = '#fff';
+      hud.font = 'bold 12px system-ui, sans-serif';
+      hud.textAlign = 'left';
+      hud.fillText(String(i + 1), x + 4, slotsY + 14);
+      // Rank pips for a ranked-up spell (the Diablo 1 duplicate-tome reward).
+      if (rank > 1) {
+        hud.fillStyle = '#f2c14e';
+        hud.font = 'bold 10px system-ui, sans-serif';
+        hud.textAlign = 'right';
+        hud.fillText(`R${rank}`, x + slot - 4, slotsY + 14);
+      }
+      hud.textAlign = 'center';
+      hud.font = '10px system-ui, sans-serif';
+      hud.fillStyle = '#fff';
+      hud.fillText(fitText(ability.name, slot - 6), x + slot / 2, slotsY + slot - 6);
+    } else {
+      // Empty slot: dim key number, no spell learned yet for this position.
+      hud.fillStyle = '#6b7280';
+      hud.font = 'bold 12px system-ui, sans-serif';
+      hud.textAlign = 'left';
+      hud.fillText(String(i + 1), x + 4, slotsY + 14);
     }
 
-    hud.strokeStyle = selected === id ? '#c9a24b' : 'rgba(255,255,255,0.25)';
-    hud.lineWidth = selected === id ? 3 : 1;
+    hud.strokeStyle = id && selected === id ? '#c9a24b' : 'rgba(255,255,255,0.25)';
+    hud.lineWidth = id && selected === id ? 3 : 1;
     hud.strokeRect(x, slotsY, slot, slot);
+  }
 
-    hud.fillStyle = '#fff';
-    hud.font = 'bold 12px system-ui, sans-serif';
-    hud.textAlign = 'left';
-    hud.fillText(ability.key, x + 4, slotsY + 14);
-    hud.textAlign = 'center';
-    hud.font = '10px system-ui, sans-serif';
-    hud.fillText(ability.name, x + slot / 2, slotsY + slot - 5);
-  });
+  hotbarRect = { x: panelX, y: slotsY, w: panelW, h: slot };
 
-  input.hudRect = { x: panelX - 6, y: h - 108, w: panelW + 12, h: 104 };
+  // Active self-buff pips, read from the local player's status flags (8=might, 16=haste, 32=regen).
+  drawBuffPips(panelX + panelW, slotsY - 10);
+
+  // Scroll hint / combat lock. Only invite scrolling when there's more than one spell to rotate.
+  const canScroll = knownAbilityIds().length > 1;
+  hud.font = '10px system-ui, sans-serif';
+  hud.textAlign = 'center';
+  hud.fillStyle = locked ? 'rgba(220,90,90,0.9)' : 'rgba(201,162,75,0.7)';
+  hud.fillText(
+    locked
+      ? '⚔ In combat — hotbar locked'
+      : canScroll
+        ? '↕ scroll over the bar to rotate your spells'
+        : 'find spellbooks to fill your bar',
+    w / 2,
+    slotsY + slot + 13,
+  );
 
   drawMinimap(w);
   drawInventory(w);
-  drawJoystick();
+
+  // Quick-use potion belt (Q health / R mana), to the left of the hotbar.
+  const potReady = performance.now() >= potionReadyAt;
+  drawBelt(
+    hud,
+    { w, h },
+    {
+      health: net.you.potions.health,
+      mana: net.you.potions.mana,
+      healthKey: 'Q',
+      manaKey: 'R',
+      healthReady: potReady,
+      manaReady: potReady,
+    },
+  );
 
   const npc = nearbyNpc();
-  if (npc && !net.you.dead) {
-    const action = npc.npcKind === 'questgiver' ? 'talk to' : 'sell loot to';
+  if (
+    npc &&
+    !net.you.dead &&
+    !net.shop &&
+    !net.gamble &&
+    !net.hire &&
+    !net.rift &&
+    !net.artificer
+  ) {
+    const action =
+      npc.npcKind === 'questgiver'
+        ? 'talk to'
+        : npc.npcKind === 'healer'
+          ? 'rest at'
+          : npc.npcKind === 'gambler'
+            ? 'gamble with'
+            : npc.npcKind === 'artificer'
+              ? 'enchant at'
+              : npc.npcKind === 'recruiter'
+                ? 'hire from'
+                : npc.npcKind === 'riftkeeper'
+                  ? 'open a rift with'
+                  : 'shop with';
     const text = `Press E — ${action} ${npc.name}`;
     hud.font = '14px system-ui, sans-serif';
     hud.textAlign = 'center';
@@ -620,7 +1677,7 @@ function rarityColor(rarity: string): string {
 
 /** Rarity-prefixed display name for a gear instance (e.g. "Rare Iron Sword"). */
 function instLabel(inst: ItemInstance): string {
-  return instanceName(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
+  return instanceTitle(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
 }
 
 /** Stat segments for a gear instance: base stat(s) then affixes, flagging debuffs for red text. */
@@ -632,24 +1689,44 @@ function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean }
   return segs;
 }
 
-const MINIMAP_SIZE = 160;
-
-/** Draw the touch move-joystick where the player is dragging (input.ts computes the geometry). */
-function drawJoystick(): void {
-  const j = input.joystick;
-  if (!j.active) return;
-  hud.save();
-  hud.lineWidth = 2;
-  hud.strokeStyle = 'rgba(201,162,75,0.55)';
-  hud.beginPath();
-  hud.arc(j.baseX, j.baseY, 60, 0, Math.PI * 2);
-  hud.stroke();
-  hud.fillStyle = 'rgba(201,162,75,0.45)';
-  hud.beginPath();
-  hud.arc(j.knobX, j.knobY, 22, 0, Math.PI * 2);
-  hud.fill();
-  hud.restore();
+/**
+ * Status chips for the local player, right-aligned to `rightX`: enemy debuffs (slow/burn/weaken,
+ * red label) and active self-buffs (might/haste/regen, white label), read from the status flags.
+ */
+function drawBuffPips(rightX: number, y: number): void {
+  const flags = self?.flags ?? 0;
+  const defs = [
+    { bit: 1, label: 'Slowed', color: '#88bbff', bad: true },
+    { bit: 2, label: 'Burning', color: '#ff8a4d', bad: true },
+    { bit: 4, label: 'Weakened', color: '#c08adf', bad: true },
+    { bit: 8, label: 'Might', color: '#ffb347', bad: false },
+    { bit: 16, label: 'Haste', color: '#7cf0ff', bad: false },
+    { bit: 32, label: 'Regen', color: '#9be8a0', bad: false },
+  ];
+  const active = defs.filter((d) => (flags & d.bit) !== 0);
+  if (active.length === 0) return;
+  hud.font = 'bold 11px system-ui, sans-serif';
+  hud.textBaseline = 'middle';
+  let x = rightX;
+  for (let i = active.length - 1; i >= 0; i--) {
+    const d = active[i]!;
+    const chipW = hud.measureText(d.label).width + 22;
+    x -= chipW;
+    hud.fillStyle = 'rgba(0,0,0,0.5)';
+    hud.fillRect(x, y - 9, chipW, 18);
+    hud.fillStyle = d.color;
+    hud.beginPath();
+    hud.arc(x + 9, y, 4, 0, Math.PI * 2);
+    hud.fill();
+    hud.fillStyle = d.bad ? '#e88' : '#fff';
+    hud.textAlign = 'left';
+    hud.fillText(d.label, x + 16, y);
+    x -= 6; // gap between chips
+  }
+  hud.textBaseline = 'alphabetic';
 }
+
+const MINIMAP_SIZE = 160;
 
 function drawMinimap(w: number): void {
   const size = MINIMAP_SIZE;
@@ -730,7 +1807,7 @@ function drawMinimap(w: number): void {
 }
 
 function drawInventory(w: number): void {
-  const pw = 156;
+  const pw = 236; // wide enough for Diablo-style names like "Savage Iron Sword of the Boar"
   const px = w - pw - 8;
   let py = 44 + MINIMAP_SIZE + 8;
 
@@ -751,16 +1828,18 @@ function drawInventory(w: number): void {
   );
   hud.fillStyle = '#9aa3b2';
   hud.font = '10px system-ui, sans-serif';
-  hud.fillText('Press C — character & equipment', px + 8, py + 30);
+  hud.fillText('C char·I bag·L quests·P party·F friends·M map', px + 8, py + 30);
   py += eqH + 6;
 
-  // Gear panel: unequipped instances, two lines each (name, then stats) so long affix lists never
-  // overlap the name. Rarity-colored, clickable to equip; debuff affixes shown in red.
+  // Gear panel: only the NEWEST few unequipped pieces, so a full bag never shoves the rest of the
+  // HUD off-screen. The whole bag (up to 30) lives in the inventory panel (I). Two lines each.
   bagRects.length = 0;
-  const gear = net.you.gear;
+  const HUD_GEAR_SHOWN = 5;
+  const total = net.you.gear.length;
+  const gear = net.you.gear.slice(-HUD_GEAR_SHOWN); // newest at the end of the array
   if (gear.length > 0) {
     const rowH = 28;
-    const gh = 22 + gear.length * rowH;
+    const gh = 24 + gear.length * rowH;
     hud.fillStyle = 'rgba(0,0,0,0.5)';
     hud.fillRect(px, py, pw, gh);
     hud.strokeStyle = 'rgba(201,162,75,0.6)';
@@ -768,15 +1847,19 @@ function drawInventory(w: number): void {
     hud.fillStyle = '#e7d9b0';
     hud.font = 'bold 12px system-ui, sans-serif';
     hud.textAlign = 'left';
-    hud.fillText('Gear — tap to equip', px + 8, py + 15);
+    const title =
+      total > HUD_GEAR_SHOWN
+        ? `Gear · +${total - HUD_GEAR_SHOWN} in bag (I)`
+        : 'Gear — tap to equip';
+    hud.fillText(title, px + 8, py + 15);
     gear.forEach((inst, i) => {
       const ry = py + 22 + i * rowH;
       bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: rowH });
-      // Line 1: the item name, in its rarity color.
+      // Line 1: the item name, in its rarity color — truncated so long named items never overflow.
       hud.font = 'bold 11px system-ui, sans-serif';
       hud.fillStyle = rarityColor(inst.rarity);
       hud.textAlign = 'left';
-      hud.fillText(instLabel(inst), px + 8, ry + 11);
+      hud.fillText(fitText(instLabel(inst), pw - 14), px + 8, ry + 11);
       // Line 2: stat segments laid out left-to-right (debuffs in red), no overlap with the name.
       hud.font = '10px system-ui, sans-serif';
       let sx = px + 8;
@@ -789,8 +1872,66 @@ function drawInventory(w: number): void {
     py += gh + 6;
   }
 
-  // Materials panel: stackable loot sold to the vendor (not equippable).
-  const items = Object.entries(net.you.loot).filter(([, n]) => n > 0);
+  // Spellbooks panel: tomes in the bag, tappable to read (learn the spell or rank it up).
+  learnRects.length = 0;
+  const held = Object.entries(net.you.loot).filter(([, n]) => n > 0);
+  const books = held.filter(([id]) => net.content.item(id)?.kind === 'spellbook');
+  if (books.length > 0) {
+    const bh = 24 + books.length * 18;
+    hud.fillStyle = 'rgba(0,0,0,0.5)';
+    hud.fillRect(px, py, pw, bh);
+    hud.strokeStyle = 'rgba(124,252,124,0.5)';
+    hud.strokeRect(px, py, pw, bh);
+    hud.fillStyle = '#bfe8bf';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.textAlign = 'left';
+    hud.fillText('Spellbooks — tap to read', px + 8, py + 16);
+    books.forEach(([id, n], i) => {
+      const ry = py + 22 + i * 18;
+      learnRects.push({ itemId: id, x: px, y: ry, w: pw, h: 18 });
+      const teaches = net.content.item(id)?.teaches;
+      const known = teaches && teaches in net.you.known;
+      hud.font = '11px system-ui, sans-serif';
+      hud.fillStyle = known ? '#8a8f99' : '#d7dbe3'; // dim a book whose spell you already know
+      hud.textAlign = 'left';
+      hud.fillText(fitText(prettyItem(id) + (n > 1 ? ` ×${n}` : ''), pw - 16), px + 8, ry + 13);
+    });
+    py += bh + 6;
+  }
+
+  // Gems panel: socketable gems in the bag, tappable to slot into the first open equipped socket.
+  socketRects.length = 0;
+  const gems = held.filter(([id]) => net.content.item(id)?.kind === 'gem');
+  if (gems.length > 0) {
+    const gh2 = 24 + gems.length * 18;
+    hud.fillStyle = 'rgba(0,0,0,0.5)';
+    hud.fillRect(px, py, pw, gh2);
+    hud.strokeStyle = 'rgba(180,136,255,0.5)';
+    hud.strokeRect(px, py, pw, gh2);
+    hud.fillStyle = '#d6a8ff';
+    hud.font = 'bold 12px system-ui, sans-serif';
+    hud.textAlign = 'left';
+    hud.fillText('Gems — tap to socket', px + 8, py + 16);
+    gems.forEach(([id, n], i) => {
+      const ry = py + 22 + i * 18;
+      socketRects.push({ itemId: id, x: px, y: ry, w: pw, h: 18 });
+      hud.font = '11px system-ui, sans-serif';
+      hud.fillStyle = net.content.item(id)?.color ?? '#d7dbe3';
+      hud.textAlign = 'left';
+      hud.fillText(
+        fitText((net.content.item(id)?.name ?? prettyItem(id)) + (n > 1 ? ` ×${n}` : ''), pw - 16),
+        px + 8,
+        ry + 13,
+      );
+    });
+    py += gh2 + 6;
+  }
+
+  // Materials panel: stackable loot sold to the vendor (not equippable, spellbook, or gem).
+  const items = held.filter(([id]) => {
+    const kind = net.content.item(id)?.kind;
+    return kind !== 'spellbook' && kind !== 'gem';
+  });
   if (items.length === 0) return;
   const ph = 24 + items.length * 16;
   hud.fillStyle = 'rgba(0,0,0,0.5)';

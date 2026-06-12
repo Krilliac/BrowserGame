@@ -1,20 +1,34 @@
 /**
- * Timed status effects (frost SLOW, fire BURN) on a single entity.
+ * Timed status effects on a single entity — debuffs on monsters (SLOW, BURN, WEAKEN) and buffs on
+ * players (MIGHT, HASTE, REGEN). One generic, server-owned, tick-driven set powers both.
  *
  * Server-owned, pure, and tick-driven: time only advances via an explicit `dtMs`
  * passed to `tick()`. No `Date.now`, no randomness, no I/O — so the simulation is
  * deterministic and unit-testable.
  */
 
-export type StatusId = 'slow' | 'burn';
+export type StatusId =
+  // Monster debuffs:
+  | 'slow' // reduces movement
+  | 'burn' // damage over time
+  | 'weaken' // reduces the monster's outgoing damage
+  // Player buffs:
+  | 'might' // increases the player's outgoing damage
+  | 'haste' // faster attacks (lower cooldowns) + faster movement
+  | 'regen'; // heal over time
 
 /** Lowest movement multiplier slow can ever produce (so a slow can't fully freeze). */
 const SLOW_FACTOR_FLOOR = 0.2;
+/** Floors so a single debuff/buff can't fully zero a stat. */
+const WEAKEN_FACTOR_FLOOR = 0.25;
+const HASTE_COOLDOWN_FLOOR = 0.4;
 
 /** Result of advancing a StatusSet by some dt. */
 export interface StatusTickResult {
   /** Total burn (damage-over-time) damage dealt this tick. */
   burnDamage: number;
+  /** Total regen (heal-over-time) restored this tick. */
+  regenHeal: number;
 }
 
 /** Internal per-status state: how long it lasts and how strong it is. */
@@ -59,20 +73,24 @@ export class StatusSet {
    */
   tick(dtMs: number): StatusTickResult {
     let burnDamage = 0;
-    if (dtMs <= 0) return { burnDamage };
+    let regenHeal = 0;
+    if (dtMs <= 0) return { burnDamage, regenHeal };
 
     for (const [id, state] of this.effects) {
       const activeMs = Math.min(state.remainingMs, dtMs);
 
-      if (id === 'burn') {
-        burnDamage += state.magnitude * (activeMs / 1000);
-      }
+      if (id === 'burn') burnDamage += state.magnitude * (activeMs / 1000);
+      else if (id === 'regen') regenHeal += state.magnitude * (activeMs / 1000);
 
       state.remainingMs -= dtMs;
       if (state.remainingMs <= 0) this.effects.delete(id);
     }
 
-    return { burnDamage };
+    return { burnDamage, regenHeal };
+  }
+
+  private mag(id: StatusId): number {
+    return this.effects.get(id)?.magnitude ?? 0;
   }
 
   /**
@@ -84,6 +102,26 @@ export class StatusSet {
     const slow = this.effects.get('slow');
     if (!slow) return 1;
     return Math.max(SLOW_FACTOR_FLOOR, 1 - slow.magnitude);
+  }
+
+  /** Monster outgoing-damage multiplier from WEAKEN (1 = normal; floored so it can't hit zero). */
+  weakenFactor(): number {
+    return Math.max(WEAKEN_FACTOR_FLOOR, 1 - this.mag('weaken'));
+  }
+
+  /** Player outgoing-damage multiplier from MIGHT (1 = normal; e.g. magnitude 0.3 => 1.3). */
+  damageFactor(): number {
+    return 1 + this.mag('might');
+  }
+
+  /** Player cooldown multiplier from HASTE (lower = faster attacks; floored). */
+  cooldownFactor(): number {
+    return Math.max(HASTE_COOLDOWN_FLOOR, 1 - this.mag('haste'));
+  }
+
+  /** Player movement multiplier from HASTE (1 = normal; e.g. magnitude 0.35 => 1.35). */
+  moveFactor(): number {
+    return 1 + this.mag('haste');
   }
 
   /** Whether a given status is currently active. */

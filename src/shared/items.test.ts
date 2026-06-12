@@ -185,6 +185,8 @@ describe('affixes', () => {
     expect(affixLabel({ stat: 'hp', value: 12 })).toBe('+12 hp');
     expect(affixLabel({ stat: 'multishot', value: 1 })).toBe('+1 projectile');
     expect(affixLabel({ stat: 'multishot', value: 2 })).toBe('+2 projectiles');
+    expect(affixLabel({ stat: 'armor', value: 8 })).toBe('+8% armor');
+    expect(affixLabel({ stat: 'vigor', value: 3 })).toBe('+3 hp/sec');
   });
 
   it('keeps multishot bounded regardless of rarity (never mult-scaled)', () => {

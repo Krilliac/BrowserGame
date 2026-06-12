@@ -46,3 +46,10 @@ See CLAUDE_PARALLEL.md for the protocol.
 - **Description**: weighted + rare nested drop tables
 - **Claimed**: 2026-06-09T04:10:20Z
 - **Status**: COMPLETED @ 2026-06-09T04:17:54Z
+
+### DONE bots
+- **Session**: `Nathan-319`
+- **Files**: `tools/bots/**`
+- **Description**: headless player-bot stress harness
+- **Claimed**: 2026-06-10T11:06:25Z
+- **Status**: COMPLETED @ 2026-06-10T12:23:20Z
