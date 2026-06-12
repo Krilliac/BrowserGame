@@ -183,3 +183,107 @@ function boxOverlapsRect(cx: number, cy: number, radius: number, r: Rect): boole
     cx + radius > r.x && cx - radius < r.x + r.w && cy + radius > r.y && cy - radius < r.y + r.h
   );
 }
+
+/**
+ * Separate two overlapping circles by pushing EACH half the minimum translation vector apart
+ * along the line between their centers (the arcade-solver split: mtv * 0.5 per body, so the pair
+ * resolves symmetrically and total displacement equals exactly the overlap).
+ *
+ * Boundary behavior:
+ *  - Non-overlapping OR exactly touching (distance === radiusA + radiusB) returns the inputs
+ *    unchanged — touching is the stable resting state, same convention as boxOverlapsRect.
+ *  - Exactly-coincident centers have no direction, so the push happens along a fixed +x axis
+ *    (A goes -x, B goes +x). This keeps the result finite and deterministic — never NaN.
+ */
+export function separateCircles(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  radiusA: number,
+  radiusB: number,
+): { ax: number; ay: number; bx: number; by: number } {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const distSq = dx * dx + dy * dy;
+  const minDist = radiusA + radiusB;
+  if (distSq >= minDist * minDist) {
+    return { ax, ay, bx, by };
+  }
+
+  const dist = Math.sqrt(distSq);
+  // Unit direction from A toward B; coincident centers fall back to the fixed +x axis.
+  let nx = 1;
+  let ny = 0;
+  if (dist > 0) {
+    nx = dx / dist;
+    ny = dy / dist;
+  }
+
+  const half = (minDist - dist) / 2;
+  return {
+    ax: ax - nx * half,
+    ay: ay - ny * half,
+    bx: bx + nx * half,
+    by: by + ny * half,
+  };
+}
+
+/**
+ * True if the segment (x1,y1)→(x2,y2) crosses the axis-aligned rect, or either endpoint lies
+ * inside it. Implemented with Liang-Barsky slab clipping: clip the segment's parameter interval
+ * [0,1] against each of the rect's four half-planes; the segment intersects iff the interval
+ * survives non-empty.
+ *
+ * Boundary behavior is INCLUSIVE: a segment that merely touches an edge or corner, or runs
+ * collinear along an edge, counts as intersecting. A degenerate zero-length segment reduces to an
+ * inclusive point-in-rect test. (Projectile wall-stops want the generous reading: grazing a wall
+ * is a hit, not a pass-through.)
+ */
+export function segmentIntersectsRect(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  rect: Rect,
+): boolean {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  let t0 = 0;
+  let t1 = 1;
+
+  // Clip [t0,t1] against one half-plane (p·t <= q form). Returns false once the interval empties.
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) {
+      // Segment parallel to this boundary: inside the half-plane iff q >= 0 (inclusive).
+      return q >= 0;
+    }
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+    return true;
+  };
+
+  return (
+    clip(-dx, x1 - rect.x) && // left   boundary: x >= rect.x
+    clip(dx, rect.x + rect.w - x1) && // right  boundary: x <= rect.x + w
+    clip(-dy, y1 - rect.y) && // top    boundary: y >= rect.y
+    clip(dy, rect.y + rect.h - y1) // bottom boundary: y <= rect.y + h
+  );
+}
+
+/**
+ * True if the point lies inside (or on the edge of) ANY of the given rects. Convenience for
+ * projectile wall-stop checks; same inclusive boundary as pointInRect.
+ */
+export function pointInAnyRect(x: number, y: number, rects: readonly Rect[]): boolean {
+  for (const r of rects) {
+    if (pointInRect(x, y, r)) return true;
+  }
+  return false;
+}

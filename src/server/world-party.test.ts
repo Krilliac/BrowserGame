@@ -54,13 +54,28 @@ describe('party shared XP + quest credit', () => {
     w.acceptQuest(b, 'wolf_cull');
     w.setLevel(a, 50);
     w.toggleGod(a);
+    // B must survive the farm too: wolves aggro the bystander, and a DEAD member receives no
+    // shared credit — without god mode this test is hostage to whether the pack snacks on B.
+    w.toggleGod(b);
 
-    for (let t = 0; t < 400; t++) {
+    for (let t = 0; t < 1500; t++) {
       const qa = w.playerStats(a)!.quests.find((q) => q.id === 'wolf_cull')!;
       const qb = w.playerStats(b)!.quests.find((q) => q.id === 'wolf_cull')!;
       if (qa.status === 'done' && qb.status === 'done') break;
-      w.spawnMobAt(a, 'wolf');
-      w.cast(a, 'slash', 1, 0);
+      // Keep exactly one wolf IN REACH: killed wolves respawn at random distant spots (still
+      // "alive"), and the crowd-separation pass spreads piles — both would starve a naive
+      // spawn-once / slash-east loop. Spawn when nothing is close, slash toward the nearest.
+      const wolves = w.snapshot().filter((e) => e.kind === 'mob' && e.hp > 0);
+      const near = wolves.filter((m) => Math.hypot(m.x - 800, m.y - 600) < 150);
+      if (near.length === 0) w.spawnMobAt(a, 'wolf');
+      const target = (near.length > 0 ? near : wolves).reduce(
+        (best, m) =>
+          !best || Math.hypot(m.x - 800, m.y - 600) < Math.hypot(best.x - 800, best.y - 600)
+            ? m
+            : best,
+        undefined as (typeof wolves)[number] | undefined,
+      );
+      w.cast(a, 'slash', target ? target.x - 800 : 1, target ? target.y - 600 : 0);
       w.tick(0.05);
     }
     // Both party members completed the kill quest from A's kills.

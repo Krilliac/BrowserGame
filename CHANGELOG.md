@@ -25,6 +25,30 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **Engine-mining adoption pass (wasmbots · stage.js · Excalibur · hex-engine).** Every
+  vendorable pattern from the four-repo research sweep, in one slice:
+  - **Combat feel:** overlapping monsters now push each other apart (no more single-pixel mob
+    blobs — packs spread around you, Diablo-style); monsters slide along house walls instead of
+    clipping through them (lunges included) and head for the doorway when a wall pins them; and
+    **nothing shoots through walls anymore** — projectiles stop on impact.
+  - **Determinism:** every instance runs on a seeded RNG (mulberry32) recorded on the instance —
+    the same seed reproduces the exact dungeon layout and loot rolls (bug repros, future daily
+    seeds). The simulation no longer touches `Math.random`.
+  - **Protocol hygiene:** a version handshake in `join` — stale cached phone bundles get a clean
+    "New version available — refresh" screen instead of decode garbage; undecodable frames and
+    unknown message types now count strikes per connection (20 → disconnect).
+  - **Phone battery:** the Canvas2D HUD redraws at ~12Hz when idle (instant on any input)
+    instead of every frame; `pointercancel`/window-blur clear in-flight touch state so OS
+    gestures never leave ghost input; a "loading assets…" status shows during boot.
+  - **Game feel polish:** camera deadzone (no swim during combat shuffles) + bounds clamp
+    (small instances like dens never show void); loot pops land with a back-out bounce; the
+    area-arrival fade lifts on a cubic ease (new `easing.ts`).
+  - **HUD interaction:** a hit-region registry with real down+up-inside click semantics
+    (drag-out cancels, topmost-drawn wins) — the gamble/hire/rift windows migrated first.
+  - **Dev tooling:** an F9 inspector overlay in dev builds (live entity tree, nearest-to-mouse
+    readout, renderer counters, freeze-view, right-click-to-`window.tempN`), and a bot
+    record/replay mode (`--record`, `tools/bots/replay.ts`) for deterministic brain regression
+    tests against captured server traffic.
 - **The world is 5× as long per side (25× the ground).** A single `WORLD_SCALE` applied where
   content loads stretches every area, portal, spawn, NPC spot, and decor placement — zones are
   now real expeditions. Monster rosters grow 4× (sparser frontier, every camp a hunt), dungeon

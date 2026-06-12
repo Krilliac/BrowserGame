@@ -16,6 +16,7 @@ import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { drawHirePanel, type HireButton } from './hire-panel.js';
 import { drawRiftPanel, type RiftButton } from './rift-panel.js';
 import { loadItemIcons } from './item-icons.js';
+import { HitRegions } from './hit-regions.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
 import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
 import { drawStashPanel, type StashButton } from './stash-panel.js';
@@ -76,6 +77,7 @@ const name =
 // server's `content` packet — the client mirrors the SQLite DB).
 const net = new Net(name);
 const renderer = new PixiRenderer(app, net.content);
+statusEl.textContent = 'loading assets…'; // ~90 curated textures; phones appreciate the heads-up
 await renderer.loadAssets();
 void loadItemIcons(); // HUD item icons (bag/stash/belt) — panels fall back until loaded
 net.connect();
@@ -200,9 +202,9 @@ let partyOpen = false;
 let socialOpen = false;
 let partyButtons: PartyButton[] = [];
 let socialButtons: SocialButton[] = [];
-let gambleButtons: GambleButton[] = [];
-let hireButtons: HireButton[] = [];
-let riftButtons: RiftButton[] = [];
+// Service-window buttons (gamble/hire/rift) live in the hit-region registry, re-registered
+// each HUD frame in draw order; clicks resolve on pointer-up inside the pressed button.
+const hitRegions = new HitRegions();
 // Waypoint / fast-travel panel: open with M.
 let waypointOpen = false;
 let waypointButtons: WaypointButton[] = [];
@@ -339,11 +341,11 @@ function nearbyNpc(): EntityState | undefined {
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
+  // Registered hit regions (gamble/hire/rift panels) take the press with real down+up-inside
+  // click semantics; the legacy if-chain below migrates panel-by-panel.
+  if (hitRegions.down(e.clientX, e.clientY)) return;
   // An open shop captures clicks (buy / sell / close) and never falls through to a cast.
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
-  if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
-  if (net.hire && handleHireClick(e.clientX, e.clientY)) return;
-  if (net.rift && handleRiftClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
   if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
@@ -499,37 +501,52 @@ function handleStashClick(x: number, y: number): boolean {
   return true;
 }
 
-/** Route a click inside the open gambling panel. Returns true if it was consumed. */
-function handleGambleClick(x: number, y: number): boolean {
-  const btn = gambleButtons.find((b) => inRect(x, y, b));
-  if (!btn) return false;
-  if (btn.action === 'close') net.gamble = null;
-  else if (btn.action === 'gamble' && btn.slot) net.sendGamble(btn.slot);
-  return true;
+/** Register a gamble-panel button as a hit region (down+up-inside click semantics). */
+function regionForGamble(b: GambleButton): void {
+  hitRegions.add({
+    x: b.x,
+    y: b.y,
+    w: b.w,
+    h: b.h,
+    onClick: () => {
+      if (b.action === 'close') net.gamble = null;
+      else if (b.action === 'gamble' && b.slot) net.sendGamble(b.slot);
+    },
+  });
 }
 
-/** Route a click inside the open recruiter panel. Returns true if it was consumed. */
-function handleHireClick(x: number, y: number): boolean {
-  const btn = hireButtons.find((b) => inRect(x, y, b));
-  if (!btn) return false;
-  if (btn.action === 'close') net.hire = null;
-  else if (btn.action === 'hire' && btn.type) {
-    net.sendHire(btn.type);
-    net.hire = null; // hired (or refused server-side with a notice) — close the window
-  }
-  return true;
+/** Register a hire-panel button as a hit region. */
+function regionForHire(b: HireButton): void {
+  hitRegions.add({
+    x: b.x,
+    y: b.y,
+    w: b.w,
+    h: b.h,
+    onClick: () => {
+      if (b.action === 'close') net.hire = null;
+      else if (b.action === 'hire' && b.type) {
+        net.sendHire(b.type);
+        net.hire = null; // hired (or refused server-side with a notice) — close the window
+      }
+    },
+  });
 }
 
-/** Route a click inside the open Riftkeeper panel. Returns true if it was consumed. */
-function handleRiftClick(x: number, y: number): boolean {
-  const btn = riftButtons.find((b) => inRect(x, y, b));
-  if (!btn) return false;
-  if (btn.action === 'close') net.rift = null;
-  else if (btn.action === 'open' && btn.tier !== undefined) {
-    net.sendOpenRift(btn.tier);
-    net.rift = null; // the server transfers us (or refuses with a notice) — close the window
-  }
-  return true;
+/** Register a Riftkeeper-panel button as a hit region. */
+function regionForRift(b: RiftButton): void {
+  hitRegions.add({
+    x: b.x,
+    y: b.y,
+    w: b.w,
+    h: b.h,
+    onClick: () => {
+      if (b.action === 'close') net.rift = null;
+      else if (b.action === 'open' && b.tier !== undefined) {
+        net.sendOpenRift(b.tier);
+        net.rift = null; // the server transfers us (or refuses with a notice) — close the window
+      }
+    },
+  });
 }
 
 /** Route a click inside the open shop panel. Returns true if it was consumed. */
@@ -557,12 +574,56 @@ const TAP_MAX_MOVE = 18; // px of travel still counted as a tap, not a drag
 const TAP_MAX_MS = 260;
 let touchStart: { x: number; y: number; t: number } | null = null;
 
+// HUD redraw gating: any input event makes the next frame redraw immediately; otherwise the
+// overlay coasts at ~12Hz (server state arrives at 20Hz, so nothing visibly lags).
+let hudDirty = true;
+let lastHudDrawAt = 0;
+const markHudDirty = (): void => {
+  hudDirty = true;
+};
+for (const ev of ['pointermove', 'pointerdown', 'pointerup', 'keydown', 'wheel'] as const) {
+  window.addEventListener(ev, markHudDirty, { passive: true });
+}
+
+// --- DEV inspector (F9) — dev builds only; the module never ships in prod bundles ------
+let devInspector: { readonly frozen: boolean } | undefined;
+if (import.meta.env.DEV) {
+  const { initInspector } = await import('./inspector.js');
+  const inspector = initInspector(() => {
+    const mouseWorld = renderer.screenToWorld(mouseX, mouseY);
+    return {
+      net: {
+        connected: net.connected,
+        areaId: net.areaId,
+        instanceId: net.instanceId,
+        players: entities.filter((e) => e.kind === 'player').length,
+      },
+      you: net.you as unknown as Record<string, unknown>,
+      entities: entities.map((e) => ({
+        kind: e.kind,
+        id: e.id,
+        name: e.name,
+        x: e.x,
+        y: e.y,
+        hp: e.hp,
+      })),
+      renderer: renderer.debugCounts(),
+      mouseWorld,
+    };
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'F9') {
+      e.preventDefault();
+      inspector.toggle();
+    }
+  });
+  devInspector = inspector;
+}
+
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
+  if (hitRegions.down(e.clientX, e.clientY)) return;
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
-  if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
-  if (net.hire && handleHireClick(e.clientX, e.clientY)) return;
-  if (net.rift && handleRiftClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
   if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
@@ -609,7 +670,10 @@ gameCanvas.addEventListener('pointerdown', (e) => {
 });
 
 gameCanvas.addEventListener('pointerup', (e) => {
-  if (e.pointerType === 'mouse' || !touchStart) return;
+  if (e.pointerType === 'mouse') return;
+  // A press captured by a hit region resolves here (or cancels on drag-out) — never the world.
+  if (hitRegions.up(e.clientX, e.clientY)) return;
+  if (!touchStart) return;
   const moved = Math.hypot(e.clientX - touchStart.x, e.clientY - touchStart.y);
   const heldMs = performance.now() - touchStart.t;
   touchStart = null;
@@ -617,6 +681,20 @@ gameCanvas.addEventListener('pointerup', (e) => {
     worldClick(e.clientX, e.clientY);
   }
 });
+
+window.addEventListener('pointerup', (e) => {
+  if (e.pointerType !== 'mouse' || e.button !== 0) return;
+  hitRegions.up(e.clientX, e.clientY);
+});
+
+// OS gestures and focus loss fire pointercancel/blur instead of pointerup — clear the
+// in-flight touch + press state so a swiped-away notification never leaves ghost input.
+const resetPointerState = (): void => {
+  touchStart = null;
+  hitRegions.cancel();
+};
+gameCanvas.addEventListener('pointercancel', resetPointerState);
+window.addEventListener('blur', resetPointerState);
 
 /**
  * Intercept social slash-commands typed in chat and turn them into typed protocol messages.
@@ -954,17 +1032,30 @@ function frame(): void {
     lastContentRev = net.contentRev;
   }
 
-  renderer.update({
-    areaId: net.areaId,
-    entities,
-    selfId: net.selfId,
-    fx: net.fx,
-    camX,
-    camY,
-    corruption: net.you.corruption,
-  });
+  if (!devInspector?.frozen) {
+    renderer.update({
+      areaId: net.areaId,
+      entities,
+      selfId: net.selfId,
+      fx: net.fx,
+      camX,
+      camY,
+      corruption: net.you.corruption,
+    });
+  }
   sound.setArea(net.areaId);
   sound.fromFx(net.fx);
+  // HUD throttle (the stage.js sleep-on-idle discipline, simplified): the Canvas2D overlay is
+  // the most expensive per-frame text rasterization on a phone, so it redraws at ~12Hz unless
+  // an input event marked it dirty (instant feedback for clicks/hover/typing). The Pixi world
+  // keeps animating at full rate underneath.
+  if (!hudDirty && now - lastHudDrawAt < 80) {
+    statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
+    syncChatLog();
+    return;
+  }
+  hudDirty = false;
+  lastHudDrawAt = now;
   drawHud();
   if (charOpen) drawCharacterPanel();
   if (questOpen) drawQuestPanel();
@@ -1052,35 +1143,35 @@ function frame(): void {
   } else {
     skillTreeButtons = [];
   }
+  // Service windows route clicks through the hit-region registry: buttons register in draw
+  // order each frame, and clicks need down+up inside the same button (drag-out cancels).
+  hitRegions.begin();
   if (net.gamble) {
-    gambleButtons = drawGamblePanel(
+    const buttons = drawGamblePanel(
       hud,
       { w: hudCanvas.width, h: hudCanvas.height },
       net.gamble.cost,
       net.you.gold,
     );
-  } else {
-    gambleButtons = [];
+    for (const b of buttons) regionForGamble(b);
   }
   if (net.hire) {
-    hireButtons = drawHirePanel(
+    const buttons = drawHirePanel(
       hud,
       { w: hudCanvas.width, h: hudCanvas.height },
       net.hire.offers,
       net.you.gold,
     );
-  } else {
-    hireButtons = [];
+    for (const b of buttons) regionForHire(b);
   }
   if (net.rift) {
-    riftButtons = drawRiftPanel(
+    const buttons = drawRiftPanel(
       hud,
       { w: hudCanvas.width, h: hudCanvas.height },
       net.rift,
       net.you.gold,
     );
-  } else {
-    riftButtons = [];
+    for (const b of buttons) regionForRift(b);
   }
   if (net.shop) drawShopPanel();
   else {
@@ -1444,6 +1535,17 @@ function drawReconnect(): void {
   hud.fillStyle = 'rgba(0,0,0,0.55)';
   hud.fillRect(0, 0, w, h);
   hud.textAlign = 'center';
+  if (net.outdated) {
+    // The server rejected our protocol version: this bundle is stale (a cached phone build
+    // from before a deploy). Only a refresh fixes it — never auto-retry.
+    hud.fillStyle = '#ffd27a';
+    hud.font = 'bold 22px system-ui, sans-serif';
+    hud.fillText('New version available', w / 2, h / 2 - 4);
+    hud.font = '14px system-ui, sans-serif';
+    hud.fillStyle = '#e7d9b0';
+    hud.fillText('Refresh the page to keep playing (Ctrl+R / pull down)', w / 2, h / 2 + 24);
+    return;
+  }
   hud.fillStyle = '#e7d9b0';
   hud.font = 'bold 22px system-ui, sans-serif';
   const dots = '.'.repeat(1 + (Math.floor(performance.now() / 400) % 3));

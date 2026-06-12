@@ -6,20 +6,30 @@
  * pongs out of the box, so bots are never evicted as ghosts while their socket is healthy.
  *
  * Every inbound message is decoded defensively: a weird packet increments a counter and is
- * dropped; it must never crash the harness.
+ * dropped; it must never crash the harness. State the brain consumes lives in `world`
+ * (world-state.ts) and is updated through the same `applyServerMessage` path that offline
+ * replay (replay.ts) uses, so recorded sessions reproduce live behavior exactly.
  */
 
+import { createWriteStream, type WriteStream } from 'node:fs';
 import WebSocket from 'ws';
 import {
   encode,
   decodeServer,
+  PROTOCOL_VERSION,
   type ClientMessage,
+  type ServerMessage,
   type EntityState,
   type InputState,
 } from '../../src/shared/protocol.js';
 import type { AreaDef } from '../../src/shared/areas.js';
 import type { AbilityId } from '../../src/shared/combat.js';
-import type { ItemInstance } from '../../src/shared/items.js';
+import {
+  applyServerMessage,
+  emptyWorldState,
+  type BotWorldState,
+  type YouState,
+} from './world-state.js';
 
 /** Counters + samples the stress harness aggregates. Sample arrays are drained each window. */
 export interface BotMetrics {
@@ -39,21 +49,6 @@ export interface BotMetrics {
   snapshotBytes: number[];
 }
 
-/** The personal 'you' stats the bot cares about (subset of the wire message). */
-export interface YouState {
-  hp: number;
-  maxHp: number;
-  mana: number;
-  maxMana: number;
-  dead: boolean;
-  level: number;
-  gold: number;
-  x: number;
-  y: number;
-  loot: Record<string, number>;
-  gear: ItemInstance[];
-}
-
 export interface BotOptions {
   /** ws://host:port — the /ws path is appended automatically if missing. */
   url: string;
@@ -62,6 +57,12 @@ export interface BotOptions {
   reconnect?: boolean;
   maxReconnects?: number;
   connectTimeoutMs?: number;
+  /**
+   * Record mode: append every brain-consumed server message (content/welcome/snapshot/
+   * you/area_changed) as a JSONL line `{t_ms, msg}` to this file, for offline replay
+   * via replay.ts. t_ms is milliseconds since the first recorded message.
+   */
+  recordPath?: string;
 }
 
 export class BotClient {
@@ -78,14 +79,29 @@ export class BotClient {
     snapshotBytes: [],
   };
 
-  selfId = 0;
-  tickRate = 0;
-  areaId = '';
+  /** Brain-consumable state, updated via applyServerMessage (shared with replay.ts). */
+  readonly world: BotWorldState = emptyWorldState();
+
+  get selfId(): number {
+    return this.world.selfId;
+  }
+  get tickRate(): number {
+    return this.world.tickRate;
+  }
+  get areaId(): string {
+    return this.world.areaId;
+  }
   /** Latest area-of-interest snapshot (entities near this bot). */
-  entities: readonly EntityState[] = [];
-  you: YouState | null = null;
+  get entities(): readonly EntityState[] {
+    return this.world.entities;
+  }
+  get you(): YouState | null {
+    return this.world.you;
+  }
   /** Area definitions from the server's content packet, by id. */
-  readonly areas = new Map<string, AreaDef>();
+  get areas(): Map<string, AreaDef> {
+    return this.world.areas;
+  }
 
   private ws: WebSocket | null = null;
   private token: string | undefined;
@@ -95,9 +111,13 @@ export class BotClient {
   private reconnectAttempts = 0;
   private lastSnapshotAt = 0;
   private readonly wsUrl: string;
+  /** Single append stream for record mode; Node buffers writes — no sync I/O per message. */
+  private recorder: WriteStream | null = null;
+  private recordStartedAt = 0;
 
   constructor(private readonly opts: BotOptions) {
     this.wsUrl = opts.url.endsWith('/ws') ? opts.url : `${opts.url.replace(/\/$/, '')}/ws`;
+    if (opts.recordPath) this.recorder = createWriteStream(opts.recordPath, { flags: 'a' });
   }
 
   /** True once connected and welcomed into the world. */
@@ -121,9 +141,10 @@ export class BotClient {
       }, timeoutMs);
 
       ws.on('open', () => {
+        // `v` is the protocol version gate — joins without it get refresh_required + close 1008.
         const join: ClientMessage = this.token
-          ? { t: 'join', name: this.opts.name, token: this.token }
-          : { t: 'join', name: this.opts.name };
+          ? { t: 'join', name: this.opts.name, token: this.token, v: PROTOCOL_VERSION }
+          : { t: 'join', name: this.opts.name, v: PROTOCOL_VERSION };
         this.sendRaw(join);
       });
       ws.on('message', (raw) => {
@@ -163,6 +184,8 @@ export class BotClient {
     this.closedByUs = true;
     this.joined = false;
     this.ws?.close();
+    this.recorder?.end();
+    this.recorder = null;
   }
 
   private sendRaw(msg: ClientMessage): void {
@@ -192,19 +215,16 @@ export class BotClient {
     }
 
     try {
-      switch (msg.t) {
-        case 'content':
-          if (Array.isArray(msg.areas)) {
-            for (const area of msg.areas) {
-              if (area && typeof area.id === 'string') this.areas.set(area.id, area);
-            }
-          }
-          return false;
+      const kind = applyServerMessage(this.world, msg);
+      if (this.recorder && kind !== 'other') this.record(msg);
+
+      // Transport-side bookkeeping (token, join state, cadence metrics) stays here —
+      // it is real-socket-only and means nothing to an offline replay.
+      switch (kind) {
         case 'welcome': {
-          this.selfId = typeof msg.id === 'number' ? msg.id : 0;
-          this.tickRate = typeof msg.tickRate === 'number' ? msg.tickRate : 0;
-          this.areaId = typeof msg.areaId === 'string' ? msg.areaId : '';
-          this.token = typeof msg.token === 'string' ? msg.token : undefined;
+          if (msg.t === 'welcome') {
+            this.token = typeof msg.token === 'string' ? msg.token : undefined;
+          }
           const isReconnect = this.joined === false && this.reconnectAttempts > 0;
           this.joined = true;
           if (isReconnect) {
@@ -214,7 +234,6 @@ export class BotClient {
           return true;
         }
         case 'snapshot': {
-          if (Array.isArray(msg.entities)) this.entities = msg.entities;
           this.metrics.snapshots++;
           this.metrics.snapshotBytes.push(text.length);
           const now = Date.now();
@@ -222,37 +241,23 @@ export class BotClient {
           this.lastSnapshotAt = now;
           return false;
         }
-        case 'you':
-          this.you = {
-            hp: num(msg.hp),
-            maxHp: num(msg.maxHp),
-            mana: num(msg.mana),
-            maxMana: num(msg.maxMana),
-            dead: msg.dead === true,
-            level: num(msg.level),
-            gold: num(msg.gold),
-            x: num(msg.x),
-            y: num(msg.y),
-            loot: msg.loot && typeof msg.loot === 'object' ? msg.loot : {},
-            gear: Array.isArray(msg.gear) ? msg.gear : [],
-          };
-          return false;
         case 'area_changed':
-          if (typeof msg.areaId === 'string') this.areaId = msg.areaId;
-          this.entities = []; // stale: they belong to the previous instance
           this.lastSnapshotAt = 0; // don't count the transfer pause as snapshot jitter
           return false;
-        case 'chat':
-        case 'admin_result':
-          return false;
         default:
-          // Unknown-but-parseable type: forward-compat, not an error worth crashing over.
           return false;
       }
     } catch {
       this.metrics.decodeErrors++;
       return false;
     }
+  }
+
+  private record(msg: ServerMessage): void {
+    if (!this.recorder) return;
+    const now = Date.now();
+    if (this.recordStartedAt === 0) this.recordStartedAt = now;
+    this.recorder.write(`${JSON.stringify({ t_ms: now - this.recordStartedAt, msg })}\n`);
   }
 
   private handleClose(): void {
@@ -271,8 +276,4 @@ export class BotClient {
       });
     }, delay);
   }
-}
-
-function num(v: unknown): number {
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 }

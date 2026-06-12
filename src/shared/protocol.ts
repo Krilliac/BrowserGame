@@ -85,6 +85,13 @@ export const DEFAULT_TICK_RATE = 20;
 /** Per-entity movement speed in world units per second. Server-enforced. */
 export const PLAYER_SPEED = 180;
 
+/**
+ * Wire-protocol version, checked first thing in `join`: a stale cached client (a phone bundle
+ * that predates a deploy) is told to refresh instead of hitting confusing decode errors. Bump
+ * on any breaking message-shape change.
+ */
+export const PROTOCOL_VERSION = 1;
+
 /** World bounds in pixels. The authoritative server clamps every entity to this box. */
 export const WORLD_WIDTH = 2000;
 export const WORLD_HEIGHT = 2000;
@@ -147,7 +154,8 @@ export interface InputState {
 
 /** Messages the client sends to the server. */
 export type ClientMessage =
-  | { t: 'join'; name: string; token?: string }
+  /** `v` is PROTOCOL_VERSION — mismatches get `refresh_required` and a close, never garbage. */
+  | { t: 'join'; name: string; token?: string; v?: number }
   /** Movement intent with a client sequence number (for prediction/reconciliation). */
   | { t: 'input'; input: InputState; seq: number }
   /** Cast an ability aimed in direction (dx, dy); the server normalizes and validates. */
@@ -303,6 +311,8 @@ export type ServerMessage =
   /** The server moved this player to another area instance (e.g. through a portal). */
   | { t: 'area_changed'; areaId: string; instanceId: string }
   | { t: 'chat'; from: string; text: string; channel?: ChatChannel }
+  /** The client's bundle predates the server's protocol — show a refresh prompt, stop retrying. */
+  | { t: 'refresh_required' }
   | { t: 'admin_result'; ok: boolean; message: string };
 
 export function encode(msg: ClientMessage | ServerMessage): string {

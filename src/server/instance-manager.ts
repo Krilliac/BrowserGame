@@ -8,6 +8,8 @@ export interface Instance {
   id: string;
   areaId: string;
   world: World;
+  /** The world's RNG seed — recorded so any instance's exact rolls are reproducible. */
+  seed: number;
   /** Set on DEN instances: any portal out returns to this spot (where the player descended). */
   returnTo?: { areaId: string; x: number; y: number };
 }
@@ -185,6 +187,9 @@ export class InstanceManager {
 
   private spawnInstance(area: AreaDef, tier = 0): Instance {
     const id = `${area.id}#${++this.instanceSeq}`;
+    // Provenance: every instance carries its seed, so "dungeon seed X rolled a chest in a
+    // wall" is a reproducible report, not an anecdote.
+    const seed = (Date.now() ^ (this.instanceSeq * 2654435761)) >>> 0;
     const world = new World(
       area.width,
       area.height,
@@ -193,11 +198,12 @@ export class InstanceManager {
       area.id,
       this.corruption,
       tier,
+      seed,
     );
     world.populateMobs(area.id);
     world.populateNpcs(area.id);
     world.applyWeather(area.theme?.weather ?? 'none');
-    const instance: Instance = { id, areaId: area.id, world };
+    const instance: Instance = { id, areaId: area.id, world, seed };
     this.instances.set(id, instance);
     return instance;
   }

@@ -9,6 +9,9 @@
  * across processes beyond that. Exit code 0 when thresholds pass:
  *   - zero unexpected disconnects, and
  *   - final-window p99 snapshot gap < 3x the server tick interval.
+ *
+ * Record mode (`--record path.jsonl` or BOT_RECORD=path.jsonl): the FIRST bot appends every
+ * brain-consumed server message as JSONL for offline replay through replay.ts.
  */
 
 import { writeFileSync } from 'node:fs';
@@ -16,7 +19,8 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { BotClient } from './bot-client.js';
-import { BotBrain, type BotProfile, type BrainView } from './behaviors.js';
+import { BotBrain, type BotProfile } from './behaviors.js';
+import { viewFrom } from './world-state.js';
 
 const WINDOW_MS = 5000;
 const BRAIN_TICK_MS = 100;
@@ -40,6 +44,8 @@ function parseCli(): {
   url: string;
   durationMs: number;
   mix: { profile: BotProfile; weight: number }[];
+  /** JSONL path for record mode (first bot only) — `--record` flag or BOT_RECORD env var. */
+  record: string | undefined;
 } {
   const { values } = parseArgs({
     options: {
@@ -48,6 +54,7 @@ function parseCli(): {
       minutes: { type: 'string' },
       seconds: { type: 'string' },
       mix: { type: 'string', default: 'grind:70,wander:20,hopper:10' },
+      record: { type: 'string' },
     },
   });
   const bots = Math.max(1, Number(values.bots) || 10);
@@ -62,7 +69,8 @@ function parseCli(): {
     }
   }
   if (mix.length === 0) mix.push({ profile: 'grind', weight: 100 });
-  return { bots, url: values.url ?? 'ws://localhost:8080', durationMs, mix };
+  const record = values.record ?? process.env.BOT_RECORD;
+  return { bots, url: values.url ?? 'ws://localhost:8080', durationMs, mix, record };
 }
 
 function pickProfile(
@@ -109,6 +117,8 @@ async function main(): Promise<void> {
       url: cfg.url,
       name: `bot-${profile.slice(0, 1)}${i}`,
       reconnect: true,
+      // Record mode covers the first bot only — one coherent session, not N interleaved.
+      ...(i === 0 && cfg.record ? { recordPath: cfg.record } : {}),
     });
     const brain = new BotBrain(profile);
     bots.push({ client, brain });
@@ -125,18 +135,7 @@ async function main(): Promise<void> {
     for (const { client, brain } of bots) {
       if (!client.connected) continue;
       brain.noteArea(client.areaId, now);
-      const you = client.you;
-      const view: BrainView = {
-        now,
-        x: you?.x ?? 0,
-        y: you?.y ?? 0,
-        dead: you?.dead ?? false,
-        bagCount: you ? Object.keys(you.loot).length + you.gear.length : 0,
-        selfId: client.selfId,
-        entities: client.entities,
-        area: client.areas.get(client.areaId),
-      };
-      const action = brain.decide(view);
+      const action = brain.decide(viewFrom(client.world, now));
       client.sendInput(action.input);
       if (action.cast) client.cast(action.cast.ability, action.cast.dx, action.cast.dy);
       if (action.interact) client.interact();

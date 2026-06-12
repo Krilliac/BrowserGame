@@ -2,6 +2,7 @@ import { SnapshotBuffer } from './interp.js';
 import { ClientContentStore } from './content-store.js';
 import type { TimedFx } from './draw.js';
 import {
+  PROTOCOL_VERSION,
   decodeServer,
   encode,
   type ChatChannel,
@@ -127,6 +128,8 @@ export class Net {
   artificer: { rerollCost: number; unsocketCost: number } | null = null;
   /** Open banker stash (stored items + capacity), or null when no stash panel is open. */
   stash: { items: ItemInstance[]; cap: number } | null = null;
+  /** Set when the server rejected our protocol version — show "refresh", stop reconnecting. */
+  outdated = false;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
   authRev = 0;
   /** Bumped whenever a content packet arrives — drives a live re-skin (theme edits, hot reload). */
@@ -146,10 +149,15 @@ export class Net {
 
     ws.addEventListener('open', () => {
       this.connected = true;
-      // Present our saved character token (if any) so the server reloads our progress.
+      // Present our saved character token (if any) so the server reloads our progress, and our
+      // protocol version so a stale cached bundle gets a clean "refresh" instead of garbage.
       const token = window.localStorage.getItem('bg.token') ?? undefined;
       ws.send(
-        encode(token ? { t: 'join', name: this.name, token } : { t: 'join', name: this.name }),
+        encode(
+          token
+            ? { t: 'join', name: this.name, token, v: PROTOCOL_VERSION }
+            : { t: 'join', name: this.name, v: PROTOCOL_VERSION },
+        ),
       );
     });
 
@@ -164,8 +172,9 @@ export class Net {
       // server's fresh welcome + snapshots arrive.
       this.snapshots.clear();
       this.fx.length = 0;
-      // Naive auto-reconnect — good enough for a dev foundation.
-      setTimeout(() => this.connect(), 1000);
+      // Naive auto-reconnect — good enough for a dev foundation. An OUTDATED client never
+      // retries: the bundle itself is stale, only a refresh fixes it.
+      if (!this.outdated) setTimeout(() => this.connect(), 1000);
     });
 
     ws.addEventListener('error', () => ws.close());
@@ -409,6 +418,9 @@ export class Net {
             : { from: msg.from, text: msg.text },
         );
         if (this.chat.length > MAX_CHAT_LINES) this.chat.shift();
+        break;
+      case 'refresh_required':
+        this.outdated = true;
         break;
       case 'admin_result':
         console.log('[admin]', msg.ok, msg.message);

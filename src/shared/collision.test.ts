@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Rect } from './areas.js';
-import { houseWalls, pointInRect, resolveCircleMove, type Footprint } from './collision.js';
+import {
+  houseWalls,
+  pointInAnyRect,
+  pointInRect,
+  resolveCircleMove,
+  segmentIntersectsRect,
+  separateCircles,
+  type Footprint,
+} from './collision.js';
 
 describe('houseWalls', () => {
   // A 200x200 house at the origin, default thickness 10, default door 48.
@@ -84,5 +92,122 @@ describe('resolveCircleMove', () => {
     const out = resolveCircleMove(30, 210, 30, 185, RADIUS, walls);
     // Stopped at the wall's south (max-y) face plus radius: wall spans y in [190,200].
     expect(out.y).toBeCloseTo(200 + RADIUS, 6);
+  });
+});
+
+describe('separateCircles', () => {
+  it('returns inputs unchanged when the circles do not overlap', () => {
+    const out = separateCircles(0, 0, 100, 0, 10, 10);
+    expect(out).toEqual({ ax: 0, ay: 0, bx: 100, by: 0 });
+  });
+
+  it('returns inputs unchanged when exactly touching (distance === sum of radii)', () => {
+    const out = separateCircles(0, 0, 20, 0, 10, 10);
+    expect(out).toEqual({ ax: 0, ay: 0, bx: 20, by: 0 });
+  });
+
+  it('pushes each circle HALF the overlap apart along the center line (exact distances)', () => {
+    // Centers 10 apart, radii sum 16 -> overlap 6 -> each moves 3 along the x axis.
+    const out = separateCircles(0, 0, 10, 0, 8, 8);
+    expect(out.ax).toBeCloseTo(-3, 10);
+    expect(out.ay).toBeCloseTo(0, 10);
+    expect(out.bx).toBeCloseTo(13, 10);
+    expect(out.by).toBeCloseTo(0, 10);
+    // After separation the circles rest exactly touching.
+    const dist = Math.hypot(out.bx - out.ax, out.by - out.ay);
+    expect(dist).toBeCloseTo(16, 10);
+  });
+
+  it('splits the push half/half even with unequal radii (mtv is per-pair, not per-radius)', () => {
+    // Centers 5 apart on y, radii 8 + 3 = 11 -> overlap 6 -> each moves 3 along y.
+    const out = separateCircles(0, 0, 0, 5, 8, 3);
+    expect(out.ay).toBeCloseTo(-3, 10);
+    expect(out.by).toBeCloseTo(8, 10);
+    expect(out.ax).toBeCloseTo(0, 10);
+    expect(out.bx).toBeCloseTo(0, 10);
+  });
+
+  it('separates along the diagonal center line, not an axis', () => {
+    // Centers (0,0) and (3,4): distance 5, radii sum 9 -> overlap 4 -> each moves 2
+    // along the unit direction (0.6, 0.8).
+    const out = separateCircles(0, 0, 3, 4, 4, 5);
+    expect(out.ax).toBeCloseTo(-1.2, 10);
+    expect(out.ay).toBeCloseTo(-1.6, 10);
+    expect(out.bx).toBeCloseTo(4.2, 10);
+    expect(out.by).toBeCloseTo(5.6, 10);
+  });
+
+  it('handles exactly-coincident centers without NaN, pushing along +x', () => {
+    const out = separateCircles(5, 5, 5, 5, 4, 4);
+    expect(Number.isFinite(out.ax)).toBe(true);
+    expect(Number.isFinite(out.bx)).toBe(true);
+    // Overlap is the full radii sum (8); A goes -x by 4, B goes +x by 4.
+    expect(out.ax).toBeCloseTo(1, 10);
+    expect(out.ay).toBeCloseTo(5, 10);
+    expect(out.bx).toBeCloseTo(9, 10);
+    expect(out.by).toBeCloseTo(5, 10);
+  });
+});
+
+describe('segmentIntersectsRect', () => {
+  const rect: Rect = { x: 10, y: 10, w: 20, h: 20 }; // spans [10,30] x [10,30]
+
+  it('detects a segment crossing straight through (both endpoints outside)', () => {
+    expect(segmentIntersectsRect(0, 20, 40, 20, rect)).toBe(true);
+  });
+
+  it('detects a segment with one endpoint inside the rect', () => {
+    expect(segmentIntersectsRect(20, 20, 100, 100, rect)).toBe(true);
+  });
+
+  it('detects a segment fully inside the rect (both endpoints inside)', () => {
+    expect(segmentIntersectsRect(12, 12, 28, 28, rect)).toBe(true);
+  });
+
+  it('rejects a segment that misses entirely', () => {
+    expect(segmentIntersectsRect(0, 0, 5, 40, rect)).toBe(false);
+  });
+
+  it('rejects a segment whose infinite line would hit but whose span stops short', () => {
+    // Pointing straight at the rect but ending before reaching it.
+    expect(segmentIntersectsRect(0, 20, 8, 20, rect)).toBe(false);
+  });
+
+  it('counts touching a corner as intersecting (inclusive boundary)', () => {
+    // Diagonal passing exactly through the (10,10) corner.
+    expect(segmentIntersectsRect(0, 20, 20, 0, rect)).toBe(true);
+  });
+
+  it('counts a tangent segment running along an edge as intersecting (inclusive boundary)', () => {
+    // Collinear with the top edge y=10.
+    expect(segmentIntersectsRect(0, 10, 40, 10, rect)).toBe(true);
+  });
+
+  it('rejects a parallel segment just outside an edge', () => {
+    expect(segmentIntersectsRect(0, 9.999, 40, 9.999, rect)).toBe(false);
+  });
+
+  it('treats a zero-length segment as an inclusive point test', () => {
+    expect(segmentIntersectsRect(20, 20, 20, 20, rect)).toBe(true);
+    expect(segmentIntersectsRect(10, 10, 10, 10, rect)).toBe(true); // on the corner
+    expect(segmentIntersectsRect(5, 5, 5, 5, rect)).toBe(false);
+  });
+});
+
+describe('pointInAnyRect', () => {
+  const rects: Rect[] = [
+    { x: 0, y: 0, w: 10, h: 10 },
+    { x: 50, y: 50, w: 10, h: 10 },
+  ];
+
+  it('is true when the point is inside any rect, false otherwise', () => {
+    expect(pointInAnyRect(5, 5, rects)).toBe(true);
+    expect(pointInAnyRect(55, 55, rects)).toBe(true);
+    expect(pointInAnyRect(30, 30, rects)).toBe(false);
+  });
+
+  it('includes edges (same boundary as pointInRect) and is false for an empty list', () => {
+    expect(pointInAnyRect(10, 10, rects)).toBe(true);
+    expect(pointInAnyRect(5, 5, [])).toBe(false);
   });
 });

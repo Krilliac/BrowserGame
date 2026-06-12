@@ -41,6 +41,7 @@ import {
 import { GROUND_TILESETS, groundTilesetFor, pickTile } from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
 import { combineTints } from './tint.js';
+import { backOut, cubicOut } from './easing.js';
 
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
@@ -60,6 +61,9 @@ const CAM_DOLLY_Y = 0.58;
 const CAM_FOLLOW_RATE = 9;
 // A jump bigger than this (a portal / teleport) snaps the camera instead of sliding across the map.
 const CAM_SNAP_DIST = 600;
+// Follow deadzone: the camera ignores movement smaller than this (kills swim during in-place
+// combat shuffles) and otherwise chases the player to the zone's edge, not its center.
+const CAM_DEADZONE = 18;
 // Faux-perspective: actors nearer the bottom of the view (closer to the camera) render slightly
 // bigger, farther ones slightly smaller — the depth scaling D2/D3 use. Kept subtle + clamped.
 const DEPTH_SCALE_K = 0.00035; // per world-unit of y relative to the camera
@@ -492,6 +496,19 @@ export class PixiRenderer {
     return {
       x: this.camX + (screenX - sw / 2) / z,
       y: this.camY + (screenY - sh * CAM_DOLLY_Y) / (PITCH * z),
+    };
+  }
+
+  /** Live object counts for the dev inspector (cheap reads, no allocation beyond the record). */
+  debugCounts(): Record<string, number> {
+    return {
+      views: this.views.size,
+      props: this.propLayer.children.length,
+      actors: this.actorLayer.children.length,
+      animatedProps: this.animatedProps.length,
+      decorLights: this.decorLights.length,
+      frameCache: this.frameCache.size,
+      textures: this.tex.size,
     };
   }
 
@@ -1297,15 +1314,43 @@ export class PixiRenderer {
 
     // Smoothly trail the camera toward the player (a follow camera) instead of snapping rigidly; a
     // large jump (portal/teleport, or the very first frame) snaps so we never slide across the map.
-    const dxc = state.camX - this.camX;
-    const dyc = state.camY - this.camY;
-    if (Math.hypot(dxc, dyc) > CAM_SNAP_DIST) {
-      this.camX = state.camX;
-      this.camY = state.camY;
+    // A small DEADZONE absorbs in-place combat shuffles (no camera swim), and the focus clamps to
+    // the area bounds so small instances (dens, rifts) never show void past the world edge.
+    let targetX = state.camX;
+    let targetY = state.camY;
+    const ddx = targetX - this.camX;
+    const ddy = targetY - this.camY;
+    const dd = Math.hypot(ddx, ddy);
+    if (dd > CAM_SNAP_DIST) {
+      this.camX = targetX;
+      this.camY = targetY;
     } else {
+      if (dd > 0 && dd < CAM_DEADZONE + 1) {
+        targetX = this.camX; // inside the deadzone: hold steady
+        targetY = this.camY;
+      } else if (dd > 0) {
+        targetX -= (ddx / dd) * CAM_DEADZONE; // chase to the deadzone's edge, not the center
+        targetY -= (ddy / dd) * CAM_DEADZONE;
+      }
       const k = 1 - Math.exp(-dt * CAM_FOLLOW_RATE);
-      this.camX += dxc * k;
-      this.camY += dyc * k;
+      this.camX += (targetX - this.camX) * k;
+      this.camY += (targetY - this.camY) * k;
+    }
+    const area = this.content.area(this.currentArea);
+    if (area) {
+      // Visible world extents from the actual projection (the dolly shows more world AHEAD of
+      // the player than behind, so the Y clamp is asymmetric).
+      const halfW = sw / 2 / this.zoom;
+      const above = (sh * CAM_DOLLY_Y) / (PITCH * this.zoom);
+      const below = (sh * (1 - CAM_DOLLY_Y)) / (PITCH * this.zoom);
+      this.camX =
+        area.width > halfW * 2
+          ? Math.min(Math.max(this.camX, halfW), area.width - halfW)
+          : area.width / 2;
+      this.camY =
+        area.height > above + below
+          ? Math.min(Math.max(this.camY, above), area.height - below)
+          : (above + area.height - below) / 2;
     }
     // this.camX/camY (the smoothed camera) and zoom drive both the draw origin and screen->world
     // picking, so click-to-move stays aligned with what's on screen even as the camera eases/zooms.
@@ -1369,10 +1414,11 @@ export class PixiRenderer {
     this.postFx.update(this.lighting.layer, sw, sh);
 
     // Area-change fade-from-black, eased toward 0.
+    // The arrival fade lifts with a cubic ease-out: dark lingers a beat, then clears fast.
     this.fadeAlpha = Math.max(0, this.fadeAlpha - dt / FADE_SECONDS);
+    const fadeEased = 1 - cubicOut(1 - this.fadeAlpha);
     this.fade.clear();
-    if (this.fadeAlpha > 0.001)
-      this.fade.rect(0, 0, sw, sh).fill({ color: 0x000000, alpha: this.fadeAlpha });
+    if (fadeEased > 0.001) this.fade.rect(0, 0, sw, sh).fill({ color: 0x000000, alpha: fadeEased });
 
     // Fire one-shot animations from FX events BEFORE the sweep, so a death can latch a corpse pose
     // on the actor's view the same tick the entity drops out of the snapshot.
@@ -1836,11 +1882,13 @@ export class PixiRenderer {
     view.seen = true;
     view.container.position.set(e.x, e.y * PITCH);
     view.container.zIndex = e.y;
-    // Loot pop: the drop hops up and settles when it first appears (shadow stays planted).
+    // Loot pop: the drop hops up and settles with a back-out overshoot when it first appears
+    // (shadow stays planted) — the easing gives it that satisfied little bounce on landing.
     const drop = view.sprite ?? view.orb;
     if (drop) {
       const age = performance.now() - (view.spawnT ?? 0);
-      drop.y = age < LOOT_POP_MS ? -Math.sin((age / LOOT_POP_MS) * Math.PI) * LOOT_POP_HEIGHT : 0;
+      const t = age / LOOT_POP_MS;
+      drop.y = t < 1 ? -Math.sin(t * Math.PI) * LOOT_POP_HEIGHT * (2 - backOut(t)) : 0;
     }
   }
 

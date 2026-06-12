@@ -8,11 +8,14 @@ Node, run with the project's `tsx`.
 
 | File | Role |
 |------|------|
-| `bot-client.ts` | `BotClient` — connects to `ws://host/ws`, joins, defensively decodes every server message, tracks self + nearby entities + `you` stats, exposes `sendInput/cast/interact/equip`, optional reconnect-on-drop. The `ws` lib answers the server's heartbeat pings automatically, so a healthy socket is never evicted as a ghost. |
+| `bot-client.ts` | `BotClient` — connects to `ws://host/ws`, joins, defensively decodes every server message, exposes `sendInput/cast/interact/equip`, optional reconnect-on-drop and record mode. The `ws` lib answers the server's heartbeat pings automatically, so a healthy socket is never evicted as a ghost. |
+| `world-state.ts` | The transport/brain seam: `BotWorldState` (self + nearby entities + `you` stats + areas) and `applyServerMessage` — the single message→state path shared by the live client and offline replay. |
 | `behaviors.ts` | `BotBrain` — a small state machine (WANDER / FIGHT / LOOT / VENDOR / PORTAL_HOP) that decides intent from a snapshot view. Pure decisions, unit-testable with fake data. |
 | `stress.ts` | CLI load runner: spawn N bots, run a profile mix, sample metrics every 5s, print a live line + summary table, write `last-run.json`, exit 0/1 on thresholds. |
 | `chaos.ts` | Adversarial client: malformed JSON, oversized frames, unknown types, out-of-range inputs, cast spam. Asserts the server stays up by joining a clean canary afterward. |
+| `replay.ts` | `replayBrain(jsonlPath, brain)` — feeds a recorded session through the live message→state path and returns the brain's decision after every snapshot. |
 | `bot-client.test.ts` | Vitest: `BotBrain` unit tests + one integration test that boots the real server (`GAME_DB=:memory:`) and drives a real socket. Run by `npm test` (the root config globs `tools/**` too). |
+| `replay.test.ts` | Vitest: replays the committed `fixtures/approaching-mob.jsonl` and pins the brain's decisions (target, walk-in, cooldown-respecting casts, determinism). |
 
 ## Usage
 
@@ -32,7 +35,41 @@ npx vitest run tools/bots/bot-client.test.ts
 ```
 
 `stress.ts` flags: `--bots N`, `--url ws://host:port`, `--minutes M` or `--seconds S`,
-`--mix grind:W,wander:W,hopper:W` (weights are proportional, assigned deterministically).
+`--mix grind:W,wander:W,hopper:W` (weights are proportional, assigned deterministically),
+`--record path.jsonl` (or `BOT_RECORD=path.jsonl`) — see below.
+
+## Recording a session
+
+Record mode captures everything the brain consumed, for offline replay. Pass
+`--record path.jsonl` to `stress.ts` (or set `BOT_RECORD=path.jsonl`); the **first bot**
+appends each brain-consumed server message (`content` / `welcome` / `snapshot` / `you` /
+`area_changed`) as one JSONL line `{"t_ms": <ms since first message>, "msg": <message>}`.
+One buffered append stream, no sync I/O — recording does not distort the load test.
+
+```bash
+npx tsx tools/bots/stress.ts --bots 5 --url ws://localhost:8080 --seconds 30 \
+  --record tools/bots/session.jsonl
+```
+
+## Replaying a recording
+
+`replayBrain(jsonlPath, brain)` (replay.ts) feeds the file through the SAME
+message→state path the live client uses (`applyServerMessage` in world-state.ts) and
+returns one `{t_ms, state, action}` per snapshot — `now` comes from the recording, so
+replays are wall-clock-free and deterministic given an equivalent brain (fixed rng seed).
+Malformed lines are skipped, mirroring the live drop-don't-crash posture.
+
+```ts
+import { BotBrain } from './behaviors.js';
+import { replayBrain } from './replay.js';
+
+const decisions = replayBrain('tools/bots/session.jsonl', new BotBrain('grind', () => 0.5, 0));
+```
+
+`replay.test.ts` pins this down against the committed `fixtures/approaching-mob.jsonl`
+(a grind bot in town watching a mob close from x=1400 to 950: walk toward it, then
+arrow volleys on the 450ms cooldown). Hand-edit a fixture or record a live session to
+regression-test new brain behavior without a server.
 
 ### Booting a server to test against
 

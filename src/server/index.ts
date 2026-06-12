@@ -10,6 +10,7 @@ import { runGuarded, GuardStats } from './resilience.js';
 import {
   DEFAULT_TICK_RATE,
   MAX_MESSAGE_BYTES,
+  PROTOCOL_VERSION,
   decodeClient,
   encode,
   type EntityState,
@@ -296,6 +297,13 @@ wss.on('connection', (socket) => {
   // able to flood the simulation or chat. Generous for input, tight for chat.
   const messageBucket = new TokenBucket(80, 80);
   const chatBucket = new TokenBucket(5, 1);
+  // Malformed-message strikes (the wasmbots discipline): undecodable frames are an honest-client
+  // impossibility — count them, and cut the connection after a budget rather than tolerating an
+  // endless garbage stream. Legal-but-refused actions (cooldowns, range) cost nothing.
+  let strikes = 0;
+  const strike = (): void => {
+    if (++strikes >= 20) socket.close(1008, 'too many malformed messages');
+  };
 
   socket.on('message', (raw) => {
     if (!messageBucket.tryRemove()) return; // rate-limited: silently drop
@@ -305,11 +313,21 @@ wss.on('connection', (socket) => {
       'client-message',
       () => {
         const msg = decodeClient(raw.toString());
-        if (!msg) return;
+        if (!msg) {
+          strike();
+          return;
+        }
 
         switch (msg.t) {
           case 'join': {
             if (entityId !== 0) return; // already joined
+            // Version gate: a stale cached bundle (a phone that hasn't refreshed since a deploy)
+            // gets a crisp "refresh" instead of confusing decode errors deeper in.
+            if (msg.v !== PROTOCOL_VERSION) {
+              send(socket, { t: 'refresh_required' });
+              socket.close(1008, 'protocol version mismatch');
+              return;
+            }
             // Returning guests present an opaque token; load their save if we recognize it, else mint
             // a fresh token. The token is validated before it ever touches the DB (bound param anyway).
             const presented = isValidToken(msg.token) ? msg.token : undefined;
@@ -705,6 +723,10 @@ wss.on('connection', (socket) => {
             });
             break;
           }
+          default:
+            // A well-formed JSON frame with an unknown type is still not something an honest
+            // client sends — it counts toward the malformed-message budget.
+            strike();
         }
       },
       (label) => guardStats.record(label),

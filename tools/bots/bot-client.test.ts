@@ -19,7 +19,7 @@ import { AREAS } from '../../src/shared/areas.js';
 import { BotBrain, walkToward, type BrainView } from './behaviors.js';
 import { BotClient } from './bot-client.js';
 
-const town = AREAS.town;
+const town = AREAS.town!; // the start area always exists (noUncheckedIndexedAccess)
 
 function viewWith(overrides: Partial<BrainView>): BrainView {
   return {

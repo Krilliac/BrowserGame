@@ -32,7 +32,6 @@
 - [RuneScape Mechanics](research/runescape-mechanics.md)
 - [Multiplayer Netcode](research/multiplayer-netcode.md)
 - [Rendering & Assets](research/rendering-and-assets.md)
-- [Engine Mining (wasmbots, stage.js, Excalibur, hex-engine)](research/engine-mining.md)
 
 ### Reference
 

@@ -47,6 +47,28 @@ describe('procedural dungeon population', () => {
     }
   });
 
+  it('the same seed reproduces the exact same dungeon (provenance)', () => {
+    const roll = (seed: number) => {
+      const w = new World(
+        W,
+        H,
+        { x: 750, y: 220 },
+        undefined,
+        'forgotten_catacombs',
+        undefined,
+        0,
+        seed,
+      );
+      w.populateMobs('forgotten_catacombs');
+      return w
+        .snapshot()
+        .filter((e) => e.kind === 'mob')
+        .map((m) => `${m.name}@${m.x.toFixed(2)},${m.y.toFixed(2)}`);
+    };
+    expect(roll(1234)).toEqual(roll(1234)); // identical layout from an identical seed
+    expect(roll(1234)).not.toEqual(roll(5678)); // and different seeds actually differ
+  });
+
   it('only fills dungeons with their own pool (plus boss/mini-boss)', () => {
     for (const [areaId, def] of Object.entries(DUNGEONS)) {
       const world = buildDungeon(areaId);

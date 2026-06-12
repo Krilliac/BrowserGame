@@ -121,15 +121,34 @@
       `@pixi/tilemap`, composite LPC equipment layers — needs the asset pipeline (Free Texture
       Packer) + human CC-BY attribution review.
 
-## Engine-mining adoptions (from `wiki/research/engine-mining.md`, 2026-06-12)
+## Engine-mining adoptions (wasmbots · stage.js · Excalibur · hex-engine, 2026-06-12)
 
-**P0 (next combat/feel slice):** mob-vs-mob separation + mob wall-slide + projectile wall-stop;
-seeded RNG through the World (+ seed provenance on instances); InputVerdict taxonomy + strike
-counting; protocol version handshake; HUD dirty-flag rendering; dev inspector overlay; fix the
-oversized-frame DoS. **P1:** pointercancel reset, easing.ts, door-waypoint steering, camera
-deadzone+clamp, hireling brain contract, hit-region registry, bot record/replay, Tiled build-time
-importer. **Epic:** WASM player-scripted hirelings. Full detail + skeptical pass-list in the
-research doc.
+Four repos were deep-read for vendorable patterns; everything adoptable SHIPPED in one slice
+(the research doc was deleted after adoption, per plan — this is the surviving record):
+
+- [x] Mob-vs-mob separation (half-MTV), mob wall-slide + door steering, projectile wall-stops.
+- [x] Seeded RNG (mulberry32) through the World; seed recorded per instance (reproducible rolls).
+- [x] Protocol version handshake (`PROTOCOL_VERSION` + `refresh_required`); malformed-message
+      strike system (20 → disconnect). The oversized-frame DoS was already fixed previously.
+- [x] HUD ~12Hz idle throttle (dirty on input); pointercancel/blur ghost-input reset; boot
+      "loading assets…" status; camera deadzone + area bounds clamp; `easing.ts` (loot-pop
+      back-out, arrival cubic fade).
+- [x] Hit-region registry with down+up-inside click semantics (`hit-regions.ts`) — gamble/
+      hire/rift migrated; remaining panels migrate opportunistically as they're touched.
+- [x] Dev inspector overlay (F9, dev-only, `client/inspector.ts`); bot record/replay
+      (`tools/bots/replay.ts` + `--record`).
+
+**Deliberately deferred (gates):** action queue for scripted boss phases (build WITH the first
+scripted boss); Tiled `.tmj` build-time importer + greedy tile-collider meshing (with map
+authoring); grid A* (only if mobs visibly trap after wall-slide); combat-FX particle lerp/
+attractor (with the next combat-feedback pass); golden-image renderer tests (cross-GPU
+flakiness); sprite-manifest convergence + `anchorRect` (opportunistic refactors); animation
+`onFrame` hooks (no consumer yet). **Epic:** WASM player-scripted hirelings on the wasmbots
+sandbox model (validate-before-instantiate, worker isolation, tick budgets + strikes,
+capability-minimal host API) — `stepHireling`'s pure circumstances→intent contract is already
+the Phase 0 shape. **Passed on with reasons:** ECS/engine swaps, Excalibur's (broken) A*,
+hooks-style components, Beschi protocol codegen (single shared TS source), .ase parsing (zero
+.ase files on disk), third math libraries, scene graphs (Pixi's job).
 
 ## Research-driven adoptions (from `wiki/research/`)
 
