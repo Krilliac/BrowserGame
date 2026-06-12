@@ -423,6 +423,7 @@ wss.on('connection', (socket) => {
                 areaId: ev.toAreaId,
                 instanceId: ev.toInstanceId,
               });
+              announceArrival(p.socket, ev.toAreaId);
               const stats = manager.get(p.instanceId)?.world.playerStats(entityId);
               social.updatePresence(p.token, ev.toAreaId, stats?.level ?? 1);
               const name = nameOf(entityId);
@@ -502,6 +503,7 @@ wss.on('connection', (socket) => {
                 areaId: ev.toAreaId,
                 instanceId: ev.toInstanceId,
               });
+              announceArrival(p.socket, ev.toAreaId);
               social.updatePresence(p.token, ev.toAreaId, stats.level);
               const name = nameOf(entityId);
               if (name) notifyFriendWatchers(name);
@@ -732,6 +734,12 @@ function send(socket: WebSocket, msg: ServerMessage): void {
   if (socket.readyState === socket.OPEN) socket.send(encode(msg));
 }
 
+/** Tell an arriving player where they are — the "Now entering …" line in chat. */
+function announceArrival(socket: WebSocket, areaId: string): void {
+  const name = getContent().area(areaId)?.name ?? areaId;
+  send(socket, { t: 'chat', from: 'System', text: `Now entering ${name}.` });
+}
+
 /** Send a message to every player currently in the given instance (area-scoped). */
 function broadcastToInstance(instanceId: string, msg: ServerMessage): void {
   const payload = encode(msg);
@@ -788,6 +796,7 @@ setInterval(() => {
         if (!p) continue;
         p.instanceId = ev.toInstanceId;
         send(p.socket, { t: 'area_changed', areaId: ev.toAreaId, instanceId: ev.toInstanceId });
+        announceArrival(p.socket, ev.toAreaId);
         // Presence follows the player across areas; refresh their party + friends' rosters.
         social.updatePresence(
           p.token,

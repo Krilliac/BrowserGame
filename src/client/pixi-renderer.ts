@@ -15,7 +15,7 @@ import {
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import { RARITY, type Rarity } from '../shared/items.js';
 import type { EntityState } from '../shared/protocol.js';
-import type { DecorProp } from '../shared/areas.js';
+import { isDungeon, type DecorProp } from '../shared/areas.js';
 import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
@@ -361,7 +361,8 @@ export class PixiRenderer {
   private readonly views = new Map<number, ActorView>();
   private currentArea = '';
   private currentTheme: AreaTheme = DEFAULT_THEME;
-  private portalCenters: { x: number; y: number }[] = []; // world-space, for portal glow lights
+  // World-space portal waymarks: glow-light anchors + the hover-tooltip labels.
+  private portalCenters: { x: number; y: number; label: string }[] = [];
   // World-space warm lights cast by the camp's bonfire + torches. Built once per area entry, then
   // projected to screen each frame like the portal lights so they bloom on the additive overlay at
   // night. `flicker` lights re-jitter their radius per frame from the animation clock (live fire).
@@ -535,24 +536,11 @@ export class PixiRenderer {
     for (const portal of area.portals) {
       const cx = portal.rect.x + portal.rect.w / 2;
       const cy = portal.rect.y + portal.rect.h / 2;
-      this.portalCenters.push({ x: cx, y: cy });
-      const pad = new Graphics();
-      // The drawn pad is capped: the TRIGGER can be generous, but the visual should read as a
-      // discrete gateway, never a region-sized wall of light.
-      pad
-        .ellipse(0, 0, Math.min(portal.rect.w, 150), Math.min(portal.rect.h, 90) * PITCH)
-        .fill({ color: '#c9a24b', alpha: 0.22 })
-        .stroke({ width: 2, color: '#e7d9b0' });
-      pad.position.set(cx, cy * PITCH);
-      pad.zIndex = -100000;
-      const label = new Text({
-        text: portal.label,
-        style: { fontFamily: 'system-ui', fontSize: 13, fill: '#e7d9b0' },
-      });
-      label.anchor.set(0.5, 1);
-      label.position.set(cx, cy * PITCH - 6);
-      label.zIndex = -99999;
-      this.propLayer.addChild(pad, label);
+      this.portalCenters.push({ x: cx, y: cy, label: portal.label });
+      // Crossings are marked by LANDMARKS, not glowing pads: a lantern-lit wooden signpost on
+      // the roads, a carved stone waymark at dungeon mouths. The destination shows on hover
+      // (portalLabelAt -> the HUD tooltip), not as always-on floating text.
+      this.propLayer.addChild(this.makeWaymark(portal.toArea, cx, cy));
     }
 
     if (theme.prop !== 'none' && theme.propDensity > 0) {
@@ -725,6 +713,54 @@ export class PixiRenderer {
     this.propShadow(c, w * 0.5, w * 0.22);
     c.addChild(s);
     return true;
+  }
+
+  /**
+   * A portal waymark: a y-sorted landmark at a crossing. Roads get a lantern-lit wooden
+   * signpost (two boards, warm steady light); dungeon mouths get a carved stone monolith with
+   * an ember at its base. Hovering reveals the destination via portalLabelAt + the HUD tooltip.
+   */
+  private makeWaymark(toArea: string, cx: number, cy: number): Container {
+    const c = new Container();
+    c.position.set(cx, cy * PITCH);
+    c.zIndex = cy;
+    this.propShadow(c, 14, 6);
+    const g = new Graphics();
+    if (isDungeon(toArea)) {
+      // A weathered stone waymark: a tapered monolith with a carved down-arrow, ember-lit.
+      g.moveTo(-10, 0).lineTo(-7, -46).lineTo(7, -46).lineTo(10, 0).closePath();
+      g.fill({ color: '#4a4650' }).stroke({ width: 2, color: '#2e2b34' });
+      g.moveTo(0, -38).lineTo(0, -22).stroke({ width: 3, color: '#241f1a' });
+      g.moveTo(-5, -28).lineTo(0, -22).lineTo(5, -28).stroke({ width: 3, color: '#241f1a' });
+      g.ellipse(0, -2, 6, 3).fill({ color: '#ff8a3a', alpha: 0.8 });
+      this.decorLights.push({ x: cx, y: cy - 4, radius: 90, color: 0xff8a3a, flicker: true });
+    } else {
+      // A wooden signpost: post, two angled boards, and a hung lantern (steady, warm).
+      g.rect(-3, -52, 6, 52).fill({ color: '#5a3a22' });
+      g.moveTo(-20, -46).lineTo(18, -46).lineTo(24, -42).lineTo(18, -38).lineTo(-20, -38);
+      g.closePath().fill({ color: '#7a5232' }).stroke({ width: 1.5, color: '#3e2a16' });
+      g.moveTo(20, -32).lineTo(-18, -32).lineTo(-24, -28).lineTo(-18, -24).lineTo(20, -24);
+      g.closePath().fill({ color: '#6a4628' }).stroke({ width: 1.5, color: '#3e2a16' });
+      g.moveTo(3, -52).lineTo(10, -50).stroke({ width: 2, color: '#3e2a16' });
+      g.circle(11, -46, 3.5).fill({ color: '#ffd27a' }).stroke({ width: 1.5, color: '#5a4a2a' });
+      this.decorLights.push({
+        x: cx + 11,
+        y: cy - 46,
+        radius: 110,
+        color: FIRE_LIGHT,
+        flicker: false,
+      });
+    }
+    c.addChild(g);
+    return c;
+  }
+
+  /** The portal waymark's label under a world point (drives the HUD hover tooltip), if any. */
+  portalLabelAt(wx: number, wy: number): string | undefined {
+    for (const p of this.portalCenters) {
+      if (Math.hypot(wx - p.x, wy - p.y) < 85) return p.label;
+    }
+    return undefined;
   }
 
   /** A soft ground shadow at the prop's foot, matching the actors' directional baked-sun look. */

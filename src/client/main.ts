@@ -1594,6 +1594,24 @@ function drawHud(): void {
     },
   );
 
+  // Waymark hover: pointing at a portal signpost reveals where the road leads.
+  const wayWorld = renderer.screenToWorld(mouseX, mouseY);
+  const wayLabel = renderer.portalLabelAt(wayWorld.x, wayWorld.y);
+  if (wayLabel) {
+    hud.font = '13px system-ui, sans-serif';
+    const tw = hud.measureText(wayLabel).width;
+    const tx = Math.min(mouseX + 16, w - tw - 24);
+    const ty = Math.max(mouseY - 16, 34);
+    hud.fillStyle = 'rgba(8,9,13,0.88)';
+    hud.fillRect(tx - 8, ty - 18, tw + 16, 26);
+    hud.strokeStyle = '#c9a24b';
+    hud.lineWidth = 1;
+    hud.strokeRect(tx - 8, ty - 18, tw + 16, 26);
+    hud.fillStyle = '#e7d9b0';
+    hud.textAlign = 'left';
+    hud.fillText(wayLabel, tx, ty);
+  }
+
   const npc = nearbyNpc();
   if (
     npc &&
