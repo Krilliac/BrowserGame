@@ -187,6 +187,19 @@ interface MobRule {
  */
 const MOB_RULES: MobRule[] = [
   { re: /thornling/, sheet: 'monsters', label: 'dryad' },
+  // --- Expansion bestiary: specific creature words, ahead of the generic archetypes below
+  //     (e.g. "Shadowmaw Bear" must hit /bear/ before the /maw/ in the devourer rule). ---
+  { re: /kobold/, sheet: 'monsters', label: 'kobold' },
+  { re: /\bbear\b/, sheet: 'animals', label: 'grizzly-bear' },
+  { re: /naga/, sheet: 'monsters', label: 'naga' },
+  { re: /ettin/, sheet: 'monsters', label: 'two-headed-ettin' },
+  { re: /myconid/, sheet: 'monsters', label: 'large-myconid' },
+  { re: /basilisk/, sheet: 'monsters', label: 'basilisk' },
+  { re: /lycan/, sheet: 'monsters', label: 'lycanthrope' },
+  { re: /manticore/, sheet: 'monsters', label: 'manticore' },
+  { re: /harpy/, sheet: 'monsters', label: 'harpy' },
+  { re: /drake|dragon/, sheet: 'monsters', label: 'drake' },
+  { re: /minotaur/, sheet: 'monsters', label: 'minotaur' },
   { re: /witch|hag/, sheet: 'monsters', label: 'hag' },
   { re: /bonecaller|pale king|crypt lord|lich/, sheet: 'monsters', label: 'lich' },
   { re: /runeseer|seer/, sheet: 'monsters', label: 'unholy-cardinal' },

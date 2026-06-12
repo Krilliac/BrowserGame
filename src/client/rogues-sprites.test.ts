@@ -60,6 +60,19 @@ const SEEDED_MOB_NAMES = [
   'Pyre Caster',
   'Ruin Colossus',
   'Vorzel, the Throne-Tyrant',
+  // --- Expansion bestiary (seed-expansion.ts) ---
+  'Thistle Kobold',
+  'Mosshide Orc',
+  'Shadowmaw Bear',
+  'Rotfen Naga',
+  'Rotfen Ettin',
+  'Gloomcap Myconid',
+  'Basalt Basilisk',
+  'Gnarlfang Lycan',
+  'Crag Manticore',
+  'Riftwing Harpy',
+  'Voidscale Drake',
+  'Blightgore Minotaur',
 ];
 
 /** NPC kinds from the content DB enum (src/server/db/editable.ts). */
@@ -122,6 +135,16 @@ describe('mobSpriteCell', () => {
     expect(mobSpriteCell('Bile Ooze')).toEqual({
       sheet: 'monsters',
       ...MONSTER_CELLS['big-slime'],
+    });
+    // "Shadowmaw Bear" is a bear — the "maw" in its name must not hit the devourer rule.
+    expect(mobSpriteCell('Shadowmaw Bear')).toEqual({
+      sheet: 'animals',
+      ...ANIMAL_CELLS['grizzly-bear'],
+    });
+    // "Gnarlfang Lycan" is the werewolf sprite, not the generic dire wolf.
+    expect(mobSpriteCell('Gnarlfang Lycan')).toEqual({
+      sheet: 'monsters',
+      ...MONSTER_CELLS['lycanthrope'],
     });
   });
 

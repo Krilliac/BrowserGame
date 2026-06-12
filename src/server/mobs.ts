@@ -787,6 +787,204 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     telegraphMs: 840,
     slamRadius: 150,
   },
+
+  // ===================================================================================
+  // Expansion bestiary — fills out the overworld zones with creatures drawn from the
+  // so-far-unused 32rogues sprites (kobolds, orcs, ettins, nagas, drakes…). Seeded into
+  // areas + loot via src/server/db/seed-expansion.ts.
+  // ===================================================================================
+
+  // --- Gloomwood Wilderness (L2-5) ---
+  thistle_kobold: {
+    id: 'thistle_kobold',
+    name: 'Thistle Kobold',
+    hp: 26,
+    level: 2,
+    hue: 95,
+    speed: 145, // skittering fodder, like the Cave Bat
+    aggroRange: 280,
+    attackRange: 40,
+    damage: 5,
+    attackCooldownMs: 750,
+    behavior: 'melee',
+    telegraphMs: 140,
+  },
+  mosshide_orc: {
+    id: 'mosshide_orc',
+    name: 'Mosshide Orc',
+    hp: 55,
+    level: 4,
+    hue: 105,
+    speed: 95,
+    aggroRange: 330,
+    attackRange: 48,
+    damage: 8,
+    attackCooldownMs: 1000,
+    behavior: 'melee',
+    telegraphMs: 300,
+  },
+  shadowmaw_bear: {
+    id: 'shadowmaw_bear',
+    name: 'Shadowmaw Bear',
+    hp: 85,
+    level: 5,
+    hue: 28,
+    speed: 90, // the wilderness bruiser — slow but heavy
+    aggroRange: 320,
+    attackRange: 52,
+    damage: 12,
+    attackCooldownMs: 1300,
+    behavior: 'melee',
+    telegraphMs: 420,
+  },
+
+  // --- Rotfen Marsh (L8-12) ---
+  rotfen_naga: {
+    id: 'rotfen_naga',
+    name: 'Rotfen Naga',
+    hp: 60,
+    level: 10,
+    hue: 120,
+    speed: 92,
+    aggroRange: 480,
+    attackRange: 370,
+    damage: 16,
+    attackCooldownMs: 1650,
+    behavior: 'ranged', // spits venom from the reeds (see MOB_SPELLS)
+    telegraphMs: 620,
+    projectileSpeed: 300,
+    kiteRange: 230,
+  },
+  fen_ettin: {
+    id: 'fen_ettin',
+    name: 'Rotfen Ettin',
+    hp: 160,
+    level: 11,
+    hue: 80,
+    speed: 55, // two heads, one slow slam
+    aggroRange: 320,
+    attackRange: 60,
+    damage: 20,
+    attackCooldownMs: 1600,
+    behavior: 'melee',
+    telegraphMs: 560,
+    slamRadius: 85,
+  },
+
+  // --- Emberdeep Mines (L12-16) ---
+  gloomcap_myconid: {
+    id: 'gloomcap_myconid',
+    name: 'Gloomcap Myconid',
+    hp: 75,
+    level: 12,
+    hue: 265,
+    speed: 60, // a shuffling fungus that lobs spore-bursts
+    aggroRange: 460,
+    attackRange: 360,
+    damage: 17,
+    attackCooldownMs: 1700,
+    behavior: 'ranged',
+    telegraphMs: 640,
+    projectileSpeed: 290,
+    kiteRange: 220,
+  },
+  basalt_basilisk: {
+    id: 'basalt_basilisk',
+    name: 'Basalt Basilisk',
+    hp: 165,
+    level: 15,
+    hue: 16,
+    speed: 85,
+    aggroRange: 380,
+    attackRange: 215, // charge-trigger distance
+    damage: 24,
+    attackCooldownMs: 2200,
+    behavior: 'charger', // a heavy, well-telegraphed lunge
+    telegraphMs: 560,
+    dashSpeed: 540,
+  },
+
+  // --- Frostpeak Pass (L15-20) ---
+  gnarlfang_lycan: {
+    id: 'gnarlfang_lycan',
+    name: 'Gnarlfang Lycan',
+    hp: 150,
+    level: 17,
+    hue: 220,
+    speed: 155, // a sprinting pack-hunter (see MOB_SUPPORT)
+    aggroRange: 380,
+    attackRange: 46,
+    damage: 19,
+    attackCooldownMs: 800,
+    behavior: 'melee',
+    telegraphMs: 190,
+  },
+  crag_manticore: {
+    id: 'crag_manticore',
+    name: 'Crag Manticore',
+    hp: 150,
+    level: 18,
+    hue: 192,
+    speed: 95,
+    aggroRange: 520,
+    attackRange: 430,
+    damage: 25,
+    attackCooldownMs: 1550,
+    behavior: 'ranged', // flings tail-spikes from the cliffs
+    telegraphMs: 620,
+    projectileSpeed: 350,
+    kiteRange: 270,
+  },
+
+  // --- The Sundered Wastes (L20-26) ---
+  riftwing_harpy: {
+    id: 'riftwing_harpy',
+    name: 'Riftwing Harpy',
+    hp: 170,
+    level: 21,
+    hue: 305,
+    speed: 125,
+    aggroRange: 420,
+    attackRange: 220,
+    damage: 27,
+    attackCooldownMs: 2100,
+    behavior: 'charger', // a fast diving strike
+    telegraphMs: 500,
+    dashSpeed: 620,
+  },
+  voidscale_drake: {
+    id: 'voidscale_drake',
+    name: 'Voidscale Drake',
+    hp: 210,
+    level: 24,
+    hue: 280,
+    speed: 88,
+    aggroRange: 540,
+    attackRange: 440,
+    damage: 30,
+    attackCooldownMs: 1600,
+    behavior: 'ranged', // breathes searing orbs (see MOB_SPELLS)
+    telegraphMs: 660,
+    projectileSpeed: 340,
+    kiteRange: 280,
+  },
+
+  // --- The Blighted Spire (L27-32) ---
+  blightgore_minotaur: {
+    id: 'blightgore_minotaur',
+    name: 'Blightgore Minotaur',
+    hp: 300,
+    level: 29,
+    hue: 95,
+    speed: 95,
+    aggroRange: 440,
+    attackRange: 225,
+    damage: 35,
+    attackCooldownMs: 2300,
+    behavior: 'charger', // a hallway-clearing bull rush
+    telegraphMs: 580,
+    dashSpeed: 610,
+  },
 };
 
 export interface AreaMobSpawn {
@@ -861,6 +1059,11 @@ export const MOB_SPELLS: Record<string, AbilityId> = {
   ashen_warlock: 'cinderorb',
   hollow_runeseer: 'arcane_orb',
   pyre_caster: 'meteor',
+  // Expansion bestiary casters.
+  rotfen_naga: 'venom',
+  gloomcap_myconid: 'poison_spit',
+  crag_manticore: 'frostlance',
+  voidscale_drake: 'cinderorb',
 };
 
 /**
@@ -874,6 +1077,7 @@ export const MOB_SUPPORT: Record<string, AbilityId> = {
   magma_crawler: 'warcry',
   avalanche_shade: 'sprint',
   fen_strangler: 'sprint',
+  gnarlfang_lycan: 'sprint', // a pack-hunter that bursts to close the gap
 };
 
 export interface MobView {

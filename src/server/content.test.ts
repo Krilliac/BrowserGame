@@ -66,8 +66,10 @@ describe('content (SQLite-backed)', () => {
     expect(wall?.x2).toBeTypeOf('number');
     const fire = decor.find((d) => d.kind === 'bonfire');
     expect(fire?.x2).toBeUndefined();
-    // Areas without decor rows get an empty array, never undefined.
-    expect(c.area('crypt')?.decor).toEqual([]);
+    // The asset expansion hand-placed set-dressing everywhere — the crypt got its graveyard.
+    expect((c.area('crypt')?.decor ?? []).some((d) => d.kind === 'grave')).toBe(true);
+    // Decor is always an array on a loaded area, never undefined.
+    expect(Array.isArray(c.area('crypt')?.decor)).toBe(true);
   });
 
   it('reflects SQL decor edits on reload (the town look is data-driven)', () => {

@@ -19,6 +19,7 @@ queries) into in-memory structures the simulation reads. Tables (`src/server/db/
 | `loot_entry` | Per-monster drop tables (always / weighted main / rare / gear) |
 | `npcs` | Static NPCs (the town vendor) per area |
 | `decor` | Static set-dressing **props** per area (the town's tents, palisade, bonfire, torches…) |
+| `sprite_tints` | **Sprite color overrides** — multiply a #rrggbb over any source so one image spawns many (dark/gritty) variations. Targets: `mob:<template_id>`, `npc:<kind>`, `hireling:<type>`, `decor:<kind>` |
 | `quests` | Quest definitions (schema seeded with a sample) |
 
 ## How it works

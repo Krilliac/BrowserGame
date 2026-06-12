@@ -133,6 +133,8 @@ export interface EntityState {
   npcKind?: string;
   /** Chests only: true once looted, so the client draws it open and stops prompting. */
   opened?: boolean;
+  /** SQL sprite color override (#rrggbb, multiplied at render) — same source, many variations. */
+  tint?: string;
 }
 
 /** Directional intent for one frame, normalized to -1..1 on each axis. */
@@ -210,8 +212,15 @@ export type ClientMessage =
 
 /** Messages the server sends to clients. */
 export type ServerMessage =
-  /** Game content from the server's SQLite DB, sent once on connect (areas, spells, items). */
-  | { t: 'content'; areas: AreaDef[]; abilities: Ability[]; items: ItemInfo[] }
+  /** Game content from the server's SQLite DB, sent once on connect (areas, spells, items).
+   *  `tints` are SQL sprite color overrides ('decor:<kind>' etc.) applied at render time. */
+  | {
+      t: 'content';
+      areas: AreaDef[];
+      abilities: Ability[];
+      items: ItemInfo[];
+      tints?: Record<string, string>;
+    }
   | {
       t: 'welcome';
       id: number;

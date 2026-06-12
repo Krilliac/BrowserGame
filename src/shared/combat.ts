@@ -7,7 +7,15 @@
  * a frostbolt) with RuneScape-ish roaming, respawning monsters to fight.
  */
 
-export type EntityKind = 'player' | 'mob' | 'projectile' | 'item' | 'npc' | 'chest' | 'hireling';
+export type EntityKind =
+  | 'player'
+  | 'mob'
+  | 'projectile'
+  | 'item'
+  | 'npc'
+  | 'chest'
+  | 'hireling'
+  | 'pot';
 
 // AbilityId is derived from the ABILITIES table below (see the declaration), so adding a spell to
 // that one object automatically extends the id type, ABILITY_ORDER, and the content seeding.

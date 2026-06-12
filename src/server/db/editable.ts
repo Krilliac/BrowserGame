@@ -210,6 +210,15 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     },
   },
 
+  sprite_tints: {
+    pk: 'target',
+    label: 'sprite tint',
+    note: 'multiply color over a sprite source: mob:<id> | npc:<kind> | hireling:<type> | decor:<kind>',
+    columns: {
+      tint: { type: 'text' },
+    },
+  },
+
   vendor_stock: {
     pk: 'id',
     label: 'shop item',

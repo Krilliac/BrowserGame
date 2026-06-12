@@ -164,6 +164,17 @@ CREATE TABLE IF NOT EXISTS decor (
   scale    REAL                                -- optional size multiplier (1 = default)
 );
 
+-- SQL-settable SPRITE COLOR OVERRIDES: multiply-tint any rendered source without touching the
+-- image files, so one sprite spawns many variations (and the whole game can lean dark/gritty).
+-- target selects what gets tinted: 'mob:<template_id>' | 'npc:<kind>' | 'hireling:<type>' |
+-- 'decor:<kind>'. tint is a CSS #rrggbb multiplied over the sprite (#ffffff = unchanged;
+-- darker/desaturated hexes give the Diablo-ish gritty look). Live-edit via /set sprite_tints
+-- <target> tint <hex> (+ /reloadcontent) — no client change needed.
+CREATE TABLE IF NOT EXISTS sprite_tints (
+  target  TEXT PRIMARY KEY,
+  tint    TEXT NOT NULL
+);
+
 -- A quest is either a KILL quest (target_mob + target_count, auto-progresses on kills) or a
 -- COLLECT quest (turn_in_item + turn_in_count, completed by turning items in to a quest-giver).
 CREATE TABLE IF NOT EXISTS quests (

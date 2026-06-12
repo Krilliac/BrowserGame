@@ -135,6 +135,12 @@ const SHRINE_COOLDOWN_MS = 60_000;
 const CHEST_RADIUS = 52;
 const CHEST_GOLD_MIN = 25;
 const CHEST_GOLD_MAX = 90;
+
+// Breakable pots (decor kind 'pot'): brush against one to smash it — a little gold spills out,
+// and once in a while it tops up a belt potion. The Diablo "smash everything" dopamine layer.
+const POT_RADIUS = 30;
+const POT_GOLD_MIN = 2;
+const POT_GOLD_MAX = 14;
 // Quick-use potion belt: instant restore on use, a shared use-cooldown, and a carry cap. Topped up
 // by the Healer and found in chests — the active-survival layer on top of passive regen.
 const POTION_CAP = 8;
@@ -425,6 +431,8 @@ export class World {
   private walls: Rect[] | null = null;
   // Lootable chests for this area, lazily built from 'chest' decor (null = not yet built).
   private chests: { id: number; x: number; y: number; opened: boolean }[] | null = null;
+  // Breakable pots for this area, lazily built from 'pot' decor (null = not yet built).
+  private pots: { id: number; x: number; y: number; broken: boolean }[] | null = null;
 
   private readonly players = new Map<number, Player>();
   private readonly mobs = new Map<number, Mob>();
@@ -1743,6 +1751,7 @@ export class World {
       }
       this.checkShrines(player);
       this.checkChests(player);
+      this.checkPots(player);
     }
   }
 
@@ -1788,6 +1797,32 @@ export class World {
         .map((d) => ({ id: this.allocId(), x: d.x, y: d.y, opened: false }));
     }
     return this.chests;
+  }
+
+  /** The area's breakable pots, built once from its 'pot' decor (each gets a stable entity id). */
+  private potList(): { id: number; x: number; y: number; broken: boolean }[] {
+    if (this.pots === null) {
+      const decor = getContent().area(this.areaId)?.decor ?? [];
+      this.pots = decor
+        .filter((d) => d.kind === 'pot')
+        .map((d) => ({ id: this.allocId(), x: d.x, y: d.y, broken: false }));
+    }
+    return this.pots;
+  }
+
+  /** Smash any pot a player brushes against: a sparkle, a little gold, sometimes a belt potion. */
+  private checkPots(player: Player): void {
+    for (const pot of this.potList()) {
+      if (pot.broken) continue;
+      if (Math.hypot(player.x - pot.x, player.y - pot.y) > POT_RADIUS) continue;
+      pot.broken = true;
+      this.events.push({ kind: 'pickup', x: pot.x, y: pot.y });
+      const gold = POT_GOLD_MIN + Math.floor(Math.random() * (POT_GOLD_MAX - POT_GOLD_MIN + 1));
+      this.dropGround('gold', gold, pot.x, pot.y);
+      if (Math.random() < 0.1) {
+        player.potions.health = Math.min(POTION_CAP, player.potions.health + 1);
+      }
+    }
   }
 
   /** Pop open any closed chest a player walks up to, spilling gold + gear on the ground (once). */
@@ -2638,7 +2673,7 @@ export class World {
       });
     }
     for (const h of this.hirelings.values()) {
-      out.push({
+      const e: EntityState = {
         id: h.id,
         x: h.x,
         y: h.y,
@@ -2650,7 +2685,10 @@ export class World {
         hp: Math.ceil(h.hp),
         maxHp: h.maxHp,
         level: h.level,
-      });
+      };
+      const hTint = getContent().spriteTint(`hireling:${h.template.type}`);
+      if (hTint) e.tint = hTint;
+      out.push(e);
     }
     for (const m of this.mobs.values()) {
       if (m.dead) continue;
@@ -2673,6 +2711,9 @@ export class World {
       };
       if (flags > 0) mob.flags = flags;
       if (m.elite) mob.elite = true;
+      // SQL sprite color override ('mob:<templateId>') — one sprite source, many variations.
+      const mobTint = getContent().spriteTint(`mob:${m.templateId}`);
+      if (mobTint) mob.tint = mobTint;
       out.push(mob);
     }
     for (const proj of this.projectiles.values()) {
@@ -2711,7 +2752,7 @@ export class World {
       out.push(e);
     }
     for (const npc of this.npcs.values()) {
-      out.push({
+      const e: EntityState = {
         id: npc.id,
         x: npc.x,
         y: npc.y,
@@ -2723,7 +2764,10 @@ export class World {
         maxHp: 0,
         level: 0,
         npcKind: npc.kind,
-      });
+      };
+      const npcTint = getContent().spriteTint(`npc:${npc.kind}`);
+      if (npcTint) e.tint = npcTint;
+      out.push(e);
     }
     for (const chest of this.chestList()) {
       out.push({
@@ -2738,6 +2782,21 @@ export class World {
         maxHp: 0,
         level: 0,
         opened: chest.opened,
+      });
+    }
+    for (const pot of this.potList()) {
+      if (pot.broken) continue; // a smashed pot is gone — it simply leaves the snapshot
+      out.push({
+        id: pot.id,
+        x: pot.x,
+        y: pot.y,
+        name: '',
+        hue: 0,
+        kind: 'pot',
+        facing: 0,
+        hp: 0,
+        maxHp: 0,
+        level: 0,
       });
     }
     return out;

@@ -13,15 +13,27 @@ export class ClientContentStore {
   private abilitiesById = new Map<string, Ability>();
   private order: AbilityId[] = [];
   private itemsById = new Map<string, ItemInfo>();
+  private tintsByTarget = new Map<string, string>();
   loaded = false;
 
-  load(areas: AreaDef[], abilities: Ability[], items: ItemInfo[]): void {
+  load(
+    areas: AreaDef[],
+    abilities: Ability[],
+    items: ItemInfo[],
+    tints?: Record<string, string>,
+  ): void {
     this.areasById = new Map(areas.map((a) => [a.id, a]));
     this.abilitiesById = new Map(abilities.map((a) => [a.id, a]));
     // Ability.id is a plain string on the wire; the server only sends real ability ids.
     this.order = abilities.map((a) => a.id) as AbilityId[];
     this.itemsById = new Map(items.map((i) => [i.id, i]));
+    this.tintsByTarget = new Map(Object.entries(tints ?? {}));
     this.loaded = true;
+  }
+
+  /** SQL sprite color override for a target key (e.g. 'decor:grave'), or undefined. */
+  tint(target: string): string | undefined {
+    return this.tintsByTarget.get(target);
   }
 
   area(id: string): AreaDef | undefined {

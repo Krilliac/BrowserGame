@@ -71,6 +71,10 @@ export interface Content {
   /** What the named vendor in the given area sells (empty for non-vendors). */
   vendorStock(areaId: string, npcName: string): StockEntry[];
   rollLoot(mobTemplateId: string, rng?: () => number): { item: string; qty: number }[];
+  /** SQL sprite color override for a target ('mob:<id>' | 'npc:<kind>' | 'decor:<kind>' | …). */
+  spriteTint(target: string): string | undefined;
+  /** All sprite color overrides (shipped to the client in the content packet). */
+  spriteTints(): Record<string, string>;
 }
 
 interface LootGroup {
@@ -246,6 +250,16 @@ export function loadContent(db: GameDatabase): Content {
     }
   }
 
+  // SQL sprite color overrides: multiply-tints applied at render time so one image source spawns
+  // many variations (and the look can be pushed dark/gritty) without editing the files.
+  const tints = new Map<string, string>();
+  for (const r of db.prepare('SELECT * FROM sprite_tints').all() as {
+    target: string;
+    tint: string;
+  }[]) {
+    tints.set(r.target, r.tint);
+  }
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -274,6 +288,8 @@ export function loadContent(db: GameDatabase): Content {
       }
       return out;
     },
+    spriteTint: (target) => tints.get(target),
+    spriteTints: () => Object.fromEntries(tints),
   };
 }
 

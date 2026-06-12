@@ -25,6 +25,24 @@ versioning once it stabilizes.
 
 ### Added
 
+- **SQL sprite color overrides (`sprite_tints`).** A new content table multiply-tints any rendered
+  source — `mob:<template_id>`, `npc:<kind>`, `hireling:<type>`, `decor:<kind>` — so one image
+  spawns many variations (and the look can be pushed dark and gritty) without ever editing the
+  files. Entity tints are stamped server-side onto the snapshot; decor tints ship in the content
+  packet and multiply with each decor row's own `color` column and the area's sprite tint.
+  Live-editable (`/set sprite_tints <target> tint <hex>`, or SQL + `/reloadcontent`). Seeded with
+  gritty examples (moonlit graves, mossy gloom canopy, putrid/drowned monster recolors).
+- **Breakable pots.** 'pot' decor rows spawn as smashable entities: brush against one and it
+  shatters in a sparkle, spilling a little gold (occasionally topping up a belt potion). Placed
+  in Diablo-style clusters through every dungeon and the town.
+- **Hand-placed set-dressing everywhere (324 props).** Every one of the 14 areas now has authored
+  decor: graveyards in the crypts, stalagmite-and-mushroom caves, horror-plant cursed zones,
+  supply caches in the mines, pots by the town vendors — plus animated **candles** and
+  **braziers** (RF Catacombs frame loops) that flicker on the light layer.
+- **12 new monsters from the 32rogues roster.** Thistle Kobold, Mosshide Orc, Shadowmaw Bear,
+  Rotfen Naga, Fen Ettin (slammer), Gloomcap Myconid, Basalt Basilisk (charger), Gnarlfang Lycan,
+  Crag Manticore, Riftwing Harpy, Voidscale Drake, and the Blightgore Minotaur — spread across
+  the overworld with tuned stats, spells, and loot; the mid/late picks join the rift pool.
 - **Endgame rifts (The Shattered Rift).** Saelis the Riftkeeper in town opens a **fresh, private
   rift instance** at a difficulty tier you choose (one tier unlocks per 3 levels, up to 10; the
   fee is 100g × tier — an endgame gold sink). The tier scales everything: +2 monster levels per

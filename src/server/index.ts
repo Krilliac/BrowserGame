@@ -50,7 +50,13 @@ console.log(
 let contentMessage = encodeContent();
 function encodeContent(): string {
   const c = getContent();
-  return encode({ t: 'content', areas: c.areas(), abilities: c.abilityList(), items: c.items() });
+  return encode({
+    t: 'content',
+    areas: c.areas(),
+    abilities: c.abilityList(),
+    items: c.items(),
+    tints: c.spriteTints(),
+  });
 }
 
 /** Re-read content from the DB, re-encode the packet, and push it to every connected client. */

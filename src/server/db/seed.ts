@@ -9,6 +9,8 @@ import { SELL_VALUES } from '../vendor.js';
 import { GEMS } from '../../shared/gems.js';
 import { RUNES } from '../../shared/runewords.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
+import { EXPANSION_AREA_MOBS, EXPANSION_LOOT } from './seed-expansion.js';
+import { EXPANSION_DECOR } from './seed-decor.js';
 
 /** Display names + colors for the non-equipment loot materials (and gold). */
 const MATERIALS: Record<string, { name: string; color: string }> = {
@@ -299,6 +301,82 @@ export function seed(db: Database): void {
   ensureSpellbookContent(db); // separate so pre-spellbook DBs gain the new rows without a wipe
   ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
   ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
+  ensureExpansionContent(db); // hand-placed decor, new-monster rosters/loot, sprite tints
+}
+
+/**
+ * Upsert the asset-expansion content into an already-seeded DB: hand-placed decor (pots, graves,
+ * candles…), the new 32rogues-roster monsters' spawns + loot, and the example `sprite_tints`
+ * color overrides. Idempotent: decor guards per (area, kind); spawns per (area, template); loot
+ * per mob having ANY rows; tints on the target primary key.
+ */
+function ensureExpansionContent(db: Database): void {
+  // Hand-placed decor: insert an area's rows of a kind only when it has none of that kind yet
+  // (the original ensureDecor guard is per-area, which would skip areas that already had ANY
+  // decor — the town's tents must not block its new pots).
+  const decorKindCount = db.prepare(
+    'SELECT COUNT(*) AS n FROM decor WHERE area_id = ? AND kind = ?',
+  );
+  const decorIns = db.prepare(
+    'INSERT INTO decor (area_id,kind,x,y,x2,y2,color,scale) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  const byAreaKind = new Map<string, typeof EXPANSION_DECOR>();
+  for (const d of EXPANSION_DECOR) {
+    const key = `${d.areaId}/${d.kind}`;
+    byAreaKind.set(key, [...(byAreaKind.get(key) ?? []), d]);
+  }
+  for (const rows of byAreaKind.values()) {
+    const first = rows[0]!;
+    const { n } = decorKindCount.get(first.areaId, first.kind) as { n: number };
+    if (n > 0) continue;
+    for (const d of rows) {
+      decorIns.run(
+        d.areaId,
+        d.kind,
+        d.x,
+        d.y,
+        d.x2 ?? null,
+        d.y2 ?? null,
+        d.color ?? null,
+        d.scale ?? null,
+      );
+    }
+  }
+
+  // New-monster area rosters (guarded by area+template, like the act expansion).
+  const areaMobExists = db.prepare('SELECT 1 FROM area_mobs WHERE area_id = ? AND template_id = ?');
+  const areaMobIns = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');
+  for (const s of EXPANSION_AREA_MOBS) {
+    if (!areaMobExists.get(s.areaId, s.templateId)) areaMobIns.run(s.areaId, s.templateId, s.count);
+  }
+
+  // New-monster loot: skip a mob entirely once it has any loot rows.
+  const lootExists = db.prepare('SELECT 1 FROM loot_entry WHERE mob_template_id = ? LIMIT 1');
+  const lootIns = db.prepare(
+    'INSERT INTO loot_entry (mob_template_id,grp,item_id,weight,min_qty,max_qty,is_nothing,chance) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  const lootMobs = new Set(EXPANSION_LOOT.map((l) => l.mobTemplateId));
+  for (const mobId of lootMobs) {
+    if (lootExists.get(mobId)) continue;
+    for (const l of EXPANSION_LOOT) {
+      if (l.mobTemplateId !== mobId) continue;
+      lootIns.run(mobId, l.grp, l.itemId, l.weight, l.minQty, l.maxQty, l.isNothing, l.chance);
+    }
+  }
+
+  // Example SQL sprite color overrides — the dark/gritty variation system. Multiply tints over
+  // the shared sprite sources; edit/add rows live via /set sprite_tints <target> tint <hex>.
+  const tintIns = db.prepare('INSERT OR IGNORE INTO sprite_tints (target,tint) VALUES (?,?)');
+  const TINTS: [string, string][] = [
+    ['decor:tree', '#93a08c'], // Gloomwood canopy: drained, mossy grey-green
+    ['decor:dead_tree', '#b8a89c'], // ashen driftwood
+    ['decor:grave', '#aeb4cc'], // cold moonlit headstones
+    ['decor:ruin', '#b0a8a0'], // dusty collapsed stone
+    ['mob:rot_ghoul', '#a8c096'], // putrid green hide
+    ['mob:gravetide_revenant', '#92aed0'], // drowned blue
+    ['mob:mosshide_orc', '#9ec09a'], // moss-stained skin (sprite shared with future orc kin)
+  ];
+  for (const [target, tint] of TINTS) tintIns.run(target, tint);
 }
 
 /**

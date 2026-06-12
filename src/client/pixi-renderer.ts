@@ -40,6 +40,7 @@ import {
 } from './rogues-sprites.js';
 import { GROUND_TILESETS, groundTilesetFor, pickTile } from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
+import { combineTints } from './tint.js';
 
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
@@ -73,6 +74,20 @@ const PLAYER_LIGHT = { radius: 190, color: 0xffd9a0 };
 const PORTAL_LIGHT = { radius: 130, color: 0xc9a24b };
 // Warm campfire light tint (0xRRGGBB) the bonfire + torches add to the additive bloom layer.
 const FIRE_LIGHT = 0xffb25a;
+
+/** Animated decor kinds: small frame-loop sprites (RF Catacombs cutouts) with a flicker light. */
+const ANIM_DECOR: Record<string, { srcs: string[]; scale: number; lightRadius: number }> = {
+  candle: {
+    srcs: [1, 2, 3, 4].map((i) => `/assets/curated/decor/anim/candle-${i}.png`),
+    scale: 1.6,
+    lightRadius: 55,
+  },
+  brazier: {
+    srcs: [1, 2, 3, 4].map((i) => `/assets/curated/decor/anim/brazier-${i}.png`),
+    scale: 2.1,
+    lightRadius: 120,
+  },
+};
 
 /**
  * Warm wood/cloth/iron palette for the town's Rogue-Encampment set-dressing. Used by the decor
@@ -355,6 +370,8 @@ export class PixiRenderer {
   // Cached fire flames (bonfire/torch). Their flame Graphics is redrawn each frame from the shared
   // animation clock so the camp visibly flickers — without rebuilding the whole decor container.
   private fireFlames: { gfx: Graphics; scale: number; seed: number }[] = [];
+  // Animated decor sprites (candles/braziers): frame-looped each render off the shared clock.
+  private animatedProps: { sprite: Sprite; srcs: string[]; phaseMs: number }[] = [];
   // Cached shrine orbs (the floating glowing gem atop each shrine pedestal). Like fireFlames, each
   // orb's Graphics is redrawn every frame from the animation clock so it bobs + pulses without
   // rebuilding the decor container. Built once per area entry in drawShrine.
@@ -412,6 +429,7 @@ export class PixiRenderer {
     for (const entry of Object.values(DECOR_SPRITES)) {
       for (const d of Array.isArray(entry) ? entry : [entry]) decorSrcs.add(d.src);
     }
+    for (const def of Object.values(ANIM_DECOR)) for (const src of def.srcs) decorSrcs.add(src);
     const all = {
       ...Object.fromEntries(Object.entries(SHEETS).map(([a, s]) => [a, s.src])),
       ...MISC,
@@ -511,6 +529,7 @@ export class PixiRenderer {
     this.portalCenters = [];
     this.decorLights = [];
     this.fireFlames = [];
+    this.animatedProps = [];
     this.shrineOrbs = [];
     this.houses = [];
     for (const portal of area.portals) {
@@ -587,8 +606,10 @@ export class PixiRenderer {
 
     // Real decor sprites (curated pack cutouts) where one exists for the kind — the variant is
     // picked deterministically from the prop's position, so a row of graves doesn't repeat. Kinds
-    // with no mapping (or a failed texture) keep their procedural draw below.
-    if (this.addDecorSprite(c, prop.kind, prop.x, prop.y, scale)) return c;
+    // with no mapping (or a failed texture) keep their procedural draw below. Pots are excluded:
+    // they are authoritative ENTITIES (breakable), drawn in the entity path like chests.
+    if (prop.kind !== 'pot' && this.addDecorSprite(c, prop.kind, prop.x, prop.y, scale, prop.color))
+      return c;
 
     switch (prop.kind) {
       case 'palisade':
@@ -625,10 +646,42 @@ export class PixiRenderer {
         this.drawShrine(c, prop.x, prop.y, prop.color ?? '#7fd0ff');
         break;
       case 'chest':
-        // Chests are authoritative ENTITIES (they carry the live `opened` state) drawn in the
+      case 'pot':
+        // Chests + pots are authoritative ENTITIES (live opened/broken state) drawn in the
         // entity path. These decor rows are just the server's placement markers — render nothing
-        // here, or every chest would draw twice (once as decor, once as the entity).
+        // here, or each would draw twice (once as decor, once as the entity).
         break;
+      case 'candle':
+      case 'brazier': {
+        // Small animated flame props: a frame-looped sprite + a warm flicker light. The frames
+        // advance in updateAnimatedProps off the shared clock, phase-offset per prop so a wall
+        // of candles never blinks in lockstep.
+        const def = ANIM_DECOR[prop.kind]!;
+        const tex0 = this.tex.get(def.srcs[0]!);
+        if (tex0) {
+          const s = new Sprite(tex0);
+          s.anchor.set(0.5, 1);
+          s.scale.set(def.scale * scale);
+          s.tint = combineTints(this.content.tint(`decor:${prop.kind}`), prop.color);
+          c.addChild(s);
+          this.animatedProps.push({
+            sprite: s,
+            srcs: def.srcs,
+            phaseMs: hash2(prop.x | 0, prop.y | 0) * 520,
+          });
+          this.decorLights.push({
+            x: ax,
+            y: ay - 10,
+            radius: def.lightRadius * scale,
+            color: FIRE_LIGHT,
+            flicker: true,
+          });
+        } else {
+          // Sprite missing: fall back to the procedural torch so the light source still reads.
+          this.drawTorch(c, prop.x, prop.y);
+        }
+        break;
+      }
       default:
         // Unknown kind: a low stone marker so bad data fails visibly but harmlessly.
         this.propShadow(c, 10, 5);
@@ -649,6 +702,7 @@ export class PixiRenderer {
     seedX: number,
     seedY: number,
     scale: number,
+    rowColor?: string,
   ): boolean {
     const ds = decorSprite(kind, seedX, seedY);
     const dtex = ds ? this.tex.get(ds.src) : undefined;
@@ -662,6 +716,9 @@ export class PixiRenderer {
     const s = new Sprite(tex);
     s.anchor.set(0.5, ds.anchorY ?? 1);
     s.scale.set(ds.scale * scale);
+    // SQL color overrides: a kind-wide 'decor:<kind>' tint × this row's own color column —
+    // the same cutout spawns dark/gritty variations without touching the image file.
+    s.tint = combineTints(this.content.tint(`decor:${kind}`), rowColor);
     const w = tex.width * ds.scale * scale;
     this.propShadow(c, w * 0.5, w * 0.22);
     c.addChild(s);
@@ -1146,6 +1203,15 @@ export class PixiRenderer {
     }
   }
 
+  /** Advance every animated decor sprite (candles/braziers) to its current loop frame. */
+  private updateAnimatedProps(now: number): void {
+    for (const p of this.animatedProps) {
+      const i = Math.floor((now + p.phaseMs) / 130) % p.srcs.length;
+      const t = this.tex.get(p.srcs[i]!);
+      if (t) p.sprite.texture = t;
+    }
+  }
+
   /** One flame teardrop: a base ellipse pulled to a swaying point at height `h`. */
   private flameTeardrop(
     g: Graphics,
@@ -1250,6 +1316,8 @@ export class PixiRenderer {
     }
     // Live flicker for the cached campfire/torch flames (drawn from this same clock — never random).
     this.updateFireFlames(now);
+    // Advance the candle/brazier frame loops (same clock).
+    this.updateAnimatedProps(now);
     // Gentle bob + halo pulse for the cached shrine orbs (same clock — never Date.now/random).
     this.updateShrineOrbs(now);
     this.lighting.update(
@@ -1278,6 +1346,7 @@ export class PixiRenderer {
       if (e.kind === 'projectile') this.updateProjectile(e);
       else if (e.kind === 'item') this.updateItem(e);
       else if (e.kind === 'chest') this.updateChest(e);
+      else if (e.kind === 'pot') this.updatePot(e);
       else this.updateActor(e, e.id === state.selfId);
     }
     for (const [id, view] of this.views) {
@@ -1439,14 +1508,15 @@ export class PixiRenderer {
     view.lastY = e.y;
     if (view.sprite) {
       const flags = e.flags ?? 0;
-      // Status/flash tints override; otherwise actors take the area's cohesive sprite tint.
-      // (The gold NPC tint only suits the shared hero sheet — distinct rogues figures keep
-      // their own palette.)
+      // Status/flash tints override; otherwise actors take the area's cohesive sprite tint
+      // multiplied by any SQL sprite-color override stamped on the entity (the `sprite_tints`
+      // table — one source image, many dark/gritty variations). The gold NPC tint only suits
+      // the shared hero sheet — distinct rogues figures keep their own palette.
       view.sprite.tint =
         e.kind === 'npc'
           ? view.sheet
             ? 0xffd97a
-            : 0xffffff
+            : combineTints(this.currentTheme.spriteTint, e.tint)
           : now < view.flashUntil
             ? TINT_FLASH
             : flags & 2
@@ -1457,7 +1527,7 @@ export class PixiRenderer {
                   ? TINT_WEAKEN
                   : flags & 64
                     ? TINT_ENRAGE
-                    : (this.currentTheme.spriteTint as ColorSource);
+                    : combineTints(this.currentTheme.spriteTint, e.tint);
     }
 
     if (view.dyn && e.maxHp > 0) {
@@ -1743,6 +1813,33 @@ export class PixiRenderer {
    * cheap per-frame redraw off the renderer's clock (never Date.now/random). The authoritative chest
    * is THIS entity; its decor placement marker is skipped, so it never double-draws.
    */
+  /**
+   * A breakable pot: an authoritative entity (the live `broken` state is server-side — a smashed
+   * pot simply leaves the snapshot, and the not-seen sweep clears its view). Its decor placement
+   * marker is skipped in makeDecorProp, so it never double-draws.
+   */
+  private updatePot(e: EntityState): void {
+    let view = this.views.get(e.id);
+    if (!view) {
+      const container = new Container();
+      view = { container, topY: 0, lastX: e.x, lastY: e.y, lastHp: 0, flashUntil: 0, seen: true };
+      if (!this.addDecorSprite(container, 'pot', e.x, e.y, 1)) {
+        // Procedural amphora fallback when the curated sprite isn't loaded.
+        const g = new Graphics();
+        g.ellipse(0, -3, 8, 4).fill({ color: '#8a5a36' });
+        g.ellipse(0, -10, 6, 7).fill({ color: '#a06a40' });
+        g.ellipse(0, -16, 4, 2).fill({ color: '#6a4226' });
+        this.propShadow(container, 8, 4);
+        container.addChild(g);
+      }
+      this.actorLayer.addChild(container);
+      this.views.set(e.id, view);
+    }
+    view.seen = true;
+    view.container.position.set(e.x, e.y * PITCH);
+    view.container.zIndex = e.y;
+  }
+
   private updateChest(e: EntityState): void {
     let view = this.views.get(e.id);
     if (!view) {

@@ -298,7 +298,7 @@ export class Net {
   private handle(msg: ServerMessage): void {
     switch (msg.t) {
       case 'content':
-        this.content.load(msg.areas, msg.abilities, msg.items);
+        this.content.load(msg.areas, msg.abilities, msg.items, msg.tints);
         this.contentRev++;
         break;
       case 'welcome':
