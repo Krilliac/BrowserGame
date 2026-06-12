@@ -438,19 +438,19 @@ export class PixiRenderer {
       animals32: ANIMALS_SHEET.src,
       ...Object.fromEntries([...decorSrcs].map((src) => [src, src])),
     };
-    try {
-      const loaded = await Assets.load(Object.entries(all).map(([alias, src]) => ({ alias, src })));
-      for (const alias of Object.keys(all)) {
-        const t = (loaded as Record<string, Texture>)[alias];
+    // Load every texture INDEPENDENTLY: a single failed fetch (a dev-server blip, a missing
+    // file) must only cost that one sprite its art — never the whole game. A batched
+    // Assets.load rejects wholesale, which once orbed every actor over one dropped request.
+    await Promise.allSettled(
+      Object.entries(all).map(async ([alias, src]) => {
+        const t = (await Assets.load({ alias, src })) as Texture;
         if (t) this.tex.set(alias, t);
-      }
-      // The 32px sheets and decor cutouts are pixel art — keep them crisp when scaled.
-      for (const alias of ['rogues32', 'monsters32', 'animals32', ...decorSrcs]) {
-        const t = this.tex.get(alias);
-        if (t) t.source.scaleMode = 'nearest';
-      }
-    } catch {
-      // leave tex empty -> procedural fallback
+      }),
+    );
+    // The 32px sheets and decor cutouts are pixel art — keep them crisp when scaled.
+    for (const alias of ['rogues32', 'monsters32', 'animals32', ...decorSrcs]) {
+      const t = this.tex.get(alias);
+      if (t) t.source.scaleMode = 'nearest';
     }
     // Ground tilesets load as plain images: the ground texture is baked on a 2D canvas per area.
     const tileSrcs = new Set(Object.values(GROUND_TILESETS).map((t) => t.src));
