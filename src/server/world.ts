@@ -100,6 +100,10 @@ const INTERACT_RANGE = 70;
 const MAX_BAG_GEAR = 30;
 // Bank stash slots — far larger than the bag, so the overflow has somewhere safe to go.
 const STASH_CAP = 60;
+// Shrines (decor kind 'shrine'): step within this radius to be blessed; the shrine then recharges
+// for the cooldown before it can bless again (shared across players, Diablo-shrine style).
+const SHRINE_RADIUS = 46;
+const SHRINE_COOLDOWN_MS = 60_000;
 // Artificer service costs (flat, predictable): reroll an item's affixes for gold + a rune shard;
 // pop a socketed gem back to the bag for gold.
 export const ARTIFICER_REROLL_GOLD = 250;
@@ -320,6 +324,8 @@ export class World {
   private localId = 1;
   private readonly allocId: () => number;
   private now = 0; // accumulated sim time, ms (drives cooldowns/respawns)
+  // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
+  private shrines: { x: number; y: number; readyAt: number }[] | null = null;
 
   private readonly players = new Map<number, Player>();
   private readonly mobs = new Map<number, Mob>();
@@ -1369,6 +1375,32 @@ export class World {
         player.y = clamp(player.y + dy * speed * dt, 0, this.height);
         player.facing = Math.atan2(dy, dx);
       }
+      this.checkShrines(player);
+    }
+  }
+
+  /** The area's shrines, built once from its 'shrine' decor (empty for areas with none). */
+  private shrineList(): { x: number; y: number; readyAt: number }[] {
+    if (this.shrines === null) {
+      const decor = getContent().area(this.areaId)?.decor ?? [];
+      this.shrines = decor
+        .filter((d) => d.kind === 'shrine')
+        .map((d) => ({ x: d.x, y: d.y, readyAt: 0 }));
+    }
+    return this.shrines;
+  }
+
+  /** Bless a player who steps onto a charged shrine with a random timed buff, then recharge it. */
+  private checkShrines(player: Player): void {
+    const shrines = this.shrineList();
+    for (const s of shrines) {
+      if (this.now < s.readyAt) continue;
+      if (Math.hypot(player.x - s.x, player.y - s.y) > SHRINE_RADIUS) continue;
+      const buff = SHRINE_BUFFS[Math.floor(Math.random() * SHRINE_BUFFS.length)]!;
+      player.buffs.apply(buff.id, buff.ms, buff.magnitude);
+      s.readyAt = this.now + SHRINE_COOLDOWN_MS;
+      this.notify(player.id, `A shrine blesses you — ${buff.label}.`);
+      return; // one blessing per tick
     }
   }
 
@@ -2253,6 +2285,18 @@ const BUFF_ON_CAST: Partial<
   sprint: { id: 'haste', ms: 6000, magnitude: 0.35 }, // +35% attack speed & move
   renew: { id: 'regen', ms: 6000, magnitude: 10 }, // 10 hp/sec
 };
+
+/** Shrine blessings — stronger and longer than the buff spells (a found-shrine reward, Diablo-style). */
+const SHRINE_BUFFS: {
+  id: 'might' | 'haste' | 'regen';
+  ms: number;
+  magnitude: number;
+  label: string;
+}[] = [
+  { id: 'might', ms: 30_000, magnitude: 0.4, label: 'Might — your blows strike harder' },
+  { id: 'haste', ms: 30_000, magnitude: 0.4, label: 'Haste — you move and strike faster' },
+  { id: 'regen', ms: 20_000, magnitude: 15, label: 'Renewal — your wounds knit closed' },
+];
 
 /**
  * Map an ability's on-hit effect onto a monster. A spell may appear in several maps (e.g. a curse

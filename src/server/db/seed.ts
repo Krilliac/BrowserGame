@@ -297,7 +297,7 @@ export function seed(db: Database): void {
   seedAccounts(db); // separate so existing content DBs still get the default account
   ensureSpellbookContent(db); // separate so pre-spellbook DBs gain the new rows without a wipe
   ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
-  ensureTownDecor(db); // town set-dressing props (idempotent: no-op once the town has decor)
+  ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
 }
 
 /**
@@ -812,24 +812,45 @@ const TOWN_DECOR: readonly DecorProp[] = [
   { kind: 'house', x: 250, y: 360, x2: 420, y2: 500, color: '#7a5636' },
   { kind: 'house', x: 1190, y: 360, x2: 1360, y2: 500, color: '#6e5a3e' },
   { kind: 'house', x: 700, y: 920, x2: 900, y2: 1060, color: '#7a5636' },
+
+  // --- A shrine by the bonfire: step onto it to be blessed with a timed buff (recharges). ---
+  { kind: 'shrine', x: 800, y: 772, color: '#7fd0ff' },
 ];
 
-/** Insert every town decor prop. Called inside the fresh-DB seed transaction. */
-function seedDecor(db: Database): void {
+/** Decor for the Hollowroot Caverns: a pair of shrines tucked in the dark to reward exploring. */
+const HOLLOWROOT_DECOR: readonly DecorProp[] = [
+  { kind: 'shrine', x: 400, y: 820, color: '#9a7fff' },
+  { kind: 'shrine', x: 1320, y: 1040, color: '#7fffd0' },
+];
+
+/** All set-dressing decor, keyed by area. seedDecor/ensureDecor consume this. */
+const DECOR: Record<string, readonly DecorProp[]> = {
+  town: TOWN_DECOR,
+  hollowroot: HOLLOWROOT_DECOR,
+};
+
+/** Insert one area's decor props. */
+function seedAreaDecor(db: Database, areaId: string, props: readonly DecorProp[]): void {
   const ins = db.prepare(
     'INSERT INTO decor (area_id,kind,x,y,x2,y2,color,scale) VALUES (?,?,?,?,?,?,?,?)',
   );
-  for (const d of TOWN_DECOR) {
-    ins.run('town', d.kind, d.x, d.y, d.x2 ?? null, d.y2 ?? null, d.color ?? null, d.scale ?? null);
+  for (const d of props) {
+    ins.run(areaId, d.kind, d.x, d.y, d.x2 ?? null, d.y2 ?? null, d.color ?? null, d.scale ?? null);
   }
 }
 
-/** Idempotently add the town decor to an already-seeded DB (no-op once the town has props). */
-function ensureTownDecor(db: Database): void {
-  const n = db.prepare("SELECT COUNT(*) AS n FROM decor WHERE area_id = 'town'").get() as {
-    n: number;
-  };
-  if (n.n === 0) seedDecor(db);
+/** Insert every area's decor. Called inside the fresh-DB seed transaction. */
+function seedDecor(db: Database): void {
+  for (const [areaId, props] of Object.entries(DECOR)) seedAreaDecor(db, areaId, props);
+}
+
+/** Idempotently add each area's decor to an already-seeded DB (per-area no-op once it has props). */
+function ensureDecor(db: Database): void {
+  const countFor = db.prepare('SELECT COUNT(*) AS n FROM decor WHERE area_id = ?');
+  for (const [areaId, props] of Object.entries(DECOR)) {
+    const { n } = countFor.get(areaId) as { n: number };
+    if (n === 0) seedAreaDecor(db, areaId, props);
+  }
 }
 
 function seedNpcs(db: Database): void {
