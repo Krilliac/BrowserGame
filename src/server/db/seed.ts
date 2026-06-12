@@ -548,6 +548,7 @@ function ensureSpellbookContent(db: Database): void {
   ensureNpc('town', 'Lucky Marn', 940, 560, 300, 'gambler');
   ensureNpc('town', 'Coalhand the Artificer', 580, 560, 25, 'artificer');
   ensureNpc('town', 'Vault Keeper', 1020, 560, 40, 'banker');
+  ensureNpc('town', 'Captain Aldric', 700, 620, 210, 'recruiter');
 
   // Collect/turn-in quests added after the original seed (id is the PK, so OR IGNORE dedups).
   const insQuest = db.prepare(

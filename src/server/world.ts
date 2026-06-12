@@ -63,6 +63,14 @@ import {
   type MobView,
   type PlayerView,
 } from './mobs.js';
+import {
+  HIRELING_TEMPLATES,
+  hirelingCost,
+  hirelingStats,
+  hirelingTemplate,
+  stepHireling,
+  type HirelingTemplate,
+} from './hirelings.js';
 import { DUNGEONS, type DungeonDef, type Rect } from '../shared/areas.js';
 import { resolveCircleMove, wallsForDecor, PLAYER_COLLISION_RADIUS } from '../shared/collision.js';
 import { rollRandomUnique } from '../shared/uniques.js';
@@ -248,6 +256,8 @@ interface Player {
   buffs: StatusSet;
   /** Active debuffs applied by enemy spells (slow / burn / weaken). */
   debuffs: StatusSet;
+  /** Mercenary contract (hired at the Recruiter). Null = none; voided when the hireling dies. */
+  hireling: { type: string } | null;
   dead: boolean;
   respawnAt: number;
 }
@@ -284,6 +294,8 @@ export interface PlayerSave {
   known?: [string, number][];
   /** Visited area ids (waypoints). Absent on old saves — the current area is added on load. */
   discovered?: string[];
+  /** Mercenary contract; the hireling respawns beside the player in the destination instance. */
+  hireling?: { type: string } | null;
 }
 
 interface Mob {
@@ -356,7 +368,14 @@ interface GroundItem {
   instance?: ItemInstance;
 }
 
-type NpcKind = 'vendor' | 'questgiver' | 'healer' | 'gambler' | 'artificer' | 'banker';
+type NpcKind =
+  | 'vendor'
+  | 'questgiver'
+  | 'healer'
+  | 'gambler'
+  | 'artificer'
+  | 'banker'
+  | 'recruiter';
 
 interface Npc {
   id: number;
@@ -365,6 +384,21 @@ interface Npc {
   y: number;
   hue: number;
   kind: NpcKind;
+}
+
+/** A live mercenary entity: follows its owner, fights monsters, dies (voiding the contract). */
+interface Hireling {
+  id: number;
+  ownerId: number;
+  template: HirelingTemplate;
+  x: number;
+  y: number;
+  facing: number;
+  hp: number;
+  maxHp: number;
+  level: number;
+  power: number;
+  attackCd: number;
 }
 
 /**
@@ -386,6 +420,7 @@ export class World {
 
   private readonly players = new Map<number, Player>();
   private readonly mobs = new Map<number, Mob>();
+  private readonly hirelings = new Map<number, Hireling>();
   private readonly projectiles = new Map<number, Projectile>();
   private readonly items = new Map<number, GroundItem>();
   private readonly npcs = new Map<number, Npc>();
@@ -399,6 +434,11 @@ export class World {
   }[] = [];
   /** Pending gambling windows to deliver (player just interacted with a gambler NPC). */
   private gambleOffers: { playerId: number; cost: number }[] = [];
+  /** Pending hire windows to deliver (player just interacted with a recruiter NPC). */
+  private hireOffers: {
+    playerId: number;
+    offers: { type: string; name: string; cost: number }[];
+  }[] = [];
   /** Pending Artificer windows to deliver (player just interacted with an artificer NPC). */
   private artificerOffers: { playerId: number }[] = [];
   /** Pending stash windows to deliver: the bank contents for a player who opened/changed it. */
@@ -586,7 +626,15 @@ export class World {
 
   /** Place static NPCs for the area (from the content DB). Called once after construction. */
   populateNpcs(areaId: string): void {
-    const KINDS: NpcKind[] = ['vendor', 'questgiver', 'healer', 'gambler', 'artificer', 'banker'];
+    const KINDS: NpcKind[] = [
+      'vendor',
+      'questgiver',
+      'healer',
+      'gambler',
+      'artificer',
+      'banker',
+      'recruiter',
+    ];
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
       const kind = (KINDS as string[]).includes(npc.kind) ? (npc.kind as NpcKind) : 'vendor';
@@ -615,6 +663,16 @@ export class World {
       this.artificerOffers.push({ playerId: player.id });
     } else if (npc.kind === 'banker') {
       this.pushStash(player); // open the stash window with the current contents
+    } else if (npc.kind === 'recruiter') {
+      const cost = hirelingCost(player.level);
+      this.hireOffers.push({
+        playerId: player.id,
+        offers: Object.values(HIRELING_TEMPLATES).map((t) => ({
+          type: t.type,
+          name: t.name,
+          cost,
+        })),
+      });
     } else {
       this.talkToQuestGiver(player);
     }
@@ -706,6 +764,67 @@ export class World {
     const drained = this.artificerOffers;
     this.artificerOffers = [];
     return drained;
+  }
+
+  /** Drain pending hire windows for the host to deliver as `hire_open` packets. */
+  drainHireOffers(): {
+    playerId: number;
+    offers: { type: string; name: string; cost: number }[];
+  }[] {
+    const drained = this.hireOffers;
+    this.hireOffers = [];
+    return drained;
+  }
+
+  /**
+   * Hire a mercenary at the Recruiter. Re-validates proximity, the type, and gold. Re-hiring
+   * (after a death, or to switch types) replaces the current companion and costs the full fee.
+   */
+  hire(id: number, type: string): void {
+    const player = this.players.get(id);
+    if (!player || player.dead) return;
+    const npc = this.nearbyNpc(player);
+    if (!npc || npc.kind !== 'recruiter') return;
+    const template = hirelingTemplate(type);
+    if (!template) return;
+    const cost = hirelingCost(player.level);
+    if (player.gold < cost) {
+      this.notify(player.id, `You need ${cost}g to hire a ${template.name}.`);
+      return;
+    }
+    player.gold -= cost;
+    player.hireling = { type };
+    this.despawnHirelingOf(player.id);
+    this.spawnHireling(player);
+    this.notify(player.id, `${template.name} hired — they will fight at your side.`);
+  }
+
+  /** Spawn the player's contracted hireling beside them (on hire, import, or area arrival). */
+  private spawnHireling(player: Player): void {
+    const template = player.hireling ? hirelingTemplate(player.hireling.type) : undefined;
+    if (!template) return;
+    const stats = hirelingStats(player.level);
+    const id = this.allocId();
+    this.hirelings.set(id, {
+      id,
+      ownerId: player.id,
+      template,
+      x: clamp(player.x + 26, 0, this.width),
+      y: clamp(player.y + 10, 0, this.height),
+      facing: 0,
+      hp: stats.maxHp,
+      maxHp: stats.maxHp,
+      level: player.level,
+      power: stats.power,
+      attackCd: 0,
+    });
+  }
+
+  /** Remove the live hireling entity owned by a player (on disconnect, transfer, or replace). */
+  private despawnHirelingOf(ownerId: number): void {
+    for (const h of this.hirelings.values()) {
+      if (h.ownerId === ownerId) this.hirelings.delete(h.id);
+    }
   }
 
   /** Queue the player's current stash contents to be sent as a `stash` packet. */
@@ -1309,6 +1428,7 @@ export class World {
       cooldowns: new Map(),
       buffs: new StatusSet(),
       debuffs: new StatusSet(),
+      hireling: null,
       dead: false,
       respawnAt: 0,
     });
@@ -1341,6 +1461,7 @@ export class World {
       questsDone: [...p.questsDone],
       known: [...p.known],
       discovered: [...p.discovered],
+      hireling: p.hireling,
     };
   }
 
@@ -1386,9 +1507,13 @@ export class World {
     this.recomputeStats(p);
     p.hp = Math.min(save.hp, p.maxHp);
     p.mana = save.mana;
+    // The mercenary contract crosses with the player; the companion respawns at their side.
+    p.hireling = save.hireling ?? null;
+    if (p.hireling) this.spawnHireling(p);
   }
 
   remove(id: number): void {
+    this.despawnHirelingOf(id);
     this.players.delete(id);
   }
 
@@ -1481,6 +1606,7 @@ export class World {
     // Corruption decay is driven once by the host on the shared registry, not per-instance here.
     this.tickPlayers(dt);
     this.tickMobs(dt);
+    this.tickHirelings(dt);
     this.tickProjectiles(dt);
     this.tickItems(dt);
   }
@@ -1644,6 +1770,8 @@ export class World {
       y: p.y,
       alive: !p.dead,
     }));
+    // Hirelings are valid monster targets too — a mob fights whoever is closest, ally included.
+    for (const h of this.hirelings.values()) views.push({ id: h.id, x: h.x, y: h.y, alive: true });
 
     for (const mob of this.mobs.values()) {
       if (mob.dead) {
@@ -1684,6 +1812,13 @@ export class World {
               mob.dashHit.add(player.id);
             }
           }
+          for (const ally of this.hirelings.values()) {
+            if (mob.dashHit.has(ally.id)) continue;
+            if (circlesOverlap(mob.x, mob.y, MOB_RADIUS, ally.x, ally.y, PLAYER_RADIUS)) {
+              mob.dashHit.add(ally.id); // mark BEFORE the hit — a kill deletes the hireling
+              this.damageHireling(ally, this.mobOutgoing(mob, template));
+            }
+          }
           continue;
         }
       }
@@ -1704,11 +1839,13 @@ export class World {
       const intent = stepMob(view, views, this.aggroScale); // weather may dampen aggro range
 
       if (intent.attackTargetId !== null) {
-        const target = this.players.get(intent.attackTargetId);
-        if (target && !target.dead) {
+        const targetAlive =
+          this.players.get(intent.attackTargetId)?.dead === false ||
+          this.hirelings.has(intent.attackTargetId);
+        if (targetAlive) {
           mob.facing = intent.facing ?? mob.facing;
           mob.telegraphFacing = mob.facing;
-          mob.telegraphTargetId = target.id;
+          mob.telegraphTargetId = intent.attackTargetId;
           if (template.telegraphMs > 0) {
             // Begin the wind-up; show the tell so the player can react.
             mob.telegraphUntil = this.now + template.telegraphMs;
@@ -1740,6 +1877,96 @@ export class World {
         if (intent.facing !== null) mob.facing = intent.facing;
       } else {
         this.wander(mob, dt, template.speed * moveMul * mob.spdMult);
+      }
+    }
+  }
+
+  /**
+   * Advance every hireling: keep pace with the owner's level, heel to their side, and fight
+   * nearby monsters. Kill credit (XP, quests, corruption relief) flows to the OWNER — the
+   * hireling is a damage partner, never a separate progression track.
+   */
+  private tickHirelings(dt: number): void {
+    for (const h of this.hirelings.values()) {
+      const owner = this.players.get(h.ownerId);
+      if (!owner || !owner.hireling) {
+        this.hirelings.delete(h.id);
+        continue;
+      }
+      if (h.attackCd > 0) h.attackCd -= dt * 1000;
+
+      // Keep pace with the owner: rescale stats (and heal up) on each level they gain.
+      if (owner.level !== h.level) {
+        const stats = hirelingStats(owner.level);
+        h.level = owner.level;
+        h.maxHp = stats.maxHp;
+        h.hp = stats.maxHp;
+        h.power = stats.power;
+      }
+
+      // Catch up instantly when hopelessly left behind (a waypoint jump, a respawn).
+      if (Math.hypot(owner.x - h.x, owner.y - h.y) > 900) {
+        h.x = clamp(owner.x + 26, 0, this.width);
+        h.y = clamp(owner.y + 10, 0, this.height);
+      }
+
+      const targets = [...this.mobs.values()]
+        .filter((m) => !m.dead)
+        .map((m) => ({ id: m.id, x: m.x, y: m.y, alive: true }));
+      const intent = stepHireling(
+        { x: h.x, y: h.y, template: h.template, attackReady: h.attackCd <= 0 },
+        owner,
+        targets,
+      );
+      if (intent.facing !== null) h.facing = intent.facing;
+
+      if (intent.attackTargetId !== null) {
+        const mob = this.mobs.get(intent.attackTargetId);
+        if (mob && !mob.dead) {
+          h.attackCd = h.template.attackCooldownMs;
+          if (h.template.behavior === 'ranged') {
+            const speed = 360;
+            const pid = this.allocId();
+            this.projectiles.set(pid, {
+              id: pid,
+              abilityId: 'arrow',
+              x: h.x,
+              y: h.y,
+              vx: Math.cos(h.facing) * speed,
+              vy: Math.sin(h.facing) * speed,
+              ttl: 1600,
+              damage: h.power,
+              radius: 8,
+              ownerId: h.ownerId, // owner gets the kill credit (and their lifesteal, if any)
+              ownerLevel: h.level,
+              critChance: 0,
+              hostile: false,
+            });
+            this.events.push({ kind: 'cast', x: h.x, y: h.y, facing: h.facing });
+          } else {
+            const dmg = rollAbilityDamage(h.level, mob.level, h.power);
+            this.damageMob(mob, dmg, undefined, h.ownerId);
+            this.events.push({ kind: 'melee', x: h.x, y: h.y, facing: h.facing });
+          }
+        }
+      } else if (intent.vx !== 0 || intent.vy !== 0) {
+        h.x = clamp(h.x + intent.vx * dt, 0, this.width);
+        h.y = clamp(h.y + intent.vy * dt, 0, this.height);
+      }
+    }
+  }
+
+  /** Damage a hireling; at zero it dies and the owner's contract is voided (re-hire in town). */
+  private damageHireling(h: Hireling, amount: number): void {
+    h.hp -= amount;
+    this.events.push({ kind: 'hit', x: h.x, y: h.y, value: Math.ceil(amount) });
+    if (h.hp <= 0) {
+      this.events.push({ kind: 'death', x: h.x, y: h.y });
+      this.hirelings.delete(h.id);
+      const owner = this.players.get(h.ownerId);
+      if (owner) {
+        owner.hireling = null;
+        this.notify(owner.id, `Your ${h.template.name} has fallen. Hire anew at the Recruiter.`);
       }
     }
   }
@@ -1797,13 +2024,23 @@ export class World {
           this.damagePlayer(player, this.mobOutgoing(mob, template));
         }
       }
+      for (const ally of this.hirelings.values()) {
+        if (Math.hypot(ally.x - mob.x, ally.y - mob.y) <= template.slamRadius + PLAYER_RADIUS) {
+          this.damageHireling(ally, this.mobOutgoing(mob, template));
+        }
+      }
       this.events.push({ kind: 'slam', x: mob.x, y: mob.y, radius: template.slamRadius });
       return;
     }
-    const target = this.players.get(mob.telegraphTargetId);
     const reach = template.attackRange + PLAYER_RADIUS;
+    const target = this.players.get(mob.telegraphTargetId);
     if (target && !target.dead && Math.hypot(target.x - mob.x, target.y - mob.y) <= reach) {
       this.damagePlayer(target, this.mobOutgoing(mob, template));
+    } else {
+      const ally = this.hirelings.get(mob.telegraphTargetId);
+      if (ally && Math.hypot(ally.x - mob.x, ally.y - mob.y) <= reach) {
+        this.damageHireling(ally, this.mobOutgoing(mob, template));
+      }
     }
     this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
   }
@@ -1846,6 +2083,18 @@ export class World {
           this.damagePlayer(player, dmg);
           applyPlayerDebuff(player, abilityId);
         }
+      }
+      for (const ally of this.hirelings.values()) {
+        const hit = inMeleeCone(
+          mob.x,
+          mob.y,
+          mob.telegraphFacing,
+          ally.x,
+          ally.y,
+          ability.range,
+          halfAngle,
+        );
+        if (hit) this.damageHireling(ally, dmg);
       }
       this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
       return;
@@ -1897,6 +2146,15 @@ export class World {
             applyPlayerDebuff(player, proj.abilityId);
             consumed = true;
             break;
+          }
+        }
+        if (!consumed) {
+          for (const ally of this.hirelings.values()) {
+            if (circlesOverlap(proj.x, proj.y, proj.radius, ally.x, ally.y, PLAYER_RADIUS)) {
+              this.damageHireling(ally, proj.damage);
+              consumed = true;
+              break;
+            }
           }
         }
       } else {
@@ -2323,6 +2581,21 @@ export class World {
         maxHp: p.maxHp,
         level: p.level,
         ...(flags ? { flags } : {}),
+      });
+    }
+    for (const h of this.hirelings.values()) {
+      out.push({
+        id: h.id,
+        x: h.x,
+        y: h.y,
+        name: h.template.name,
+        // The owner's hue, so a hireling visually reads as part of that player's retinue.
+        hue: this.players.get(h.ownerId)?.hue ?? 120,
+        kind: 'hireling',
+        facing: h.facing,
+        hp: Math.ceil(h.hp),
+        maxHp: h.maxHp,
+        level: h.level,
       });
     }
     for (const m of this.mobs.values()) {

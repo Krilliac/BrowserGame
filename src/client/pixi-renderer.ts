@@ -236,6 +236,9 @@ const BOSS_NAME_RE = /Lord|King|Warden|Bonecaller|Tyrant|Unmaker|Eternal|Knight|
  */
 function sheetKey(e: EntityState): string | undefined {
   if (e.kind === 'player' || e.kind === 'npc') return 'hero';
+  // A hireling is a friendly humanoid: the Guard reads as an armored skeleton-sheet figure would
+  // be wrong — use the hero sheet so it visually belongs to the player's side of the fight.
+  if (e.kind === 'hireling') return 'hero';
   if (e.kind !== 'mob') return undefined;
   const n = e.name;
   if (e.maxHp >= 280 && BOSS_NAME_RE.test(n)) return 'boss';

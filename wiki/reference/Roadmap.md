@@ -94,6 +94,9 @@
       in the quest log. (*Warm Hides*, *Old Bones*.) `quests.turn_in_item`/`turn_in_count`.
 - [x] **Waypoints** — discovered-area fast-travel (press M); discovery persists, `teleport` carries
       full state. `InstanceManager.teleport`.
+- [x] **Hirelings** — Guard/Marksman mercenaries from the town Recruiter (Captain Aldric);
+      follow + fight + owner kill credit; level-scaled fee; contract voids on death.
+      `server/hirelings.ts` + `world-hirelings.test.ts`.
 - [ ] **Enchanting NPC (Artificer)** — reroll/add affixes for gold + materials; gem unsocketing.
 - [ ] **Explore/discover quest type**; chain quests.
 - [ ] Banking; guilds/trade.

@@ -119,6 +119,8 @@ export class Net {
   friends: FriendInfo[] = [];
   /** Open gambling window (per-pull cost), or null when no gambler panel is open. */
   gamble: { cost: number } | null = null;
+  /** Open recruiter hire window (mercenary offers), or null when no hire panel is open. */
+  hire: { offers: { type: string; name: string; cost: number }[] } | null = null;
   /** Open Artificer window (service costs), or null when no artificer panel is open. */
   artificer: { rerollCost: number; unsocketCost: number } | null = null;
   /** Open banker stash (stored items + capacity), or null when no stash panel is open. */
@@ -233,6 +235,10 @@ export class Net {
 
   sendGamble(slot: string): void {
     this.send({ t: 'gamble', slot });
+  }
+
+  sendHire(type: string): void {
+    this.send({ t: 'hire', type });
   }
 
   sendWaypoint(areaId: string): void {
@@ -363,6 +369,9 @@ export class Net {
       case 'gamble_open':
         this.gamble = { cost: typeof msg.cost === 'number' ? msg.cost : 0 };
         break;
+      case 'hire_open':
+        this.hire = { offers: Array.isArray(msg.offers) ? msg.offers.slice(0, 8) : [] };
+        break;
       case 'artificer_open':
         this.artificer = {
           rerollCost: typeof msg.rerollCost === 'number' ? msg.rerollCost : 0,
@@ -376,6 +385,7 @@ export class Net {
         this.fx.length = 0;
         this.shop = null; // close any open shop when we leave the area
         this.gamble = null;
+        this.hire = null;
         this.artificer = null;
         this.stash = null;
         break;

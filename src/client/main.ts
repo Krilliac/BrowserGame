@@ -13,6 +13,7 @@ import { SLOT_LABELS } from '../shared/equipment.js';
 import { drawPartyPanel, type PartyButton } from './party-panel.js';
 import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
+import { drawHirePanel, type HireButton } from './hire-panel.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
 import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
 import { drawStashPanel, type StashButton } from './stash-panel.js';
@@ -197,6 +198,7 @@ let socialOpen = false;
 let partyButtons: PartyButton[] = [];
 let socialButtons: SocialButton[] = [];
 let gambleButtons: GambleButton[] = [];
+let hireButtons: HireButton[] = [];
 // Waypoint / fast-travel panel: open with M.
 let waypointOpen = false;
 let waypointButtons: WaypointButton[] = [];
@@ -247,6 +249,10 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && net.gamble) {
     net.gamble = null;
+    return;
+  }
+  if (e.key === 'Escape' && net.hire) {
+    net.hire = null;
     return;
   }
   if (e.key === 'Escape' && net.artificer) {
@@ -328,6 +334,7 @@ window.addEventListener('pointerdown', (e) => {
   // An open shop captures clicks (buy / sell / close) and never falls through to a cast.
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
+  if (net.hire && handleHireClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
   if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
@@ -492,6 +499,18 @@ function handleGambleClick(x: number, y: number): boolean {
   return true;
 }
 
+/** Route a click inside the open recruiter panel. Returns true if it was consumed. */
+function handleHireClick(x: number, y: number): boolean {
+  const btn = hireButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.hire = null;
+  else if (btn.action === 'hire' && btn.type) {
+    net.sendHire(btn.type);
+    net.hire = null; // hired (or refused server-side with a notice) — close the window
+  }
+  return true;
+}
+
 /** Route a click inside the open shop panel. Returns true if it was consumed. */
 function handleShopClick(x: number, y: number): boolean {
   if (shopCloseRect && inRect(x, y, shopCloseRect)) {
@@ -521,6 +540,7 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
+  if (net.hire && handleHireClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
   if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
@@ -1019,6 +1039,16 @@ function frame(): void {
     );
   } else {
     gambleButtons = [];
+  }
+  if (net.hire) {
+    hireButtons = drawHirePanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      net.hire.offers,
+      net.you.gold,
+    );
+  } else {
+    hireButtons = [];
   }
   if (net.shop) drawShopPanel();
   else {
@@ -1533,7 +1563,7 @@ function drawHud(): void {
   );
 
   const npc = nearbyNpc();
-  if (npc && !net.you.dead && !net.shop && !net.gamble && !net.artificer) {
+  if (npc && !net.you.dead && !net.shop && !net.gamble && !net.hire && !net.artificer) {
     const action =
       npc.npcKind === 'questgiver'
         ? 'talk to'
@@ -1543,7 +1573,9 @@ function drawHud(): void {
             ? 'gamble with'
             : npc.npcKind === 'artificer'
               ? 'enchant at'
-              : 'shop with';
+              : npc.npcKind === 'recruiter'
+                ? 'hire from'
+                : 'shop with';
     const text = `Press E — ${action} ${npc.name}`;
     hud.font = '14px system-ui, sans-serif';
     hud.textAlign = 'center';

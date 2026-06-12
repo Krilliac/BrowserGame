@@ -179,6 +179,8 @@ export type ClientMessage =
   | { t: 'socket_gem'; gemId: string }
   /** Gamble gold for a random item of the given equip slot (at a nearby gambler NPC). */
   | { t: 'gamble'; slot: string }
+  /** Hire a mercenary of the given type (at a nearby recruiter NPC; server validates gold). */
+  | { t: 'hire'; type: string }
   /** Fast-travel to a previously-discovered area (server validates discovery). */
   | { t: 'waypoint'; areaId: string }
   /** Artificer: reroll a bag gear instance's affixes for gold + a rune shard. */
@@ -281,6 +283,8 @@ export type ServerMessage =
   | { t: 'friends'; list: FriendInfo[] }
   /** Open the gambling window (sent when interacting with a gambler NPC); `cost` is per pull. */
   | { t: 'gamble_open'; cost: number }
+  /** Open the hire window (sent when interacting with a recruiter NPC). */
+  | { t: 'hire_open'; offers: { type: string; name: string; cost: number }[] }
   /** Open the Artificer window (sent when interacting with an artificer NPC). */
   | { t: 'artificer_open'; rerollCost: number; unsocketCost: number }
   /** The server moved this player to another area instance (e.g. through a portal). */

@@ -395,6 +395,13 @@ wss.on('connection', (socket) => {
             }
             break;
           }
+          case 'hire': {
+            const p = players.get(entityId);
+            if (p && typeof msg.type === 'string') {
+              manager.get(p.instanceId)?.world.hire(entityId, msg.type);
+            }
+            break;
+          }
           case 'enchant': {
             const p = players.get(entityId);
             if (p && typeof msg.uid === 'number') {
@@ -798,6 +805,14 @@ setInterval(() => {
           const socket = players.get(offer.playerId)?.socket;
           if (socket && socket.readyState === socket.OPEN) {
             send(socket, { t: 'gamble_open', cost: offer.cost });
+          }
+        }
+
+        // Deliver hire windows to players who just interacted with a recruiter.
+        for (const offer of world.drainHireOffers()) {
+          const socket = players.get(offer.playerId)?.socket;
+          if (socket && socket.readyState === socket.OPEN) {
+            send(socket, { t: 'hire_open', offers: offer.offers });
           }
         }
 

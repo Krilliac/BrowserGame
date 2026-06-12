@@ -25,6 +25,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Hirelings (mercenary companions).** Captain Aldric, the town Recruiter, hires out a melee
+  **Guard** or a kiting **Marksman** for a level-scaled gold fee. The companion follows you,
+  fights nearby monsters (kill credit — XP and quests — flows to you), scales with your level,
+  draws monster aggro, and crosses areas at your side. If it dies the contract is void: hire
+  anew in town. Server-authoritative (`src/server/hirelings.ts` + `world.ts`); a new `hireling`
+  entity kind on the wire and a recruiter window on the client.
 - **Potions + a quick-use belt.** Health (Q) and mana (R) potions restore instantly on a short shared
   cooldown — the active-survival layer over passive regen. Carried in a capped belt that persists with
   the character; the Healer refills it and chests stock it. Server-authoritative count + cooldown, with
