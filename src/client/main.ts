@@ -22,6 +22,7 @@ import { Net } from './net.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
 import { Predictor } from './predictor.js';
+import { wallsForDecor } from '../shared/collision.js';
 import { installErrorTrap, getLatestError } from './error-trap.js';
 import { clampPanelRect } from './ui-guard.js';
 import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
@@ -90,6 +91,7 @@ window.addEventListener('contextmenu', (e) => {
 const predictor = new Predictor();
 const STEP_DT = 1 / 30;
 let lastAreaId = '';
+let lastWallsAreaId = '';
 let lastAuthRev = 0;
 setInterval(() => {
   const sample = moveSample();
@@ -103,6 +105,12 @@ setInterval(() => {
   }
   const area = net.content.area(net.areaId);
   if (area) predictor.setBounds(area.width, area.height);
+  // Feed the predictor the area's solid walls once its content is available (which may arrive after
+  // the area change). Same geometry the server collides against → collision with no rubber-banding.
+  if (area && net.areaId !== lastWallsAreaId) {
+    predictor.setWalls(wallsForDecor(area.decor ?? []));
+    lastWallsAreaId = net.areaId;
+  }
   const seq = predictor.ready ? predictor.step(sample, STEP_DT, net.you.moveMul) : 0;
   net.sendInput(sample, seq);
 

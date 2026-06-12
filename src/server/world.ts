@@ -63,7 +63,8 @@ import {
   type MobView,
   type PlayerView,
 } from './mobs.js';
-import { DUNGEONS, type DungeonDef } from '../shared/areas.js';
+import { DUNGEONS, type DungeonDef, type Rect } from '../shared/areas.js';
+import { resolveCircleMove, wallsForDecor, PLAYER_COLLISION_RADIUS } from '../shared/collision.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { getContent, type QuestDef } from './content.js';
@@ -326,6 +327,8 @@ export class World {
   private now = 0; // accumulated sim time, ms (drives cooldowns/respawns)
   // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
+  // Solid wall colliders for this area (house footprints), lazily built from decor (null = not yet).
+  private walls: Rect[] | null = null;
 
   private readonly players = new Map<number, Player>();
   private readonly mobs = new Map<number, Mob>();
@@ -1371,12 +1374,32 @@ export class World {
         // Full effective speed (weather × affix × haste × slow). The client predictor receives this
         // same multiplier in the `you` packet, so the two stay in sync — no rubber-banding.
         const speed = PLAYER_SPEED * this.playerMoveMul(player);
-        player.x = clamp(player.x + dx * speed * dt, 0, this.width);
-        player.y = clamp(player.y + dy * speed * dt, 0, this.height);
+        const nx = clamp(player.x + dx * speed * dt, 0, this.width);
+        const ny = clamp(player.y + dy * speed * dt, 0, this.height);
+        // Resolve against solid house walls (door gaps stay passable). The client predictor runs the
+        // identical resolveCircleMove on the same walls, so this adds collision with no rubber-banding.
+        const resolved = resolveCircleMove(
+          player.x,
+          player.y,
+          nx,
+          ny,
+          PLAYER_COLLISION_RADIUS,
+          this.wallList(),
+        );
+        player.x = resolved.x;
+        player.y = resolved.y;
         player.facing = Math.atan2(dy, dx);
       }
       this.checkShrines(player);
     }
+  }
+
+  /** The area's solid wall colliders, built once from its house decor (empty for areas with none). */
+  private wallList(): Rect[] {
+    if (this.walls === null) {
+      this.walls = wallsForDecor(getContent().area(this.areaId)?.decor ?? []);
+    }
+    return this.walls;
   }
 
   /** The area's shrines, built once from its 'shrine' decor (empty for areas with none). */
