@@ -121,6 +121,16 @@
       `@pixi/tilemap`, composite LPC equipment layers — needs the asset pipeline (Free Texture
       Packer) + human CC-BY attribution review.
 
+## Engine-mining adoptions (from `wiki/research/engine-mining.md`, 2026-06-12)
+
+**P0 (next combat/feel slice):** mob-vs-mob separation + mob wall-slide + projectile wall-stop;
+seeded RNG through the World (+ seed provenance on instances); InputVerdict taxonomy + strike
+counting; protocol version handshake; HUD dirty-flag rendering; dev inspector overlay; fix the
+oversized-frame DoS. **P1:** pointercancel reset, easing.ts, door-waypoint steering, camera
+deadzone+clamp, hireling brain contract, hit-region registry, bot record/replay, Tiled build-time
+importer. **Epic:** WASM player-scripted hirelings. Full detail + skeptical pass-list in the
+research doc.
+
 ## Research-driven adoptions (from `wiki/research/`)
 
 Web research surveyed open-source RuneScape clients/servers, browser-MMO netcode, and web
