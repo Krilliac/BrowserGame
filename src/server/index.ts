@@ -442,6 +442,13 @@ wss.on('connection', (socket) => {
             }
             break;
           }
+          case 'allocate_skill': {
+            const p = players.get(entityId);
+            if (p && typeof msg.nodeId === 'string') {
+              manager.get(p.instanceId)?.world.allocateSkill(entityId, msg.nodeId);
+            }
+            break;
+          }
           case 'waypoint': {
             const p = players.get(entityId);
             if (!p || typeof msg.areaId !== 'string') break;

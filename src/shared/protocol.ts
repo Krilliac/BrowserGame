@@ -195,6 +195,8 @@ export type ClientMessage =
   | { t: 'use_potion'; kind: 'health' | 'mana' }
   /** Spend one attribute point on an attribute (server validates the pool + the key). */
   | { t: 'allocate_attr'; attr: string }
+  /** Spend one skill point to allocate a passive node (server validates points + prerequisites). */
+  | { t: 'allocate_skill'; nodeId: string }
   /** Buy one item from a nearby vendor's stock. Server validates proximity, stock, and gold. */
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
@@ -239,6 +241,10 @@ export type ServerMessage =
       attributes: AttributeSet;
       /** Unspent attribute points to allocate. */
       attrPoints: number;
+      /** Allocated passive skill-tree node ids. */
+      skills: string[];
+      /** Unspent skill points to allocate. */
+      skillPoints: number;
       /** Milliseconds until respawn while dead (0 when alive). */
       respawnIn: number;
       /** Attack power from the equipped weapon (added to every hit). */

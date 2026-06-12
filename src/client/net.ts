@@ -43,6 +43,8 @@ export interface SelfStats {
   potions: { health: number; mana: number };
   attributes: AttributeSet;
   attrPoints: number;
+  skills: string[];
+  skillPoints: number;
   respawnIn: number;
   power: number;
   critChance: number;
@@ -94,6 +96,8 @@ export class Net {
     potions: { health: 0, mana: 0 },
     attributes: emptyAttributes(),
     attrPoints: 0,
+    skills: [],
+    skillPoints: 0,
     respawnIn: 0,
     power: 0,
     critChance: 0.15,
@@ -263,6 +267,10 @@ export class Net {
     this.send({ t: 'allocate_attr', attr });
   }
 
+  sendAllocateSkill(nodeId: string): void {
+    this.send({ t: 'allocate_skill', nodeId });
+  }
+
   sendBuy(itemId: string): void {
     this.send({ t: 'buy', itemId });
   }
@@ -313,6 +321,8 @@ export class Net {
           potions: msg.potions ?? { health: 0, mana: 0 },
           attributes: msg.attributes ?? emptyAttributes(),
           attrPoints: msg.attrPoints ?? 0,
+          skills: msg.skills ?? [],
+          skillPoints: msg.skillPoints ?? 0,
           respawnIn: msg.respawnIn,
           power: msg.power,
           critChance: msg.critChance,

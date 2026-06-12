@@ -74,6 +74,7 @@ import {
   ATTRIBUTE_KEYS,
   ATTR_POINTS_PER_LEVEL,
 } from '../shared/attributes.js';
+import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { getContent, type QuestDef } from './content.js';
@@ -125,6 +126,8 @@ const POTION_START = 3; // a new character starts with a few of each
 const POTION_HEAL = 70; // HP restored by a health potion
 const POTION_MANA = 60; // mana restored by a mana potion
 const POTION_COOLDOWN_MS = 2500;
+// Passive skill-tree points earned per level (separate pool from attribute points).
+const SKILL_POINTS_PER_LEVEL = 1;
 // Unique (named legendary) drop chances: the loot chase. A slim base chance on any gear drop, better
 // from a chest. Elites/bosses already drop more gear, so they roll the base chance more often.
 const UNIQUE_DROP_CHANCE = 0.02;
@@ -222,6 +225,10 @@ interface Player {
   attributes: AttributeSet;
   /** Unspent attribute points (earned on level-up). */
   attrPoints: number;
+  /** Allocated passive skill-tree node ids. */
+  skills: Set<string>;
+  /** Unspent skill points (earned on level-up). */
+  skillPoints: number;
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
@@ -263,6 +270,10 @@ export interface PlayerSave {
   attributes?: AttributeSet;
   /** Unspent attribute points (absent on old saves). */
   attrPoints?: number;
+  /** Allocated skill-tree node ids (absent on pre-skill saves). */
+  skills?: string[];
+  /** Unspent skill points (absent on old saves — granted retroactively on load). */
+  skillPoints?: number;
   /** Equipped gear by doll slot; partial-friendly so older saves migrate cleanly. */
   equipment: Record<string, ItemInstance | null>;
   god: boolean;
@@ -1089,6 +1100,16 @@ export class World {
     power += attr.power;
     bonusHp += attr.maxHp;
     crit += attr.critChance;
+    // Passive skill-tree bonuses (allocated nodes) fold in on top, same stat kinds.
+    const skill = aggregateSkillEffects(player.skills);
+    power += skill.power;
+    crit += skill.critPct / 100;
+    lifesteal += skill.lifestealPct;
+    swift += skill.swiftPct;
+    move += skill.movePct;
+    armor += skill.armorPct;
+    vigor += skill.vigor;
+    multishot += skill.multishot;
     player.power = power;
     player.critChance = crit;
     player.multishot = multishot;
@@ -1098,8 +1119,12 @@ export class World {
     // Armor reduces incoming damage (stacking with the corrupted +fragile penalty), capped at 50%.
     player.damageTakenMult = damageTaken * Math.max(0.5, 1 - armor / 100);
     player.vigor = vigor; // flat HP/sec added to base regen in tickPlayers
-    player.manaRegenBonus = attr.manaRegen;
-    player.maxHp = Math.max(1, maxHpForLevel(player.level) + bonusHp);
+    player.manaRegenBonus = attr.manaRegen + skill.manaRegen;
+    // Max HP: base + flat bonuses, then the skill tree's percentage max-HP increase.
+    player.maxHp = Math.max(
+      1,
+      Math.round((maxHpForLevel(player.level) + bonusHp) * (1 + skill.maxHpPct / 100)),
+    );
     if (player.hp > player.maxHp) player.hp = player.maxHp;
   }
 
@@ -1164,7 +1189,11 @@ export class World {
     if (!p) return;
     p.xp = Math.max(0, p.xp + amount);
     const newLevel = levelForXp(p.xp);
-    if (newLevel > p.level) p.attrPoints += (newLevel - p.level) * ATTR_POINTS_PER_LEVEL;
+    if (newLevel > p.level) {
+      const g = newLevel - p.level;
+      p.attrPoints += g * ATTR_POINTS_PER_LEVEL;
+      p.skillPoints += g * SKILL_POINTS_PER_LEVEL;
+    }
     p.level = newLevel;
     this.recomputeStats(p);
   }
@@ -1176,6 +1205,16 @@ export class World {
     if (!(ATTRIBUTE_KEYS as string[]).includes(attr)) return;
     p.attributes[attr as keyof AttributeSet]++;
     p.attrPoints--;
+    this.recomputeStats(p);
+  }
+
+  /** Spend one skill point to allocate a passive node (validates points + prerequisites). */
+  allocateSkill(id: number, nodeId: string): void {
+    const p = this.players.get(id);
+    if (!p || p.skillPoints <= 0) return;
+    if (!canAllocate(nodeId, p.skills)) return;
+    p.skills.add(nodeId);
+    p.skillPoints--;
     this.recomputeStats(p);
   }
 
@@ -1231,6 +1270,8 @@ export class World {
       manaRegenBonus: 0,
       attributes: emptyAttributes(),
       attrPoints: 0,
+      skills: new Set(),
+      skillPoints: 0,
       equipment: emptyEquipment(),
       power: 0,
       critChance: BASE_CRIT_CHANCE,
@@ -1274,6 +1315,8 @@ export class World {
       potions: { ...p.potions },
       attributes: { ...p.attributes },
       attrPoints: p.attrPoints,
+      skills: [...p.skills],
+      skillPoints: p.skillPoints,
       equipment: { ...p.equipment },
       god: p.god,
       quests: [...p.quests],
@@ -1305,6 +1348,14 @@ export class World {
     } else {
       p.attributes = emptyAttributes();
       p.attrPoints = Math.max(0, (save.level - 1) * ATTR_POINTS_PER_LEVEL);
+    }
+    // Skill tree: restore allocated nodes + points, or grant a legacy save its level-worth of points.
+    if (save.skills || save.skillPoints !== undefined) {
+      p.skills = new Set(save.skills ?? []);
+      p.skillPoints = Math.max(0, Math.floor(save.skillPoints ?? 0));
+    } else {
+      p.skills = new Set();
+      p.skillPoints = Math.max(0, (save.level - 1) * SKILL_POINTS_PER_LEVEL);
     }
     p.equipment = { ...emptyEquipment(), ...save.equipment };
     p.god = save.god;
@@ -2119,10 +2170,12 @@ export class World {
     p.xp += xp;
     const newLevel = levelForXp(p.xp);
     if (newLevel > p.level) {
-      p.attrPoints += (newLevel - p.level) * ATTR_POINTS_PER_LEVEL; // earn attribute points per level
+      const gained = newLevel - p.level;
+      p.attrPoints += gained * ATTR_POINTS_PER_LEVEL; // earn attribute points per level
+      p.skillPoints += gained * SKILL_POINTS_PER_LEVEL; // and a skill point per level
       this.notify(
         p.id,
-        `You reached level ${newLevel}! (+${ATTR_POINTS_PER_LEVEL} attribute points)`,
+        `You reached level ${newLevel}! (+${ATTR_POINTS_PER_LEVEL} attributes, +${SKILL_POINTS_PER_LEVEL} skill)`,
       );
       this.events.push({ kind: 'levelup', x: p.x, y: p.y, value: newLevel });
     }
@@ -2365,6 +2418,8 @@ export class World {
         potions: { health: number; mana: number };
         attributes: AttributeSet;
         attrPoints: number;
+        skills: string[];
+        skillPoints: number;
         respawnIn: number;
         power: number;
         critChance: number;
@@ -2399,6 +2454,8 @@ export class World {
       potions: { ...p.potions },
       attributes: { ...p.attributes },
       attrPoints: p.attrPoints,
+      skills: [...p.skills],
+      skillPoints: p.skillPoints,
       respawnIn: p.dead ? Math.max(0, Math.ceil(p.respawnAt - this.now)) : 0,
       power: p.power,
       critChance: p.critChance,

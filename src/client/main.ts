@@ -25,6 +25,7 @@ import { Predictor } from './predictor.js';
 import { wallsForDecor } from '../shared/collision.js';
 import { drawBelt } from './belt.js';
 import { ATTRIBUTE_KEYS, ATTRIBUTE_LABELS, ATTRIBUTE_EFFECTS } from '../shared/attributes.js';
+import { drawSkillTree, type SkillTreeButton } from './skilltree-panel.js';
 import { installErrorTrap, getLatestError } from './error-trap.js';
 import { clampPanelRect } from './ui-guard.js';
 import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
@@ -201,6 +202,8 @@ let waypointOpen = false;
 let waypointButtons: WaypointButton[] = [];
 let artificerButtons: ArtificerButton[] = [];
 let stashButtons: StashButton[] = [];
+let skillTreeButtons: SkillTreeButton[] = [];
+let skillOpen = false; // toggle the passive skill tree (K)
 // Mirrors the server's MAX_BAG_GEAR (src/server/world.ts) — the bag/stash panel shows bag fullness.
 const MAX_BAG_GEAR = 30;
 // Inventory panel (I): the full bag of unequipped gear (up to 30), tap to equip.
@@ -254,6 +257,10 @@ window.addEventListener('keydown', (e) => {
     net.stash = null;
     return;
   }
+  if (e.key === 'Escape' && skillOpen) {
+    skillOpen = false;
+    return;
+  }
   if (e.key === 'Escape' && questOpen) {
     questOpen = false;
     return;
@@ -286,6 +293,8 @@ window.addEventListener('keydown', (e) => {
     waypointOpen = !waypointOpen; // toggle the waypoint / fast-travel map
   } else if (e.key.toLowerCase() === 'i') {
     inventoryOpen = !inventoryOpen; // toggle the full inventory
+  } else if (e.key.toLowerCase() === 'k') {
+    skillOpen = !skillOpen; // toggle the passive skill tree
   } else if (e.key === '=' || e.key === '+') {
     renderer.adjustZoom(0.1); // zoom the camera in (RS/Diablo-style)
   } else if (e.key === '-' || e.key === '_') {
@@ -321,6 +330,7 @@ window.addEventListener('pointerdown', (e) => {
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
+  if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
   if (inventoryOpen && handleInventoryClick(e.clientX, e.clientY)) return;
   // The quest log captures clicks (accept buttons / panel body) and never falls through to a cast.
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
@@ -455,6 +465,14 @@ function handleArtificerClick(x: number, y: number): boolean {
   return true;
 }
 
+/** Route a click inside the open Skill Tree panel. Returns true if it was consumed. */
+function handleSkillTreeClick(x: number, y: number): boolean {
+  const btn = skillTreeButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  net.sendAllocateSkill(btn.nodeId); // server validates points + prerequisites
+  return true;
+}
+
 /** Route a click inside the open Vault (stash) panel. Returns true if it was consumed. */
 function handleStashClick(x: number, y: number): boolean {
   const btn = stashButtons.find((b) => inRect(x, y, b));
@@ -505,6 +523,7 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
+  if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
   if (inventoryOpen && handleInventoryClick(e.clientX, e.clientY)) return;
   if (questOpen && handleQuestClick(e.clientX, e.clientY)) return;
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
@@ -981,6 +1000,15 @@ function frame(): void {
     );
   } else {
     stashButtons = [];
+  }
+  if (skillOpen) {
+    skillTreeButtons = drawSkillTree(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      { allocated: new Set(net.you.skills), points: net.you.skillPoints },
+    );
+  } else {
+    skillTreeButtons = [];
   }
   if (net.gamble) {
     gambleButtons = drawGamblePanel(
