@@ -15,7 +15,7 @@ describe('world graph integrity', () => {
   const areas = c.areas();
   const ids = new Set(areas.map((a) => a.id));
 
-  it('ships the eight overworld areas plus the five dungeons', () => {
+  it('ships the eight overworld areas plus the five dungeons and the rift', () => {
     expect([...ids].sort()).toEqual([
       'blighted_spire',
       'crypt',
@@ -26,6 +26,7 @@ describe('world graph integrity', () => {
       'infernal_forge',
       'marsh',
       'mines',
+      'rift',
       'sundered_wastes',
       'town',
       'wilderness',
@@ -39,7 +40,9 @@ describe('world graph integrity', () => {
         expect(ids.has(p.toArea), `${a.id} → ${p.toArea}`).toBe(true);
       }
     }
-    // BFS from town must reach every area (the spine + spurs are actually connected).
+    // BFS from town must reach every area (the spine + spurs are actually connected). The rift
+    // is the one exception: it opens only via the Riftkeeper NPC, never an inbound portal —
+    // but its own exit portal must still lead home.
     const seen = new Set<string>(['town']);
     const queue = ['town'];
     while (queue.length) {
@@ -51,7 +54,8 @@ describe('world graph integrity', () => {
         }
       }
     }
-    expect([...seen].sort()).toEqual([...ids].sort());
+    expect([...seen].sort()).toEqual([...ids].filter((id) => id !== 'rift').sort());
+    expect(c.area('rift')!.portals.map((p) => p.toArea)).toEqual(['town']);
   });
 
   it('arrival spawns are clear of every portal rect in the destination area', () => {

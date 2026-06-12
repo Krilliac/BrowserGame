@@ -14,6 +14,7 @@ import { drawPartyPanel, type PartyButton } from './party-panel.js';
 import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { drawHirePanel, type HireButton } from './hire-panel.js';
+import { drawRiftPanel, type RiftButton } from './rift-panel.js';
 import { loadItemIcons } from './item-icons.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
 import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
@@ -201,6 +202,7 @@ let partyButtons: PartyButton[] = [];
 let socialButtons: SocialButton[] = [];
 let gambleButtons: GambleButton[] = [];
 let hireButtons: HireButton[] = [];
+let riftButtons: RiftButton[] = [];
 // Waypoint / fast-travel panel: open with M.
 let waypointOpen = false;
 let waypointButtons: WaypointButton[] = [];
@@ -255,6 +257,10 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && net.hire) {
     net.hire = null;
+    return;
+  }
+  if (e.key === 'Escape' && net.rift) {
+    net.rift = null;
     return;
   }
   if (e.key === 'Escape' && net.artificer) {
@@ -337,6 +343,7 @@ window.addEventListener('pointerdown', (e) => {
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   if (net.hire && handleHireClick(e.clientX, e.clientY)) return;
+  if (net.rift && handleRiftClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
   if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
@@ -513,6 +520,18 @@ function handleHireClick(x: number, y: number): boolean {
   return true;
 }
 
+/** Route a click inside the open Riftkeeper panel. Returns true if it was consumed. */
+function handleRiftClick(x: number, y: number): boolean {
+  const btn = riftButtons.find((b) => inRect(x, y, b));
+  if (!btn) return false;
+  if (btn.action === 'close') net.rift = null;
+  else if (btn.action === 'open' && btn.tier !== undefined) {
+    net.sendOpenRift(btn.tier);
+    net.rift = null; // the server transfers us (or refuses with a notice) — close the window
+  }
+  return true;
+}
+
 /** Route a click inside the open shop panel. Returns true if it was consumed. */
 function handleShopClick(x: number, y: number): boolean {
   if (shopCloseRect && inRect(x, y, shopCloseRect)) {
@@ -543,6 +562,7 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.gamble && handleGambleClick(e.clientX, e.clientY)) return;
   if (net.hire && handleHireClick(e.clientX, e.clientY)) return;
+  if (net.rift && handleRiftClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
   if (skillOpen && handleSkillTreeClick(e.clientX, e.clientY)) return;
@@ -1051,6 +1071,16 @@ function frame(): void {
     );
   } else {
     hireButtons = [];
+  }
+  if (net.rift) {
+    riftButtons = drawRiftPanel(
+      hud,
+      { w: hudCanvas.width, h: hudCanvas.height },
+      net.rift,
+      net.you.gold,
+    );
+  } else {
+    riftButtons = [];
   }
   if (net.shop) drawShopPanel();
   else {
@@ -1565,7 +1595,15 @@ function drawHud(): void {
   );
 
   const npc = nearbyNpc();
-  if (npc && !net.you.dead && !net.shop && !net.gamble && !net.hire && !net.artificer) {
+  if (
+    npc &&
+    !net.you.dead &&
+    !net.shop &&
+    !net.gamble &&
+    !net.hire &&
+    !net.rift &&
+    !net.artificer
+  ) {
     const action =
       npc.npcKind === 'questgiver'
         ? 'talk to'
@@ -1577,7 +1615,9 @@ function drawHud(): void {
               ? 'enchant at'
               : npc.npcKind === 'recruiter'
                 ? 'hire from'
-                : 'shop with';
+                : npc.npcKind === 'riftkeeper'
+                  ? 'open a rift with'
+                  : 'shop with';
     const text = `Press E — ${action} ${npc.name}`;
     hud.font = '14px system-ui, sans-serif';
     hud.textAlign = 'center';

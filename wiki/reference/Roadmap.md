@@ -96,6 +96,9 @@
 - [x] **Hirelings** — Guard/Marksman mercenaries from the town Recruiter (Captain Aldric);
       follow + fight + owner kill credit; level-scaled fee; contract voids on death.
       `server/hirelings.ts` + `world-hirelings.test.ts`.
+- [x] **Endgame rifts** — the Riftkeeper (Saelis) opens a fresh private rift at a chosen tier
+      (level-gated, gold fee); tier scales mob level/HP/damage/density/champions. Cross-act
+      roster, Voidmaw Devourer boss, exit portal home. `world-rifts.test.ts`.
 - [ ] **Enchanting NPC (Artificer)** — reroll/add affixes for gold + materials; gem unsocketing.
 - [ ] **Explore/discover quest type**; chain quests.
 - [ ] Banking; guilds/trade.

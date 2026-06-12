@@ -114,6 +114,13 @@ function asBaseItem(def: {
 
 const PICKUP_RADIUS = 30;
 const ITEM_TTL_MS = 30_000;
+
+/** Rift gold fee per tier — the endgame gold sink; the risk you choose is the fee you pay. */
+const RIFT_COST_PER_TIER = 100;
+/** Highest rift tier a player may open: one tier unlocked per 3 levels, clamped to 1..10. */
+function maxRiftTier(level: number): number {
+  return Math.max(1, Math.min(10, Math.floor(level / 3)));
+}
 const INTERACT_RANGE = 70;
 // The unequipped-gear bag holds up to this many pieces; a new piece beyond the cap evicts the oldest
 // (sell or equip to keep the good stuff). The HUD only shows the newest few — see the client.
@@ -375,7 +382,8 @@ type NpcKind =
   | 'gambler'
   | 'artificer'
   | 'banker'
-  | 'recruiter';
+  | 'recruiter'
+  | 'riftkeeper';
 
 interface Npc {
   id: number;
@@ -439,6 +447,8 @@ export class World {
     playerId: number;
     offers: { type: string; name: string; cost: number }[];
   }[] = [];
+  /** Pending rift windows to deliver (player just interacted with the Riftkeeper). */
+  private riftOffers: { playerId: number; maxTier: number; costBase: number }[] = [];
   /** Pending Artificer windows to deliver (player just interacted with an artificer NPC). */
   private artificerOffers: { playerId: number }[] = [];
   /** Pending stash windows to deliver: the bank contents for a player who opened/changed it. */
@@ -468,6 +478,8 @@ export class World {
     allocId?: () => number,
     areaId = 'world',
     areaCorruption?: AreaCorruption,
+    /** Rift difficulty tier (0 = a normal area). Scales monster level/HP/damage/density. */
+    private readonly tier = 0,
   ) {
     this.allocId = allocId ?? (() => this.localId++);
     this.areaId = areaId;
@@ -528,12 +540,17 @@ export class World {
    */
   private populateDungeon(d: DungeonDef): void {
     const content = getContent();
-    const count = d.minMobs + Math.floor(Math.random() * (d.maxMobs - d.minMobs + 1));
+    // A rift tier packs the dungeon denser and rolls champions far more often — risk and reward
+    // both ramp with the tier the player chose at the Riftkeeper.
+    const density = 1 + 0.15 * this.tier;
+    const eliteChance = Math.min(0.6, d.eliteChance + 0.03 * this.tier);
+    const base = d.minMobs + Math.floor(Math.random() * (d.maxMobs - d.minMobs + 1));
+    const count = Math.round(base * density);
     for (let i = 0; i < count; i++) {
       const id = d.pool[Math.floor(Math.random() * d.pool.length)];
       const template = id ? content.mobTemplate(id) : undefined;
       if (template)
-        this.createMob(template, this.randomMobX(), this.randomMobY(), false, false, d.eliteChance);
+        this.createMob(template, this.randomMobX(), this.randomMobY(), false, false, eliteChance);
     }
     const boss = content.mobTemplate(d.boss);
     if (boss) this.createMob(boss, this.width / 2, this.height * 0.62);
@@ -588,7 +605,10 @@ export class World {
     const mod = elite
       ? (ELITE_MODIFIERS[Math.floor(Math.random() * ELITE_MODIFIERS.length)] ?? null)
       : null;
-    const hp = mod ? Math.round(template.hp * mod.hp) : template.hp;
+    // Rift tier scaling: every spawn levels up (more XP per kill) and hits/lives harder.
+    const tierHp = 1 + 0.35 * this.tier;
+    const tierDmg = 1 + 0.18 * this.tier;
+    const hp = Math.round((mod ? template.hp * mod.hp : template.hp) * tierHp);
     this.mobs.set(id, {
       id,
       templateId: template.id,
@@ -601,7 +621,7 @@ export class World {
       facing: 0,
       hp,
       maxHp: hp,
-      level: template.level,
+      level: template.level + this.tier * 2,
       attackCd: 0,
       wanderAngle: null,
       wanderUntil: 0,
@@ -618,7 +638,7 @@ export class World {
       dashVy: 0,
       dashHit: new Set(),
       elite,
-      dmgMult: mod ? mod.dmg : 1,
+      dmgMult: (mod ? mod.dmg : 1) * tierDmg,
       spdMult: mod ? mod.spd : 1,
       invader,
     });
@@ -634,6 +654,7 @@ export class World {
       'artificer',
       'banker',
       'recruiter',
+      'riftkeeper',
     ];
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
@@ -672,6 +693,12 @@ export class World {
           name: t.name,
           cost,
         })),
+      });
+    } else if (npc.kind === 'riftkeeper') {
+      this.riftOffers.push({
+        playerId: player.id,
+        maxTier: maxRiftTier(player.level),
+        costBase: RIFT_COST_PER_TIER,
       });
     } else {
       this.talkToQuestGiver(player);
@@ -774,6 +801,33 @@ export class World {
     const drained = this.hireOffers;
     this.hireOffers = [];
     return drained;
+  }
+
+  /** Drain pending rift windows for the host to deliver as `rift_open` packets. */
+  drainRiftOffers(): { playerId: number; maxTier: number; costBase: number }[] {
+    const drained = this.riftOffers;
+    this.riftOffers = [];
+    return drained;
+  }
+
+  /**
+   * Validate and pay for opening a rift at a tier: requires Riftkeeper proximity, a tier within
+   * the player's unlocked range, and the gold fee. Returns true when paid — the HOST then creates
+   * the fresh rift instance and transfers the player (see InstanceManager.openRift).
+   */
+  payForRift(id: number, tier: number): boolean {
+    const player = this.players.get(id);
+    if (!player || player.dead) return false;
+    const npc = this.nearbyNpc(player);
+    if (!npc || npc.kind !== 'riftkeeper') return false;
+    if (!Number.isInteger(tier) || tier < 1 || tier > maxRiftTier(player.level)) return false;
+    const cost = tier * RIFT_COST_PER_TIER;
+    if (player.gold < cost) {
+      this.notify(player.id, `You need ${cost}g to open a tier ${tier} rift.`);
+      return false;
+    }
+    player.gold -= cost;
+    return true;
   }
 
   /**

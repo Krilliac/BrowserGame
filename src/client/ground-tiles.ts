@@ -217,6 +217,7 @@ const AREA_BIOME: Record<string, string> = {
   frozen_vault: 'frost',
   sundered_wastes: 'graveyard',
   blighted_spire: 'dungeon',
+  rift: 'cursed', // the endgame rift — otherworldly corrupted ground fits its violet theme
 };
 
 /**

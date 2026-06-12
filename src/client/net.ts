@@ -121,6 +121,8 @@ export class Net {
   gamble: { cost: number } | null = null;
   /** Open recruiter hire window (mercenary offers), or null when no hire panel is open. */
   hire: { offers: { type: string; name: string; cost: number }[] } | null = null;
+  /** Open Riftkeeper window (tier range + fee), or null when no rift panel is open. */
+  rift: { maxTier: number; costBase: number } | null = null;
   /** Open Artificer window (service costs), or null when no artificer panel is open. */
   artificer: { rerollCost: number; unsocketCost: number } | null = null;
   /** Open banker stash (stored items + capacity), or null when no stash panel is open. */
@@ -239,6 +241,10 @@ export class Net {
 
   sendHire(type: string): void {
     this.send({ t: 'hire', type });
+  }
+
+  sendOpenRift(tier: number): void {
+    this.send({ t: 'open_rift', tier });
   }
 
   sendWaypoint(areaId: string): void {
@@ -372,6 +378,12 @@ export class Net {
       case 'hire_open':
         this.hire = { offers: Array.isArray(msg.offers) ? msg.offers.slice(0, 8) : [] };
         break;
+      case 'rift_open':
+        this.rift = {
+          maxTier: typeof msg.maxTier === 'number' ? Math.max(1, Math.min(20, msg.maxTier)) : 1,
+          costBase: typeof msg.costBase === 'number' ? msg.costBase : 0,
+        };
+        break;
       case 'artificer_open':
         this.artificer = {
           rerollCost: typeof msg.rerollCost === 'number' ? msg.rerollCost : 0,
@@ -386,6 +398,7 @@ export class Net {
         this.shop = null; // close any open shop when we leave the area
         this.gamble = null;
         this.hire = null;
+        this.rift = null;
         this.artificer = null;
         this.stash = null;
         break;

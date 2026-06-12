@@ -402,6 +402,30 @@ wss.on('connection', (socket) => {
             }
             break;
           }
+          case 'open_rift': {
+            const p = players.get(entityId);
+            if (!p || typeof msg.tier !== 'number') break;
+            const world = manager.get(p.instanceId)?.world;
+            // The world validates Riftkeeper proximity + tier + gold and takes the fee; the
+            // manager then spins up the private tiered instance and moves the player.
+            if (!world?.payForRift(entityId, msg.tier)) break;
+            const ev = manager.openRift(p.instanceId, entityId, msg.tier);
+            if (ev) {
+              p.instanceId = ev.toInstanceId;
+              send(p.socket, {
+                t: 'area_changed',
+                areaId: ev.toAreaId,
+                instanceId: ev.toInstanceId,
+              });
+              const stats = manager.get(p.instanceId)?.world.playerStats(entityId);
+              social.updatePresence(p.token, ev.toAreaId, stats?.level ?? 1);
+              const name = nameOf(entityId);
+              if (name) notifyFriendWatchers(name);
+              const party = parties.partyOf(entityId);
+              if (party) for (const m of party.memberIds) sendPartyState(m);
+            }
+            break;
+          }
           case 'enchant': {
             const p = players.get(entityId);
             if (p && typeof msg.uid === 'number') {
@@ -813,6 +837,14 @@ setInterval(() => {
           const socket = players.get(offer.playerId)?.socket;
           if (socket && socket.readyState === socket.OPEN) {
             send(socket, { t: 'hire_open', offers: offer.offers });
+          }
+        }
+
+        // Deliver rift windows to players who just interacted with the Riftkeeper.
+        for (const offer of world.drainRiftOffers()) {
+          const socket = players.get(offer.playerId)?.socket;
+          if (socket && socket.readyState === socket.OPEN) {
+            send(socket, { t: 'rift_open', maxTier: offer.maxTier, costBase: offer.costBase });
           }
         }
 

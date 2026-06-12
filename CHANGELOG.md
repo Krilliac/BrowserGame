@@ -25,6 +25,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Endgame rifts (The Shattered Rift).** Saelis the Riftkeeper in town opens a **fresh, private
+  rift instance** at a difficulty tier you choose (one tier unlocks per 3 levels, up to 10; the
+  fee is 100g × tier — an endgame gold sink). The tier scales everything: +2 monster levels per
+  tier (more XP), +35% HP and +18% damage per tier, ~15% denser packs, and a climbing champion
+  chance. The rift rolls a chaotic cross-act roster with the Voidmaw Devourer at the bottom;
+  exit through the portal home and the instance dissolves. Re-opening re-rolls everything.
+  Also fixed in passing: portals now transfer **only players** — a hireling (or mob) crossing a
+  portal pad could previously be re-spawned as a ghost "player" on the other side.
 - **Real pack art across the whole game (curated-asset integration).** The 13 extracted Downloads
   packs (see `public/assets/INVENTORY.md`) now feed the renderer and HUD via four new data modules:
   - **Tiled ground per biome** (`ground-tiles.ts`) — every area bakes a 16×16-tile pattern of real

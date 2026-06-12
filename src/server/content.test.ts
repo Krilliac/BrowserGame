@@ -20,6 +20,7 @@ describe('content (SQLite-backed)', () => {
       'infernal_forge',
       'marsh',
       'mines',
+      'rift',
       'sundered_wastes',
       'town',
       'wilderness',

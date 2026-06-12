@@ -255,6 +255,24 @@ export const AREAS: Record<string, AreaDef> = {
       },
     ],
   },
+  // The endgame rift: opened at a chosen difficulty tier by the town Riftkeeper. Every opening
+  // is a FRESH private instance (never joined via pickInstance); the tier scales the monsters.
+  rift: {
+    id: 'rift',
+    name: 'The Shattered Rift',
+    width: 1500,
+    height: 1300,
+    spawn: { x: 750, y: 220 },
+    playerCap: 4,
+    portals: [
+      {
+        rect: { x: 600, y: 0, w: 300, h: 50 },
+        toArea: 'town',
+        toSpawn: { x: 800, y: 700 },
+        label: '↑ Return to Aldermere',
+      },
+    ],
+  },
   writhing_hive: {
     id: 'writhing_hive',
     name: 'The Writhing Hive',
@@ -501,6 +519,27 @@ export const AREA_THEMES: Record<string, AreaTheme> = {
   },
 
   // --- Dungeon themes: dark, indoor, oppressive ---
+  rift: {
+    groundBase: '#1a1426',
+    groundSpeck: '#2c2140',
+    prop: 'crystal',
+    propDensity: 0.08,
+    atmoColor: '#1a0b2e',
+    atmoAlpha: 0.4,
+    outdoor: false,
+    particleColor: '#b08aff',
+    particleCount: 60,
+    particleRise: 16,
+    particleFlicker: true,
+    weather: 'fog',
+    weatherIntensity: 0.35,
+    fogColor: '#120a1c',
+    lightAmbient: 0.45,
+    gradeSaturation: 0.85,
+    gradeBrightness: 0.92,
+    gradeContrast: 1.12,
+    spriteTint: '#cdb8e8',
+  },
   forgotten_catacombs: {
     groundBase: '#241f29',
     groundSpeck: '#332b3a',
@@ -747,6 +786,31 @@ export const DUNGEONS: Record<string, DungeonDef> = {
     eliteChance: 0.22,
     minMobs: 15,
     maxMobs: 22,
+  },
+  // The endgame rift: a chaotic cross-act roster. The chosen tier scales every spawn's level,
+  // HP, damage, density, and elite chance on top of these base numbers (see World difficulty).
+  rift: {
+    pool: [
+      'rot_ghoul',
+      'thornling_archer',
+      'plague_hound',
+      'grave_golem',
+      'bile_ooze',
+      'shardspine_hurler',
+      'gravetide_revenant',
+      'cinder_imp',
+      'magma_crawler',
+      'wraithfrost_stalker',
+      'hollow_runeseer',
+      'obsidian_juggernaut',
+      'rime_archer',
+    ],
+    boss: 'voidmaw_devourer',
+    miniBoss: 'abyssal_warden',
+    miniBossChance: 0.5,
+    eliteChance: 0.25,
+    minMobs: 18,
+    maxMobs: 26,
   },
 };
 
