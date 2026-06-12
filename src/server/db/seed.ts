@@ -7,6 +7,7 @@ import { MOB_TEMPLATES, AREA_MOBS } from '../mobs.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
 import { GEMS } from '../../shared/gems.js';
+import { RUNES } from '../../shared/runewords.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 
 /** Display names + colors for the non-equipment loot materials (and gold). */
@@ -523,6 +524,11 @@ function ensureSpellbookContent(db: Database): void {
   // Sell value scales loosely with tier so a spare gem is still worth a little gold.
   for (const g of Object.values(GEMS)) {
     insItem.run(g.id, g.name, 'gem', null, null, null, g.color, g.tier * 10, null);
+  }
+  // Runes (for runewords): socketable like gems, registered as content items so the client gets
+  // their name + color. The runeword detection lives in shared/runewords.ts.
+  for (const r of RUNES) {
+    insItem.run(r.id, r.name, 'gem', null, null, null, '#d8b25a', 50, null);
   }
 
   // Town service NPCs added after the original seed — insert by name only if missing.

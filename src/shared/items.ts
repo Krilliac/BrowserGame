@@ -381,7 +381,7 @@ export function socketCountFor(rarity: Rarity): number {
     epic: 2,
     legendary: 2,
     corrupted: 1,
-    unique: 2,
+    unique: 3, // uniques get a third socket — enough to host a 3-rune runeword
   };
   return counts[rarity];
 }

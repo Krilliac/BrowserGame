@@ -75,6 +75,7 @@ import {
   ATTR_POINTS_PER_LEVEL,
 } from '../shared/attributes.js';
 import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
+import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { getContent, type QuestDef } from './content.js';
@@ -933,7 +934,8 @@ export class World {
   socketGem(id: number, gemId: string): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
-    if ((player.loot.get(gemId) ?? 0) <= 0 || !isGem(gemId)) return;
+    // Both gems and runes (for runewords) are socketable; both are held as stackable loot.
+    if ((player.loot.get(gemId) ?? 0) <= 0 || (!isGem(gemId) && !rune(gemId))) return;
     // Find the first equipped piece with a free socket (stable slot order).
     for (const slot of EQUIP_SLOTS) {
       const inst = player.equipment[slot];
@@ -943,9 +945,13 @@ export class World {
         inst.sockets[free] = gemId;
         this.consumeLoot(player, gemId);
         this.recomputeStats(player);
+        const itemName = getContent().item(inst.baseId)?.name ?? slot;
+        const rw = detectRuneword(inst.sockets);
         this.notify(
           player.id,
-          `Socketed a gem into your ${getContent().item(inst.baseId)?.name ?? slot}.`,
+          rw
+            ? `Runeword formed — ${rw.name} on your ${itemName}!`
+            : `Socketed into your ${itemName}.`,
         );
         return;
       }
@@ -1094,6 +1100,18 @@ export class World {
       move += gems.move;
       armor += gems.armor;
       vigor += gems.vigor;
+      // A runeword (the right runes socketed in order) grants its bonus affixes on top of the runes.
+      for (const a of runewordBonuses(inst.sockets ?? [])) {
+        if (a.stat === 'power') power += a.value;
+        else if (a.stat === 'hp') bonusHp += a.value;
+        else if (a.stat === 'crit') crit += a.value / 100;
+        else if (a.stat === 'multishot') multishot += a.value;
+        else if (a.stat === 'lifesteal') lifesteal += a.value;
+        else if (a.stat === 'swift') swift += a.value;
+        else if (a.stat === 'move') move += a.value;
+        else if (a.stat === 'armor') armor += a.value;
+        else if (a.stat === 'vigor') vigor += a.value;
+      }
     }
     // Attribute bonuses (strength→power, vitality→maxHp, dexterity→crit, energy→mana regen).
     const attr = attributeBonuses(player.attributes);
@@ -1610,6 +1628,11 @@ export class World {
         player.potions.health + 1 + (Math.random() < 0.5 ? 1 : 0),
       );
       if (Math.random() < 0.6) player.potions.mana = Math.min(POTION_CAP, player.potions.mana + 1);
+      // ...and sometimes a rune (for runewords).
+      if (Math.random() < 0.5) {
+        const r = RUNES[Math.floor(Math.random() * RUNES.length)];
+        if (r) this.giveItem(player.id, r.id, 1);
+      }
       this.notify(player.id, 'You pry open a chest!');
     }
   }
