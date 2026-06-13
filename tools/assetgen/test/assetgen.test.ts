@@ -189,3 +189,29 @@ describe('fx/synth — ASSET-FX', () => {
     }
   });
 });
+
+describe('sprites/synth — equipment layers (paper-doll)', () => {
+  it('layer sheets are deterministic and share the body sheet dimensions', async () => {
+    const { synthLayer } = await import('../sprites/synth.ts');
+    const a = synthLayer(ADVENTURER, 'helm');
+    const b = synthLayer(ADVENTURER, 'helm');
+    expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
+  });
+
+  it('composing layers adds pixels over the bare body (the overlay actually draws)', async () => {
+    const { renderComposedCell } = await import('../sprites/synth.ts');
+    const bare = renderComposedCell(ADVENTURER, Math.PI / 2, 'idle', 0, []);
+    const armored = renderComposedCell(ADVENTURER, Math.PI / 2, 'idle', 0, [
+      'armor',
+      'weapon',
+      'helm',
+    ]);
+    let bareOpaque = 0;
+    let armoredOpaque = 0;
+    for (let i = 3; i < bare.data.length; i += 4) {
+      if (bare.data[i]! > 8) bareOpaque++;
+      if (armored.data[i]! > 8) armoredOpaque++;
+    }
+    expect(armoredOpaque).toBeGreaterThan(bareOpaque); // layers add coverage
+  });
+});

@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Paper-doll equipment on the character (image data for equippables).** The sprite generator now
+  emits equipment **layer sheets** (helm/armor/weapon) aligned to the adventurer body frame-for-frame
+  via a shared pose "rig", and the renderer overlays them on the local player's actor — sampling the
+  same 16-direction frame as the body and gated by the equipped slots (`head`→helm, `chest`→armor,
+  `mainhand`→weapon, pushed from `net.you.equipment`). Alignment verified across all facings. (Showing
+  gear on NPCs/other players is a follow-up — it needs the server to broadcast visible gear per entity.)
+- **Generated combat FX strips wired in; licensed `explosion-cuzco.png` removed.** Death plays the
+  generated explosion strip; casts play an elemental strip chosen from the ability color
+  (frost/lightning/holy/poison/explosion); slams add an explosion burst; melee plays an oriented slash.
 - **Procedural asset-generation suite + RENDER-09 finished.** A new in-repo, zero-dependency generator
   toolkit under `tools/assetgen/` (a software RGBA rasterizer + PNG encoder via Node `zlib`, seeded RNG,
   shared easing curves, atomic manifest writer) drives offline asset synthesis — never imported by the

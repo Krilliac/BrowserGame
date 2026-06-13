@@ -1086,6 +1086,13 @@ function frame(): void {
   }
 
   if (!devInspector?.frozen) {
+    // Push the local player's equipped look so the renderer overlays the paper-doll layers.
+    const eq = net.you.equipment;
+    renderer.setPlayerLook({
+      helm: !!eq.head,
+      armor: !!eq.chest,
+      weapon: !!eq.mainhand,
+    });
     renderer.update({
       areaId: net.areaId,
       entities,
