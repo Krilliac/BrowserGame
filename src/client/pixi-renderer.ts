@@ -1950,12 +1950,23 @@ export class PixiRenderer {
           ? -Math.abs(Math.sin(now / 110 + phase)) * 2.5
           : Math.sin(now / 420 + phase) * 1.2;
 
-      // Paper-doll: overlay equipped layers on the same frame + bob, shown per the player's look.
+      // Paper-doll: overlay equipped layers on the same frame + bob. The local player's look comes
+      // from net.you.equipment (setPlayerLook); other humanoids decode the server's `look` bitfield
+      // (1=helm, 2=armor, 4=weapon) so players/hirelings/NPCs all show their gear.
       if (view.equipLayers) {
+        const lookBits = e.look ?? 0;
+        const wear = (piece: string) =>
+          isSelf
+            ? this.playerLook[piece] === true
+            : piece === 'helm'
+              ? (lookBits & 1) !== 0
+              : piece === 'armor'
+                ? (lookBits & 2) !== 0
+                : (lookBits & 4) !== 0; // weapon
         for (const piece of EQUIP_LAYER_ORDER) {
           const ls = view.equipLayers[piece];
           if (!ls) continue;
-          if (this.playerLook[piece]) {
+          if (wear(piece)) {
             ls.visible = true;
             ls.texture = this.frame(`equip:${piece}`, sheet.fw, sheet.fh, col, row);
             ls.y = view.sprite.y;
@@ -2109,10 +2120,10 @@ export class PixiRenderer {
         view.castShadow = cast;
         shadow.visible = false; // the cast shadow replaces the blob for important actors
       }
-      // Paper-doll equipment overlays for the LOCAL player: one sprite per layer, matching the body's
-      // anchor + scale, added over the body in armor→weapon→helm order. Hidden until the look enables
-      // them (updateActor syncs texture/visibility/bob each frame from the same body frame).
-      if (isSelf) {
+      // Paper-doll equipment overlays for any humanoid on the adventurer sheet (player/NPC/hireling):
+      // one sprite per layer, matching the body's anchor + scale, over the body in armor→weapon→helm
+      // order. Hidden until the look enables them (updateActor syncs texture/visibility/bob per frame).
+      if (key === 'hero') {
         const layers: Record<string, Sprite> = {};
         for (const piece of EQUIP_LAYER_ORDER) {
           if (!this.tex.has(`equip:${piece}`)) continue;

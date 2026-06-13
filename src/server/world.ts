@@ -3144,6 +3144,9 @@ export class World {
         (p.buffs.has('might') ? 8 : 0) |
         (p.buffs.has('haste') ? 16 : 0) |
         (p.buffs.has('regen') ? 32 : 0);
+      // Visible-equipment bitfield for the paper-doll: head→helm(1), chest→armor(2), mainhand→weapon(4).
+      const look =
+        (p.equipment.head ? 1 : 0) | (p.equipment.chest ? 2 : 0) | (p.equipment.mainhand ? 4 : 0);
       out.push({
         id: p.id,
         x: p.x,
@@ -3156,6 +3159,7 @@ export class World {
         maxHp: p.maxHp,
         level: p.level,
         ...(flags ? { flags } : {}),
+        ...(look ? { look } : {}),
       });
     }
     for (const h of this.hirelings.values()) {
@@ -3171,6 +3175,7 @@ export class World {
         hp: Math.ceil(h.hp),
         maxHp: h.maxHp,
         level: h.level,
+        look: 6, // hirelings read as armed warriors (armor + weapon)
       };
       const hTint = getContent().spriteTint(`hireling:${h.template.type}`);
       if (hTint) e.tint = hTint;
@@ -3251,6 +3256,16 @@ export class World {
         maxHp: 0,
         level: 0,
         npcKind: npc.kind,
+        // Townsfolk paper-doll look by role: the recruiter reads as an armed sergeant (armor+weapon),
+        // robed roles (artificer/healer/banker/riftkeeper) wear armor only, vendors/gamblers go plain.
+        ...(npc.kind === 'recruiter'
+          ? { look: 6 }
+          : npc.kind === 'artificer' ||
+              npc.kind === 'healer' ||
+              npc.kind === 'banker' ||
+              npc.kind === 'riftkeeper'
+            ? { look: 2 }
+            : {}),
       };
       const npcTint = getContent().spriteTint(`npc:${npc.kind}`);
       if (npcTint) e.tint = npcTint;

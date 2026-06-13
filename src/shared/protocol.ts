@@ -134,6 +134,9 @@ export interface EntityState {
    * 4 = weakened. Local-player buffs: 8 = might, 16 = haste, 32 = regen.
    */
   flags?: number;
+  /** Humanoids (players/hirelings): visible-equipment bitfield for the paper-doll overlay —
+   *  1 = helm (head), 2 = armor (chest), 4 = weapon (mainhand). Absent = no visible gear. */
+  look?: number;
   /** Mobs only: true for an elite/champion (the client draws a marker + scales it up). */
   elite?: boolean;
   /** Mobs only: true once a player has damaged it — the client marks it as claimed/engaged
