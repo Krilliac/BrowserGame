@@ -8,12 +8,33 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Generated item icons replace the licensed sheets (`gen:icons`).** Inventory/vault/belt icons now
+  draw from a procedurally-generated, **kind-keyed** sheet (`/assets/icons/items_gen.png`) instead of
+  the licensed 32rogues atlas + minerals gem files. `item-icons.ts` resolves every item id to one of a
+  fixed set of icon keys (weapon/armor/jewelry categories + nine per-family gem cells + a generic
+  fallback) through a chain — gem family → rune → material → keyword rules → equipment-slot default →
+  generic — so every seeded id renders *something*, asserted against the generated manifest. The
+  generator (`tools/assetgen/icons`) draws parametric silhouettes for ~23 kinds with a rarity ring and
+  optional tint, packed 8-per-row; deterministic per seed.
+- **Paper-doll gear on every humanoid (broadcast per entity).** The server now broadcasts each entity's
+  visible-gear "look" as a compact bitfield on `EntityState` (`look`: 1=helm, 2=armor, 4=weapon), set
+  from players' equipped slots and from NPC/hireling kind. The renderer overlays the generated
+  equipment layer sheets on all humanoid actors — not just the local player — sampling the same frame
+  as the body and gated by that bitfield. (Local player reads `net.you.equipment` directly.)
+- **Generated creature sheets replace the licensed LPC mob art (`gen:creatures`).** Skeleton, wolf, and
+  bat now use procedurally-generated 8-direction sheets (idle/walk/attack + dirless hurt/death) instead
+  of the licensed LPC atlases; the renderer's `creatureClips()` maps the generated layout. Deterministic
+  per seed; recognizable silhouettes verified via an 8-facing preview.
+- **Generated emitter presets + synthesized cast SFX wired in.** The `frost`/`heal` emitter presets are
+  registered and fire on cast/level-up, and the remaining licensed cast audio (`shoot_arrow`/`cast_fire`
+  `.ogg`) is dropped — those one-shots are now synthesized via Web Audio (bowstring whoosh for arrows, a
+  rising magical surge + chord for fireball/frost). Only the looping ambient bed remains a bundled file.
 - **Paper-doll equipment on the character (image data for equippables).** The sprite generator now
   emits equipment **layer sheets** (helm/armor/weapon) aligned to the adventurer body frame-for-frame
   via a shared pose "rig", and the renderer overlays them on the local player's actor — sampling the
   same 16-direction frame as the body and gated by the equipped slots (`head`→helm, `chest`→armor,
-  `mainhand`→weapon, pushed from `net.you.equipment`). Alignment verified across all facings. (Showing
-  gear on NPCs/other players is a follow-up — it needs the server to broadcast visible gear per entity.)
+  `mainhand`→weapon, pushed from `net.you.equipment`). Alignment verified across all facings. (Gear is
+  now shown on NPCs/other players too — see the per-entity `look` broadcast entry above.)
 - **Generated combat FX strips wired in; licensed `explosion-cuzco.png` removed.** Death plays the
   generated explosion strip; casts play an elemental strip chosen from the ability color
   (frost/lightning/holy/poison/explosion); slams add an explosion burst; melee plays an oriented slash.
@@ -28,7 +49,7 @@ versioning once it stabilizes.
   ship alongside it (`gen:fx` effect strips, `gen:emitter` particle presets, `gen:tiles` seamless
   biomes, `gen:icons` item icons, `gen:sfx` procedural sound params) — each deterministic and emitting
   artifacts that match the real engine consumer type (`FxStrip`, `EmitterDef`, `GroundTileset`,
-  `ITEM_ICON_CELLS`, sound synth defs), ready to register. See `wiki/architecture/Asset-Generation.md`.
+  the kind-keyed icon manifest, sound synth defs), ready to register. See `wiki/architecture/Asset-Generation.md`.
 - **Per-area screen polish filters (RENDER-10/12/13), enabled.** A new `screen-fx.ts` adds three
   drop-in `pixi-filters` effects driven by a per-area registry (`AREA_SCREEN_FX`), gated to desktop
   ('high'): **godrays** (subtle light shafts, on for all outdoor areas via `theme.outdoor`, stronger

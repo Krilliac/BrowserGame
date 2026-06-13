@@ -1,0 +1,134 @@
+{
+  "src": "/assets/icons/items_gen.png",
+  "cell": 32,
+  "cells": {
+    "sword": {
+      "col": 0,
+      "row": 0
+    },
+    "axe": {
+      "col": 1,
+      "row": 0
+    },
+    "bow": {
+      "col": 2,
+      "row": 0
+    },
+    "staff": {
+      "col": 3,
+      "row": 0
+    },
+    "mace": {
+      "col": 4,
+      "row": 0
+    },
+    "dagger": {
+      "col": 5,
+      "row": 0
+    },
+    "spear": {
+      "col": 6,
+      "row": 0
+    },
+    "shield": {
+      "col": 7,
+      "row": 0
+    },
+    "helm": {
+      "col": 0,
+      "row": 1
+    },
+    "chest": {
+      "col": 1,
+      "row": 1
+    },
+    "gloves": {
+      "col": 2,
+      "row": 1
+    },
+    "boots": {
+      "col": 3,
+      "row": 1
+    },
+    "legs": {
+      "col": 4,
+      "row": 1
+    },
+    "amulet": {
+      "col": 5,
+      "row": 1
+    },
+    "ring": {
+      "col": 6,
+      "row": 1
+    },
+    "charm": {
+      "col": 7,
+      "row": 1
+    },
+    "potion": {
+      "col": 0,
+      "row": 2
+    },
+    "scroll": {
+      "col": 1,
+      "row": 2
+    },
+    "tome": {
+      "col": 2,
+      "row": 2
+    },
+    "coin": {
+      "col": 3,
+      "row": 2
+    },
+    "rune": {
+      "col": 4,
+      "row": 2
+    },
+    "material": {
+      "col": 5,
+      "row": 2
+    },
+    "generic": {
+      "col": 6,
+      "row": 2
+    },
+    "gem_ruby": {
+      "col": 7,
+      "row": 2
+    },
+    "gem_sapphire": {
+      "col": 0,
+      "row": 3
+    },
+    "gem_topaz": {
+      "col": 1,
+      "row": 3
+    },
+    "gem_diamond": {
+      "col": 2,
+      "row": 3
+    },
+    "gem_emerald": {
+      "col": 3,
+      "row": 3
+    },
+    "gem_amethyst": {
+      "col": 4,
+      "row": 3
+    },
+    "gem_jade": {
+      "col": 5,
+      "row": 3
+    },
+    "gem_onyx": {
+      "col": 6,
+      "row": 3
+    },
+    "gem_opal": {
+      "col": 7,
+      "row": 3
+    }
+  }
+}
