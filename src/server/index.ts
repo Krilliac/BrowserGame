@@ -6,6 +6,13 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { config } from './config.js';
 import { InstanceManager, type InstancingMode } from './instance-manager.js';
 import { newBotState, stepBot, type BotState, type BotView } from './bot-brain.js';
+import {
+  coordinateSquad,
+  type SquadContext,
+  type SquadMemberInput,
+  type SquadMobInput,
+} from './bot-squad.js';
+import { SquadMetrics, writeReport, type RunSample } from './bot-metrics.js';
 import { SKILL_TREE } from '../shared/skilltree.js';
 import { sanitizeChat } from './chat.js';
 import { TokenBucket } from './rate-limit.js';
@@ -148,6 +155,8 @@ interface BotRunner {
   seq: number;
   /** Next tick at which to run the (throttled) gear/spell/points upkeep. */
   upkeepAt: number;
+  /** Last-tick alive→dead edge detector, so a death is recorded into the squad metrics exactly once. */
+  wasDead: boolean;
 }
 
 /**
@@ -245,6 +254,16 @@ function botUpkeep(world: World, id: number): void {
   }
 }
 const bots = new Map<number, BotRunner>();
+/** One run recorder per owner (the GM who spawned the squad). Created on first spawn, dropped on clear. */
+const squadMetrics = new Map<number, SquadMetrics>();
+/** Instances where the final boss (Athraxis) was alive last tick — for the alive→gone kill edge. */
+const bossAliveIn = new Set<string>();
+/** Next tick at which to sample squad metrics, per owner (throttled to ~2s). */
+const metricsSampleAt = new Map<number, number>();
+/** The current sim clock in ms (tick × ms/tick) — reproducible regardless of wall-clock / tick rate. */
+function simMs(): number {
+  return tick * (1000 / TICK_RATE);
+}
 const BOT_NAMES = [
   'Roan',
   'Mira',
@@ -275,8 +294,18 @@ function spawnBots(owner: number, instanceId: string, count: number): number {
       state: newBotState(placement.entityId),
       seq: 0,
       upkeepAt: 0,
+      wasDead: false,
     });
     spawned++;
+  }
+  // Start (or extend) this owner's run recorder so the whole journey to endgame is measured.
+  if (spawned > 0) {
+    const names = [...bots]
+      .filter(([, b]) => b.owner === owner)
+      .map(([id]) => manager.get(bots.get(id)!.instanceId)?.world.nameOf(id) ?? `Bot${id}`);
+    const existing = squadMetrics.get(owner);
+    if (existing) existing.setMembers(names);
+    else squadMetrics.set(owner, new SquadMetrics(owner, names, simMs()));
   }
   return spawned;
 }
@@ -294,7 +323,25 @@ function clearBots(owner?: number): number {
     bots.delete(id);
     removed++;
   }
+  // Drop the run recorder(s) for the cleared owner(s) so a fresh squad starts a fresh measurement.
+  if (owner !== undefined) {
+    squadMetrics.delete(owner);
+    metricsSampleAt.delete(owner);
+  } else {
+    squadMetrics.clear();
+    metricsSampleAt.clear();
+  }
   return removed;
+}
+
+/** Write `owner`'s current squad run report to disk and return a one-line summary (or null). */
+function botReport(owner: number): string | null {
+  const m = squadMetrics.get(owner);
+  if (!m) return null;
+  const r = m.report();
+  const { md } = writeReport(r);
+  const top = r.findings[0]?.detail ?? 'no findings yet';
+  return `Run report written to ${md} — ${r.bossKilled ? 'boss DOWN' : 'in progress'}, avg L${r.finalLevelAvg.toFixed(0)}, ${r.deaths.length} death(s). Top finding: ${top}`;
 }
 
 /** Drive every bot one tick: build a brain view from its world, apply the decision. Cheap — bots
@@ -312,6 +359,7 @@ function driveBots(): void {
   const byInstance = new Map<string, number[]>();
   for (const [id, b] of bots)
     byInstance.set(b.instanceId, [...(byInstance.get(b.instanceId) ?? []), id]);
+  const now = simMs();
   for (const [instanceId, ids] of byInstance) {
     const world = manager.get(instanceId)?.world;
     if (!world) continue;
@@ -320,66 +368,249 @@ function driveBots(): void {
     const mobs = snap.filter((e) => e.kind === 'mob' && e.hp > 0);
     const items = snap.filter((e) => e.kind === 'item');
     const area = getContent().area(areaId);
+
+    // Group this instance's bots by owner — each owner's bots in here form one cooperating squad.
+    const squadIds = new Map<number, number[]>();
     for (const id of ids) {
-      const stats = world.playerStats(id);
-      const me = snap.find((e) => e.id === id);
-      const b = bots.get(id)!;
-      if (!stats || !me) continue;
+      const o = bots.get(id)!.owner;
+      squadIds.set(o, [...(squadIds.get(o) ?? []), id]);
+    }
+    // The mobs every squad here can see, in the shared coordination shape (boss = a big-HP target).
+    const squadMobs: SquadMobInput[] = mobs.map((m) => ({
+      id: m.id,
+      x: m.x,
+      y: m.y,
+      hp: m.hp,
+      level: m.level,
+      boss: m.maxHp >= 1500,
+      elite: m.elite === true,
+    }));
 
-      // Grow: equip/learn/spend-points on a ~1s throttle (cheap, and keeps the bot relevant).
-      if (tick >= b.upkeepAt) {
-        botUpkeep(world, id);
-        b.upkeepAt = tick + TICK_RATE;
+    for (const [, memberIds] of squadIds) {
+      // Build the squad's member view, then coordinate roles / focus-fire / regroup for this tick.
+      const members: SquadMemberInput[] = [];
+      for (const id of memberIds) {
+        const st = world.playerStats(id);
+        const e = snap.find((s) => s.id === id);
+        if (!st || !e) continue;
+        const hasHeal = Object.keys(st.known).some(
+          (aid) => getContent().ability(aid as AbilityId)?.kind === 'heal',
+        );
+        members.push({
+          id,
+          x: e.x,
+          y: e.y,
+          hpFrac: st.maxHp > 0 ? st.hp / st.maxHp : 0,
+          maxHp: st.maxHp,
+          level: st.level,
+          dead: st.dead,
+          hasHeal,
+        });
       }
+      const ctx: SquadContext = coordinateSquad(members, squadMobs);
+      // The squad heads to the same milestone, paced by its SLOWEST living member, so nobody runs
+      // ahead to endgame solo — they level and travel as a group.
+      const livingLevels = members.filter((m) => !m.dead).map((m) => m.level);
+      const squadLevel = livingLevels.length ? Math.min(...livingLevels) : (members[0]?.level ?? 1);
 
-      // Journey toward endgame: head for the portal leading to the next milestone area; once
-      // standing in the milestone area itself, drop the goal and grind it to graduation.
-      const target = botTargetArea(stats.level);
-      const goal = areaId === target ? undefined : nextPortalHop(areaId, target);
-      const view: BotView = {
-        self: {
-          x: me.x,
-          y: me.y,
-          hp: stats.hp,
-          maxHp: stats.maxHp,
-          mana: stats.mana,
-          maxMana: stats.maxMana,
-          level: stats.level,
-          dead: stats.dead,
-        },
-        abilities: Object.keys(stats.known).flatMap((aid) => {
-          const a = getContent().ability(aid as AbilityId);
-          if (!a) return [];
-          return [
-            {
-              id: aid,
-              kind: a.kind,
-              damage: a.damage,
-              range: a.range,
-              manaCost: a.manaCost,
-              cooldownReady: true, // world.cast re-gates cooldown; pass-through is fine
-            },
-          ];
-        }),
-        mobs: mobs
-          .filter((m) => Math.hypot(m.x - me.x, m.y - me.y) < 700)
-          .map((m) => ({ id: m.id, x: m.x, y: m.y, hp: m.hp })),
-        items: items
-          .filter((it) => Math.hypot(it.x - me.x, it.y - me.y) < 400)
-          .map((it) => ({ id: it.id, x: it.x, y: it.y })),
-        width: area?.width ?? 1600,
-        height: area?.height ?? 1200,
-        potions: stats.potions,
-        ...(goal ? { goal } : {}),
-      };
-      const decision = stepBot(view, b.state, tick * (1000 / TICK_RATE));
-      world.setInput(id, decision.input, ++b.seq);
-      if (decision.cast) {
-        world.cast(id, decision.cast.ability as AbilityId, decision.cast.dx, decision.cast.dy);
+      for (const id of memberIds) {
+        const stats = world.playerStats(id);
+        const me = snap.find((e) => e.id === id);
+        const b = bots.get(id)!;
+        if (!stats || !me) continue;
+
+        // Grow: equip/learn/spend-points on a ~1s throttle (cheap, and keeps the bot relevant).
+        if (tick >= b.upkeepAt) {
+          botUpkeep(world, id);
+          b.upkeepAt = tick + TICK_RATE;
+        }
+
+        // Record the alive→dead edge into the run metrics, blaming the nearest mob at the death site.
+        if (stats.dead && !b.wasDead) {
+          squadMetrics.get(b.owner)?.noteDeath({
+            simMs: now,
+            name: world.nameOf(id) ?? `Bot${id}`,
+            area: areaId,
+            level: stats.level,
+            cause: nearestMobName(mobs, me.x, me.y),
+          });
+        }
+        b.wasDead = stats.dead;
+
+        // Journey toward endgame: head for the portal leading to the next milestone area; once
+        // standing in the milestone area itself, drop the goal and grind it to graduation.
+        const target = botTargetArea(squadLevel);
+        const goal = areaId === target ? undefined : nextPortalHop(areaId, target);
+        const squadView: NonNullable<BotView['squad']> = { role: ctx.role.get(id) ?? 'dps' };
+        if (ctx.focusTarget) squadView.focusTarget = ctx.focusTarget;
+        if (ctx.rally) squadView.rally = ctx.rally;
+        const view: BotView = {
+          self: {
+            x: me.x,
+            y: me.y,
+            hp: stats.hp,
+            maxHp: stats.maxHp,
+            mana: stats.mana,
+            maxMana: stats.maxMana,
+            level: stats.level,
+            dead: stats.dead,
+          },
+          abilities: Object.keys(stats.known).flatMap((aid) => {
+            const a = getContent().ability(aid as AbilityId);
+            if (!a) return [];
+            return [
+              {
+                id: aid,
+                kind: a.kind,
+                damage: a.damage,
+                range: a.range,
+                manaCost: a.manaCost,
+                cooldownReady: true, // world.cast re-gates cooldown; pass-through is fine
+              },
+            ];
+          }),
+          mobs: mobs
+            .filter((m) => Math.hypot(m.x - me.x, m.y - me.y) < 700)
+            .map((m) => ({ id: m.id, x: m.x, y: m.y, hp: m.hp })),
+          items: items
+            .filter((it) => Math.hypot(it.x - me.x, it.y - me.y) < 400)
+            .map((it) => ({ id: it.id, x: it.x, y: it.y })),
+          width: area?.width ?? 1600,
+          height: area?.height ?? 1200,
+          potions: stats.potions,
+          squad: squadView,
+          ...(goal ? { goal } : {}),
+        };
+        const decision = stepBot(view, b.state, now);
+        world.setInput(id, decision.input, ++b.seq);
+        if (decision.cast) {
+          world.cast(id, decision.cast.ability as AbilityId, decision.cast.dx, decision.cast.dy);
+        }
+        if (decision.usePotion) world.usePotion(id, decision.usePotion);
       }
-      if (decision.usePotion) world.usePotion(id, decision.usePotion);
+    }
+
+    // Final-boss watch: when Athraxis was alive here last tick and is now gone, the squad won.
+    detectBossKill(instanceId, snap, now);
+  }
+
+  sampleSquadMetrics();
+}
+
+/** Final boss identity (template `athraxis`) — detected by name in the endgame instance snapshot. */
+const FINAL_BOSS_NAME = 'Athraxis, the Unmade God';
+
+/** Detect the alive→gone edge of the final boss in an instance and credit the squads present. */
+function detectBossKill(instanceId: string, snap: EntityState[], nowMs: number): void {
+  const bossAlive = snap.some((e) => e.kind === 'mob' && e.name === FINAL_BOSS_NAME && e.hp > 0);
+  if (bossAlive) {
+    bossAliveIn.add(instanceId);
+    return;
+  }
+  if (!bossAliveIn.delete(instanceId)) return; // wasn't tracking a live boss here
+  const owners = new Set(
+    [...bots].filter(([, b]) => b.instanceId === instanceId).map(([, b]) => b.owner),
+  );
+  for (const owner of owners) {
+    const m = squadMetrics.get(owner);
+    if (!m || m.bossKilled) continue;
+    m.noteBossKill(nowMs);
+    const { md, json } = writeReport(m.report());
+    const r = m.report();
+    console.log(
+      `[botrun] Squad ${r.members.join('/')} KILLED the final boss in ${fmtRunDur(r.totalMs)} ` +
+        `(avg L${r.finalLevelAvg.toFixed(0)}, ${r.deaths.length} deaths, ${r.bossAttempts} boss attempts). ` +
+        `Report: ${md} + ${json}`,
+    );
+  }
+}
+
+/** Nearest living mob's display name to a point — the best-effort "cause of death". */
+function nearestMobName(mobs: EntityState[], x: number, y: number): string {
+  let name = 'unknown';
+  let best = Infinity;
+  for (const m of mobs) {
+    const d = Math.hypot(m.x - x, m.y - y);
+    if (d < best) {
+      best = d;
+      name = m.name || 'unknown';
     }
   }
+  return name;
+}
+
+/** Equipped-gear score (mirrors the bot's equip heuristic): power + hp·0.5 + Σ affix value. */
+type GearLike = { power: number; hp: number; affixes: { value: number }[] };
+function gearScoreOf(equipment: object): number {
+  let s = 0;
+  for (const it of Object.values(equipment) as (GearLike | undefined)[]) {
+    if (it) s += it.power + it.hp * 0.5 + it.affixes.reduce((a, x) => a + x.value, 0);
+  }
+  return s;
+}
+
+/** Throttled per-owner progression sampling, aggregated across every instance the squad is split over. */
+function sampleSquadMetrics(): void {
+  for (const [owner, m] of squadMetrics) {
+    if (tick < (metricsSampleAt.get(owner) ?? 0)) continue;
+    metricsSampleAt.set(owner, tick + TICK_RATE * 2); // ~once every 2s of sim time
+    let n = 0;
+    let alive = 0;
+    let lvlSum = 0;
+    let lvlMin = Infinity;
+    let lvlMax = 0;
+    let goldSum = 0;
+    let gearSum = 0;
+    let xpSum = 0;
+    const areaCount = new Map<string, number>();
+    for (const [id, b] of bots) {
+      if (b.owner !== owner) continue;
+      const w = manager.get(b.instanceId)?.world;
+      const st = w?.playerStats(id);
+      if (!st) continue;
+      n++;
+      if (!st.dead) alive++;
+      lvlSum += st.level;
+      lvlMin = Math.min(lvlMin, st.level);
+      lvlMax = Math.max(lvlMax, st.level);
+      goldSum += st.gold;
+      xpSum += st.xp;
+      gearSum += gearScoreOf(st.equipment);
+      const a = manager.get(b.instanceId)?.areaId ?? '?';
+      areaCount.set(a, (areaCount.get(a) ?? 0) + 1);
+    }
+    if (!n) continue;
+    let area = '?';
+    let top = -1;
+    for (const [a, c] of areaCount) {
+      if (c > top) {
+        area = a;
+        top = c;
+      }
+    }
+    const sample: RunSample = {
+      simMs: simMs(),
+      area,
+      alive,
+      lvlAvg: lvlSum / n,
+      lvlMin: lvlMin === Infinity ? 0 : lvlMin,
+      lvlMax,
+      goldSum,
+      gearAvg: gearSum / n,
+      xpSum,
+    };
+    m.sample(sample);
+  }
+}
+
+/** Compact duration for the boss-kill log line (mirrors bot-metrics' formatting). */
+function fmtRunDur(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  return h > 0
+    ? `${h}h ${String(mm).padStart(2, '0')}m`
+    : `${mm}m ${String(s % 60).padStart(2, '0')}s`;
 }
 
 /** The display name of a connected player (from their instance's World), or undefined. */
@@ -935,6 +1166,7 @@ wss.on('connection', (socket) => {
                   setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),
                   spawnBots: (count) => spawnBots(entityId, p.instanceId, count),
                   clearBots: () => clearBots(entityId),
+                  botReport: () => botReport(entityId),
                   areaIds: () =>
                     getContent()
                       .areas()
