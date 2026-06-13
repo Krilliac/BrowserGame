@@ -6,6 +6,93 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Added
+
+- **Per-area screen polish filters (RENDER-10/12/13), enabled.** A new `screen-fx.ts` adds three
+  drop-in `pixi-filters` effects driven by a per-area registry (`AREA_SCREEN_FX`), gated to desktop
+  ('high'): **godrays** (subtle light shafts, on for all outdoor areas via `theme.outdoor`, stronger
+  in town), a **LUT color grade** (`ColorMapFilter`) driven by **procedurally-generated LUT presets**
+  (warm/cool/ember/verdant/pallid — no LUT image assets needed; falls back to the ColorMatrix grade
+  where no preset is set), and **heat haze** (scrolling-noise `DisplacementFilter`, on for the
+  fire/forge/desert areas). Town/wilderness grades verified via the screenshot harness. Also fixed a
+  bug where per-area color grades were dropped while the deferred lighting pass was active (the grade
+  now rides the displayed lit sprite, not the off-screen world root).
+
+### Deferred (rendering spec)
+
+- **16-direction sprites (RENDER-09)** stay capability-ready (the `ClipSet.dirCount` path) but
+  inactive — fabricating 16-direction art from the 4-direction LPC sheets isn't possible without
+  source renders. The true (gameplay) form of terrain elevation — ramps/ledges that change where you
+  can stand — also remains future work, as it must agree with `world.ts` collision; only the
+  cosmetic visual subset shipped (RENDER-08 below). See the Roadmap for details.
+- **Premultiplied-alpha audit (RENDER-15).** Verified every blended/additive sprite path (lighting,
+  particles, weather) relies on Pixi v8's default premultiplied-alpha upload and premultiply-aware
+  `'add'` blend — no `alphaMode` overrides, no edge fringing. No code change required.
+- **Direction-count-aware animation (RENDER-09).** The animation controller now supports 8/16-
+  direction sheets via an optional `ClipSet.dirCount`: a sheet that declares it rotates in that many
+  steps (`dirIndex`, clockwise from East) for smoother hero/boss turning, while sheets that don't
+  (every sheet today) keep the exact 4-cardinal mapping — so behavior is unchanged until 16-direction
+  art is added, then it activates per-sheet with a clean fall-back.
+- **Extended weather (RENDER-14).** Four new weather types widen the mood range: `ash` (slow grey
+  drift), `sand` (fast wind-blown grit), `leaves` (tumbling autumn leaves with spin), and `lightning`
+  (occasional full-screen flashes). Each respects `weatherIntensity` and "reduce effects", and all
+  get authoritative server-side gameplay modifiers (sandstorms cut aggro range hardest; leaves are
+  cosmetic). The `AreaTheme.weather` union and the content-DB enum are extended without breaking the
+  existing rain/snow/fog/none areas.
+- **Occluded-actor fade (RENDER-06).** Tall props the local player can vanish behind (trees,
+  pillars) now fade toward 45% opacity while the player stands hidden behind them — generalizing the
+  house-roof fade — so the character is never lost. Only the local player triggers it; it restores
+  fully on exit and is cheap enough to run on every quality tier.
+- **Sprite-copy cast shadows for hero/elites (RENDER-07).** The local player and elite/boss mobs now
+  cast a sheared, darkened copy of their current animation frame instead of a soft ellipse blob, so
+  the shadow reads as a real cast silhouette that matches the pose (D2's method). The copy shares the
+  body's frame texture (no per-frame texture allocation) and updates with the pose, including the
+  corpse frame on death. Minor mobs and flyers keep the cheap blob.
+- **Decorative terrain elevation (RENDER-08, visual subset).** Wild areas (wilderness, howling
+  barrens, ashveil desert) now render rolling hills: the flat ground `TilingSprite` is replaced by a
+  heightmapped **mesh** (a world grid whose vertices are pushed up the screen by a deterministic
+  height field, textured with the same tiled ground), and props + actors are lifted by the same field
+  so they ride the terrain. A baked **hillshade** mesh (same displaced geometry, multiply-blended)
+  shades the slopes from the upper-left sun so the elevation reads top-down. Like the water layer it's
+  a stage-level, world-anchored layer (composes with the deferred pass). **Cosmetic only** — collision
+  stays flat. Verified via the screenshot harness; flat areas keep the original `TilingSprite`.
+- **Water reflections & ripples (RENDER-11).** Procedurally-placed elliptical ponds render a tinted,
+  rippling surface with mirrored reflections of nearby actors (a flipped, darkened, alpha'd copy of
+  each actor's frame, clipped to the pond and wobbled by a `DisplacementFilter`). `waterPondsFor`
+  scatters ponds across wet areas (marsh / wilderness / sunken pass / hollowroot) deterministically,
+  plus a fixed village pond in town. The water layer renders at the stage level (like the ground) and
+  is kept world-anchored by syncing its transform to the world's each frame — which is what lets it
+  compose with the deferred-lighting pass (a `world`-child layer didn't). Verified via the screenshot
+  harness. Ponds are cosmetic only (no collision — you wade through).
+- **Per-pixel dynamic lighting (RENDER-01).** A GPU pass renders the world to an albedo target, then
+  a fullscreen composite **derives per-pixel normals from the albedo's luminance gradient** (a Sobel
+  emboss — so no normal-map art is needed; existing sprite/ground detail is the relief) and rakes the
+  screen-space light list (torches, portals, spells, a directional sun) across it. A relief
+  formulation (`lit = albedo·(1 + Σrelief)`) preserves daylight exposure — only textured surfaces and
+  edges catch each light's direction. Enabled on desktop ('high'); touch keeps the cheaper additive
+  halos, which still draw on top everywhere. The pure light pipeline (projection, farthest-first cull
+  to 16, sun, night modulation, packing) is unit-tested; the GPU result was verified via the
+  screenshot harness. Replaces the earlier normal-map-asset approach (no art dependency).
+- **Tall-object depth sorting (RENDER-05).** Line props (palisade/fence walls) are now built as one
+  container per stake, each sorting at its own ground row, so an actor walking alongside a long wall
+  is correctly occluded by the posts north of their feet and occludes the posts to the south —
+  instead of the whole wall flipping in front/behind by its midpoint. Removed the now-dead
+  single-container palisade draw path.
+- **Ground decals (RENDER-02).** Combat now leaves the ground marked: deaths drop a corpse stain
+  and a blood spray, heavy slams leave a crater/scorch. Decals are pooled (cap 120, 48 on touch),
+  baked procedurally (no asset fetch), sort above the ground but below actors, fade out over their
+  lifetime, and clear on area change. Honors the "reduce effects" toggle.
+- **General particle emitter (RENDER-03).** A reusable, data-driven particle system (`particles.ts`)
+  with a library of bursts — impact sparks (gold on crits), blood spray, footstep dust, slam dust,
+  embers. Pooled (cap 600 / 160 on touch) with zero steady-state allocation; additive particles glow
+  via `blendMode='add'`. World-space (sorts/scrolls with the scene). Honors "reduce effects".
+- **Ground tile-edge blending (RENDER-04).** The baked ground texture no longer lattice-scatters
+  detail tiles (wildflowers, leaf piles) as lone squares on a regular grid. Tilesets can opt into a
+  `blend` field; the bake then clusters those detail tiles into organic patches driven by
+  deterministic value-noise and fades them in at the patch edges, killing the grid read. Tilesets
+  without `blend` bake byte-identically to before. Also fixed a latent cache-key collision where
+  biomes sharing a sheet (town/forest both use `forest_spring.png`) reused each other's bake.
+
 ### Fixed
 
 - **NaN-injection via cast aim (security).** A hostile client could send non-finite `dx`/`dy` in a

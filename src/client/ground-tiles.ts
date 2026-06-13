@@ -36,12 +36,32 @@ export interface GroundTileset {
   tileSize: number;
   /** Stampable full-floor tiles; `weight` is the relative pick frequency. */
   tiles: { col: number; row: number; weight: number }[];
+  /**
+   * Optional patch-blend metadata (RENDER-04 — tile-edge blending / autotiling). When present, the
+   * bake stops lattice-scattering detail tiles and instead clusters `patch` tiles into organic
+   * blobs driven by deterministic value-noise, fading them in at the blob edges so transitions read
+   * as soft patches rather than a hard grid of lone squares. Tilesets WITHOUT this field bake
+   * byte-identically to before (the regression guard): the blend branch never runs for them.
+   *
+   * When a tileset opts in, its `tiles` array is the plain base floor (no detail variants) and the
+   * detail tiles move here into `patch`.
+   */
+  blend?: {
+    /** Detail tiles drawn as clustered patches over the base (e.g. wildflower beds, leaf piles). */
+    patch: { col: number; row: number }[];
+    /** Noise feature size in cells — larger makes bigger, smoother blobs. */
+    scale: number;
+    /** Noise cutoff 0..1; higher → smaller, rarer patches. */
+    threshold: number;
+    /** Edge softness 0..1 around the cutoff; the fade band where patches dither into the base. */
+    margin?: number;
+  };
 }
 
 const TILES = '/assets/curated/tiles';
 
 export const GROUND_TILESETS: Record<string, GroundTileset> = {
-  // Aldermere village green — bright spring grass with occasional wildflower patches.
+  // Aldermere village green — bright spring grass with wildflower patches clustered into beds.
   town: {
     src: `${TILES}/forest_spring.png`,
     tileSize: 16,
@@ -51,11 +71,18 @@ export const GROUND_TILESETS: Record<string, GroundTileset> = {
       { col: 0, row: 3, weight: 18 },
       { col: 0, row: 4, weight: 18 },
       { col: 0, row: 5, weight: 18 },
-      { col: 0, row: 6, weight: 3 }, // pink wildflowers
-      { col: 1, row: 6, weight: 3 }, // blue wildflowers
-      { col: 2, row: 7, weight: 1 },
-      { col: 3, row: 7, weight: 1 },
     ],
+    blend: {
+      patch: [
+        { col: 0, row: 6 }, // pink wildflowers
+        { col: 1, row: 6 }, // blue wildflowers
+        { col: 2, row: 7 },
+        { col: 3, row: 7 },
+      ],
+      scale: 5,
+      threshold: 0.62,
+      margin: 0.1,
+    },
   },
   // Gloomwood — the same grass, near-plain; the area's dark grade does the brooding.
   forest: {
@@ -67,10 +94,17 @@ export const GROUND_TILESETS: Record<string, GroundTileset> = {
       { col: 0, row: 3, weight: 19 },
       { col: 0, row: 4, weight: 19 },
       { col: 0, row: 5, weight: 19 },
-      { col: 1, row: 6, weight: 2 },
-      { col: 3, row: 6, weight: 2 },
-      { col: 0, row: 7, weight: 1 },
     ],
+    blend: {
+      patch: [
+        { col: 1, row: 6 },
+        { col: 3, row: 6 },
+        { col: 0, row: 7 },
+      ],
+      scale: 6,
+      threshold: 0.68,
+      margin: 0.1,
+    },
   },
   // Seasonal variant of the grass biomes (no area defaults to it; available to DB re-skins).
   forest_autumn: {
@@ -82,15 +116,22 @@ export const GROUND_TILESETS: Record<string, GroundTileset> = {
       { col: 0, row: 3, weight: 12 },
       { col: 0, row: 4, weight: 12 },
       { col: 0, row: 5, weight: 12 },
-      { col: 0, row: 6, weight: 5 }, // fallen-leaf piles
-      { col: 1, row: 6, weight: 5 },
-      { col: 2, row: 6, weight: 5 },
-      { col: 3, row: 6, weight: 5 },
-      { col: 0, row: 7, weight: 5 },
-      { col: 1, row: 7, weight: 5 },
-      { col: 2, row: 7, weight: 5 },
-      { col: 3, row: 7, weight: 5 },
     ],
+    blend: {
+      patch: [
+        { col: 0, row: 6 }, // fallen-leaf piles
+        { col: 1, row: 6 },
+        { col: 2, row: 6 },
+        { col: 3, row: 6 },
+        { col: 0, row: 7 },
+        { col: 1, row: 7 },
+        { col: 2, row: 7 },
+        { col: 3, row: 7 },
+      ],
+      scale: 4,
+      threshold: 0.5,
+      margin: 0.12,
+    },
   },
   // Rotfen Marsh — 32rogues dark-green floor with dirt clumps and grass tufts poking through.
   marsh: {
@@ -274,4 +315,65 @@ export function pickTile(ts: GroundTileset, gx: number, gy: number): { col: numb
   // Unreachable for non-empty tile lists (hash2 < 1), but keeps the function total.
   const last = ts.tiles[ts.tiles.length - 1];
   return last ? { col: last.col, row: last.row } : { col: 0, row: 0 };
+}
+
+/** Smoothstep weight for value-noise interpolation (Perlin's 3t²−2t³ fade). */
+function smooth(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Deterministic smooth value-noise in [0, 1), built from the same `hash2` lattice as the prop
+ * scatter so a bake stays reproducible. `scale` is the feature size in cells: bilinear-interpolating
+ * the integer lattice at `1/scale` resolution turns the white-noise hash into coherent blobs, which
+ * is what lets patches cluster instead of speckling one cell at a time. (RENDER-04.)
+ */
+export function valueNoise(gx: number, gy: number, scale: number): number {
+  const s = Math.max(1, scale);
+  const fx = gx / s;
+  const fy = gy / s;
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const tx = smooth(fx - x0);
+  const ty = smooth(fy - y0);
+  const n00 = hash2(x0, y0);
+  const n10 = hash2(x0 + 1, y0);
+  const n01 = hash2(x0, y0 + 1);
+  const n11 = hash2(x0 + 1, y0 + 1);
+  const nx0 = n00 + (n10 - n00) * tx;
+  const nx1 = n01 + (n11 - n01) * tx;
+  return nx0 + (nx1 - nx0) * ty;
+}
+
+/**
+ * Patch coverage in [0, 1] for cell (gx, gy): 0 = pure base ground, 1 = solid patch, fractional =
+ * the soft dither band at a patch edge (used as the draw alpha so patch tiles fade into the base).
+ * Returns 0 for tilesets that didn't opt into blending — the regression guard for un-annotated sets.
+ */
+export function patchCoverage(ts: GroundTileset, gx: number, gy: number): number {
+  const b = ts.blend;
+  if (!b) return 0;
+  const n = valueNoise(gx, gy, b.scale);
+  const m = b.margin ?? 0.1;
+  const lo = b.threshold - m;
+  const hi = b.threshold + m;
+  if (n <= lo) return 0;
+  if (n >= hi) return 1;
+  return smooth((n - lo) / (hi - lo));
+}
+
+/**
+ * Which patch tile to stamp at cell (gx, gy), or undefined when the tileset has no patch tiles.
+ * Deterministic and offset off the base hash so the patch-variant choice is independent of which
+ * base grass tile landed underneath.
+ */
+export function patchTileFor(
+  ts: GroundTileset,
+  gx: number,
+  gy: number,
+): { col: number; row: number } | undefined {
+  const patch = ts.blend?.patch;
+  if (!patch || patch.length === 0) return undefined;
+  const idx = Math.floor(hash2(gx + 9173, gy + 1471) * patch.length) % patch.length;
+  return patch[idx];
 }

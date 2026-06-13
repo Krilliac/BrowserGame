@@ -10,6 +10,7 @@ import {
   TilingSprite,
   type Application,
   type ColorSource,
+  type Filter,
   type TextureSource,
 } from 'pixi.js';
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
@@ -21,7 +22,21 @@ import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
 import { Weather } from './weather.js';
 import { Lighting, type LightSource } from './lighting.js';
-import { PostFx } from './post-fx.js';
+import { PostFx, type Quality } from './post-fx.js';
+import { Decals } from './decals.js';
+import { ParticleSystem } from './particles.js';
+import { palisadeStakes, playerHiddenBehind } from './prop-sort.js';
+import {
+  DeferredLighting,
+  cullLights,
+  packLights,
+  pointToGpuLight,
+  sunGpuLight,
+  type GpuLight,
+} from './deferred-lighting.js';
+import { ScreenFx } from './screen-fx.js';
+import { Water, isOverWater, waterPondsFor } from './water.js';
+import { Terrain, areaHasTerrain, terrainHeightAt } from './terrain.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
   newAnimView,
@@ -38,7 +53,13 @@ import {
   mobSpriteCell,
   npcSpriteCell,
 } from './rogues-sprites.js';
-import { GROUND_TILESETS, groundTilesetFor, pickTile } from './ground-tiles.js';
+import {
+  GROUND_TILESETS,
+  groundTilesetFor,
+  patchCoverage,
+  patchTileFor,
+  pickTile,
+} from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
 import { combineTints } from './tint.js';
 import { backOut, cubicOut } from './easing.js';
@@ -121,6 +142,13 @@ const HOUSE_ROOF_INSIDE_ALPHA = 0.18;
 const HOUSE_ROOF_OUTSIDE_ALPHA = 1;
 const HOUSE_ROOF_FADE_RATE = 8; // per second (exp approach)
 const HOUSE_INSIDE_MARGIN = 10; // world px the footprint is expanded by for the inside test
+
+// RENDER-06: tall point props (trees, pillars) the local player can hide behind fade toward
+// OCCLUDER_FADE_ALPHA while the player stands within the trunk's horizontal margin and behind it
+// (north of, or just south of, its base — where the foliage would otherwise swallow the character).
+// Eased at HOUSE_ROOF_FADE_RATE, the same frame-rate-independent approach as the roof fade.
+const OCCLUDER_PROP_KINDS = new Set<PropKind>(['tree', 'pillar']);
+const OCCLUDER_FADE_ALPHA = 0.45;
 const HOUSE_WALL_HEIGHT = 30; // billboarded wall height (world px)
 const HOUSE_DOOR_WIDTH = 46; // gap left in the south wall, centered (world px)
 const HOUSE_ROOF_OVERHANG = 10; // roof oversteps the footprint by this on each side (world px)
@@ -304,6 +332,9 @@ interface ActorView {
   dyn?: Graphics;
   /** Soft, directional ground shadow (leans away from a fixed sun — the D2 "planted" cue). */
   shadow?: Sprite;
+  /** Important actors (hero/elite): a sheared, darkened sprite-copy cast shadow (RENDER-07). It
+   *  shares the body's current frame texture, so it always matches the pose (updated on frame change). */
+  castShadow?: Sprite;
   sheet?: Sheet;
   /** The sprite-sheet alias (for setting the corpse frame after the entity leaves the snapshot). */
   spriteKey?: string;
@@ -355,8 +386,25 @@ export class PixiRenderer {
   private readonly atmosphere = new Atmosphere();
   private readonly weather = new Weather();
   private readonly lighting = new Lighting();
+  // One render-quality split for every cosmetic system: phones (touch) get the cheap 'low' paths.
+  private readonly quality: Quality = navigator.maxTouchPoints > 0 ? 'low' : 'high';
   // Bloom on the additive light overlay (torch, portals, spell glow). Quality-gated for phones.
-  private readonly postFx = new PostFx(navigator.maxTouchPoints > 0 ? 'low' : 'high');
+  private readonly postFx = new PostFx(this.quality);
+  // Ground decals (blood/scorch/corpse stains) — world-space, above ground, below props/actors.
+  private readonly decals = new Decals(this.quality);
+  // Water ponds (RENDER-11): a stage-level, world-anchored layer above the ground, below the world.
+  private readonly water = new Water(this.quality);
+  // Decorative terrain elevation (RENDER-08): a world-anchored heightmapped ground mesh for wild areas.
+  private readonly terrain = new Terrain();
+  // General particle bursts (sparks, blood spray, dust, embers) in the world-space fxLayer.
+  private readonly particles = new ParticleSystem(this.quality);
+  // Per-pixel dynamic lighting (RENDER-01): derives normals from the albedo and rakes light across
+  // surface relief. Enabled on 'high' quality (off on touch). The additive halos still draw on top.
+  private readonly deferred = new DeferredLighting();
+  // Screen-space sprite that shows the deferred-lit result in place of the world when the pass runs.
+  private readonly litSprite = new Sprite();
+  // Per-area screen polish filters: godrays / heat-haze / LUT grade (RENDER-10/12/13). Default-off.
+  private readonly screenFx = new ScreenFx(this.quality);
   private readonly grade = new ColorMatrixFilter(); // per-area color grading (one pass on the world)
   private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
@@ -386,10 +434,17 @@ export class PixiRenderer {
   // toward HOUSE_ROOF_INSIDE_ALPHA when the local player stands within the footprint (+ a margin).
   private houses: { roof: Container; minX: number; minY: number; maxX: number; maxY: number }[] =
     [];
+  // RENDER-06: tall point props (trees/pillars) the local player can vanish behind; faded while the
+  // player stands behind them so the character is never lost. Rebuilt per area entry.
+  private occluders: { container: Container; x: number; y: number }[] = [];
   private effectsEnabled = true; // false hides weather + ambient motes ("reduce effects" setting)
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
+  private lastDecalT0 = 0; // newest FX timestamp already turned into decals/particles
+  private lastFootstepAt = 0; // throttle for local-player footstep dust
+  private lastSelfX = 0; // last local-player world pos, for footstep-dust movement detection
+  private lastSelfY = 0;
   private zoom = 1.15; // camera zoom (player-adjustable); >1 = closer, a more intimate D3 framing
   private camX = 0; // last camera world-x (screen center), for screen->world picking
   private camY = 0; // last camera world-y, for per-actor faux-perspective depth scaling
@@ -411,18 +466,31 @@ export class PixiRenderer {
     this.roofLayer.sortableChildren = true;
     // roofLayer is added LAST so house roofs draw in front of actors (occluding them) until they
     // fade as the local player steps inside through the south door.
-    this.world.addChild(this.propLayer, this.actorLayer, this.fxLayer, this.roofLayer);
+    // decals first → above the ground texture but behind every prop and actor (RENDER-02).
+    this.world.addChild(
+      this.decals.layer,
+      this.propLayer,
+      this.actorLayer,
+      this.fxLayer,
+      this.roofLayer,
+    );
     this.fxLayer.addChild(this.fxGfx);
+    this.fxLayer.addChild(this.particles.layer); // world-space particle bursts (RENDER-03)
     this.fade.eventMode = 'none';
     // Draw order (back→front): ground, world, ambient motes, weather, the screen wash (day/night +
     // mood tint + vignette darkening), then additive LIGHTS on top so torch/portal glow punches
     // through the darkness, and finally the area-change fade covering everything mid-transition.
+    this.litSprite.visible = false; // shown only while the deferred pass is active (RENDER-01)
     app.stage.addChild(
       this.ground,
+      this.terrain.layer, // heightmapped ground mesh for wild areas, replacing the flat ground (RENDER-08)
+      this.water.layer, // world-anchored ponds: above the ground, below the world (RENDER-11)
       this.world,
+      this.litSprite,
       this.atmosphere.particleLayer,
       this.weather.layer,
       this.atmosphere.screen,
+      this.screenFx.godrayLayer, // additive light shafts over the mood wash (RENDER-10)
       this.lighting.layer,
       this.fade,
     );
@@ -474,6 +542,10 @@ export class PixiRenderer {
           }),
       ),
     );
+
+    // Per-pixel dynamic lighting (RENDER-01) derives normals from the albedo, so it needs no normal
+    // art — enable it on desktop ('high'); touch keeps the cheaper additive-halo-only lighting.
+    this.deferred.setEnabled(this.quality === 'high');
   }
 
   /**
@@ -520,6 +592,15 @@ export class PixiRenderer {
     const max = extended ? 3.0 : 1.6;
     this.zoom = Math.max(min, Math.min(max, z));
   }
+
+  /**
+   * Decorative vertical lift (screen px) for a world point so props/actors ride elevated terrain
+   * (RENDER-08). Returns 0 on flat areas, so every call site is a no-op except in terrain areas —
+   * which is why it can be sprinkled across all the world-positioned containers with zero regression.
+   */
+  private groundLift(x: number, y: number): number {
+    return this.terrain.isActive() ? terrainHeightAt(x, y) : 0;
+  }
   adjustZoom(delta: number, extended = false): void {
     this.setZoom(this.zoom + delta, extended);
   }
@@ -542,17 +623,34 @@ export class PixiRenderer {
     this.currentTheme = theme;
     this.atmosphere.setArea(theme);
     this.weather.setWeather(theme.weather, theme.weatherIntensity, theme.fogColor);
+    this.screenFx.setArea(areaId, theme.outdoor); // godrays + LUT/heat config (RENDER-10/12/13)
     this.applyGrade(theme);
     this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
     // Real tiled ground where a biome tileset exists; the procedural speckle is the fallback.
-    this.ground.texture =
+    const groundTex =
       this.tiledGroundTexture(areaId, theme.groundBase) ??
       this.groundTexture(theme.groundBase, theme.groundSpeck);
+    this.ground.texture = groundTex;
+    // RENDER-08: wild areas render a heightmapped ground MESH (rolling hills) in place of the flat
+    // tiled ground; the mesh tiles the same texture (one repeat per texture-width of world). Other
+    // areas keep the flat TilingSprite. `terrainHeightAt` then also lifts props + actors to match.
+    if (areaHasTerrain(areaId)) {
+      this.terrain.build(area.width, area.height, groundTex, groundTex.width);
+      this.ground.visible = false;
+    } else {
+      this.terrain.clear();
+      this.ground.visible = true;
+    }
 
     for (const child of this.propLayer.removeChildren()) child.destroy();
     // Roofs live in their own layer above the actors — clear them too so leaving the area never
     // leaks a previous area's house roofs over the new scene.
     for (const child of this.roofLayer.removeChildren()) child.destroy();
+    // Drop any blood/scorch stains and live particles so they don't bleed across a zone change.
+    this.decals.clear();
+    this.particles.clear();
+    // Procedural water ponds for this area (RENDER-11), tinted toward a dark teal pool.
+    this.water.setRegions(waterPondsFor(areaId, area.width, area.height), 0x2c5a6e);
 
     this.portalCenters = [];
     this.decorLights = [];
@@ -560,6 +658,7 @@ export class PixiRenderer {
     this.animatedProps = [];
     this.shrineOrbs = [];
     this.houses = [];
+    this.occluders = [];
     for (const portal of area.portals) {
       const cx = portal.rect.x + portal.rect.w / 2;
       const cy = portal.rect.y + portal.rect.h / 2;
@@ -578,7 +677,10 @@ export class PixiRenderer {
           if (hash2(gx * 7 + 1, gy * 13 + 3) >= theme.propDensity) continue;
           const px = gx * cell + hash2(gx, gy * 3) * cell;
           const py = gy * cell + hash2(gx * 5, gy) * cell;
-          this.propLayer.addChild(this.makeProp(prop, px, py));
+          const c = this.makeProp(prop, px, py);
+          this.propLayer.addChild(c);
+          // Register tall props as occluders so the local player fades them when hidden (RENDER-06).
+          if (OCCLUDER_PROP_KINDS.has(prop)) this.occluders.push({ container: c, x: px, y: py });
         }
       }
     }
@@ -597,9 +699,50 @@ export class PixiRenderer {
    * per area entry (in setArea) — never rebuilt per frame.
    */
   private buildDecor(decor: readonly DecorProp[]): void {
-    // Draw line props (the palisade) first so point props layer over their bases naturally; the
-    // y-sort handles final ordering regardless, but this keeps the back wall reading as a backdrop.
-    for (const prop of decor) this.propLayer.addChild(this.makeDecorProp(prop));
+    for (const prop of decor) {
+      // Line props (palisade/fence) are segment-split into per-stake containers so an actor beside
+      // the run interleaves stake by stake instead of sorting against the whole wall (RENDER-05).
+      if (prop.kind !== 'house' && prop.x2 !== undefined && prop.y2 !== undefined) {
+        for (const seg of this.buildLineSegments(prop)) this.propLayer.addChild(seg);
+      } else {
+        this.propLayer.addChild(this.makeDecorProp(prop));
+      }
+    }
+  }
+
+  /**
+   * Build a line prop (palisade/fence) as one container PER STAKE, each at its own world position
+   * with `zIndex = stake.y` — its own ground-row sort key. Because each stake sorts independently
+   * against the actor layer, a player walking alongside the run is correctly occluded by the posts
+   * north of their feet and occludes the posts to the south (the tall-object sorting fix).
+   */
+  private buildLineSegments(prop: DecorProp): Container[] {
+    const stakes = palisadeStakes(prop.x, prop.y, prop.x2!, prop.y2!);
+    const stakeH = 40;
+    const w = 5;
+    const out: Container[] = [];
+    for (const st of stakes) {
+      const c = new Container();
+      c.position.set(st.x, st.y * PITCH - this.groundLift(st.x, st.y));
+      c.zIndex = st.y;
+      this.propShadow(c, 6, 3);
+      const g = new Graphics();
+      // Rope lashing to the next stake, drawn first so this stake's body overlaps it.
+      if (!st.isLast) {
+        g.moveTo(0, -stakeH * 0.6)
+          .lineTo(st.nextDx, st.nextDy * PITCH - stakeH * 0.6)
+          .stroke({ width: 2, color: DECOR_PALETTE.rope, alpha: 0.8 });
+      }
+      // The stake body, a darker shaded side for round logs, then a sharpened point on top.
+      g.rect(-w / 2, -stakeH, w, stakeH).fill({ color: DECOR_PALETTE.wood });
+      g.rect(-w / 2, -stakeH, 2, stakeH).fill({ color: DECOR_PALETTE.woodDark });
+      g.poly([-w / 2, -stakeH, w / 2, -stakeH, 0, -stakeH - 7]).fill({
+        color: DECOR_PALETTE.woodLight,
+      });
+      c.addChild(g);
+      out.push(c);
+    }
+    return out;
   }
 
   /** Build one decor prop as a y-sorted, shadowed Container at its world position. */
@@ -612,12 +755,12 @@ export class PixiRenderer {
     }
 
     const c = new Container();
-    // Line props (palisade) anchor at their midpoint; point props at (x,y). The container's zIndex
-    // is the world y of its anchor, so props sort against actors by depth (the back wall sits high).
-    const line = prop.x2 !== undefined && prop.y2 !== undefined;
-    const ax = line ? (prop.x + prop.x2!) / 2 : prop.x;
-    const ay = line ? (prop.y + prop.y2!) / 2 : prop.y;
-    c.position.set(ax, ay * PITCH);
+    // Point props anchor at (x,y); line props (palisade/fence) are handled in buildDecor by the
+    // segment-split path, so they never reach here. The container's zIndex is the world y of its
+    // anchor, so props sort against actors by depth.
+    const ax = prop.x;
+    const ay = prop.y;
+    c.position.set(ax, ay * PITCH - this.groundLift(ax, ay));
     c.zIndex = ay;
     const scale = prop.scale ?? 1;
 
@@ -629,9 +772,6 @@ export class PixiRenderer {
       return c;
 
     switch (prop.kind) {
-      case 'palisade':
-        this.drawPalisade(c, prop.x, prop.y, prop.x2!, prop.y2!, ax, ay);
-        break;
       case 'gate':
         this.drawGate(c, scale);
         break;
@@ -749,7 +889,7 @@ export class PixiRenderer {
    */
   private makeWaymark(toArea: string, cx: number, cy: number): Container {
     const c = new Container();
-    c.position.set(cx, cy * PITCH);
+    c.position.set(cx, cy * PITCH - this.groundLift(cx, cy));
     c.zIndex = cy;
     this.propShadow(c, 14, 6);
     const g = new Graphics();
@@ -800,59 +940,6 @@ export class PixiRenderer {
     s.position.set(radiusX * SHADOW_OFFSET_X, radiusY * SHADOW_OFFSET_Y);
     s.skew.x = SHADOW_SKEW;
     c.addChildAt(s, 0);
-  }
-
-  /**
-   * A spiked palisade wall: a run of pointed vertical stakes from (x1,y1) to (x2,y2), lashed with a
-   * rope rail. Billboarded upward so the stakes stand against the ground (the camp's defensive ring).
-   */
-  private drawPalisade(
-    c: Container,
-    x1: number,
-    y1: number,
-    x2: number,
-    y2: number,
-    ax: number,
-    ay: number,
-  ): void {
-    // Endpoints relative to the container origin (the run's midpoint), projected to the pitch.
-    const lx1 = x1 - ax;
-    const ly1 = (y1 - ay) * PITCH;
-    const lx2 = x2 - ax;
-    const ly2 = (y2 - ay) * PITCH;
-    const len = Math.hypot(lx2 - lx1, ly2 - ly1);
-    const steps = Math.max(1, Math.round(len / 16)); // a stake roughly every 16px along the run
-
-    // A soft strip shadow under the whole run (a stretched ellipse along the segment).
-    const sh = new Sprite(this.softShadowTexture());
-    sh.anchor.set(0.5, 0.5);
-    sh.width = len + 24;
-    sh.height = 16;
-    sh.alpha = SHADOW_ALPHA * 0.8;
-    sh.rotation = Math.atan2(ly2 - ly1, lx2 - lx1);
-    sh.position.set((lx1 + lx2) / 2 + 6, (ly1 + ly2) / 2 + 4);
-    sh.skew.x = SHADOW_SKEW;
-    c.addChild(sh);
-
-    const g = new Graphics();
-    const stakeH = 40;
-    // A back rope/rail lashing the stakes together, drawn first so the stakes overlap it.
-    g.moveTo(lx1, ly1 - stakeH * 0.6)
-      .lineTo(lx2, ly2 - stakeH * 0.6)
-      .stroke({ width: 2, color: DECOR_PALETTE.rope, alpha: 0.8 });
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const px = lx1 + (lx2 - lx1) * t;
-      const py = ly1 + (ly2 - ly1) * t;
-      const w = 5;
-      // The stake body, then a sharpened point on top, with a darker shaded side for round logs.
-      g.rect(px - w / 2, py - stakeH, w, stakeH).fill({ color: DECOR_PALETTE.wood });
-      g.rect(px - w / 2, py - stakeH, 2, stakeH).fill({ color: DECOR_PALETTE.woodDark });
-      g.poly([px - w / 2, py - stakeH, px + w / 2, py - stakeH, px, py - stakeH - 7]).fill({
-        color: DECOR_PALETTE.woodLight,
-      });
-    }
-    c.addChild(g);
   }
 
   /** A camp gate: two heavy posts and a lintel framing an open doorway. Billboarded upward. */
@@ -1117,7 +1204,7 @@ export class PixiRenderer {
     // it in projected (pitched) space. zIndex by the south (near) edge so the building as a whole
     // sorts roughly with nearby props — actors are a separate layer in front regardless.
     const c = new Container();
-    c.position.set(minX, minY * PITCH);
+    c.position.set(minX, minY * PITCH - this.groundLift(minX, minY));
     c.zIndex = maxY;
 
     const floor = new Graphics();
@@ -1193,7 +1280,7 @@ export class PixiRenderer {
     color: string,
   ): Container {
     const roof = new Container();
-    roof.position.set(minX, minY * PITCH);
+    roof.position.set(minX, minY * PITCH - this.groundLift(minX, minY));
     roof.zIndex = maxY;
     const w = maxX - minX;
     const d = maxY - minY;
@@ -1294,16 +1381,32 @@ export class PixiRenderer {
   private applyGrade(theme: AreaTheme): void {
     const identity =
       theme.gradeSaturation === 1 && theme.gradeBrightness === 1 && theme.gradeContrast === 1;
-    if (identity) {
-      this.world.filters = [];
-      return;
+    let color: Filter | null = null;
+    if (!identity) {
+      const f = this.grade;
+      f.reset();
+      f.brightness(theme.gradeBrightness, false); // 1 = unchanged
+      f.contrast(theme.gradeContrast - 1, true); // 0 = unchanged
+      f.saturate(theme.gradeSaturation - 1, true); // 0 = unchanged
+      color = f;
     }
-    const f = this.grade;
-    f.reset();
-    f.brightness(theme.gradeBrightness, false); // 1 = unchanged
-    f.contrast(theme.gradeContrast - 1, true); // 0 = unchanged
-    f.saturate(theme.gradeSaturation - 1, true); // 0 = unchanged
-    this.world.filters = [f];
+    // RENDER-12: a per-area LUT (ColorMapFilter) overrides the ColorMatrix grade when the area names a
+    // preset, else the ColorMatrix grade. RENDER-13: compose the heat-haze displacement after the grade.
+    color = this.screenFx.gradeFilter(color);
+    const heat = this.screenFx.heatFilter();
+    const filters: Filter[] = [];
+    if (color) filters.push(color);
+    if (heat) filters.push(heat);
+    // When the deferred pass is active the world is rendered to a RenderTexture as the render ROOT, so
+    // filters on `world` itself wouldn't apply — put the grade on the displayed `litSprite` instead.
+    // When deferred is off, the world is a normal stage child and carries the filters directly.
+    if (this.deferred.isEnabled()) {
+      this.litSprite.filters = filters;
+      this.world.filters = [];
+    } else {
+      this.world.filters = filters;
+      this.litSprite.filters = [];
+    }
   }
 
   update(state: RenderState): void {
@@ -1369,6 +1472,8 @@ export class PixiRenderer {
     const originY = sh * CAM_DOLLY_Y - this.camY * PITCH * z + shY;
     this.world.position.set(originX, originY);
     this.world.scale.set(z);
+    this.water.syncTransform(originX, originY, z); // keep ponds world-anchored (RENDER-11)
+    this.terrain.syncTransform(originX, originY, z); // keep the terrain mesh world-anchored (RENDER-08)
     this.ground.width = sw;
     this.ground.height = sh;
     this.ground.tilePosition.set(originX, originY);
@@ -1380,6 +1485,8 @@ export class PixiRenderer {
     // regardless of what the update calls did). The screen wash + lights stay for the art direction.
     this.weather.layer.visible = this.effectsEnabled;
     this.atmosphere.particleLayer.visible = this.effectsEnabled;
+    this.decals.setVisible(this.effectsEnabled);
+    this.particles.setVisible(this.effectsEnabled);
 
     // Dynamic lights (additive): the local player carries a torch at screen center; portals glow.
     // Strength scales with night + the area's ambient-light theme, so they matter after dark.
@@ -1427,6 +1534,15 @@ export class PixiRenderer {
     // Soft bloom on the light overlay so torch/portal/spell glow blooms (desktop only).
     this.postFx.update(this.lighting.layer, sw, sh);
 
+    // Animate the optional screen polish filters (godray drift, heat-haze scroll). No-op when the
+    // current area enables none of them.
+    this.screenFx.update(now, sw, sh);
+
+    // Deferred normal-mapped lighting (RENDER-01): when active, render the world through the GPU
+    // light list and show the lit result in place of the world. Inactive today (no normal maps
+    // loaded) → this early-returns and the world renders directly with the additive halos above.
+    this.runDeferred(lights, sw, sh);
+
     // Area-change fade-from-black, eased toward 0.
     // The arrival fade lifts with a cubic ease-out: dark lingers a beat, then clears fast.
     this.fadeAlpha = Math.max(0, this.fadeAlpha - dt / FADE_SECONDS);
@@ -1458,10 +1574,46 @@ export class PixiRenderer {
 
     this.updateFx(state.fx);
 
+    // Decals + particles: spawn from new FX events, kick footstep dust, then integrate both pools.
+    if (this.effectsEnabled) {
+      this.spawnFxDecalsAndParticles(state.fx, now);
+      this.footstepDust(state, now);
+    }
+    this.decals.update(now);
+    this.particles.update(dt * 1000);
+
+    // Water reflections (RENDER-11): mirror actors standing in/near a pond.
+    if (this.water.hasPonds()) {
+      if (this.effectsEnabled) {
+        const ponds = this.water.getPonds();
+        const items = [];
+        for (const e of state.entities) {
+          if (e.kind === 'projectile' || e.kind === 'item') continue;
+          if (!isOverWater(ponds, e.x, e.y, 40)) continue;
+          const view = this.views.get(e.id);
+          if (view?.sprite) {
+            items.push({
+              texture: view.sprite.texture,
+              x: e.x,
+              y: e.y,
+              scaleX: view.sprite.scale.x,
+              scaleY: view.sprite.scale.y,
+            });
+          }
+        }
+        this.water.reflect(items);
+      } else {
+        this.water.reflect([]);
+      }
+      this.water.update(now);
+      this.water.setVisible(this.effectsEnabled);
+    }
+
     // Fade house roofs based on whether the LOCAL player stands inside each footprint. Uses the
     // authoritative self entity's world position (the camera trails it, so the actual entity is the
     // truthful test). Eased frame-rate-independently off `dt` — no Date.now()/Math.random().
     this.updateHouseRoofs(state.entities, state.selfId, dt);
+    this.updateOccluders(state.entities, state.selfId, dt);
   }
 
   /**
@@ -1489,6 +1641,25 @@ export class PixiRenderer {
     }
   }
 
+  /**
+   * RENDER-06: fade tall point props (trees/pillars) the LOCAL player is hidden behind, so the
+   * character is never lost. A prop occludes when the player is within the trunk's horizontal margin
+   * and behind it (from just south of the base up to where the foliage reaches north). Eased toward
+   * OCCLUDER_FADE_ALPHA the same frame-rate-independent way as the roof fade; restores to 1 on exit.
+   * Only the local player triggers it — matching the roof-fade rule. Cheap (an alpha lerp), so it
+   * runs on every quality tier.
+   */
+  private updateOccluders(entities: EntityState[], selfId: number, dt: number): void {
+    if (this.occluders.length === 0) return;
+    const self = entities.find((e) => e.id === selfId);
+    const k = 1 - Math.exp(-dt * HOUSE_ROOF_FADE_RATE);
+    for (const occ of this.occluders) {
+      const hidden = self ? playerHiddenBehind(self.x, self.y, occ.x, occ.y) : false;
+      const target = hidden ? OCCLUDER_FADE_ALPHA : 1;
+      occ.container.alpha += (target - occ.container.alpha) * k;
+    }
+  }
+
   /** Trigger a shake impulse for any death FX we haven't seen yet (newer than lastDeathT0). */
   private kickShake(fx: TimedFx[]): void {
     let newest = this.lastDeathT0;
@@ -1498,6 +1669,85 @@ export class PixiRenderer {
       if (t0 > newest) newest = t0;
     }
     this.lastDeathT0 = newest;
+  }
+
+  /**
+   * Spawn ground decals + particle bursts from FX events we haven't consumed yet (RENDER-02/03).
+   * Cosmetic only — purely a function of the broadcast `state.fx`, never of local simulation. FX
+   * coordinates are world-space (the same x/y the actors use), so they map straight onto the decal
+   * layer and particle system, both of which live inside the world container.
+   */
+  private spawnFxDecalsAndParticles(fx: TimedFx[], now: number): void {
+    let newest = this.lastDecalT0;
+    for (const { ev, t0 } of fx) {
+      if (t0 <= this.lastDecalT0) continue;
+      if (t0 > newest) newest = t0;
+      switch (ev.kind) {
+        case 'death':
+          // A lasting stain plus a short blood spray at the kill site.
+          this.decals.spawn('corpse', ev.x, ev.y, now);
+          this.decals.spawn('blood', ev.x, ev.y, now, { scale: 0.8 });
+          this.particles.emit('blood', ev.x, ev.y);
+          break;
+        case 'hit':
+          // Impact sparks; crits throw a bigger golden burst.
+          this.particles.emit(ev.crit ? 'critHit' : 'hit', ev.x, ev.y);
+          break;
+        case 'slam':
+          // Heavy AoE impact: a scorch/crater mark and a ring of kicked-up dust.
+          this.decals.spawn('crater', ev.x, ev.y, now, { scale: ((ev.radius ?? 80) / 80) * 1.1 });
+          this.particles.emit('slam', ev.x, ev.y);
+          break;
+        default:
+          break;
+      }
+    }
+    this.lastDecalT0 = newest;
+  }
+
+  /**
+   * Kick a small puff of dust under the LOCAL player while they move. Throttled so a continuous walk
+   * emits at a steady cadence rather than once per frame, and gated on actual displacement so
+   * standing still is silent. Mirrors the roof-fade rule of keying off the authoritative self entity.
+   */
+  private footstepDust(state: RenderState, now: number): void {
+    const self = state.entities.find((e) => e.id === state.selfId);
+    if (!self) return;
+    const moved = Math.hypot(self.x - this.lastSelfX, self.y - this.lastSelfY);
+    this.lastSelfX = self.x;
+    this.lastSelfY = self.y;
+    if (moved > 1.2 && now - this.lastFootstepAt > 150) {
+      this.lastFootstepAt = now;
+      this.particles.emit('dust', self.x, self.y);
+    }
+  }
+
+  /**
+   * Run the deferred normal-mapped lighting pass (RENDER-01) when it is active, swapping the live
+   * world for the lit render-texture result. When inactive (no normal maps, or 'low' quality) it
+   * restores the direct world render and returns immediately — the no-regression path used today.
+   */
+  private runDeferred(lights: LightSource[], sw: number, sh: number): void {
+    if (!this.deferred.isEnabled()) {
+      if (this.litSprite.visible) {
+        this.litSprite.visible = false;
+        this.world.renderable = true;
+      }
+      return;
+    }
+    const night = this.atmosphere.nightFactor();
+    const pointIntensity = 0.6 + night * 0.7; // torches matter more after dark
+    const gpu: GpuLight[] = [];
+    for (const l of lights) gpu.push(pointToGpuLight(l, 40, pointIntensity));
+    gpu.push(sunGpuLight(night));
+    const culled = cullLights(gpu, sw / 2, sh * CAM_DOLLY_Y);
+    const packed = packLights(culled);
+    const lit = this.deferred.run(this.app.renderer, this.world, packed, sw, sh);
+    if (lit) {
+      this.litSprite.texture = lit;
+      this.litSprite.visible = true;
+      this.world.renderable = false;
+    }
   }
 
   /**
@@ -1535,6 +1785,7 @@ export class PixiRenderer {
             f.col,
             f.row,
           );
+          if (view.castShadow) view.castShadow.texture = view.sprite.texture; // corpse pose shadow
         }
       }
     }
@@ -1563,7 +1814,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
 
     const now = performance.now();
@@ -1580,6 +1831,8 @@ export class PixiRenderer {
       const sheet = view.sheet;
       const { row, col } = resolveAnim(anim, sheet.clips, e.facing, moving, now);
       view.sprite.texture = this.frame(sheetKey(e)!, sheet.fw, sheet.fh, col, row);
+      if (view.castShadow) view.castShadow.texture = view.sprite.texture; // keep the cast pose in sync
+
       // A small vertical bob — a quick footstep lift while moving, a slow breath while idle —
       // staggered per entity so a crowd doesn't pulse in lockstep. Sells the billboards as alive.
       const phase = e.id * 1.7;
@@ -1718,6 +1971,22 @@ export class PixiRenderer {
       view.spriteKey = key!;
       view.topY = -sheet.fh * sheet.scale * 0.85;
       container.addChild(sprite);
+      // RENDER-07: important actors (the local hero, elites/bosses) cast a real sheared sprite-copy
+      // shadow instead of the soft blob — a darkened copy of the current frame, flattened onto the
+      // ground and sheared toward the sun's lower-right. It shares the body texture (updated on frame
+      // change in updateActor), so it always matches the pose; minor mobs keep the cheap blob.
+      if ((isSelf || e.elite) && !flying) {
+        const cast = new Sprite(sprite.texture);
+        cast.anchor.set(0.5, 0.92); // same feet anchor as the body
+        cast.scale.set(sheet.scale, sheet.scale * PITCH); // flatten onto the tilted ground
+        cast.skew.x = SHADOW_SKEW;
+        cast.tint = 0x000000;
+        cast.alpha = 0.4;
+        cast.position.set(radius * SHADOW_OFFSET_X, radius * SHADOW_OFFSET_Y);
+        container.addChildAt(cast, 0); // behind the body and the blob
+        view.castShadow = cast;
+        shadow.visible = false; // the cast shadow replaces the blob for important actors
+      }
     } else {
       const orb = new Graphics();
       const raise = radius * 1.2;
@@ -1834,7 +2103,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y + 5000;
     if (view.sprite && strip && hasStrip) {
       const f = Math.floor(performance.now() / 80) % strip.frames;
@@ -1902,7 +2171,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
     // Loot pop: the drop hops up and settles with a back-out overshoot when it first appears
     // (shadow stays planted) — the easing gives it that satisfied little bounce on landing.
@@ -1945,7 +2214,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
   }
 
@@ -1977,7 +2246,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
   }
 
@@ -2020,7 +2289,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
 
     const opened = e.opened === true;
@@ -2239,7 +2508,7 @@ export class PixiRenderer {
 
   private makeProp(kind: Exclude<PropKind, 'none'>, x: number, y: number): Container {
     const c = new Container();
-    c.position.set(x, y * PITCH);
+    c.position.set(x, y * PITCH - this.groundLift(x, y));
     c.zIndex = y;
     // Theme-density props share the curated decor sprites (trees, graves, mushrooms, crystals…).
     if (this.addDecorSprite(c, kind, x, y, 1)) return c;
@@ -2314,7 +2583,13 @@ export class PixiRenderer {
     if (!ts) return undefined;
     const img = this.tileImages.get(ts.src);
     if (!img) return undefined;
-    const key = `tiles:${ts.src}`;
+    // Content-based key: biomes that share a sheet (town/forest both use forest_spring.png) differ in
+    // their tile/blend lists, so keying on src alone collided and the second area reused the first bake.
+    const key = `tiles:${ts.src}:${ts.tiles.map((t) => `${t.col},${t.row},${t.weight}`).join('|')}:${
+      ts.blend
+        ? `b${ts.blend.patch.map((p) => `${p.col},${p.row}`).join('.')}@${ts.blend.threshold}`
+        : ''
+    }`;
     const cached = this.groundTextures.get(key);
     if (cached) return cached;
     const TILE_WORLD = 32; // world px per tile (16px art shown 2×, 32px art native)
@@ -2324,20 +2599,36 @@ export class PixiRenderer {
     cv.height = N * TILE_WORLD;
     const ctx = cv.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
+    const drawCell = (col: number, row: number, gx: number, gy: number) => {
+      ctx.drawImage(
+        img,
+        col * ts.tileSize,
+        row * ts.tileSize,
+        ts.tileSize,
+        ts.tileSize,
+        gx * TILE_WORLD,
+        gy * TILE_WORLD,
+        TILE_WORLD,
+        TILE_WORLD,
+      );
+    };
     for (let gy = 0; gy < N; gy++) {
       for (let gx = 0; gx < N; gx++) {
-        const { col, row } = pickTile(ts, gx, gy);
-        ctx.drawImage(
-          img,
-          col * ts.tileSize,
-          row * ts.tileSize,
-          ts.tileSize,
-          ts.tileSize,
-          gx * TILE_WORLD,
-          gy * TILE_WORLD,
-          TILE_WORLD,
-          TILE_WORLD,
-        );
+        // Base floor first (un-annotated tilesets stop here → byte-identical to before).
+        const base = pickTile(ts, gx, gy);
+        drawCell(base.col, base.row, gx, gy);
+        // Then fade a clustered detail patch over it where the biome-noise says so (RENDER-04).
+        if (ts.blend) {
+          const cov = patchCoverage(ts, gx, gy);
+          if (cov > 0.02) {
+            const pt = patchTileFor(ts, gx, gy);
+            if (pt) {
+              ctx.globalAlpha = cov;
+              drawCell(pt.col, pt.row, gx, gy);
+              ctx.globalAlpha = 1;
+            }
+          }
+        }
       }
     }
     const tex = Texture.from(cv);

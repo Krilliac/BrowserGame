@@ -33,8 +33,24 @@ describe('weatherModifiers (authoritative weather gameplay multipliers)', () => 
     expect(aggroScale).toBe(1);
   });
 
+  it('returns modifiers for the extended weather kinds (RENDER-14)', () => {
+    expect(weatherModifiers('leaves')).toEqual({ moveScale: 1, aggroScale: 1 }); // cosmetic only
+    expect(weatherModifiers('sand').aggroScale).toBeLessThan(weatherModifiers('rain').aggroScale);
+    expect(weatherModifiers('ash').moveScale).toBeLessThan(1);
+    expect(weatherModifiers('lightning').moveScale).toBeGreaterThan(0);
+  });
+
   it('all weather kinds produce finite, positive scales', () => {
-    const kinds: WeatherKind[] = ['none', 'rain', 'snow', 'fog'];
+    const kinds: WeatherKind[] = [
+      'none',
+      'rain',
+      'snow',
+      'fog',
+      'ash',
+      'sand',
+      'leaves',
+      'lightning',
+    ];
     for (const kind of kinds) {
       const { moveScale, aggroScale } = weatherModifiers(kind);
       expect(Number.isFinite(moveScale)).toBe(true);

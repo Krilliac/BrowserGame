@@ -143,7 +143,14 @@ scripted boss); Tiled `.tmj` build-time importer + greedy tile-collider meshing 
 authoring); grid A* (only if mobs visibly trap after wall-slide); combat-FX particle lerp/
 attractor (with the next combat-feedback pass); golden-image renderer tests (cross-GPU
 flakiness); sprite-manifest convergence + `anchorRect` (opportunistic refactors); animation
-`onFrame` hooks (no consumer yet). **Epic:** WASM player-scripted hirelings on the wasmbots
+`onFrame` hooks (no consumer yet); **terrain elevation (RENDER-08)** — both the visual-only subset
+and true elevation are gated on a per-cell height field that doesn't exist, and the visual subset
+additionally needs the ground rebuilt from the single baked `TilingSprite` into a heightmapped mesh
+(per-cell vertical offset is impossible on a flat tiling sprite); true elevation further couples to
+`world.ts` collision/movement, so schedule it as a gameplay milestone with the simulation owners, not
+a render-only pass; **water reflections (RENDER-11)** — gated on water-region data the area model
+doesn't carry (only `groundBase`/tile tints exist), plus a per-actor mirrored-copy + masking
+subsystem; revisit once areas can declare water regions. **Epic:** WASM player-scripted hirelings on the wasmbots
 sandbox model (validate-before-instantiate, worker isolation, tick budgets + strikes,
 capability-minimal host API) — `stepHireling`'s pure circumstances→intent contract is already
 the Phase 0 shape. **Passed on with reasons:** ECS/engine swaps, Excalibur's (broken) A*,
