@@ -102,6 +102,7 @@ import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
 import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
 import { StatusSet } from './status-effects.js';
+import { SpatialGrid } from './spatial.js';
 import { getContent, type QuestDef } from './content.js';
 import { weatherModifiers } from './weather-effects.js';
 import type { WeatherKind } from '../shared/theme.js';
@@ -178,6 +179,9 @@ const COOP_DAMAGE_CAP = 2.2;
 const DENSITY_PER_PLAYER = 0.25;
 const DENSITY_CAP = 6;
 const DENSITY_TOPUP_PER_CALL = 40;
+// Radius within which same-template monsters count as "packmates" for the trait AI (pack speed,
+// craven-in-numbers). Queried via a spatial grid so it's a local check, not an O(mobs²) scan.
+const PACK_RADIUS = 220;
 
 // Quick-use potion belt: instant restore on use, a shared use-cooldown, and a carry cap. Topped up
 // by the Healer and found in chests â€” the active-survival layer on top of passive regen.
@@ -2089,6 +2093,12 @@ export class World {
     // Hirelings are valid monster targets too â€” a mob fights whoever is closest, ally included.
     for (const h of this.hirelings.values()) views.push({ id: h.id, x: h.x, y: h.y, alive: true });
 
+    // Spatial index of living mobs (positions at tick start) so the per-mob "packmates nearby"
+    // check is a local neighborhood query, not an O(mobs²) scan of the whole roster — the single
+    // biggest cost when a crowd has scaled an instance up to a thousand-plus monsters.
+    const packGrid = new SpatialGrid<Mob>(PACK_RADIUS);
+    for (const m of this.mobs.values()) if (!m.dead) packGrid.insert(m);
+
     for (const mob of this.mobs.values()) {
       if (mob.dead) {
         if (this.now >= mob.respawnAt) this.respawnMob(mob);
@@ -2221,9 +2231,8 @@ export class World {
       // Per-mob AI context: drives the trait behaviors (pack speed, craven flight, enrage
       // pace, flanking curves) and the alerted hunt after a hit or a packmate's help-call.
       let packNearby = 0;
-      for (const ally of this.mobs.values()) {
-        if (ally.dead || ally.templateId !== mob.templateId || ally.id === mob.id) continue;
-        if (Math.hypot(ally.x - mob.x, ally.y - mob.y) <= 220) packNearby++;
+      for (const ally of packGrid.queryRadius(mob.x, mob.y, PACK_RADIUS)) {
+        if (ally.id !== mob.id && !ally.dead && ally.templateId === mob.templateId) packNearby++;
       }
       const ctx: MobStepContext = {
         hpFrac: mob.maxHp > 0 ? mob.hp / mob.maxHp : 1,
@@ -2292,15 +2301,16 @@ export class World {
     }
 
     // Soft crowd (the arcade-solver pattern): overlapping mobs push each other apart half the
-    // overlap each, so packs spread around the player instead of merging into one pixel-pile.
-    // One pass per tick converges invisibly. Chargers mid-dash pass through; the dead don't shove.
-    const crowd = [...this.mobs.values()].filter((m) => !m.dead && m.dashUntil <= 0);
+    // overlap each, so packs spread around the player instead of merging into one pixel-pile. A
+    // spatial grid keeps this a local-neighborhood pass (each mob only checks the handful in its
+    // cells), not O(mobs²). One pass per tick converges invisibly; chargers mid-dash pass through.
     const limit = MOB_RADIUS * 2;
-    for (let i = 0; i < crowd.length; i++) {
-      const a = crowd[i]!;
-      for (let j = i + 1; j < crowd.length; j++) {
-        const b = crowd[j]!;
-        if (Math.abs(b.x - a.x) >= limit || Math.abs(b.y - a.y) >= limit) continue;
+    const sepGrid = new SpatialGrid<Mob>(limit);
+    for (const m of this.mobs.values()) if (!m.dead && m.dashUntil <= 0) sepGrid.insert(m);
+    for (const a of this.mobs.values()) {
+      if (a.dead || a.dashUntil > 0) continue;
+      for (const b of sepGrid.queryRadius(a.x, a.y, limit)) {
+        if (b.id <= a.id) continue; // each unordered pair once; skip self
         const sep = separateCircles(a.x, a.y, b.x, b.y, MOB_RADIUS, MOB_RADIUS);
         a.x = clamp(sep.ax, 0, this.width);
         a.y = clamp(sep.ay, 0, this.height);
