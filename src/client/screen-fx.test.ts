@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { OUTDOOR_GODRAYS, activeScreenEffects, effectiveFx, screenFxFor } from './screen-fx.js';
+import {
+  LUT_PRESETS,
+  OUTDOOR_GODRAYS,
+  activeScreenEffects,
+  effectiveFx,
+  gradeColor,
+  screenFxFor,
+} from './screen-fx.js';
 
 describe('screenFxFor / effectiveFx (RENDER-10/12/13)', () => {
   it('resolves instance ids (area#seq) to the base area override', () => {
@@ -13,6 +20,30 @@ describe('screenFxFor / effectiveFx (RENDER-10/12/13)', () => {
 
   it('lets a per-area override win over the outdoor default', () => {
     expect(effectiveFx('town', true).godrays).toBe(0.4); // town override is stronger
+  });
+});
+
+describe('gradeColor / LUT presets (RENDER-12)', () => {
+  it('is identity for an empty transform and stays in range', () => {
+    expect(gradeColor(0.4, 0.6, 0.2, {})).toEqual([0.4, 0.6, 0.2]);
+    const [r, g, b] = gradeColor(1, 1, 1, { gain: 5 });
+    expect(r).toBeLessThanOrEqual(1);
+    expect(g).toBeLessThanOrEqual(1);
+    expect(b).toBeLessThanOrEqual(1);
+  });
+
+  it('warm pushes toward red and away from blue; cool the opposite', () => {
+    const mid = [0.5, 0.5, 0.5] as const;
+    const warm = gradeColor(...mid, LUT_PRESETS.warm);
+    const cool = gradeColor(...mid, LUT_PRESETS.cool);
+    expect(warm[0]).toBeGreaterThan(warm[2]); // R > B under warm
+    expect(cool[2]).toBeGreaterThan(cool[0]); // B > R under cool
+  });
+
+  it('pallid desaturates (channels converge toward the grey)', () => {
+    const [r, g, b] = gradeColor(0.8, 0.2, 0.2, LUT_PRESETS.pallid);
+    const spread = Math.max(r, g, b) - Math.min(r, g, b);
+    expect(spread).toBeLessThan(0.8 - 0.2); // less channel spread than the input
   });
 });
 

@@ -34,7 +34,7 @@ import {
   sunGpuLight,
   type GpuLight,
 } from './deferred-lighting.js';
-import { AREA_SCREEN_FX, ScreenFx } from './screen-fx.js';
+import { ScreenFx } from './screen-fx.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
   newAnimView,
@@ -538,19 +538,6 @@ export class PixiRenderer {
     // Per-pixel dynamic lighting (RENDER-01) derives normals from the albedo, so it needs no normal
     // art — enable it on desktop ('high'); touch keeps the cheaper additive-halo-only lighting.
     this.deferred.setEnabled(this.quality === 'high');
-
-    // Optional per-area LUT textures for the ColorMapFilter grade (RENDER-12). Empty until an area
-    // registers a `lut` in AREA_SCREEN_FX, so today nothing loads and the ColorMatrix grade stays.
-    const lutSrcs = new Set<string>();
-    for (const fx of Object.values(AREA_SCREEN_FX)) if (fx.lut) lutSrcs.add(fx.lut);
-    if (lutSrcs.size > 0) {
-      await Promise.allSettled(
-        [...lutSrcs].map(async (src) => {
-          const t = (await Assets.load({ src })) as Texture;
-          if (t) this.screenFx.addLut(src, t);
-        }),
-      );
-    }
   }
 
   /**
@@ -1373,15 +1360,23 @@ export class PixiRenderer {
       f.saturate(theme.gradeSaturation - 1, true); // 0 = unchanged
       color = f;
     }
-    // RENDER-12: a per-area LUT (ColorMapFilter) overrides the ColorMatrix grade when one is loaded;
-    // with none registered this returns the ColorMatrix fallback unchanged. RENDER-13: compose the
-    // heat-haze displacement after the grade. Both are empty by default → world.filters is as before.
+    // RENDER-12: a per-area LUT (ColorMapFilter) overrides the ColorMatrix grade when the area names a
+    // preset, else the ColorMatrix grade. RENDER-13: compose the heat-haze displacement after the grade.
     color = this.screenFx.gradeFilter(color);
     const heat = this.screenFx.heatFilter();
     const filters: Filter[] = [];
     if (color) filters.push(color);
     if (heat) filters.push(heat);
-    this.world.filters = filters;
+    // When the deferred pass is active the world is rendered to a RenderTexture as the render ROOT, so
+    // filters on `world` itself wouldn't apply — put the grade on the displayed `litSprite` instead.
+    // When deferred is off, the world is a normal stage child and carries the filters directly.
+    if (this.deferred.isEnabled()) {
+      this.litSprite.filters = filters;
+      this.world.filters = [];
+    } else {
+      this.world.filters = filters;
+      this.litSprite.filters = [];
+    }
   }
 
   update(state: RenderState): void {

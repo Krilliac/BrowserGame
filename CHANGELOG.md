@@ -8,14 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
-- **Per-area screen polish filters (RENDER-10/12/13).** A new `screen-fx.ts` adds three drop-in
-  `pixi-filters` effects driven by a per-area registry (`AREA_SCREEN_FX`), gated to desktop ('high')
-  quality: **godrays** (volumetric light shafts over the screen wash), a **LUT color grade**
-  (`ColorMapFilter`, replacing the ColorMatrix grade when a LUT texture is registered — otherwise the
-  ColorMatrix grade stays as the fallback), and **heat haze** (a scrolling-noise `DisplacementFilter`
-  composed onto the world). The registry is empty by default, so no area enables any of them yet and
-  the scene is unchanged; enable one per area (and load a LUT) to light it up. (The filter looks
-  themselves await visual tuning once enabled.)
+- **Per-area screen polish filters (RENDER-10/12/13), enabled.** A new `screen-fx.ts` adds three
+  drop-in `pixi-filters` effects driven by a per-area registry (`AREA_SCREEN_FX`), gated to desktop
+  ('high'): **godrays** (subtle light shafts, on for all outdoor areas via `theme.outdoor`, stronger
+  in town), a **LUT color grade** (`ColorMapFilter`) driven by **procedurally-generated LUT presets**
+  (warm/cool/ember/verdant/pallid — no LUT image assets needed; falls back to the ColorMatrix grade
+  where no preset is set), and **heat haze** (scrolling-noise `DisplacementFilter`, on for the
+  fire/forge/desert areas). Town/wilderness grades verified via the screenshot harness. Also fixed a
+  bug where per-area color grades were dropped while the deferred lighting pass was active (the grade
+  now rides the displayed lit sprite, not the off-screen world root).
 
 ### Deferred (rendering spec)
 
