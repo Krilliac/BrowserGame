@@ -26,6 +26,9 @@ export interface CommandContext {
   areaTheme: (areaId: string) => AreaTheme | undefined;
   setTheme: (areaId: string, key: string, value: string) => string;
   reloadContent: () => string;
+  // AI bot players (GameMaster): spawn companions into your instance / clear them.
+  spawnBots: (count: number) => number;
+  clearBots: () => number;
   // Generic live content editing (Developer): edit any whitelisted content table/column.
   contentTables: () => string;
   contentColumns: (table: string) => string;
@@ -175,6 +178,26 @@ const COMMAND_LIST: Command[] = [
       let spawned = 0;
       for (let i = 0; i < count; i++) if (ctx.world.spawnMobAt(ctx.playerId, template)) spawned++;
       ctx.reply(spawned ? `Spawned ${spawned}x ${template}.` : `Unknown mob template: ${template}`);
+    },
+  },
+  {
+    name: 'bot',
+    minLevel: AccessLevel.GameMaster,
+    usage: '/bot <count> | /bot clear',
+    help: 'Spawn AI companions that roam and fight in your area, or clear them.',
+    run: (ctx) => {
+      const arg = (ctx.args[0] ?? '').toLowerCase();
+      if (arg === 'clear' || arg === 'off' || arg === '0') {
+        const n = ctx.clearBots();
+        return ctx.reply(n ? `Cleared ${n} bot${n === 1 ? '' : 's'}.` : 'No bots to clear.');
+      }
+      const count = Math.min(20, Math.max(1, int(ctx.args, 0, 3)));
+      const n = ctx.spawnBots(count);
+      ctx.reply(
+        n
+          ? `Spawned ${n} bot${n === 1 ? '' : 's'} — they'll roam and fight here. /bot clear to remove.`
+          : 'Could not spawn bots.',
+      );
     },
   },
   {

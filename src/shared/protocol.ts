@@ -136,6 +136,9 @@ export interface EntityState {
   flags?: number;
   /** Mobs only: true for an elite/champion (the client draws a marker + scales it up). */
   elite?: boolean;
+  /** Mobs only: true once a player has damaged it — the client marks it as claimed/engaged
+   *  (you still earn full shared credit for piling onto someone else's fight). */
+  tagged?: boolean;
   /** NPCs only: their role, so the client shows the right prompt + marker ('vendor' | 'questgiver'). */
   npcKind?: string;
   /** Chests only: true once looted, so the client draws it open and stops prompting. */

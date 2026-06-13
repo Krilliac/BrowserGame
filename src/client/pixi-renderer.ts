@@ -1625,6 +1625,14 @@ export class PixiRenderer {
           .ellipse(0, 2, MOB_RADIUS + 7, (MOB_RADIUS + 7) * 0.5)
           .stroke({ width: 2, color: '#ffcf5a', alpha: 0.9 });
       }
+      // Tagged/engaged mob: a cyan claim ring + a small swordfight pip over the bar, so you can
+      // see at a glance which monsters are already someone's fight (you still get shared credit).
+      if (e.tagged) {
+        view.dyn
+          .ellipse(0, 2, MOB_RADIUS + 4, (MOB_RADIUS + 4) * 0.5)
+          .stroke({ width: 1.5, color: '#5fd0e0', alpha: 0.8 });
+        view.dyn.circle(bw / 2 - 2, view.topY - 4, 2.4).fill({ color: '#5fd0e0', alpha: 0.95 });
+      }
       view.dyn.rect(-bw / 2, view.topY - 6, bw, 4).fill({ color: '#000000', alpha: 0.6 });
       view.dyn.rect(-bw / 2, view.topY - 6, bw * frac, 4).fill({
         color: e.kind === 'mob' ? '#cc4444' : '#4caf50',

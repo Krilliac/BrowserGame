@@ -71,6 +71,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **AI companion bots (`/bot`).** A GM command spawns AI players that roam, fight, loot, and level
+  in your area — `/bot 4` to populate, `/bot clear` to remove (up to 20). They're real World
+  entities driven by a pure server-side brain (`server/bot-brain.ts`), so the world feels alive
+  solo and you can see the co-op systems in action.
+- **Shared kill credit + co-op difficulty (dopamine-first).** Every player who *damages* a mob
+  shares its full XP and quest credit — no last-hit stealing, helping always pays; party members
+  present in the instance share too (proximity credit), plus a small group-size XP bonus. Tagged
+  mobs show a **cyan claim ring + pip** so you can see which fights are already engaged (and pile
+  in for your share). Each extra living player in an area also makes its monsters hit harder
+  (capped) — a crowd is genuinely more dangerous, so you want a real team, not just taggers.
 - **Apex boss phases.** Nyxathor (the Abyssal Throne) and Athraxis (the Unmade God, in the Unmade
   Court) now fight in scripted HP-gated phases layered over their brawling AI — they taunt,
   reposition, cast big novas, and **summon their honor guard** as you wear them down, returning to

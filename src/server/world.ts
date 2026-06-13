@@ -168,6 +168,10 @@ const MOB_AGGRO_TUNING = 1.2;
 // bosses get genuinely tanky (L18 ≈ +1.9×, L40 ≈ +3×) so player power growth never trivializes
 // a same-level fight. Calibrated against the pacing sim's one-shot-by-L8 finding.
 const LEVEL_HP_SCALE = 0.05;
+// Co-op difficulty: each extra living player in an instance raises monster outgoing damage by
+// this much (capped), so grouping up makes the area meaningfully harder — survival wants a team.
+const COOP_DAMAGE_PER_PLAYER = 0.15;
+const COOP_DAMAGE_CAP = 2.2;
 
 // Quick-use potion belt: instant restore on use, a shared use-cooldown, and a carry cap. Topped up
 // by the Healer and found in chests â€” the active-survival layer on top of passive regen.
@@ -357,6 +361,9 @@ interface Mob {
   wanderUntil: number;
   statuses: StatusSet;
   lastAttacker: number;
+  /** Every player who has damaged this mob — all taggers share full kill credit (co-op,
+   *  no last-hit tax), and the client marks a tagged mob so others know it's claimed. */
+  taggers: Set<number>;
   /** Support-caster cooldown (ms) until this mob may self-buff/heal again (0 = ready). */
   supportCd: number;
   dead: boolean;
@@ -689,6 +696,7 @@ export class World {
       wanderUntil: 0,
       statuses: new StatusSet(),
       lastAttacker: 0,
+      taggers: new Set(),
       supportCd: 2000, // first self-buff/heal a couple seconds into a fight, not instantly
       dead: false,
       respawnAt: 0,
@@ -1760,10 +1768,22 @@ export class World {
    * A monster's outgoing hit damage: base Ã— elite mult Ã— area corruption, scaled by its own status
    * effects â€” a WEAKEN debuff cuts it, a MIGHT self-buff (from a War Cry support cast) raises it.
    */
+  /**
+   * Co-op difficulty: each additional living player in the instance makes its monsters hit
+   * harder (×1 + COOP_DAMAGE_PER_PLAYER each, capped), so a crowded area is genuinely more
+   * dangerous — you want allies at your back, not just sharing your XP. Solo play is unscaled.
+   */
+  private coopDamageScale(): number {
+    let alive = 0;
+    for (const p of this.players.values()) if (!p.dead) alive++;
+    return Math.min(COOP_DAMAGE_CAP, 1 + COOP_DAMAGE_PER_PLAYER * Math.max(0, alive - 1));
+  }
+
   private mobOutgoing(mob: Mob, template: MobTemplate): number {
     return (
       template.damage *
       MOB_DMG_TUNING *
+      this.coopDamageScale() *
       // Enraged brutes (trait, below 35% HP) hit half again as hard â€” finish them or back off.
       traitDamageMult(mob.templateId, mob.maxHp > 0 ? mob.hp / mob.maxHp : 1) *
       mob.dmgMult *
@@ -2608,7 +2628,11 @@ export class World {
     attackerId: number,
     crit = false,
   ): void {
-    if (attackerId !== 0) mob.lastAttacker = attackerId;
+    if (attackerId !== 0) {
+      mob.lastAttacker = attackerId;
+      // Anyone who lands a hit is a TAGGER — they share the kill (no last-hit stealing).
+      if (this.players.has(attackerId)) mob.taggers.add(attackerId);
+    }
     mob.hp -= amount;
     // A hurt monster is ALERTED (extended aggro reach â€” it hunts rather than idles), and a
     // pack hunter calls for help: same-template packmates in earshot join the alert.
@@ -2643,16 +2667,24 @@ export class World {
     // Clearing monsters pushes back the area's corruption.
     this.areaCorruption.pushBack(this.areaId);
     const killer = this.players.get(mob.lastAttacker);
-    if (killer) {
-      const reward = xpReward(mob.level) * (mob.elite ? 3 : 1); // champions give a big XP bonus
-      // Shared credit: the killer plus any party members present in THIS instance each get the full
-      // XP and quest progress â€” grouping is rewarded, not taxed (the ARPG convention).
-      const credited = new Set<number>([killer.id]);
-      for (const memberId of this.partyResolver(killer.id)) {
-        const m = this.players.get(memberId);
-        if (m && !m.dead) credited.add(memberId);
+    if (killer || mob.taggers.size > 0) {
+      // A small group XP bonus on top of the elite multiplier — a kill that took several hands is
+      // worth more total, so co-op pays even though everyone shares it.
+      const groupBonus = 1 + 0.1 * Math.max(0, mob.taggers.size - 1);
+      const reward = Math.round(xpReward(mob.level) * (mob.elite ? 3 : 1) * groupBonus);
+      // Shared credit: EVERY player who tagged the mob, plus party members present in THIS instance,
+      // each get the full XP and quest progress — grouping (and helping) is rewarded, never taxed.
+      const credited = new Set<number>(mob.taggers);
+      if (killer) credited.add(killer.id);
+      for (const tagger of mob.taggers) {
+        for (const memberId of this.partyResolver(tagger)) {
+          const m = this.players.get(memberId);
+          if (m && !m.dead) credited.add(memberId);
+        }
       }
-      for (const id of credited) this.creditKill(id, reward, mob.templateId);
+      for (const id of credited) {
+        if (this.players.get(id)) this.creditKill(id, reward, mob.templateId);
+      }
     }
     // Loot (materials + gear) comes from the DB-backed content drop tables. Equipment items roll a
     // rarity + stats into a unique instance; materials/currency drop as plain stacks.
@@ -2976,6 +3008,7 @@ export class World {
     mob.homeX = mob.x;
     mob.homeY = mob.y;
     mob.attackCd = 0;
+    mob.taggers.clear(); // a respawned mob is un-claimed again
     delete mob.bossScript; // a fresh fight starts the phase loop from the top
   }
 
@@ -3049,6 +3082,7 @@ export class World {
       };
       if (flags > 0) mob.flags = flags;
       if (m.elite) mob.elite = true;
+      if (m.taggers.size > 0) mob.tagged = true; // claimed/engaged — others can still pile in
       // SQL sprite color override ('mob:<templateId>') â€” one sprite source, many variations.
       const mobTint = getContent().spriteTint(`mob:${m.templateId}`);
       if (mobTint) mob.tint = mobTint;

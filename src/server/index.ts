@@ -4,6 +4,7 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { InstanceManager, type InstancingMode } from './instance-manager.js';
+import { newBotState, stepBot, type BotState, type BotView } from './bot-brain.js';
 import { sanitizeChat } from './chat.js';
 import { TokenBucket } from './rate-limit.js';
 import { runGuarded, GuardStats } from './resilience.js';
@@ -16,7 +17,7 @@ import {
   type EntityState,
   type ServerMessage,
 } from '../shared/protocol.js';
-import { isAbilityId } from '../shared/combat.js';
+import { isAbilityId, type AbilityId } from '../shared/combat.js';
 import { initGameDb, getDb, getContent, reloadContent } from './content.js';
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess } from './accounts.js';
@@ -129,6 +130,132 @@ const friendStore: FriendStore = {
   remove: (token, name) => dbRemoveFriend(getDb(), token, name),
 };
 const social = new SocialRegistry(friendStore);
+
+// AI bot players — real World player entities with no socket, driven each tick by a pure brain.
+// Spawned via the GM `/bot` command so the world feels alive (and to test co-op solo).
+interface BotRunner {
+  instanceId: string;
+  state: BotState;
+  seq: number;
+}
+const bots = new Map<number, BotRunner>();
+const BOT_NAMES = [
+  'Roan',
+  'Mira',
+  'Korg',
+  'Sable',
+  'Pip',
+  'Vex',
+  'Tula',
+  'Bran',
+  'Nyx',
+  'Hale',
+  'Wren',
+  'Orin',
+];
+
+/** Spawn `count` AI bot players into the caller's instance; returns how many actually joined. */
+function spawnBots(instanceId: string, count: number): number {
+  const inst = manager.get(instanceId);
+  if (!inst) return 0;
+  const areaId = inst.areaId;
+  let spawned = 0;
+  for (let i = 0; i < count; i++) {
+    const name = BOT_NAMES[(bots.size + i) % BOT_NAMES.length] ?? `Bot${bots.size + i}`;
+    const placement = manager.join(`${name}`, areaId);
+    bots.set(placement.entityId, {
+      instanceId: placement.instanceId,
+      state: newBotState(placement.entityId),
+      seq: 0,
+    });
+    spawned++;
+  }
+  return spawned;
+}
+
+/** Remove all bots (or only those in a given instance). Returns how many were despawned. */
+function clearBots(instanceId?: string): number {
+  let removed = 0;
+  for (const [id, b] of [...bots]) {
+    if (instanceId && b.instanceId !== instanceId) continue;
+    manager.remove(b.instanceId, id);
+    bots.delete(id);
+    removed++;
+  }
+  return removed;
+}
+
+/** Drive every bot one tick: build a brain view from its world, apply the decision. Cheap — bots
+ *  are few, and each only sees mobs/items near itself. Bots follow portals like real players via
+ *  the transfer path (their instanceId is refreshed below when the manager moves them). */
+function driveBots(): void {
+  // Bots cross portals/dens like anyone else; the transfer loop updates routing for sockets but
+  // not bots, so resync each bot's instance from where the manager currently holds its entity.
+  for (const [id, b] of bots) {
+    const inst = manager
+      .list()
+      .find((i) => i.world.playerStats(id) !== undefined && manager.playerIdsIn(i.id).includes(id));
+    if (inst) b.instanceId = inst.id;
+  }
+  const byInstance = new Map<string, number[]>();
+  for (const [id, b] of bots)
+    byInstance.set(b.instanceId, [...(byInstance.get(b.instanceId) ?? []), id]);
+  for (const [instanceId, ids] of byInstance) {
+    const world = manager.get(instanceId)?.world;
+    if (!world) continue;
+    const snap = world.snapshot();
+    const mobs = snap.filter((e) => e.kind === 'mob' && e.hp > 0);
+    const items = snap.filter((e) => e.kind === 'item');
+    const area = getContent().area(manager.get(instanceId)!.areaId);
+    for (const id of ids) {
+      const stats = world.playerStats(id);
+      const me = snap.find((e) => e.id === id);
+      const b = bots.get(id)!;
+      if (!stats || !me) continue;
+      const view: BotView = {
+        self: {
+          x: me.x,
+          y: me.y,
+          hp: stats.hp,
+          maxHp: stats.maxHp,
+          mana: stats.mana,
+          maxMana: stats.maxMana,
+          level: stats.level,
+          dead: stats.dead,
+        },
+        abilities: Object.keys(stats.known).flatMap((aid) => {
+          const a = getContent().ability(aid as AbilityId);
+          if (!a) return [];
+          return [
+            {
+              id: aid,
+              kind: a.kind,
+              damage: a.damage,
+              range: a.range,
+              manaCost: a.manaCost,
+              cooldownReady: true, // world.cast re-gates cooldown; pass-through is fine
+            },
+          ];
+        }),
+        mobs: mobs
+          .filter((m) => Math.hypot(m.x - me.x, m.y - me.y) < 700)
+          .map((m) => ({ id: m.id, x: m.x, y: m.y, hp: m.hp })),
+        items: items
+          .filter((it) => Math.hypot(it.x - me.x, it.y - me.y) < 400)
+          .map((it) => ({ id: it.id, x: it.x, y: it.y })),
+        width: area?.width ?? 1600,
+        height: area?.height ?? 1200,
+        potions: stats.potions,
+      };
+      const decision = stepBot(view, b.state, tick * (1000 / TICK_RATE));
+      world.setInput(id, decision.input, ++b.seq);
+      if (decision.cast) {
+        world.cast(id, decision.cast.ability as AbilityId, decision.cast.dx, decision.cast.dy);
+      }
+      if (decision.usePotion) world.usePotion(id, decision.usePotion);
+    }
+  }
+}
 
 /** The display name of a connected player (from their instance's World), or undefined. */
 function nameOf(id: number): string | undefined {
@@ -679,6 +806,8 @@ wss.on('connection', (socket) => {
                   },
                   listPlayers: () => world.playerNames(),
                   setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),
+                  spawnBots: (count) => spawnBots(p.instanceId, count),
+                  clearBots: () => clearBots(),
                   areaIds: () =>
                     getContent()
                       .areas()
@@ -780,6 +909,7 @@ setInterval(() => {
   runGuarded(
     'tick',
     () => {
+      if (bots.size > 0) driveBots(); // feed AI companions their inputs before the world advances
       const transfers = manager.tick(dt);
       tick++;
 

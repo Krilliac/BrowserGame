@@ -33,6 +33,8 @@ function makeCtx(
     },
     listPlayers: () => world.playerNames(),
     setAccessFor: () => true,
+    spawnBots: () => 0,
+    clearBots: () => 0,
     areaIds: () => ['town'],
     areaTheme: () => undefined,
     setTheme: () => 'ok',
