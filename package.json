@@ -28,6 +28,7 @@
     "stress": "tsx tools/bots/stress.ts",
     "chaos": "tsx tools/bots/chaos.ts",
     "screenshot": "node scripts/screenshot.mjs",
+    "gen:sprites": "tsx tools/assetgen/sprites/cli.ts",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run test"
   },
   "dependencies": {

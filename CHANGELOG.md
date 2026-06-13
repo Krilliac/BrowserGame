@@ -8,6 +8,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Procedural asset-generation suite + RENDER-09 finished.** A new in-repo, zero-dependency generator
+  toolkit under `tools/assetgen/` (a software RGBA rasterizer + PNG encoder via Node `zlib`, seeded RNG,
+  shared easing curves, atomic manifest writer) drives offline asset synthesis — never imported by the
+  server. Its first generator (`gen:sprites`) renders a **procedural 16-direction adventurer** character
+  sheet (idle/walk/attack/cast/hurt/death, clockwise-from-East to match the engine's `dirIndex`), wired
+  in as the player/NPC/hireling sheet with `dirCount: 16` — **completing RENDER-09** (the player now
+  rotates in 16 increments instead of 4). Deterministic per seed (hash-tested); the manifest matches the
+  engine's `Sheet`/`ClipSet` contract exactly. Verified via the screenshot harness.
 - **Per-area screen polish filters (RENDER-10/12/13), enabled.** A new `screen-fx.ts` adds three
   drop-in `pixi-filters` effects driven by a per-area registry (`AREA_SCREEN_FX`), gated to desktop
   ('high'): **godrays** (subtle light shafts, on for all outdoor areas via `theme.outdoor`, stronger
@@ -20,11 +28,10 @@ versioning once it stabilizes.
 
 ### Deferred (rendering spec)
 
-- **16-direction sprites (RENDER-09)** stay capability-ready (the `ClipSet.dirCount` path) but
-  inactive — fabricating 16-direction art from the 4-direction LPC sheets isn't possible without
-  source renders. The true (gameplay) form of terrain elevation — ramps/ledges that change where you
-  can stand — also remains future work, as it must agree with `world.ts` collision; only the
-  cosmetic visual subset shipped (RENDER-08 below). See the Roadmap for details.
+- The **true (gameplay) form of terrain elevation** — ramps/ledges that change where you can stand —
+  remains future work, as it must agree with `world.ts` collision; only the cosmetic visual subset
+  shipped (RENDER-08). With RENDER-09 now done, all 15 render-spec tracks are implemented. See the
+  Roadmap for details.
 - **Premultiplied-alpha audit (RENDER-15).** Verified every blended/additive sprite path (lighting,
   particles, weather) relies on Pixi v8's default premultiplied-alpha upload and premultiply-aware
   `'add'` blend — no `alphaMode` overrides, no edge fringing. No code change required.

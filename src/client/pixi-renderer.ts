@@ -189,8 +189,35 @@ function lpcClips(): ClipSet {
   };
 }
 
+/**
+ * 16-direction adventurer clip set (RENDER-09) — matches the procedurally-generated sheet from
+ * `tools/assetgen/sprites` (public/assets/sprites/adventurer16.json). 16 directional rows per clip,
+ * ordered clockwise from East (engine `dirIndex`); hurt/death are dirless single rows.
+ */
+function adventurer16Clips(): ClipSet {
+  return {
+    dirOrder: ['N', 'W', 'S', 'E'], // unused when dirCount > 4, kept for the type
+    dirCount: 16,
+    clips: {
+      idle: { row0: 0, startCol: 0, frames: 1, perFrameMs: 240, loop: true },
+      walk: { row0: 16, startCol: 0, frames: 8, perFrameMs: 110, loop: true },
+      attack: { row0: 32, startCol: 0, frames: 6, perFrameMs: 60, loop: false },
+      cast: { row0: 48, startCol: 0, frames: 7, perFrameMs: 70, loop: false },
+      hurt: { row0: 64, startCol: 0, frames: 4, perFrameMs: 55, loop: false, dirless: true },
+      death: { row0: 65, startCol: 0, frames: 6, perFrameMs: 90, loop: false, dirless: true },
+    },
+  };
+}
+
 const SHEETS: Record<string, Sheet> = {
-  hero: { src: '/assets/sprites/hero_walk_lpc.png', fw: 64, fh: 64, scale: 0.7, clips: lpcClips() },
+  // The player/NPCs/hirelings use the generated 16-direction adventurer for smooth rotation (RENDER-09).
+  hero: {
+    src: '/assets/sprites/adventurer16.png',
+    fw: 48,
+    fh: 48,
+    scale: 0.95,
+    clips: adventurer16Clips(),
+  },
   skeleton: {
     src: '/assets/sprites/skeleton_lpc.png',
     fw: 64,
