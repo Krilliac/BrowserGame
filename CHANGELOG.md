@@ -91,6 +91,23 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Dev "Game Engine" panel — live edit (almost) everything (Developer access).** A full in-game
+  editor, gated server-side at Developer level (isolated from every player path), with three tabs:
+  - **Content** — every editable DB table (areas, spells, items, monsters, NPCs, quests, loot,
+    vendor stock, spawns, sprite tints, area themes). Pick a table → a row → edit any column with a
+    widget typed by the server's column spec (number+range, text, enum dropdown, bool); saves
+    validate + clamp at the boundary and apply live (reload + re-skin all clients). Built on the
+    existing `EDITABLE_TABLES` whitelist, so it can never touch a non-whitelisted table.
+  - **Config** — the runtime gameplay knobs (difficulty, drops, economy, density, co-op, potions,
+    items, bounty). Edits mutate the live server config; the sim's tuning bindings were made
+    runtime-refreshable (`applyRuntimeConfig`) so changes take effect immediately.
+  - **Actions** — reload content, spawn/clear bots, give item/gold/XP, set level, spawn monsters,
+    set weather, teleport to any area, full heal, set an account's access level.
+
+  Plumbed over a new structured `engine_req`/`engine_res` protocol (request/response with a Dev
+  gate); the client surfaces an **Engine** button only at Developer access. The values that need a
+  restart (world scale, instance caps, ports) are deliberately excluded from live editing so the
+  panel never lies about an edit taking effect.
 - **In-game settings panel (⚙ / `O`) + a client-config module.** A DOM drawer to tune the
   CLIENT-side options that now live in one place (`src/client/settings.ts`, the client mirror of
   the server config): master **volume** + mute, **camera zoom**, **show FPS**, and **reduce

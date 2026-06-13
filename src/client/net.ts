@@ -6,12 +6,21 @@ import {
   decodeServer,
   encode,
   type ChatChannel,
+  type EngineOp,
+  type EngineResData,
   type FriendInfo,
   type InputState,
   type PartyMember,
   type QuestState,
   type ServerMessage,
 } from '../shared/protocol.js';
+
+/** Resolved reply to an engine-panel request. */
+export interface EngineReply {
+  ok: boolean;
+  message?: string;
+  data?: EngineResData;
+}
 import type { AbilityId } from '../shared/combat.js';
 import type { ItemInstance } from '../shared/items.js';
 import { type AttributeSet, emptyAttributes } from '../shared/attributes.js';
@@ -143,6 +152,9 @@ export class Net {
   accessLevel = 0;
   /** Called when the access level changes (so the settings panel can reveal/hide GM options). */
   onAccess: ((level: number) => void) | undefined;
+  /** In-flight engine-panel requests, keyed by request id, awaiting their `engine_res`. */
+  private engineSeq = 0;
+  private readonly engineWaiters = new Map<number, (reply: EngineReply) => void>();
 
   constructor(private readonly name: string) {}
 
@@ -304,6 +316,18 @@ export class Net {
     this.send({ t: 'sell' });
   }
 
+  /** Send a Dev engine-panel request and resolve with the server's reply (or a timeout error). */
+  sendEngine(op: EngineOp): Promise<EngineReply> {
+    const rid = ++this.engineSeq;
+    return new Promise<EngineReply>((resolve) => {
+      this.engineWaiters.set(rid, resolve);
+      this.send({ t: 'engine_req', rid, op });
+      setTimeout(() => {
+        if (this.engineWaiters.delete(rid)) resolve({ ok: false, message: 'request timed out' });
+      }, 8000);
+    });
+  }
+
   private send(msg: Parameters<typeof encode>[0]): void {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(msg));
   }
@@ -433,6 +457,17 @@ export class Net {
         this.accessLevel = msg.level;
         this.onAccess?.(msg.level);
         break;
+      case 'engine_res': {
+        const waiter = this.engineWaiters.get(msg.rid);
+        if (waiter) {
+          this.engineWaiters.delete(msg.rid);
+          const reply: EngineReply = { ok: msg.ok };
+          if (msg.message !== undefined) reply.message = msg.message;
+          if (msg.data !== undefined) reply.data = msg.data;
+          waiter(reply);
+        }
+        break;
+      }
     }
   }
 }

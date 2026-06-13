@@ -219,7 +219,76 @@ export type ClientMessage =
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
   | { t: 'sell' }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
-  | { t: 'admin'; token: string; command: string };
+  | { t: 'admin'; token: string; command: string }
+  /** Dev engine panel request (Developer access). `rid` correlates the `engine_res` reply. */
+  | { t: 'engine_req'; rid: number; op: EngineOp };
+
+// --- Dev "Game Engine" panel (Developer access only) ------------------------------------
+
+/** One operation the engine panel can ask the server to perform. The server gates the whole
+ *  surface on access level >= Developer and validates each op at the boundary. */
+export type EngineOp =
+  | { kind: 'schema' } // editable-table specs + config knobs + dropdown lists
+  | { kind: 'rows'; table: string } // all rows of a content table
+  | { kind: 'edit'; table: string; id: string; column: string; value: string } // edit one cell
+  | { kind: 'config'; path: string; value: number } // set a runtime config knob (e.g. difficulty.mobDamage)
+  | { kind: 'reload' } // re-read content from the DB and re-skin all clients
+  | { kind: 'spawn_bots'; count: number }
+  | { kind: 'clear_bots' }
+  | { kind: 'give'; itemId: string; qty: number } // gold via itemId 'gold'
+  | { kind: 'add_xp'; amount: number }
+  | { kind: 'set_level'; level: number }
+  | { kind: 'spawn_mob'; templateId: string; count: number }
+  | { kind: 'weather'; weather: string }
+  | { kind: 'teleport'; areaId: string }
+  | { kind: 'heal' }
+  | { kind: 'set_access'; username: string; level: number };
+
+/** Wire mirror of the server's editable-column spec (kept here so `shared` has no server import). */
+export interface EngineColumnSpec {
+  type: 'text' | 'int' | 'real' | 'color' | 'enum' | 'bool';
+  min?: number;
+  max?: number;
+  values?: readonly string[];
+  nullable?: boolean;
+}
+export interface EngineTableSpec {
+  pk: string;
+  label: string;
+  note?: string;
+  columns: Record<string, EngineColumnSpec>;
+}
+/** A runtime-tunable config knob (read/written live by the engine panel). */
+export interface EngineConfigField {
+  path: string; // e.g. 'difficulty.mobDamage'
+  label: string;
+  kind: 'int' | 'real';
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+}
+export interface EngineConfigGroup {
+  label: string;
+  fields: EngineConfigField[];
+}
+export interface EngineNamed {
+  id: string;
+  name: string;
+}
+/** Everything the panel needs to render: schema, current config, and dropdown lists. */
+export interface EngineSchema {
+  tables: Record<string, EngineTableSpec>;
+  config: EngineConfigGroup[];
+  areas: EngineNamed[];
+  templates: EngineNamed[];
+  items: EngineNamed[];
+  weathers: string[];
+  access: { value: number; name: string }[];
+}
+export type EngineResData =
+  | { kind: 'schema'; schema: EngineSchema }
+  | { kind: 'rows'; columns: string[]; rows: Record<string, string | number | null>[] };
 
 /** Messages the server sends to clients. */
 export type ServerMessage =
@@ -319,7 +388,9 @@ export type ServerMessage =
   | { t: 'admin_result'; ok: boolean; message: string }
   /** This connection's current access level (0 = Player; raised via /login). Lets the client
    *  surface GM-only settings. Purely a UX hint — privileged powers stay gated server-side. */
-  | { t: 'access'; level: number };
+  | { t: 'access'; level: number }
+  /** Reply to an `engine_req` (Dev engine panel). `rid` matches the request. */
+  | { t: 'engine_res'; rid: number; ok: boolean; message?: string; data?: EngineResData };
 
 export function encode(msg: ClientMessage | ServerMessage): string {
   return JSON.stringify(msg);
