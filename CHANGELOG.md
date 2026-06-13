@@ -15,7 +15,11 @@ versioning once it stabilizes.
   sheet (idle/walk/attack/cast/hurt/death, clockwise-from-East to match the engine's `dirIndex`), wired
   in as the player/NPC/hireling sheet with `dirCount: 16` — **completing RENDER-09** (the player now
   rotates in 16 increments instead of 4). Deterministic per seed (hash-tested); the manifest matches the
-  engine's `Sheet`/`ClipSet` contract exactly. Verified via the screenshot harness.
+  engine's `Sheet`/`ClipSet` contract exactly. Verified via the screenshot harness. Five more generators
+  ship alongside it (`gen:fx` effect strips, `gen:emitter` particle presets, `gen:tiles` seamless
+  biomes, `gen:icons` item icons, `gen:sfx` procedural sound params) — each deterministic and emitting
+  artifacts that match the real engine consumer type (`FxStrip`, `EmitterDef`, `GroundTileset`,
+  `ITEM_ICON_CELLS`, sound synth defs), ready to register. See `wiki/architecture/Asset-Generation.md`.
 - **Per-area screen polish filters (RENDER-10/12/13), enabled.** A new `screen-fx.ts` adds three
   drop-in `pixi-filters` effects driven by a per-area registry (`AREA_SCREEN_FX`), gated to desktop
   ('high'): **godrays** (subtle light shafts, on for all outdoor areas via `theme.outdoor`, stronger

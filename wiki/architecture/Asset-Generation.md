@@ -46,6 +46,21 @@ gitignore, like the other curated sprites). Wired in `pixi-renderer.ts` as the `
 `dirCount: 16`, which the player / NPCs / hirelings use — so they rotate in 16 increments (RENDER-09).
 To regenerate: `npm run gen:sprites` (add `--check` for a dry run).
 
+### Other generators (artifacts regenerate via `gen:<class>`; outputs land in gitignored `public/assets`)
+| Script | Class | Output | Consumer type |
+|--------|-------|--------|---------------|
+| `gen:fx` | ASSET-FX | animated effect strips (explosion/frost/lightning/holyNova/poison/slash) + `fx.json` | renderer one-shot FX strips (`FxStrip`) |
+| `gen:emitter` | ASSET-EMIT | tuned `EmitterDef` presets JSON | `EMITTERS` in `particles.ts` |
+| `gen:tiles` | ASSET-TILE | seamless biome sheets + `GroundTileset` JSON | `GROUND_TILESETS` in `ground-tiles.ts` (incl. RENDER-04 `blend`) |
+| `gen:icons` | ASSET-ICON | packed item-icon sheet + cell map | `ITEMS_SHEET`/`ITEM_ICON_CELLS` in `item-icons.ts` |
+| `gen:sfx` | ASSET-SFX | procedural SFX synth params JSON | `sound.ts` Web Audio synth path |
+
+Each is deterministic per seed (hash-tested in `tools/assetgen/test/assetgen.test.ts`) and its output
+deserializes into the quoted engine type. **`gen:sprites` is wired live (RENDER-09)**; the others
+produce validated artifacts ready to register into their consumer (drop the sheet in, add the manifest
+to the registry). Their sample outputs are regenerable rather than committed (so unused assets don't
+bloat the repo) — run the script to materialize them.
+
 ## Conventions for new generators
 - One class per asset surface, output dir + manifest keyed to a real engine consumer type.
 - Procedural/canvas backend primary (runs in CI); honor the `'low' | 'high'` quality split and
