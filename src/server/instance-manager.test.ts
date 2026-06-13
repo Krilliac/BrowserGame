@@ -11,9 +11,11 @@ describe('InstanceManager', () => {
     expect(mgr.playerIdsIn(p.instanceId)).toContain(p.entityId);
   });
 
-  it('packs players into one instance until the area cap, then spins up another', () => {
+  it('packs players into one instance until the cap, then spins up another', () => {
     const mgr = new InstanceManager('auto');
-    const cap = AREAS.town!.playerCap;
+    // The effective cap is floored at MIN_INSTANCE_CAP (50) over the authored per-area value, so a
+    // crowd stays together; fill exactly that many, then overflow.
+    const cap = Math.max(AREAS.town!.playerCap, 50);
     for (let i = 0; i < cap; i++) mgr.join(`P${i}`);
     expect(mgr.instanceCount).toBe(1);
     mgr.join('Overflow'); // cap + 1

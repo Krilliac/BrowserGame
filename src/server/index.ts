@@ -254,15 +254,15 @@ const BOT_NAMES = [
   'Orin',
 ];
 
-/** Spawn `count` AI bot players into the owner's instance; returns how many actually joined. */
+/** Spawn `count` AI bot players directly into the owner's instance (cap-bypassing, so a big
+ *  flood lands right in your world); returns how many actually joined. */
 function spawnBots(owner: number, instanceId: string, count: number): number {
-  const inst = manager.get(instanceId);
-  if (!inst) return 0;
-  const areaId = inst.areaId;
+  if (!manager.get(instanceId)) return 0;
   let spawned = 0;
   for (let i = 0; i < count; i++) {
     const name = BOT_NAMES[(bots.size + i) % BOT_NAMES.length] ?? `Bot${bots.size + i}`;
-    const placement = manager.join(`${name}`, areaId);
+    const placement = manager.joinInstance(instanceId, name);
+    if (!placement) break;
     bots.set(placement.entityId, {
       owner,
       instanceId: placement.instanceId,
@@ -1212,6 +1212,15 @@ setInterval(() => {
     }
   }
 }, INVASION_INTERVAL_MS);
+
+// Crowd density maintenance: keep busy overworld instances stocked with monsters so a flood of
+// players (or bots) doesn't farm a zone to extinction. Cheap — a no-op for solo/quiet/dungeon
+// instances; only tops up where a crowd has thinned the roster below its player-scaled target.
+setInterval(() => {
+  runGuarded('density', () => {
+    for (const instance of manager.list()) instance.world.maintainDensity();
+  });
+}, 3000);
 
 // "The forces of darkness grow stronger/weaker" — announce per-area corruption tier crossings
 // (no numeric meter), broadcast to every instance of the area whose darkness shifted.

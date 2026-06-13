@@ -45,6 +45,11 @@ interface Command {
   run: (ctx: CommandContext) => void;
 }
 
+// Max bots a SINGLE /bot call may spawn — generous (a real flood) but finite so a typo like
+// /bot 9999999 can't lock the event loop joining entities. Run the command repeatedly to stack
+// past this into an arbitrarily large army.
+const BOT_SPAWN_PER_CALL_MAX = 2000;
+
 function int(args: string[], i: number, fallback: number): number {
   const n = Number.parseInt(args[i] ?? '', 10);
   return Number.isFinite(n) ? n : fallback;
@@ -184,18 +189,20 @@ const COMMAND_LIST: Command[] = [
     name: 'bot',
     minLevel: AccessLevel.GameMaster,
     usage: '/bot <count> | /bot clear',
-    help: 'Spawn AI companions that roam and fight in your area, or clear them.',
+    help: 'Spawn AI companions that roam, fight, and journey to endgame, or clear them. Stackable — run it again to add more.',
     run: (ctx) => {
       const arg = (ctx.args[0] ?? '').toLowerCase();
       if (arg === 'clear' || arg === 'off' || arg === '0') {
         const n = ctx.clearBots();
         return ctx.reply(n ? `Cleared ${n} bot${n === 1 ? '' : 's'}.` : 'No bots to clear.');
       }
-      const count = Math.min(20, Math.max(1, int(ctx.args, 0, 3)));
+      // Uncapped for floods — only a sanity ceiling per call so one fat-fingered number can't
+      // freeze the event loop spawning entities. Stack calls for an arbitrarily large army.
+      const count = Math.min(BOT_SPAWN_PER_CALL_MAX, Math.max(1, int(ctx.args, 0, 3)));
       const n = ctx.spawnBots(count);
       ctx.reply(
         n
-          ? `Spawned ${n} bot${n === 1 ? '' : 's'} — they'll roam and fight here. /bot clear to remove.`
+          ? `Spawned ${n} bot${n === 1 ? '' : 's'} — they roam, fight, and head for endgame. Run /bot again for more · /bot clear to remove.`
           : 'Could not spawn bots.',
       );
     },

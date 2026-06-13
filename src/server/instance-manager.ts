@@ -3,6 +3,10 @@ import { pointInRect, START_AREA, type AreaDef } from '../shared/areas.js';
 import { getContent } from './content.js';
 import { AreaCorruption } from './area-corruption.js';
 
+/** Minimum players an instance holds before the load balancer spins up another — a global floor
+ *  over the authored per-area caps, so a crowd (or a bot flood) stays together in one world. */
+const MIN_INSTANCE_CAP = 50;
+
 /** One running area instance — conceptually its own "area server", here in-process. */
 export interface Instance {
   id: string;
@@ -63,6 +67,18 @@ export class InstanceManager {
     const entityId = instance.world.spawn(name); // world uses the shared id allocator
     if (save) instance.world.importPlayer(entityId, save, area.spawn.x, area.spawn.y);
     return { instanceId: instance.id, entityId, areaId: area.id };
+  }
+
+  /**
+   * Place a new player into a SPECIFIC existing instance, bypassing the player-cap load balancer.
+   * Used to colocate AI bots with the GM who spawned them (so a `/bot 300` flood lands in your
+   * world, not scattered across freshly-scaled instances). Returns null if the instance is gone.
+   */
+  joinInstance(instanceId: string, name: string): Placement | null {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return null;
+    const entityId = instance.world.spawn(name);
+    return { instanceId: instance.id, entityId, areaId: instance.areaId };
   }
 
   /**
@@ -171,7 +187,10 @@ export class InstanceManager {
   // --- internals ----------------------------------------------------------------------
 
   private cap(area: AreaDef): number {
-    return this.mode === 'single' ? Number.POSITIVE_INFINITY : area.playerCap;
+    if (this.mode === 'single') return Number.POSITIVE_INFINITY;
+    // A global floor so a crowd lands together in one instance (the authored per-area caps were
+    // sized for a quiet world); dynamic mob-density scaling keeps a packed area from starving.
+    return Math.max(area.playerCap, MIN_INSTANCE_CAP);
   }
 
   private pickInstance(area: AreaDef): Instance {

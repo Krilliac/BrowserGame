@@ -172,6 +172,12 @@ const LEVEL_HP_SCALE = 0.05;
 // this much (capped), so grouping up makes the area meaningfully harder — survival wants a team.
 const COOP_DAMAGE_PER_PLAYER = 0.15;
 const COOP_DAMAGE_CAP = 2.2;
+// Crowd mob-density scaling (maintainDensity): each extra living player raises the target living-
+// mob count by this fraction of the base roster, capped, topped up gradually so a flooded zone
+// stays full of targets instead of being farmed to extinction.
+const DENSITY_PER_PLAYER = 0.25;
+const DENSITY_CAP = 6;
+const DENSITY_TOPUP_PER_CALL = 40;
 
 // Quick-use potion belt: instant restore on use, a shared use-cooldown, and a carry cap. Topped up
 // by the Healer and found in chests â€” the active-survival layer on top of passive regen.
@@ -584,6 +590,45 @@ export class World {
       for (let i = 0; i < spawn.count; i++) {
         this.createMob(template, this.randomMobX(), this.randomMobY());
       }
+    }
+  }
+
+  /**
+   * Keep a crowded overworld area populated: a flood of players clears mobs far faster than the
+   * respawn timer refills, starving everyone of targets. This tops the roster up toward a target
+   * that SCALES with the living-player count — so 50 players in one zone find ~5× the monsters a
+   * soloist does, not the same thin handful fought to extinction. No-op for dungeons (fixed
+   * procedural rolls), the den, and quiet/solo instances. Called on a host interval, not per tick.
+   */
+  maintainDensity(): void {
+    if (isDungeon(this.areaId) || this.areaId === 'den') return;
+    const roster = getContent()
+      .areaMobs(this.areaId)
+      .map((s) => ({ t: getContent().mobTemplate(s.templateId), n: s.count }))
+      .filter((r): r is { t: MobTemplate; n: number } => !!r.t);
+    if (roster.length === 0) return; // safe zones (town/villages) stay empty
+
+    const players = [...this.players.values()].filter((p) => !p.dead).length;
+    if (players <= 1) return; // solo instances ride the normal respawn loop untouched
+    const base = roster.reduce((s, r) => s + r.n, 0);
+    // Each extra player adds DENSITY_PER_PLAYER worth of mobs, capped so a mega-crowd doesn't
+    // carpet the map. The roster count is already world-scaled (×10) at content load.
+    const target = Math.round(base * Math.min(DENSITY_CAP, 1 + DENSITY_PER_PLAYER * (players - 1)));
+    let living = 0;
+    for (const m of this.mobs.values()) if (!m.dead) living++;
+    let toSpawn = Math.min(target - living, DENSITY_TOPUP_PER_CALL);
+    while (toSpawn-- > 0) {
+      // Weighted pick by roster count, so common roster mobs stay common in the top-up.
+      let roll = this.rand() * base;
+      let pick = roster[0]!.t;
+      for (const r of roster) {
+        roll -= r.n;
+        if (roll <= 0) {
+          pick = r.t;
+          break;
+        }
+      }
+      this.createMob(pick, this.randomMobX(), this.randomMobY());
     }
   }
 

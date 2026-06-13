@@ -75,9 +75,16 @@ versioning once it stabilizes.
   wilderness all the way to the endgame** — fighting, looting, auto-equipping better gear,
   learning spell tomes, and spending attribute/skill points as they level, then routing through
   the live portal graph zone-by-zone toward the Unmade Court. `/bot 4` to populate, `/bot clear`
-  to remove your own (up to 20). They're real World entities driven by a pure server-side brain
+  to remove your own. They're real World entities driven by a pure server-side brain
   (`server/bot-brain.ts`) with a host-side progression director, so the world feels alive whether
-  they grind beside you or strike out on their own.
+  they grind beside you or strike out on their own. Uncapped for floods (up to 2,000 per call,
+  stack more by re-running), and they spawn directly into your instance so the whole army lands
+  in your world rather than scattering across cap-scaled copies.
+- **Bigger instances + crowd density scaling.** The per-instance player cap is floored at 50 (so a
+  crowd stays together in one world), and busy overworld zones now top their monster roster up
+  toward a player-scaled target — 50 players in a zone find roughly 5× the monsters a soloist
+  does, instead of farming the same thin handful to extinction. Solo instances, safe zones, and
+  dungeons are untouched.
 - **Shared kill credit + co-op difficulty (dopamine-first).** Every player who *damages* a mob
   shares its full XP and quest credit — no last-hit stealing, helping always pays; party members
   present in the instance share too (proximity credit), plus a small group-size XP bonus. Tagged
