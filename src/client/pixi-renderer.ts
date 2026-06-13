@@ -38,7 +38,13 @@ import {
   mobSpriteCell,
   npcSpriteCell,
 } from './rogues-sprites.js';
-import { GROUND_TILESETS, groundTilesetFor, pickTile } from './ground-tiles.js';
+import {
+  GROUND_TILESETS,
+  groundTilesetFor,
+  patchCoverage,
+  patchTileFor,
+  pickTile,
+} from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
 import { combineTints } from './tint.js';
 import { backOut, cubicOut } from './easing.js';
@@ -2314,7 +2320,13 @@ export class PixiRenderer {
     if (!ts) return undefined;
     const img = this.tileImages.get(ts.src);
     if (!img) return undefined;
-    const key = `tiles:${ts.src}`;
+    // Content-based key: biomes that share a sheet (town/forest both use forest_spring.png) differ in
+    // their tile/blend lists, so keying on src alone collided and the second area reused the first bake.
+    const key = `tiles:${ts.src}:${ts.tiles.map((t) => `${t.col},${t.row},${t.weight}`).join('|')}:${
+      ts.blend
+        ? `b${ts.blend.patch.map((p) => `${p.col},${p.row}`).join('.')}@${ts.blend.threshold}`
+        : ''
+    }`;
     const cached = this.groundTextures.get(key);
     if (cached) return cached;
     const TILE_WORLD = 32; // world px per tile (16px art shown 2×, 32px art native)
@@ -2324,20 +2336,36 @@ export class PixiRenderer {
     cv.height = N * TILE_WORLD;
     const ctx = cv.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
+    const drawCell = (col: number, row: number, gx: number, gy: number) => {
+      ctx.drawImage(
+        img,
+        col * ts.tileSize,
+        row * ts.tileSize,
+        ts.tileSize,
+        ts.tileSize,
+        gx * TILE_WORLD,
+        gy * TILE_WORLD,
+        TILE_WORLD,
+        TILE_WORLD,
+      );
+    };
     for (let gy = 0; gy < N; gy++) {
       for (let gx = 0; gx < N; gx++) {
-        const { col, row } = pickTile(ts, gx, gy);
-        ctx.drawImage(
-          img,
-          col * ts.tileSize,
-          row * ts.tileSize,
-          ts.tileSize,
-          ts.tileSize,
-          gx * TILE_WORLD,
-          gy * TILE_WORLD,
-          TILE_WORLD,
-          TILE_WORLD,
-        );
+        // Base floor first (un-annotated tilesets stop here → byte-identical to before).
+        const base = pickTile(ts, gx, gy);
+        drawCell(base.col, base.row, gx, gy);
+        // Then fade a clustered detail patch over it where the biome-noise says so (RENDER-04).
+        if (ts.blend) {
+          const cov = patchCoverage(ts, gx, gy);
+          if (cov > 0.02) {
+            const pt = patchTileFor(ts, gx, gy);
+            if (pt) {
+              ctx.globalAlpha = cov;
+              drawCell(pt.col, pt.row, gx, gy);
+              ctx.globalAlpha = 1;
+            }
+          }
+        }
       }
     }
     const tex = Texture.from(cv);

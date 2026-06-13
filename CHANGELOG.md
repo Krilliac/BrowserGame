@@ -6,6 +6,15 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Added
+
+- **Ground tile-edge blending (RENDER-04).** The baked ground texture no longer lattice-scatters
+  detail tiles (wildflowers, leaf piles) as lone squares on a regular grid. Tilesets can opt into a
+  `blend` field; the bake then clusters those detail tiles into organic patches driven by
+  deterministic value-noise and fades them in at the patch edges, killing the grid read. Tilesets
+  without `blend` bake byte-identically to before. Also fixed a latent cache-key collision where
+  biomes sharing a sheet (town/forest both use `forest_spring.png`) reused each other's bake.
+
 ### Fixed
 
 - **NaN-injection via cast aim (security).** A hostile client could send non-finite `dx`/`dy` in a
