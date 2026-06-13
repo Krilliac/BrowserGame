@@ -56,3 +56,18 @@ export function palisadeStakes(
   }
   return out;
 }
+
+// ─── Occluder fade (RENDER-06) ───────────────────────────────────────────────────
+// A tall point prop (tree/pillar) hides the player when the player stands within the trunk's
+// horizontal margin AND behind it: from just south of the base (foreground overlap) up to where the
+// foliage reaches north up the screen. Tuned to the renderer's tree/pillar art.
+export const OCCLUDER_X_MARGIN = 22; // |player.x − prop.x| under which the trunk overlaps the player
+export const OCCLUDER_FRONT = 10; // world px south of the base the player can stand and stay covered
+export const OCCLUDER_BACK = 48; // world px north of the base the foliage reaches up the screen
+
+/** True when the player at (px,py) is hidden behind a tall prop at (ox,oy) and should fade it. */
+export function playerHiddenBehind(px: number, py: number, ox: number, oy: number): boolean {
+  const dx = Math.abs(px - ox);
+  const dy = oy - py; // > 0 means the player is north of (behind) the prop
+  return dx < OCCLUDER_X_MARGIN && dy > -OCCLUDER_FRONT && dy < OCCLUDER_BACK;
+}

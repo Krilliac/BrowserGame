@@ -8,6 +8,10 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Occluded-actor fade (RENDER-06).** Tall props the local player can vanish behind (trees,
+  pillars) now fade toward 45% opacity while the player stands hidden behind them — generalizing the
+  house-roof fade — so the character is never lost. Only the local player triggers it; it restores
+  fully on exit and is cheap enough to run on every quality tier.
 - **Sprite-copy cast shadows for hero/elites (RENDER-07).** The local player and elite/boss mobs now
   cast a sheared, darkened copy of their current animation frame instead of a soft ellipse blob, so
   the shadow reads as a real cast silhouette that matches the pose (D2's method). The copy shares the

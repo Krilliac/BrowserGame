@@ -24,7 +24,7 @@ import { Lighting, type LightSource } from './lighting.js';
 import { PostFx, type Quality } from './post-fx.js';
 import { Decals } from './decals.js';
 import { ParticleSystem } from './particles.js';
-import { palisadeStakes } from './prop-sort.js';
+import { palisadeStakes, playerHiddenBehind } from './prop-sort.js';
 import {
   DeferredLighting,
   cullLights,
@@ -139,6 +139,13 @@ const HOUSE_ROOF_INSIDE_ALPHA = 0.18;
 const HOUSE_ROOF_OUTSIDE_ALPHA = 1;
 const HOUSE_ROOF_FADE_RATE = 8; // per second (exp approach)
 const HOUSE_INSIDE_MARGIN = 10; // world px the footprint is expanded by for the inside test
+
+// RENDER-06: tall point props (trees, pillars) the local player can hide behind fade toward
+// OCCLUDER_FADE_ALPHA while the player stands within the trunk's horizontal margin and behind it
+// (north of, or just south of, its base — where the foliage would otherwise swallow the character).
+// Eased at HOUSE_ROOF_FADE_RATE, the same frame-rate-independent approach as the roof fade.
+const OCCLUDER_PROP_KINDS = new Set<PropKind>(['tree', 'pillar']);
+const OCCLUDER_FADE_ALPHA = 0.45;
 const HOUSE_WALL_HEIGHT = 30; // billboarded wall height (world px)
 const HOUSE_DOOR_WIDTH = 46; // gap left in the south wall, centered (world px)
 const HOUSE_ROOF_OVERHANG = 10; // roof oversteps the footprint by this on each side (world px)
@@ -420,6 +427,9 @@ export class PixiRenderer {
   // toward HOUSE_ROOF_INSIDE_ALPHA when the local player stands within the footprint (+ a margin).
   private houses: { roof: Container; minX: number; minY: number; maxX: number; maxY: number }[] =
     [];
+  // RENDER-06: tall point props (trees/pillars) the local player can vanish behind; faded while the
+  // player stands behind them so the character is never lost. Rebuilt per area entry.
+  private occluders: { container: Container; x: number; y: number }[] = [];
   private effectsEnabled = true; // false hides weather + ambient motes ("reduce effects" setting)
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
@@ -630,6 +640,7 @@ export class PixiRenderer {
     this.animatedProps = [];
     this.shrineOrbs = [];
     this.houses = [];
+    this.occluders = [];
     for (const portal of area.portals) {
       const cx = portal.rect.x + portal.rect.w / 2;
       const cy = portal.rect.y + portal.rect.h / 2;
@@ -648,7 +659,10 @@ export class PixiRenderer {
           if (hash2(gx * 7 + 1, gy * 13 + 3) >= theme.propDensity) continue;
           const px = gx * cell + hash2(gx, gy * 3) * cell;
           const py = gy * cell + hash2(gx * 5, gy) * cell;
-          this.propLayer.addChild(this.makeProp(prop, px, py));
+          const c = this.makeProp(prop, px, py);
+          this.propLayer.addChild(c);
+          // Register tall props as occluders so the local player fades them when hidden (RENDER-06).
+          if (OCCLUDER_PROP_KINDS.has(prop)) this.occluders.push({ container: c, x: px, y: py });
         }
       }
     }
@@ -1532,6 +1546,7 @@ export class PixiRenderer {
     // authoritative self entity's world position (the camera trails it, so the actual entity is the
     // truthful test). Eased frame-rate-independently off `dt` — no Date.now()/Math.random().
     this.updateHouseRoofs(state.entities, state.selfId, dt);
+    this.updateOccluders(state.entities, state.selfId, dt);
   }
 
   /**
@@ -1556,6 +1571,25 @@ export class PixiRenderer {
       }
       const target = inside ? HOUSE_ROOF_INSIDE_ALPHA : HOUSE_ROOF_OUTSIDE_ALPHA;
       house.roof.alpha += (target - house.roof.alpha) * k;
+    }
+  }
+
+  /**
+   * RENDER-06: fade tall point props (trees/pillars) the LOCAL player is hidden behind, so the
+   * character is never lost. A prop occludes when the player is within the trunk's horizontal margin
+   * and behind it (from just south of the base up to where the foliage reaches north). Eased toward
+   * OCCLUDER_FADE_ALPHA the same frame-rate-independent way as the roof fade; restores to 1 on exit.
+   * Only the local player triggers it — matching the roof-fade rule. Cheap (an alpha lerp), so it
+   * runs on every quality tier.
+   */
+  private updateOccluders(entities: EntityState[], selfId: number, dt: number): void {
+    if (this.occluders.length === 0) return;
+    const self = entities.find((e) => e.id === selfId);
+    const k = 1 - Math.exp(-dt * HOUSE_ROOF_FADE_RATE);
+    for (const occ of this.occluders) {
+      const hidden = self ? playerHiddenBehind(self.x, self.y, occ.x, occ.y) : false;
+      const target = hidden ? OCCLUDER_FADE_ALPHA : 1;
+      occ.container.alpha += (target - occ.container.alpha) * k;
     }
   }
 

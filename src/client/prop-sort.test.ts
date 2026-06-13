@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { palisadeStakes } from './prop-sort.js';
+import {
+  OCCLUDER_BACK,
+  OCCLUDER_X_MARGIN,
+  palisadeStakes,
+  playerHiddenBehind,
+} from './prop-sort.js';
 
 describe('palisadeStakes (RENDER-05)', () => {
   it('spans the endpoints and always yields at least two stakes', () => {
@@ -39,5 +44,24 @@ describe('palisadeStakes (RENDER-05)', () => {
     const short = palisadeStakes(0, 0, 32, 0);
     const long = palisadeStakes(0, 0, 320, 0);
     expect(long.length).toBeGreaterThan(short.length);
+  });
+});
+
+describe('playerHiddenBehind (RENDER-06)', () => {
+  const ox = 100;
+  const oy = 200;
+
+  it('is hidden when standing just behind (north of) the trunk', () => {
+    expect(playerHiddenBehind(ox, oy - 20, ox, oy)).toBe(true);
+    expect(playerHiddenBehind(ox + 10, oy - 5, ox, oy)).toBe(true);
+  });
+
+  it('is not hidden when too far to the side', () => {
+    expect(playerHiddenBehind(ox + OCCLUDER_X_MARGIN + 1, oy - 10, ox, oy)).toBe(false);
+  });
+
+  it('is not hidden when far in front (south) or far behind (north) of the prop', () => {
+    expect(playerHiddenBehind(ox, oy + 40, ox, oy)).toBe(false); // well in front
+    expect(playerHiddenBehind(ox, oy - (OCCLUDER_BACK + 10), ox, oy)).toBe(false); // past the foliage
   });
 });
