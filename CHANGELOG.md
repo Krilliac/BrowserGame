@@ -16,6 +16,14 @@ versioning once it stabilizes.
   composed onto the world). The registry is empty by default, so no area enables any of them yet and
   the scene is unchanged; enable one per area (and load a LUT) to light it up. (The filter looks
   themselves await visual tuning once enabled.)
+
+### Deferred (rendering spec)
+
+- **Terrain elevation (RENDER-08)** and **water reflections (RENDER-11)** are deferred — both lack a
+  data model in the current codebase (no per-cell height field; no water-region data), and RENDER-08's
+  visual subset is incompatible with the single baked-`TilingSprite` ground (per-cell vertical offset
+  needs a heightmapped mesh), while its true form couples to server collision. See the Roadmap's
+  "Deliberately deferred" section for what each needs before it can ship.
 - **Premultiplied-alpha audit (RENDER-15).** Verified every blended/additive sprite path (lighting,
   particles, weather) relies on Pixi v8's default premultiplied-alpha upload and premultiply-aware
   `'add'` blend — no `alphaMode` overrides, no edge fringing. No code change required.
