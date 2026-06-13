@@ -8,6 +8,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Tall-object depth sorting (RENDER-05).** Line props (palisade/fence walls) are now built as one
+  container per stake, each sorting at its own ground row, so an actor walking alongside a long wall
+  is correctly occluded by the posts north of their feet and occludes the posts to the south —
+  instead of the whole wall flipping in front/behind by its midpoint. Removed the now-dead
+  single-container palisade draw path.
 - **Ground decals (RENDER-02).** Combat now leaves the ground marked: deaths drop a corpse stain
   and a blood spray, heavy slams leave a crater/scorch. Decals are pooled (cap 120, 48 on touch),
   baked procedurally (no asset fetch), sort above the ground but below actors, fade out over their

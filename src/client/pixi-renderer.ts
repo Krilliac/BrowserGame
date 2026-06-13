@@ -24,6 +24,7 @@ import { Lighting, type LightSource } from './lighting.js';
 import { PostFx, type Quality } from './post-fx.js';
 import { Decals } from './decals.js';
 import { ParticleSystem } from './particles.js';
+import { palisadeStakes } from './prop-sort.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
   newAnimView,
@@ -626,9 +627,50 @@ export class PixiRenderer {
    * per area entry (in setArea) — never rebuilt per frame.
    */
   private buildDecor(decor: readonly DecorProp[]): void {
-    // Draw line props (the palisade) first so point props layer over their bases naturally; the
-    // y-sort handles final ordering regardless, but this keeps the back wall reading as a backdrop.
-    for (const prop of decor) this.propLayer.addChild(this.makeDecorProp(prop));
+    for (const prop of decor) {
+      // Line props (palisade/fence) are segment-split into per-stake containers so an actor beside
+      // the run interleaves stake by stake instead of sorting against the whole wall (RENDER-05).
+      if (prop.kind !== 'house' && prop.x2 !== undefined && prop.y2 !== undefined) {
+        for (const seg of this.buildLineSegments(prop)) this.propLayer.addChild(seg);
+      } else {
+        this.propLayer.addChild(this.makeDecorProp(prop));
+      }
+    }
+  }
+
+  /**
+   * Build a line prop (palisade/fence) as one container PER STAKE, each at its own world position
+   * with `zIndex = stake.y` — its own ground-row sort key. Because each stake sorts independently
+   * against the actor layer, a player walking alongside the run is correctly occluded by the posts
+   * north of their feet and occludes the posts to the south (the tall-object sorting fix).
+   */
+  private buildLineSegments(prop: DecorProp): Container[] {
+    const stakes = palisadeStakes(prop.x, prop.y, prop.x2!, prop.y2!);
+    const stakeH = 40;
+    const w = 5;
+    const out: Container[] = [];
+    for (const st of stakes) {
+      const c = new Container();
+      c.position.set(st.x, st.y * PITCH);
+      c.zIndex = st.y;
+      this.propShadow(c, 6, 3);
+      const g = new Graphics();
+      // Rope lashing to the next stake, drawn first so this stake's body overlaps it.
+      if (!st.isLast) {
+        g.moveTo(0, -stakeH * 0.6)
+          .lineTo(st.nextDx, st.nextDy * PITCH - stakeH * 0.6)
+          .stroke({ width: 2, color: DECOR_PALETTE.rope, alpha: 0.8 });
+      }
+      // The stake body, a darker shaded side for round logs, then a sharpened point on top.
+      g.rect(-w / 2, -stakeH, w, stakeH).fill({ color: DECOR_PALETTE.wood });
+      g.rect(-w / 2, -stakeH, 2, stakeH).fill({ color: DECOR_PALETTE.woodDark });
+      g.poly([-w / 2, -stakeH, w / 2, -stakeH, 0, -stakeH - 7]).fill({
+        color: DECOR_PALETTE.woodLight,
+      });
+      c.addChild(g);
+      out.push(c);
+    }
+    return out;
   }
 
   /** Build one decor prop as a y-sorted, shadowed Container at its world position. */
@@ -641,11 +683,11 @@ export class PixiRenderer {
     }
 
     const c = new Container();
-    // Line props (palisade) anchor at their midpoint; point props at (x,y). The container's zIndex
-    // is the world y of its anchor, so props sort against actors by depth (the back wall sits high).
-    const line = prop.x2 !== undefined && prop.y2 !== undefined;
-    const ax = line ? (prop.x + prop.x2!) / 2 : prop.x;
-    const ay = line ? (prop.y + prop.y2!) / 2 : prop.y;
+    // Point props anchor at (x,y); line props (palisade/fence) are handled in buildDecor by the
+    // segment-split path, so they never reach here. The container's zIndex is the world y of its
+    // anchor, so props sort against actors by depth.
+    const ax = prop.x;
+    const ay = prop.y;
     c.position.set(ax, ay * PITCH);
     c.zIndex = ay;
     const scale = prop.scale ?? 1;
@@ -658,9 +700,6 @@ export class PixiRenderer {
       return c;
 
     switch (prop.kind) {
-      case 'palisade':
-        this.drawPalisade(c, prop.x, prop.y, prop.x2!, prop.y2!, ax, ay);
-        break;
       case 'gate':
         this.drawGate(c, scale);
         break;
@@ -829,59 +868,6 @@ export class PixiRenderer {
     s.position.set(radiusX * SHADOW_OFFSET_X, radiusY * SHADOW_OFFSET_Y);
     s.skew.x = SHADOW_SKEW;
     c.addChildAt(s, 0);
-  }
-
-  /**
-   * A spiked palisade wall: a run of pointed vertical stakes from (x1,y1) to (x2,y2), lashed with a
-   * rope rail. Billboarded upward so the stakes stand against the ground (the camp's defensive ring).
-   */
-  private drawPalisade(
-    c: Container,
-    x1: number,
-    y1: number,
-    x2: number,
-    y2: number,
-    ax: number,
-    ay: number,
-  ): void {
-    // Endpoints relative to the container origin (the run's midpoint), projected to the pitch.
-    const lx1 = x1 - ax;
-    const ly1 = (y1 - ay) * PITCH;
-    const lx2 = x2 - ax;
-    const ly2 = (y2 - ay) * PITCH;
-    const len = Math.hypot(lx2 - lx1, ly2 - ly1);
-    const steps = Math.max(1, Math.round(len / 16)); // a stake roughly every 16px along the run
-
-    // A soft strip shadow under the whole run (a stretched ellipse along the segment).
-    const sh = new Sprite(this.softShadowTexture());
-    sh.anchor.set(0.5, 0.5);
-    sh.width = len + 24;
-    sh.height = 16;
-    sh.alpha = SHADOW_ALPHA * 0.8;
-    sh.rotation = Math.atan2(ly2 - ly1, lx2 - lx1);
-    sh.position.set((lx1 + lx2) / 2 + 6, (ly1 + ly2) / 2 + 4);
-    sh.skew.x = SHADOW_SKEW;
-    c.addChild(sh);
-
-    const g = new Graphics();
-    const stakeH = 40;
-    // A back rope/rail lashing the stakes together, drawn first so the stakes overlap it.
-    g.moveTo(lx1, ly1 - stakeH * 0.6)
-      .lineTo(lx2, ly2 - stakeH * 0.6)
-      .stroke({ width: 2, color: DECOR_PALETTE.rope, alpha: 0.8 });
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const px = lx1 + (lx2 - lx1) * t;
-      const py = ly1 + (ly2 - ly1) * t;
-      const w = 5;
-      // The stake body, then a sharpened point on top, with a darker shaded side for round logs.
-      g.rect(px - w / 2, py - stakeH, w, stakeH).fill({ color: DECOR_PALETTE.wood });
-      g.rect(px - w / 2, py - stakeH, 2, stakeH).fill({ color: DECOR_PALETTE.woodDark });
-      g.poly([px - w / 2, py - stakeH, px + w / 2, py - stakeH, px, py - stakeH - 7]).fill({
-        color: DECOR_PALETTE.woodLight,
-      });
-    }
-    c.addChild(g);
   }
 
   /** A camp gate: two heavy posts and a lintel framing an open doorway. Billboarded upward. */
