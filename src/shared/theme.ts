@@ -20,7 +20,15 @@ export type PropKind =
   | 'crystal'
   | 'pillar'
   | 'none';
-export type WeatherKind = 'none' | 'rain' | 'snow' | 'fog';
+export type WeatherKind =
+  | 'none'
+  | 'rain'
+  | 'snow'
+  | 'fog'
+  | 'ash'
+  | 'sand'
+  | 'leaves'
+  | 'lightning';
 
 export interface AreaTheme {
   /** Ground fill + speckle colors (the tiled terrain texture). */
@@ -101,7 +109,11 @@ export const THEME_KEYS: Record<string, ThemeKeySpec> = {
   particle_count: { field: 'particleCount', type: 'int', min: 0, max: 160 },
   particle_rise: { field: 'particleRise', type: 'number', min: -80, max: 80 },
   particle_flicker: { field: 'particleFlicker', type: 'bool' },
-  weather: { field: 'weather', type: 'enum', values: ['none', 'rain', 'snow', 'fog'] },
+  weather: {
+    field: 'weather',
+    type: 'enum',
+    values: ['none', 'rain', 'snow', 'fog', 'ash', 'sand', 'leaves', 'lightning'],
+  },
   weather_intensity: { field: 'weatherIntensity', type: 'number', min: 0, max: 1 },
   fog_color: { field: 'fogColor', type: 'color' },
   light_ambient: { field: 'lightAmbient', type: 'number', min: 0, max: 1 },

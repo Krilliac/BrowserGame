@@ -8,6 +8,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Extended weather (RENDER-14).** Four new weather types widen the mood range: `ash` (slow grey
+  drift), `sand` (fast wind-blown grit), `leaves` (tumbling autumn leaves with spin), and `lightning`
+  (occasional full-screen flashes). Each respects `weatherIntensity` and "reduce effects", and all
+  get authoritative server-side gameplay modifiers (sandstorms cut aggro range hardest; leaves are
+  cosmetic). The `AreaTheme.weather` union and the content-DB enum are extended without breaking the
+  existing rain/snow/fog/none areas.
 - **Occluded-actor fade (RENDER-06).** Tall props the local player can vanish behind (trees,
   pillars) now fade toward 45% opacity while the player stands hidden behind them — generalizing the
   house-roof fade — so the character is never lost. Only the local player triggers it; it restores

@@ -11,6 +11,10 @@
  *  - rain:  slightly slows perception (water noise, blurred vision) — minor aggro reduction.
  *  - snow:  heavy going underfoot — meaningful movement penalty, perception unaffected.
  *  - fog:   visually opaque — monsters notice you much later, movement unchanged.
+ *  - ash:   falling ash chokes the air — minor movement penalty, reduced perception.
+ *  - sand:  a sandstorm — slows movement and badly cuts visibility (the strongest aggro drop).
+ *  - leaves: purely cosmetic autumn fall — identity, no gameplay effect.
+ *  - lightning: a storm — flashes briefly light the field, otherwise rain-like perception drop.
  *  - none:  identity; all multipliers are 1.
  */
 
@@ -34,5 +38,13 @@ export function weatherModifiers(weather: WeatherKind): WeatherModifiers {
       return { moveScale: 0.82, aggroScale: 1 };
     case 'fog':
       return { moveScale: 1, aggroScale: 0.55 };
+    case 'ash':
+      return { moveScale: 0.95, aggroScale: 0.8 };
+    case 'sand':
+      return { moveScale: 0.9, aggroScale: 0.5 };
+    case 'leaves':
+      return { moveScale: 1, aggroScale: 1 };
+    case 'lightning':
+      return { moveScale: 0.97, aggroScale: 0.85 };
   }
 }
