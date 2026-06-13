@@ -91,6 +91,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **In-game settings panel (⚙ / `O`) + a client-config module.** A DOM drawer to tune the
+  CLIENT-side options that now live in one place (`src/client/settings.ts`, the client mirror of
+  the server config): master **volume** + mute, **camera zoom**, **show FPS**, and **reduce
+  effects** (hides weather + ambient motes for a phone-perf win while keeping the lighting/art).
+  Settings persist to localStorage and apply live. A new server→client `access` message lets the
+  panel reveal **GM-only** tools once `/login` grants GameMaster+ — a live **debug overlay**
+  (entity/renderer counts, area/instance, position, zoom, access) and an **extended camera-zoom
+  range**. The GM gate is UX only; privileged powers stay token-gated server-side.
 - **AI companion bots (`/bot`).** A GM command spawns AI players that **journey from the starting
   wilderness all the way to the endgame** — fighting, looting, auto-equipping better gear,
   learning spell tomes, and spending attribute/skill points as they level, then routing through

@@ -386,6 +386,7 @@ export class PixiRenderer {
   // toward HOUSE_ROOF_INSIDE_ALPHA when the local player stands within the footprint (+ a margin).
   private houses: { roof: Container; minX: number; minY: number; maxX: number; maxY: number }[] =
     [];
+  private effectsEnabled = true; // false hides weather + ambient motes ("reduce effects" setting)
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
@@ -512,15 +513,24 @@ export class PixiRenderer {
     };
   }
 
-  /** Zoom range, clamped — keeps the framing sane and click-picking aligned. */
-  setZoom(z: number): void {
-    this.zoom = Math.max(0.75, Math.min(1.6, z));
+  /** Zoom range, clamped — keeps the framing sane and click-picking aligned. `extended` widens the
+   *  clamp for GM+ inspection (a settings option), normal players stay in the framed range. */
+  setZoom(z: number, extended = false): void {
+    const min = extended ? 0.4 : 0.75;
+    const max = extended ? 3.0 : 1.6;
+    this.zoom = Math.max(min, Math.min(max, z));
   }
-  adjustZoom(delta: number): void {
-    this.setZoom(this.zoom + delta);
+  adjustZoom(delta: number, extended = false): void {
+    this.setZoom(this.zoom + delta, extended);
   }
   getZoom(): number {
     return this.zoom;
+  }
+
+  /** "Reduce effects" (settings): hide the decorative weather + ambient motes — a phone-perf win.
+   *  Lighting and the corruption/day-night wash stay on, so the art direction is preserved. */
+  setEffectsEnabled(on: boolean): void {
+    this.effectsEnabled = on;
   }
 
   setArea(areaId: string): void {
@@ -1365,7 +1375,11 @@ export class PixiRenderer {
     this.ground.tileScale.set(z);
 
     this.atmosphere.update(now, sw, sh, state.corruption ?? 0);
-    this.weather.update(now, sw, sh);
+    if (this.effectsEnabled) this.weather.update(now, sw, sh);
+    // "Reduce effects": hide the decorative weather + ambient motes (set visibility last so it sticks
+    // regardless of what the update calls did). The screen wash + lights stay for the art direction.
+    this.weather.layer.visible = this.effectsEnabled;
+    this.atmosphere.particleLayer.visible = this.effectsEnabled;
 
     // Dynamic lights (additive): the local player carries a torch at screen center; portals glow.
     // Strength scales with night + the area's ambient-light theme, so they matter after dark.

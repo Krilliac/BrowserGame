@@ -922,6 +922,8 @@ wss.on('connection', (socket) => {
                   login: (u, pw) => verifyLogin(getDb(), u, pw),
                   setAccessLevel: (lvl) => {
                     p.accessLevel = lvl;
+                    // Tell the client its new access so the settings panel can reveal GM options.
+                    send(p.socket, { t: 'access', level: lvl });
                   },
                   listPlayers: () => world.playerNames(),
                   setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),

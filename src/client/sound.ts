@@ -18,6 +18,29 @@ export class Sound {
   private unlocked = false;
   private lastFxTime = 0;
   private ctx: AudioContext | undefined;
+  private masterVolume = 0.8; // 0..1, driven by the settings panel
+  private muted = false;
+
+  /** Master audio level in [0,1] (settings). Re-levels the ambient bed live. */
+  setVolume(v: number): void {
+    this.masterVolume = Math.max(0, Math.min(1, v));
+    this.applyAmbientVolume();
+  }
+
+  /** Silence everything regardless of volume (settings). */
+  setMuted(m: boolean): void {
+    this.muted = m;
+    this.applyAmbientVolume();
+  }
+
+  /** Effective output scale — 0 when muted, else the master volume. */
+  private scale(): number {
+    return this.muted ? 0 : this.masterVolume;
+  }
+
+  private applyAmbientVolume(): void {
+    if (this.ambient) this.ambient.volume = 0.3 * this.scale();
+  }
 
   load(): void {
     for (const [key, src] of Object.entries(SFX)) {
@@ -44,7 +67,7 @@ export class Sound {
     this.ambient?.pause();
     this.ambient = new Audio(src);
     this.ambient.loop = true;
-    this.ambient.volume = 0.3;
+    this.ambient.volume = 0.3 * this.scale();
     this.resumeAmbient();
   }
 
@@ -90,11 +113,11 @@ export class Sound {
   }
 
   private play(key: string, volume: number): void {
-    if (!this.unlocked) return;
+    if (!this.unlocked || this.scale() <= 0) return;
     const a = this.buffers.get(key);
     if (!a) return;
     const clone = a.cloneNode() as HTMLAudioElement;
-    clone.volume = volume;
+    clone.volume = Math.min(1, volume * this.scale());
     void clone.play().catch(() => {});
   }
 
@@ -107,14 +130,14 @@ export class Sound {
     gain: number,
   ): void {
     const ctx = this.ctx;
-    if (!ctx || !this.unlocked) return;
+    if (!ctx || !this.unlocked || this.scale() <= 0) return;
     const t = ctx.currentTime;
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freqStart, t);
     osc.frequency.exponentialRampToValueAtTime(Math.max(1, freqEnd), t + dur);
-    g.gain.setValueAtTime(gain, t);
+    g.gain.setValueAtTime(gain * this.scale(), t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(g).connect(ctx.destination);
     osc.start(t);
@@ -129,14 +152,14 @@ export class Sound {
   /** Tones in quick succession (a rising fanfare). */
   private arpeggio(freqs: number[], step: number, type: OscillatorType, gain: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.unlocked) return;
+    if (!ctx || !this.unlocked || this.scale() <= 0) return;
     freqs.forEach((f, i) => {
       const t = ctx.currentTime + i * step;
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
       osc.type = type;
       osc.frequency.setValueAtTime(f, t);
-      g.gain.setValueAtTime(gain, t);
+      g.gain.setValueAtTime(gain * this.scale(), t);
       g.gain.exponentialRampToValueAtTime(0.0001, t + step * 1.4);
       osc.connect(g).connect(ctx.destination);
       osc.start(t);

@@ -316,7 +316,10 @@ export type ServerMessage =
   | { t: 'chat'; from: string; text: string; channel?: ChatChannel }
   /** The client's bundle predates the server's protocol — show a refresh prompt, stop retrying. */
   | { t: 'refresh_required' }
-  | { t: 'admin_result'; ok: boolean; message: string };
+  | { t: 'admin_result'; ok: boolean; message: string }
+  /** This connection's current access level (0 = Player; raised via /login). Lets the client
+   *  surface GM-only settings. Purely a UX hint — privileged powers stay gated server-side. */
+  | { t: 'access'; level: number };
 
 export function encode(msg: ClientMessage | ServerMessage): string {
   return JSON.stringify(msg);
