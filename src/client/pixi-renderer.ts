@@ -91,7 +91,6 @@ const DEPTH_SCALE_K = 0.00035; // per world-unit of y relative to the camera
 const DEPTH_SCALE_MIN = 0.9;
 const DEPTH_SCALE_MAX = 1.12;
 const FX_DURATION = 700;
-const EXPLOSION_MS = 600;
 const WALK_FRAME_MS = 120;
 
 // Light sources for the lighting overlay: the local player carries a warm torch, and portals glow.
@@ -256,11 +255,84 @@ const SHEETS: Record<string, Sheet> = {
   boss: { src: '/assets/sprites/skeleton_lpc.png', fw: 64, fh: 64, scale: 1.6, clips: lpcClips() },
 };
 
+/**
+ * Generated combat FX strips (ASSET-FX, `tools/assetgen/fx`) — one-shot animated effects played from
+ * `state.fx` events. These are our own procedurally-generated art (no pack licensing), replacing the
+ * old `explosion-cuzco.png`. Aliased `fxstrip:<key>` and loaded in loadAssets; frames are a horizontal
+ * row. `anchor: 'feet'` strips (lightning) plant at the ground, 'center' strips burst over the target.
+ */
+const FX_STRIPS: Record<
+  string,
+  {
+    src: string;
+    fw: number;
+    fh: number;
+    frames: number;
+    perFrameMs: number;
+    blend: 'normal' | 'add';
+    anchor: 'center' | 'feet';
+  }
+> = {
+  explosion: {
+    src: '/assets/fx/explosion.png',
+    fw: 64,
+    fh: 64,
+    frames: 8,
+    perFrameMs: 50,
+    blend: 'add',
+    anchor: 'center',
+  },
+  frost: {
+    src: '/assets/fx/frost.png',
+    fw: 64,
+    fh: 64,
+    frames: 8,
+    perFrameMs: 55,
+    blend: 'add',
+    anchor: 'center',
+  },
+  lightning: {
+    src: '/assets/fx/lightning.png',
+    fw: 64,
+    fh: 80,
+    frames: 6,
+    perFrameMs: 45,
+    blend: 'add',
+    anchor: 'feet',
+  },
+  holyNova: {
+    src: '/assets/fx/holyNova.png',
+    fw: 80,
+    fh: 80,
+    frames: 8,
+    perFrameMs: 55,
+    blend: 'add',
+    anchor: 'center',
+  },
+  poison: {
+    src: '/assets/fx/poison.png',
+    fw: 64,
+    fh: 64,
+    frames: 8,
+    perFrameMs: 70,
+    blend: 'normal',
+    anchor: 'center',
+  },
+  slash: {
+    src: '/assets/fx/slash.png',
+    fw: 64,
+    fh: 64,
+    frames: 5,
+    perFrameMs: 40,
+    blend: 'add',
+    anchor: 'center',
+  },
+};
+
 /** Misc single/strip textures (spell FX + item icons). */
 const MISC: Record<string, string> = {
   fx_fireball: '/assets/ui/fx/spell_fireball.png', // 96x16 -> 6 frames
   fx_frost: '/assets/ui/fx/spell_ice_lance.png', // 64x16 -> 4 frames
-  fx_explosion: '/assets/ui/fx/explosion-cuzco.png', // 256x256 -> 4x4 @64
   fx_arcane: '/assets/ui/fx/spell_arcane_bolt.png', // 96x16 -> 6 frames
   item_gold: '/assets/ui/items/coin_gold.png', // 32x32 — a few coins
   item_gold_stack: '/assets/ui/items/coin_gold_stack.png', // a small stack
@@ -533,6 +605,7 @@ export class PixiRenderer {
     for (const def of Object.values(ANIM_DECOR)) for (const src of def.srcs) decorSrcs.add(src);
     const all = {
       ...Object.fromEntries(Object.entries(SHEETS).map(([a, s]) => [a, s.src])),
+      ...Object.fromEntries(Object.entries(FX_STRIPS).map(([k, s]) => [`fxstrip:${k}`, s.src])),
       ...MISC,
       rogues32: ROGUES_SHEET.src,
       monsters32: MONSTERS_SHEET.src,
@@ -2400,9 +2473,8 @@ export class PixiRenderer {
     const g = this.fxGfx;
     g.clear();
     const now = performance.now();
-    const hasExplosion = this.tex.has('fx_explosion');
     let ti = 0;
-    let ei = 0;
+    let ei = 0; // FX-strip pool index
     for (const { ev, t0 } of fx) {
       const age = (now - t0) / FX_DURATION;
       if (age >= 1) continue;
@@ -2472,35 +2544,35 @@ export class PixiRenderer {
             .fill({ color: '#ff4d4d', alpha: warn * 0.5 });
         }
       } else if (ev.kind === 'slam') {
-        // Impact: a fast expanding shock ring at the slam radius.
+        // Impact: a fast expanding shock ring + an explosion burst at the slam point.
         const r = ev.radius ?? 80;
         g.circle(x, y - 16, r * (0.6 + 0.4 * age)).stroke({
           width: 5 * (1 - age),
           color: '#ff7a3c',
           alpha,
         });
+        if (this.playStrip('explosion', x, ev.y * PITCH, t0, now, ei)) ei++;
       } else if (ev.kind === 'melee' && ev.facing !== undefined) {
-        g.arc(x, y - 16, 40, ev.facing - 0.7, ev.facing + 0.7).stroke({
-          width: 4,
-          color: '#ffffff',
-          alpha,
-        });
+        // A generated slash strip oriented at the swing; keeps the thin arc as a cheap fallback.
+        if (this.playStrip('slash', x, ev.y * PITCH, t0, now, ei)) {
+          this.explosionPool[ei]!.rotation = ev.facing;
+          ei++;
+        } else {
+          g.arc(x, y - 16, 40, ev.facing - 0.7, ev.facing + 0.7).stroke({
+            width: 4,
+            color: '#ffffff',
+            alpha,
+          });
+        }
       } else if (ev.kind === 'cast') {
         const c = ev.abilityId
           ? (this.content.ability(ev.abilityId)?.color ?? '#ffffff')
           : '#ffffff';
         g.circle(x, y - 16, 16 + age * 18).stroke({ width: 2, color: c, alpha: alpha * 0.7 });
+        if (this.playStrip(this.castStripFor(c), x, ev.y * PITCH, t0, now, ei)) ei++;
       } else if (ev.kind === 'death') {
-        const da = (now - t0) / EXPLOSION_MS;
-        if (hasExplosion && da < 1) {
-          const s = this.explosion(ei++);
-          s.visible = true;
-          const f = Math.min(15, Math.floor(da * 16));
-          s.texture = this.frame('fx_explosion', 64, 64, f % 4, Math.floor(f / 4));
-          s.position.set(x, y - 16);
-        } else if (!hasExplosion) {
-          g.circle(x, y - 10, 10 + age * 40).stroke({ width: 3, color: '#ccaaaa', alpha });
-        }
+        if (this.playStrip('explosion', x, ev.y * PITCH, t0, now, ei)) ei++;
+        else g.circle(x, y - 10, 10 + age * 40).stroke({ width: 3, color: '#ccaaaa', alpha });
       }
     }
     for (let i = ti; i < this.fxTexts.length; i++) this.fxTexts[i]!.visible = false;
@@ -2521,16 +2593,61 @@ export class PixiRenderer {
     return t;
   }
 
-  private explosion(i: number): Sprite {
+  /** A pooled sprite for the generic FX-strip player (RENDER/ASSET-FX combat effects). */
+  private fxStripSprite(i: number): Sprite {
     let s = this.explosionPool[i];
     if (!s) {
-      s = new Sprite(this.frame('fx_explosion', 64, 64, 0, 0));
-      s.anchor.set(0.5);
-      s.scale.set(1.1);
+      s = new Sprite(Texture.EMPTY);
       this.explosionPool[i] = s;
       this.fxLayer.addChild(s);
     }
     return s;
+  }
+
+  /**
+   * Play a generated FX strip by key at world (x, worldY) for an event started at `t0`. Advances the
+   * frame by elapsed time; sets blend + anchor per the strip. Returns false (so the caller can fall
+   * back) when the strip's clip has finished or its texture isn't loaded. Cosmetic, client-only.
+   */
+  private playStrip(
+    key: string,
+    x: number,
+    worldY: number,
+    t0: number,
+    now: number,
+    i: number,
+  ): boolean {
+    const def = FX_STRIPS[key];
+    const alias = `fxstrip:${key}`;
+    if (!def || !this.tex.has(alias)) return false;
+    const dur = def.frames * def.perFrameMs;
+    const dt = now - t0;
+    if (dt < 0 || dt >= dur) return false;
+    const f = Math.min(def.frames - 1, Math.floor(dt / def.perFrameMs));
+    const s = this.fxStripSprite(i);
+    s.visible = true;
+    s.texture = this.frame(alias, def.fw, def.fh, f, 0);
+    s.blendMode = def.blend === 'add' ? 'add' : 'normal';
+    s.anchor.set(0.5, def.anchor === 'feet' ? 1 : 0.5);
+    s.scale.set(1);
+    s.rotation = 0; // reset (the melee slash sets its own after this)
+    s.position.set(x, def.anchor === 'feet' ? worldY : worldY - 16);
+    return true;
+  }
+
+  /** Map an ability's color to the most fitting elemental FX strip (cast effects). */
+  private castStripFor(color: string | undefined): string {
+    if (!color) return 'holyNova';
+    const m = /^#?([0-9a-f]{6})$/i.exec(color.trim());
+    if (!m) return 'holyNova';
+    const n = parseInt(m[1]!, 16);
+    const r = (n >> 16) & 0xff;
+    const gC = (n >> 8) & 0xff;
+    const b = n & 0xff;
+    if (b > r && b > gC) return r > gC ? 'lightning' : 'frost'; // blue/violet → arc, cyan → frost
+    if (gC > r && gC > b) return 'poison'; // green
+    if (r > 200 && gC > 180) return 'holyNova'; // bright/gold
+    return 'explosion'; // warm/red
   }
 
   private makeProp(kind: Exclude<PropKind, 'none'>, x: number, y: number): Container {
