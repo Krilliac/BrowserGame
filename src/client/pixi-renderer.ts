@@ -1805,6 +1805,21 @@ export class PixiRenderer {
           this.decals.spawn('crater', ev.x, ev.y, now, { scale: ((ev.radius ?? 80) / 80) * 1.1 });
           this.particles.emit('slam', ev.x, ev.y);
           break;
+        case 'cast': {
+          // A spell cast throws an elemental particle burst matching the ability color.
+          const strip = this.castStripFor(
+            ev.abilityId ? (this.content.ability(ev.abilityId)?.color ?? '#ffffff') : '#ffffff',
+          );
+          this.particles.emit(
+            strip === 'frost' ? 'frost' : strip === 'poison' ? 'frost' : 'ember',
+            ev.x,
+            ev.y,
+          );
+          break;
+        }
+        case 'levelup':
+          this.particles.emit('heal', ev.x, ev.y); // a rising sparkle on level-up
+          break;
         default:
           break;
       }

@@ -138,6 +138,37 @@ export const EMITTERS = {
     tint: 0xff7a2a,
     blend: 'add',
   },
+  // Generated via the ASSET-EMIT intent model (frost shards / heal sparkle) — fired on casts + level-up.
+  frost: {
+    texture: 'spark',
+    count: 9,
+    lifeMs: [300, 600],
+    speed: [40, 120],
+    angle: [0, Math.PI * 2],
+    gravity: 200,
+    zSpeed: [10, 60],
+    startScale: [0.4, 0.9],
+    endScale: 0.15,
+    startAlpha: 0.95,
+    endAlpha: 0,
+    tint: 0x9fe0ff,
+    blend: 'add',
+  },
+  heal: {
+    texture: 'spark',
+    count: 10,
+    lifeMs: [500, 1000],
+    speed: [10, 40],
+    angle: [-Math.PI, 0], // rise upward
+    gravity: -90,
+    zSpeed: [30, 80],
+    startScale: [0.3, 0.7],
+    endScale: 0.1,
+    startAlpha: 0.9,
+    endAlpha: 0,
+    tint: 0x9affc0,
+    blend: 'add',
+  },
 } satisfies Record<string, EmitterDef>;
 
 export type EmitterKey = keyof typeof EMITTERS;

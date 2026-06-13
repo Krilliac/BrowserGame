@@ -5,14 +5,11 @@ import type { TimedFx } from './draw.js';
  * synthesized** one-shot SFX via the Web Audio API — so combat/reward feedback needs no audio
  * assets to ship. Browsers block audio until a user gesture, so call `unlock()` on the first
  * interaction. Each FX event plays at most once (we only react to events newer than the last tick).
+ *
+ * All one-shot SFX are synthesized via Web Audio (no licensed sound files) — only the looping ambient
+ * bed is still a bundled file.
  */
-const SFX: Record<string, string> = {
-  arrow: '/assets/audio/shoot_arrow.ogg',
-  cast: '/assets/audio/cast_fire.ogg',
-};
-
 export class Sound {
-  private readonly buffers = new Map<string, HTMLAudioElement>();
   private ambient: HTMLAudioElement | undefined;
   private currentAmbient = '';
   private unlocked = false;
@@ -42,13 +39,8 @@ export class Sound {
     if (this.ambient) this.ambient.volume = 0.3 * this.scale();
   }
 
-  load(): void {
-    for (const [key, src] of Object.entries(SFX)) {
-      const a = new Audio(src);
-      a.preload = 'auto';
-      this.buffers.set(key, a);
-    }
-  }
+  /** SFX are synthesized — nothing to preload. Kept so callers needn't change. */
+  load(): void {}
 
   /** Enable playback (call from the first user gesture). */
   unlock(): void {
@@ -79,9 +71,13 @@ export class Sound {
       if (t0 > maxT) maxT = t0;
       switch (ev.kind) {
         case 'cast':
-          if (ev.abilityId === 'arrow') this.play('arrow', 0.5);
-          else if (ev.abilityId === 'fireball' || ev.abilityId === 'frost') this.play('cast', 0.4);
-          else this.blip(180, 120, 0.12, 'sawtooth', 0.08); // a generic whoosh (e.g. enemy shot)
+          // All cast SFX are synthesized now (was the licensed shoot_arrow/cast_fire .ogg files).
+          if (ev.abilityId === 'arrow')
+            this.blip(720, 220, 0.12, 'sawtooth', 0.1); // a bowstring whoosh
+          else if (ev.abilityId === 'fireball' || ev.abilityId === 'frost') {
+            this.blip(200, 520, 0.26, 'sawtooth', 0.12); // a rising magical surge
+            this.chord([300, 450], 0.16, 'triangle', 0.07);
+          } else this.blip(180, 120, 0.12, 'sawtooth', 0.08); // a generic whoosh (e.g. enemy shot)
           break;
         case 'hit':
           if (ev.value === 0)
@@ -110,15 +106,6 @@ export class Sound {
       }
     }
     this.lastFxTime = maxT;
-  }
-
-  private play(key: string, volume: number): void {
-    if (!this.unlocked || this.scale() <= 0) return;
-    const a = this.buffers.get(key);
-    if (!a) return;
-    const clone = a.cloneNode() as HTMLAudioElement;
-    clone.volume = Math.min(1, volume * this.scale());
-    void clone.play().catch(() => {});
   }
 
   /** One synthesized tone with an exponential pitch glide + decay envelope. */
