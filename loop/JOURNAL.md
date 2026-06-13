@@ -21,3 +21,12 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   won't rot when content changes.
 - Tests: +7 (939 total). No production code changed.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 3 — hirelings.ts coverage
+- Picked: `src/server/hirelings.ts` (tier: coverage; real pure AI logic — was untested).
+- Did: `hirelings.test.ts` covering roster/cost/stat scaling and `stepHireling` across every branch:
+  leash-recall, heel/idle, melee hold+attack / cooldown-hold / advance, ranged advance/hold-fire/kite,
+  and target selection (skip dead, respect owner-leash, pick nearest). Two initial expectations were
+  wrong about the engage-range gate — fixed the TESTS to match the (correct) code, not vice-versa.
+- Tests: +12 (951 total). No production code changed.
+- Result: COMMITTED — gate check+build GREEN.
