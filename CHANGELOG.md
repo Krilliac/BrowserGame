@@ -20,11 +20,11 @@ versioning once it stabilizes.
 
 ### Deferred (rendering spec)
 
-- **Terrain elevation (RENDER-08)** is deferred — its visual subset is incompatible with the single
-  baked-`TilingSprite` ground (per-cell vertical offset needs a heightmapped mesh) and its true form
-  couples to server collision. **16-direction sprites (RENDER-09)** stay capability-ready (the
-  `ClipSet.dirCount` path) but inactive — fabricating 16-direction art from the 4-direction LPC sheets
-  isn't possible without source renders. See the Roadmap for details.
+- **16-direction sprites (RENDER-09)** stay capability-ready (the `ClipSet.dirCount` path) but
+  inactive — fabricating 16-direction art from the 4-direction LPC sheets isn't possible without
+  source renders. The true (gameplay) form of terrain elevation — ramps/ledges that change where you
+  can stand — also remains future work, as it must agree with `world.ts` collision; only the
+  cosmetic visual subset shipped (RENDER-08 below). See the Roadmap for details.
 - **Premultiplied-alpha audit (RENDER-15).** Verified every blended/additive sprite path (lighting,
   particles, weather) relies on Pixi v8's default premultiplied-alpha upload and premultiply-aware
   `'add'` blend — no `alphaMode` overrides, no edge fringing. No code change required.
@@ -48,6 +48,14 @@ versioning once it stabilizes.
   the shadow reads as a real cast silhouette that matches the pose (D2's method). The copy shares the
   body's frame texture (no per-frame texture allocation) and updates with the pose, including the
   corpse frame on death. Minor mobs and flyers keep the cheap blob.
+- **Decorative terrain elevation (RENDER-08, visual subset).** Wild areas (wilderness, howling
+  barrens, ashveil desert) now render rolling hills: the flat ground `TilingSprite` is replaced by a
+  heightmapped **mesh** (a world grid whose vertices are pushed up the screen by a deterministic
+  height field, textured with the same tiled ground), and props + actors are lifted by the same field
+  so they ride the terrain. A baked **hillshade** mesh (same displaced geometry, multiply-blended)
+  shades the slopes from the upper-left sun so the elevation reads top-down. Like the water layer it's
+  a stage-level, world-anchored layer (composes with the deferred pass). **Cosmetic only** — collision
+  stays flat. Verified via the screenshot harness; flat areas keep the original `TilingSprite`.
 - **Water reflections & ripples (RENDER-11).** Procedurally-placed elliptical ponds render a tinted,
   rippling surface with mirrored reflections of nearby actors (a flipped, darkened, alpha'd copy of
   each actor's frame, clipped to the pond and wobbled by a `DisplacementFilter`). `waterPondsFor`

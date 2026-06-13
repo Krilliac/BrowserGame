@@ -36,6 +36,7 @@ import {
 } from './deferred-lighting.js';
 import { ScreenFx } from './screen-fx.js';
 import { Water, isOverWater, waterPondsFor } from './water.js';
+import { Terrain, areaHasTerrain, terrainHeightAt } from './terrain.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
   newAnimView,
@@ -393,6 +394,8 @@ export class PixiRenderer {
   private readonly decals = new Decals(this.quality);
   // Water ponds (RENDER-11): a stage-level, world-anchored layer above the ground, below the world.
   private readonly water = new Water(this.quality);
+  // Decorative terrain elevation (RENDER-08): a world-anchored heightmapped ground mesh for wild areas.
+  private readonly terrain = new Terrain();
   // General particle bursts (sparks, blood spray, dust, embers) in the world-space fxLayer.
   private readonly particles = new ParticleSystem(this.quality);
   // Per-pixel dynamic lighting (RENDER-01): derives normals from the albedo and rakes light across
@@ -480,6 +483,7 @@ export class PixiRenderer {
     this.litSprite.visible = false; // shown only while the deferred pass is active (RENDER-01)
     app.stage.addChild(
       this.ground,
+      this.terrain.layer, // heightmapped ground mesh for wild areas, replacing the flat ground (RENDER-08)
       this.water.layer, // world-anchored ponds: above the ground, below the world (RENDER-11)
       this.world,
       this.litSprite,
@@ -588,6 +592,15 @@ export class PixiRenderer {
     const max = extended ? 3.0 : 1.6;
     this.zoom = Math.max(min, Math.min(max, z));
   }
+
+  /**
+   * Decorative vertical lift (screen px) for a world point so props/actors ride elevated terrain
+   * (RENDER-08). Returns 0 on flat areas, so every call site is a no-op except in terrain areas —
+   * which is why it can be sprinkled across all the world-positioned containers with zero regression.
+   */
+  private groundLift(x: number, y: number): number {
+    return this.terrain.isActive() ? terrainHeightAt(x, y) : 0;
+  }
   adjustZoom(delta: number, extended = false): void {
     this.setZoom(this.zoom + delta, extended);
   }
@@ -614,9 +627,20 @@ export class PixiRenderer {
     this.applyGrade(theme);
     this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
     // Real tiled ground where a biome tileset exists; the procedural speckle is the fallback.
-    this.ground.texture =
+    const groundTex =
       this.tiledGroundTexture(areaId, theme.groundBase) ??
       this.groundTexture(theme.groundBase, theme.groundSpeck);
+    this.ground.texture = groundTex;
+    // RENDER-08: wild areas render a heightmapped ground MESH (rolling hills) in place of the flat
+    // tiled ground; the mesh tiles the same texture (one repeat per texture-width of world). Other
+    // areas keep the flat TilingSprite. `terrainHeightAt` then also lifts props + actors to match.
+    if (areaHasTerrain(areaId)) {
+      this.terrain.build(area.width, area.height, groundTex, groundTex.width);
+      this.ground.visible = false;
+    } else {
+      this.terrain.clear();
+      this.ground.visible = true;
+    }
 
     for (const child of this.propLayer.removeChildren()) child.destroy();
     // Roofs live in their own layer above the actors — clear them too so leaving the area never
@@ -699,7 +723,7 @@ export class PixiRenderer {
     const out: Container[] = [];
     for (const st of stakes) {
       const c = new Container();
-      c.position.set(st.x, st.y * PITCH);
+      c.position.set(st.x, st.y * PITCH - this.groundLift(st.x, st.y));
       c.zIndex = st.y;
       this.propShadow(c, 6, 3);
       const g = new Graphics();
@@ -736,7 +760,7 @@ export class PixiRenderer {
     // anchor, so props sort against actors by depth.
     const ax = prop.x;
     const ay = prop.y;
-    c.position.set(ax, ay * PITCH);
+    c.position.set(ax, ay * PITCH - this.groundLift(ax, ay));
     c.zIndex = ay;
     const scale = prop.scale ?? 1;
 
@@ -865,7 +889,7 @@ export class PixiRenderer {
    */
   private makeWaymark(toArea: string, cx: number, cy: number): Container {
     const c = new Container();
-    c.position.set(cx, cy * PITCH);
+    c.position.set(cx, cy * PITCH - this.groundLift(cx, cy));
     c.zIndex = cy;
     this.propShadow(c, 14, 6);
     const g = new Graphics();
@@ -1180,7 +1204,7 @@ export class PixiRenderer {
     // it in projected (pitched) space. zIndex by the south (near) edge so the building as a whole
     // sorts roughly with nearby props — actors are a separate layer in front regardless.
     const c = new Container();
-    c.position.set(minX, minY * PITCH);
+    c.position.set(minX, minY * PITCH - this.groundLift(minX, minY));
     c.zIndex = maxY;
 
     const floor = new Graphics();
@@ -1256,7 +1280,7 @@ export class PixiRenderer {
     color: string,
   ): Container {
     const roof = new Container();
-    roof.position.set(minX, minY * PITCH);
+    roof.position.set(minX, minY * PITCH - this.groundLift(minX, minY));
     roof.zIndex = maxY;
     const w = maxX - minX;
     const d = maxY - minY;
@@ -1449,6 +1473,7 @@ export class PixiRenderer {
     this.world.position.set(originX, originY);
     this.world.scale.set(z);
     this.water.syncTransform(originX, originY, z); // keep ponds world-anchored (RENDER-11)
+    this.terrain.syncTransform(originX, originY, z); // keep the terrain mesh world-anchored (RENDER-08)
     this.ground.width = sw;
     this.ground.height = sh;
     this.ground.tilePosition.set(originX, originY);
@@ -1789,7 +1814,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
 
     const now = performance.now();
@@ -2078,7 +2103,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y + 5000;
     if (view.sprite && strip && hasStrip) {
       const f = Math.floor(performance.now() / 80) % strip.frames;
@@ -2146,7 +2171,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
     // Loot pop: the drop hops up and settles with a back-out overshoot when it first appears
     // (shadow stays planted) — the easing gives it that satisfied little bounce on landing.
@@ -2189,7 +2214,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
   }
 
@@ -2221,7 +2246,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
   }
 
@@ -2264,7 +2289,7 @@ export class PixiRenderer {
       this.views.set(e.id, view);
     }
     view.seen = true;
-    view.container.position.set(e.x, e.y * PITCH);
+    view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
 
     const opened = e.opened === true;
@@ -2483,7 +2508,7 @@ export class PixiRenderer {
 
   private makeProp(kind: Exclude<PropKind, 'none'>, x: number, y: number): Container {
     const c = new Container();
-    c.position.set(x, y * PITCH);
+    c.position.set(x, y * PITCH - this.groundLift(x, y));
     c.zIndex = y;
     // Theme-density props share the curated decor sprites (trees, graves, mushrooms, crystals…).
     if (this.addDecorSprite(c, kind, x, y, 1)) return c;
