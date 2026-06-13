@@ -8,7 +8,7 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 
 ## Coverage — untested pure / risky modules (safe, always-valid)
 - [x] `src/shared/movement.ts` — `moveVector` (diagonal normalization) + `clamp`. **[iter 1]**
-- [ ] `src/shared/areas.ts` — `isDungeon`, `areaOf`, `pointInRect`.
+- [x] `src/shared/areas.ts` — `isDungeon`, `areaOf`, `pointInRect`. (iter 2)
 - [ ] `src/server/hirelings.ts` — `hirelingCost`, `hirelingStats`, `hirelingTemplate`, `stepHireling`.
 - [ ] `src/shared/protocol.ts` — decode contract (malformed JSON → null; valid → parsed); `encode` round-trip.
 - [ ] Thin-coverage branch gaps in existing tested modules (scan as we go).
@@ -32,3 +32,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 
 ## Done this run
 - iter 1: movement.ts coverage (+9 tests)
+- iter 2: areas.ts coverage (+7 tests)
