@@ -45,8 +45,13 @@ describe('rift tier scaling', () => {
   });
 
   it('the same monster spawns higher-level and tougher at a higher tier', () => {
+    // Pin the SAME instance seed for both tiers. spawnMobAt rolls elite status from the seeded RNG,
+    // and tier raises the elite chance — so with a shared seed tier-5's elite outcome is a superset
+    // of tier-0's (never the reverse). That removes the old flake where a lucky elite tier-0 ghoul
+    // (~2× HP) could beat the tier-5 HP-×1.5 bar; the HP gap is now purely the tier scaling.
+    const SEED = 0x21f7;
     const compare = (tier: number) => {
-      const w = new World(1500, 1300, { x: 750, y: 220 }, undefined, 'rift', undefined, tier);
+      const w = new World(1500, 1300, { x: 750, y: 220 }, undefined, 'rift', undefined, tier, SEED);
       const id = w.spawn('Scout');
       w.spawnMobAt(id, 'rot_ghoul');
       return w.snapshot().find((e) => e.kind === 'mob')!;
@@ -54,7 +59,7 @@ describe('rift tier scaling', () => {
     const m0 = compare(0);
     const m5 = compare(5);
     expect(m5.level).toBe(m0.level + 10); // +2 levels per tier
-    // 2.75× HP at tier 5 — comfortably above even an elite tier-0 roll of the same template.
+    // 2.75× tier HP at tier 5 — comfortably above the same-seeded tier-0 roll of the same template.
     expect(m5.maxHp).toBeGreaterThan(m0.maxHp * 1.5);
   });
 });

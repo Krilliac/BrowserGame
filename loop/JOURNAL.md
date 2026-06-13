@@ -41,3 +41,15 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   multi-tick convergence). Existing world-pots test still green (gold still collects).
 - Result: COMMITTED — gate check+build GREEN.
 - Notes for human: gentle vacuum (95px / 460px·s); tune GOLD_MAGNET_RADIUS / _SPEED in world.ts.
+
+## Iteration 5 — deflake world-rifts elite-HP test
+- Picked: known flaky `world-rifts.test.ts` › "same monster spawns higher-level at a higher tier"
+  (tier: bug — test reliability).
+- Root cause: World's `seed` defaults to `Date.now() ^ random`, so spawnMobAt's elite roll diverged
+  between the tier-0 and tier-5 worlds. A lucky elite tier-0 ghoul (~2× HP) could beat the tier-5
+  `maxHp > m0*1.5` bar (2.75 vs 3.0) → intermittent fail.
+- Fix: pin the SAME instance seed (0x21f7) for both worlds. Tier raises elite chance, so with a
+  shared seed tier-5's elite outcome is a superset of tier-0's — the HP gap is now purely the tier
+  scaling and the assertion holds every run. Assertion NOT weakened; nondeterminism removed.
+- Tests: same count; verified 8/8 deterministic. No production code changed.
+- Result: COMMITTED — gate check+build GREEN.

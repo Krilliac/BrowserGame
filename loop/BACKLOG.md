@@ -27,7 +27,7 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - [ ] Scan for duplicated logic / unsafe casts / missing error handling.
 
 ## Known / watch
-- Flaky (pre-existing): `world-rifts.test.ts` › "same monster spawns higher-level at a higher tier"
+- [x] DEFLAKED (iter 5): `world-rifts.test.ts` elite-HP test now seeds both worlds (0x21f7).
   (RNG-seeded; passes on isolated re-run). Candidate to deflake.
 
 ## Done this run
@@ -35,3 +35,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 2: areas.ts coverage (+7 tests)
 - iter 3: hirelings.ts coverage (+12 tests)
 - iter 4: gold magnetism (Diablo-feel) + stepToward (+9 tests)
+- iter 5: deflaked world-rifts elite-HP test (seeded)
