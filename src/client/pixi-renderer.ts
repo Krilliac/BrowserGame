@@ -10,6 +10,7 @@ import {
   TilingSprite,
   type Application,
   type ColorSource,
+  type Filter,
   type TextureSource,
 } from 'pixi.js';
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
@@ -34,6 +35,7 @@ import {
   type GpuLight,
 } from './deferred-lighting.js';
 import { NORMAL_OVERRIDES, hasRealNormals } from './normal-atlas.js';
+import { AREA_SCREEN_FX, ScreenFx } from './screen-fx.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
   newAnimView,
@@ -398,6 +400,8 @@ export class PixiRenderer {
   private readonly litSprite = new Sprite();
   // Normal-map srcs that actually loaded — drives whether the deferred pass activates.
   private readonly loadedNormals = new Set<string>();
+  // Per-area screen polish filters: godrays / heat-haze / LUT grade (RENDER-10/12/13). Default-off.
+  private readonly screenFx = new ScreenFx(this.quality);
   private readonly grade = new ColorMatrixFilter(); // per-area color grading (one pass on the world)
   private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
@@ -484,6 +488,8 @@ export class PixiRenderer {
       this.lighting.layer,
       this.fade,
     );
+    // Godrays (RENDER-10) render over the screen-space day/night wash when an area enables them.
+    this.screenFx.bindOverlay(this.atmosphere.screen);
   }
 
   /** Load sprite sheets + FX/item textures. Falls back to procedural shapes on failure. */
@@ -551,6 +557,19 @@ export class PixiRenderer {
     }
     // Activate the deferred pass only on desktop ('high') once at least one real normal map loaded.
     this.deferred.setEnabled(this.quality === 'high' && hasRealNormals(this.loadedNormals));
+
+    // Optional per-area LUT textures for the ColorMapFilter grade (RENDER-12). Empty until an area
+    // registers a `lut` in AREA_SCREEN_FX, so today nothing loads and the ColorMatrix grade stays.
+    const lutSrcs = new Set<string>();
+    for (const fx of Object.values(AREA_SCREEN_FX)) if (fx.lut) lutSrcs.add(fx.lut);
+    if (lutSrcs.size > 0) {
+      await Promise.allSettled(
+        [...lutSrcs].map(async (src) => {
+          const t = (await Assets.load({ src })) as Texture;
+          if (t) this.screenFx.addLut(src, t);
+        }),
+      );
+    }
   }
 
   /**
@@ -619,6 +638,7 @@ export class PixiRenderer {
     this.currentTheme = theme;
     this.atmosphere.setArea(theme);
     this.weather.setWeather(theme.weather, theme.weatherIntensity, theme.fogColor);
+    this.screenFx.setArea(areaId); // godrays + LUT/heat config for this area (RENDER-10/12/13)
     this.applyGrade(theme);
     this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
     // Real tiled ground where a biome tileset exists; the procedural speckle is the fallback.
@@ -1363,16 +1383,24 @@ export class PixiRenderer {
   private applyGrade(theme: AreaTheme): void {
     const identity =
       theme.gradeSaturation === 1 && theme.gradeBrightness === 1 && theme.gradeContrast === 1;
-    if (identity) {
-      this.world.filters = [];
-      return;
+    let color: Filter | null = null;
+    if (!identity) {
+      const f = this.grade;
+      f.reset();
+      f.brightness(theme.gradeBrightness, false); // 1 = unchanged
+      f.contrast(theme.gradeContrast - 1, true); // 0 = unchanged
+      f.saturate(theme.gradeSaturation - 1, true); // 0 = unchanged
+      color = f;
     }
-    const f = this.grade;
-    f.reset();
-    f.brightness(theme.gradeBrightness, false); // 1 = unchanged
-    f.contrast(theme.gradeContrast - 1, true); // 0 = unchanged
-    f.saturate(theme.gradeSaturation - 1, true); // 0 = unchanged
-    this.world.filters = [f];
+    // RENDER-12: a per-area LUT (ColorMapFilter) overrides the ColorMatrix grade when one is loaded;
+    // with none registered this returns the ColorMatrix fallback unchanged. RENDER-13: compose the
+    // heat-haze displacement after the grade. Both are empty by default → world.filters is as before.
+    color = this.screenFx.gradeFilter(color);
+    const heat = this.screenFx.heatFilter();
+    const filters: Filter[] = [];
+    if (color) filters.push(color);
+    if (heat) filters.push(heat);
+    this.world.filters = filters;
   }
 
   update(state: RenderState): void {
@@ -1497,6 +1525,10 @@ export class PixiRenderer {
     );
     // Soft bloom on the light overlay so torch/portal/spell glow blooms (desktop only).
     this.postFx.update(this.lighting.layer, sw, sh);
+
+    // Animate the optional screen polish filters (godray drift, heat-haze scroll). No-op when the
+    // current area enables none of them (the default) — the filters aren't even allocated.
+    this.screenFx.update(now);
 
     // Deferred normal-mapped lighting (RENDER-01): when active, render the world through the GPU
     // light list and show the lit result in place of the world. Inactive today (no normal maps

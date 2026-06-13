@@ -8,6 +8,17 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Per-area screen polish filters (RENDER-10/12/13).** A new `screen-fx.ts` adds three drop-in
+  `pixi-filters` effects driven by a per-area registry (`AREA_SCREEN_FX`), gated to desktop ('high')
+  quality: **godrays** (volumetric light shafts over the screen wash), a **LUT color grade**
+  (`ColorMapFilter`, replacing the ColorMatrix grade when a LUT texture is registered — otherwise the
+  ColorMatrix grade stays as the fallback), and **heat haze** (a scrolling-noise `DisplacementFilter`
+  composed onto the world). The registry is empty by default, so no area enables any of them yet and
+  the scene is unchanged; enable one per area (and load a LUT) to light it up. (The filter looks
+  themselves await visual tuning once enabled.)
+- **Premultiplied-alpha audit (RENDER-15).** Verified every blended/additive sprite path (lighting,
+  particles, weather) relies on Pixi v8's default premultiplied-alpha upload and premultiply-aware
+  `'add'` blend — no `alphaMode` overrides, no edge fringing. No code change required.
 - **Direction-count-aware animation (RENDER-09).** The animation controller now supports 8/16-
   direction sheets via an optional `ClipSet.dirCount`: a sheet that declares it rotates in that many
   steps (`dirIndex`, clockwise from East) for smoother hero/boss turning, while sheets that don't
