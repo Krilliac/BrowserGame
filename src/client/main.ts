@@ -25,6 +25,8 @@ import { INTERP_DELAY_MS } from './interp.js';
 import { Net } from './net.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
+import { SettingsStore, ACCESS_GM, ZOOM_BOUNDS, type Settings } from './settings.js';
+import { createSettingsPanel } from './settings-panel.js';
 import { Predictor } from './predictor.js';
 import { wallsForDecor } from '../shared/collision.js';
 import { drawBelt } from './belt.js';
@@ -87,6 +89,48 @@ sound.load();
 const unlockAudio = (): void => sound.unlock();
 window.addEventListener('pointerdown', unlockAudio, { once: true });
 window.addEventListener('keydown', unlockAudio, { once: true });
+
+// --- Client settings (audio / camera / effects / HUD) + the in-game settings panel ----
+const settings = new SettingsStore();
+function applySettings(s: Readonly<Settings>): void {
+  sound.setVolume(s.volume);
+  sound.setMuted(s.muted);
+  renderer.setZoom(s.zoom, s.extendedZoom);
+  renderer.setEffectsEnabled(!s.reduceEffects);
+}
+applySettings(settings.all());
+settings.subscribe(applySettings);
+
+/** Keyboard +/- zoom: write through the settings store (so it persists and the panel slider
+ *  follows), clamped to the active range (wider for GM+). applySettings pushes it to the renderer. */
+function nudgeZoom(delta: number): void {
+  const b = settings.get('extendedZoom') ? ZOOM_BOUNDS.extended : ZOOM_BOUNDS.normal;
+  settings.set('zoom', Math.max(b.min, Math.min(b.max, settings.get('zoom') + delta)));
+}
+
+const settingsPanel = createSettingsPanel({ store: settings, getAccess: () => net.accessLevel });
+// A /login that changes access level re-reveals (or hides) the GM-only rows live.
+net.onAccess = () => settingsPanel.syncAccess();
+
+/** True when the player is typing in chat or the settings drawer is open — gameplay hotkeys must
+ *  stand down so a slider drag or a checkbox toggle isn't read as a spell cast (movement is
+ *  click-to-move, so it keeps working). */
+function uiCaptured(): boolean {
+  return document.activeElement === chatInputEl || settingsPanel.isOpen();
+}
+
+// Settings hotkey: O toggles the drawer; Escape closes it. Runs ahead of the gameplay guard so
+// it works even while the drawer has focus.
+window.addEventListener('keydown', (e) => {
+  if (document.activeElement === chatInputEl) return;
+  if (e.key.toLowerCase() === 'o') {
+    settingsPanel.toggle();
+    e.preventDefault();
+  } else if (e.key === 'Escape' && settingsPanel.isOpen()) {
+    settingsPanel.toggle();
+    e.preventDefault();
+  }
+});
 
 // Reserve right-click for the game: suppress the browser's native context menu (copy image,
 // etc.) everywhere except editable fields, so right-click paste still works in the chat box.
@@ -248,7 +292,7 @@ window.addEventListener(
 );
 
 window.addEventListener('keydown', (e) => {
-  if (document.activeElement === chatInputEl) return;
+  if (uiCaptured()) return;
   if (e.key === 'Escape' && net.shop) {
     net.shop = null; // close the shop
     return;
@@ -312,9 +356,9 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key.toLowerCase() === 'k') {
     skillOpen = !skillOpen; // toggle the passive skill tree
   } else if (e.key === '=' || e.key === '+') {
-    renderer.adjustZoom(0.1); // zoom the camera in (RS/Diablo-style)
+    nudgeZoom(0.1); // zoom the camera in (RS/Diablo-style)
   } else if (e.key === '-' || e.key === '_') {
-    renderer.adjustZoom(-0.1); // zoom the camera out
+    nudgeZoom(-0.1); // zoom the camera out
   } else if (e.key.toLowerCase() === 'q') {
     usePotion('health'); // quick-use belt: health flask
   } else if (e.key.toLowerCase() === 'r') {
@@ -1182,11 +1226,43 @@ function frame(): void {
   }
   if (!net.connected) drawReconnect();
   drawErrorBadge();
+  drawOverlays();
 
   const area = net.content.area(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
   popEl.textContent = `${area?.name ?? net.areaId} · players: ${entities.filter((e) => e.kind === 'player').length}`;
   syncChatLog();
+}
+
+/** FPS readout (Show FPS) + a richer GM-only debug block (Debug overlay), drawn on the HUD.
+ *  Both are settings toggles; the debug block additionally requires GM+ access. Cheap text. */
+function drawOverlays(): void {
+  const showDebug = settings.get('debugOverlay') && net.accessLevel >= ACCESS_GM;
+  const showFps = settings.get('showFps');
+  if (!showFps && !showDebug) return;
+  const lines: string[] = [`FPS ${Math.round(app.ticker.FPS)}`];
+  if (showDebug) {
+    const players = entities.filter((e) => e.kind === 'player').length;
+    lines.push(`area ${net.areaId} · inst ${net.instanceId || '—'}`);
+    lines.push(`players ${players} · entities ${entities.length}`);
+    if (self) lines.push(`pos ${self.x.toFixed(0)}, ${self.y.toFixed(0)}`);
+    const c = renderer.debugCounts();
+    lines.push(`views ${c.views ?? 0} · actors ${c.actors ?? 0} · props ${c.props ?? 0}`);
+    lines.push(`zoom ${Math.round(renderer.getZoom() * 100)}% · access ${net.accessLevel}`);
+  }
+  hud.save();
+  hud.font = '11px ui-monospace, Menlo, monospace';
+  hud.textAlign = 'left';
+  let y = 96;
+  for (const line of lines) {
+    const w = hud.measureText(line).width;
+    hud.fillStyle = 'rgba(8,9,13,0.6)';
+    hud.fillRect(8, y - 11, w + 8, 15);
+    hud.fillStyle = '#9fe6a0';
+    hud.fillText(line, 12, y);
+    y += 15;
+  }
+  hud.restore();
 }
 
 /** Trim text with an ellipsis to fit a max pixel width (font must be set before calling). */

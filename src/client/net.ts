@@ -139,6 +139,10 @@ export class Net {
   tickRate = 20;
   areaId = 'town';
   instanceId = '';
+  /** This connection's access level (0 = Player; raised via /login). Drives GM-only client UI. */
+  accessLevel = 0;
+  /** Called when the access level changes (so the settings panel can reveal/hide GM options). */
+  onAccess: ((level: number) => void) | undefined;
 
   constructor(private readonly name: string) {}
 
@@ -424,6 +428,10 @@ export class Net {
         break;
       case 'admin_result':
         console.log('[admin]', msg.ok, msg.message);
+        break;
+      case 'access':
+        this.accessLevel = msg.level;
+        this.onAccess?.(msg.level);
         break;
     }
   }
