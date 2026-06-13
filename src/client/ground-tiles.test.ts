@@ -11,9 +11,10 @@ import {
 } from './ground-tiles.js';
 
 describe('GROUND_TILESETS', () => {
-  it('every tileset is a curated sheet with sane, positively-weighted tiles', () => {
+  it('every tileset points at a real asset path with sane, positively-weighted tiles', () => {
     for (const [key, ts] of Object.entries(GROUND_TILESETS)) {
-      expect(ts.src, key).toMatch(/^\/assets\/curated\/tiles\/[a-z_]+\.png$/);
+      // Curated sheets live under /assets/curated/tiles; our generated biomes under /assets/tiles.
+      expect(ts.src, key).toMatch(/^\/assets\/(curated\/)?tiles\/[a-z_]+\.png$/);
       expect([16, 32], key).toContain(ts.tileSize);
       expect(ts.tiles.length, key).toBeGreaterThan(0);
       for (const t of ts.tiles) {

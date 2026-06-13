@@ -552,6 +552,7 @@ export class PixiRenderer {
   private readonly tileImages = new Map<string, HTMLImageElement>(); // ground tilesets, by src
   private readonly frameCache = new Map<string, Texture>();
   private softShadow?: Texture; // shared soft-ellipse shadow, baked on first actor
+  private placeholder?: Texture; // magenta/black checkerboard for missing/failed assets
 
   constructor(
     private readonly app: Application,
@@ -614,10 +615,16 @@ export class PixiRenderer {
     // Load every texture INDEPENDENTLY: a single failed fetch (a dev-server blip, a missing
     // file) must only cost that one sprite its art — never the whole game. A batched
     // Assets.load rejects wholesale, which once orbed every actor over one dropped request.
+    // A 404 (or a texture that loads with no GPU resource) falls back to a loud checkerboard
+    // placeholder so the alias always resolves to a bindable texture — never a null that crashes.
     await Promise.allSettled(
       Object.entries(all).map(async ([alias, src]) => {
-        const t = (await Assets.load({ alias, src })) as Texture;
-        if (t) this.tex.set(alias, t);
+        try {
+          const t = (await Assets.load({ alias, src })) as Texture;
+          this.tex.set(alias, this.isUsableTexture(t) ? t : this.placeholderTexture());
+        } catch {
+          this.tex.set(alias, this.placeholderTexture());
+        }
       }),
     );
     // The 32px sheets and decor cutouts are pixel art — keep them crisp when scaled.
@@ -2781,6 +2788,35 @@ export class PixiRenderer {
   }
 
   /**
+   * The classic "missing texture" checkerboard (magenta/black), baked once. Substituted for any asset
+   * that 404s or loads with no GPU resource, so a missing file shows a loud, obvious placeholder
+   * instead of crashing the renderer on a null texture bind. Pixel-crisp (nearest) so it reads sharp.
+   */
+  private placeholderTexture(): Texture {
+    if (this.placeholder) return this.placeholder;
+    const n = 8; // checks per side
+    const px = 8; // px per check
+    const cv = document.createElement('canvas');
+    cv.width = n * px;
+    cv.height = n * px;
+    const ctx = cv.getContext('2d')!;
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        ctx.fillStyle = (x + y) % 2 === 0 ? '#ff00dc' : '#101010';
+        ctx.fillRect(x * px, y * px, px, px);
+      }
+    }
+    this.placeholder = Texture.from(cv);
+    this.placeholder.source.scaleMode = 'nearest';
+    return this.placeholder;
+  }
+
+  /** A texture is usable only if it has a GPU-backed source; `Texture.EMPTY` (a failed load) is not. */
+  private isUsableTexture(t: Texture | undefined): t is Texture {
+    return !!t && !!t.source && !!t.source.resource;
+  }
+
+  /**
    * Bake (and cache) a real tiled-ground texture for an area from its biome tileset: a 16×16-tile
    * pattern of weight-picked floor tiles, upscaled to 32 world px per tile with crisp pixels. The
    * TilingSprite repeats the pattern across the screen. Returns undefined (→ procedural fallback)
@@ -2788,9 +2824,9 @@ export class PixiRenderer {
    */
   private tiledGroundTexture(areaId: string, groundBase: string): Texture | undefined {
     const ts = groundTilesetFor(areaId, groundBase);
-    if (!ts) return undefined;
+    if (!ts) return undefined; // no tileset mapped → intentional procedural ground
     const img = this.tileImages.get(ts.src);
-    if (!img) return undefined;
+    if (!img) return this.placeholderTexture(); // mapped sheet failed to load → loud checkerboard
     // Content-based key: biomes that share a sheet (town/forest both use forest_spring.png) differ in
     // their tile/blend lists, so keying on src alone collided and the second area reused the first bake.
     const key = `tiles:${ts.src}:${ts.tiles.map((t) => `${t.col},${t.row},${t.weight}`).join('|')}:${

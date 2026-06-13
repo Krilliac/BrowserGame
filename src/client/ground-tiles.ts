@@ -64,7 +64,7 @@ export const GROUND_TILESETS: Record<string, GroundTileset> = {
   // Generated meadow (tools/assetgen/tiles) — our own art, replacing the licensed Mana Seed grass for
   // the village green. Base-heavy weighted tiles + a clustered wildflower blend (RENDER-04).
   meadow: {
-    src: `${TILES}/meadow.png`,
+    src: '/assets/tiles/meadow.png', // our generated art (tools/assetgen/tiles → public/assets/tiles)
     tileSize: 32,
     tiles: [
       { col: 0, row: 0, weight: 60 },
