@@ -322,6 +322,9 @@ interface ActorView {
   dyn?: Graphics;
   /** Soft, directional ground shadow (leans away from a fixed sun — the D2 "planted" cue). */
   shadow?: Sprite;
+  /** Important actors (hero/elite): a sheared, darkened sprite-copy cast shadow (RENDER-07). It
+   *  shares the body's current frame texture, so it always matches the pose (updated on frame change). */
+  castShadow?: Sprite;
   sheet?: Sheet;
   /** The sprite-sheet alias (for setting the corpse frame after the entity leaves the snapshot). */
   spriteKey?: string;
@@ -1681,6 +1684,7 @@ export class PixiRenderer {
             f.col,
             f.row,
           );
+          if (view.castShadow) view.castShadow.texture = view.sprite.texture; // corpse pose shadow
         }
       }
     }
@@ -1726,6 +1730,8 @@ export class PixiRenderer {
       const sheet = view.sheet;
       const { row, col } = resolveAnim(anim, sheet.clips, e.facing, moving, now);
       view.sprite.texture = this.frame(sheetKey(e)!, sheet.fw, sheet.fh, col, row);
+      if (view.castShadow) view.castShadow.texture = view.sprite.texture; // keep the cast pose in sync
+
       // A small vertical bob — a quick footstep lift while moving, a slow breath while idle —
       // staggered per entity so a crowd doesn't pulse in lockstep. Sells the billboards as alive.
       const phase = e.id * 1.7;
@@ -1864,6 +1870,22 @@ export class PixiRenderer {
       view.spriteKey = key!;
       view.topY = -sheet.fh * sheet.scale * 0.85;
       container.addChild(sprite);
+      // RENDER-07: important actors (the local hero, elites/bosses) cast a real sheared sprite-copy
+      // shadow instead of the soft blob — a darkened copy of the current frame, flattened onto the
+      // ground and sheared toward the sun's lower-right. It shares the body texture (updated on frame
+      // change in updateActor), so it always matches the pose; minor mobs keep the cheap blob.
+      if ((isSelf || e.elite) && !flying) {
+        const cast = new Sprite(sprite.texture);
+        cast.anchor.set(0.5, 0.92); // same feet anchor as the body
+        cast.scale.set(sheet.scale, sheet.scale * PITCH); // flatten onto the tilted ground
+        cast.skew.x = SHADOW_SKEW;
+        cast.tint = 0x000000;
+        cast.alpha = 0.4;
+        cast.position.set(radius * SHADOW_OFFSET_X, radius * SHADOW_OFFSET_Y);
+        container.addChildAt(cast, 0); // behind the body and the blob
+        view.castShadow = cast;
+        shadow.visible = false; // the cast shadow replaces the blob for important actors
+      }
     } else {
       const orb = new Graphics();
       const raise = radius * 1.2;

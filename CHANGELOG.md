@@ -8,6 +8,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Sprite-copy cast shadows for hero/elites (RENDER-07).** The local player and elite/boss mobs now
+  cast a sheared, darkened copy of their current animation frame instead of a soft ellipse blob, so
+  the shadow reads as a real cast silhouette that matches the pose (D2's method). The copy shares the
+  body's frame texture (no per-frame texture allocation) and updates with the pose, including the
+  corpse frame on death. Minor mobs and flyers keep the cheap blob.
 - **Deferred normal-mapped lighting pipeline (RENDER-01).** The light contract + GPU composite for
   real per-pixel lighting (point lights and a directional sun shading geometry through normal maps).
   The pure light pipeline — screen projection, deterministic farthest-first cull to 16 lights, sun
