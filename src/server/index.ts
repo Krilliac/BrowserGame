@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { InstanceManager, type InstancingMode } from './instance-manager.js';
 import { newBotState, stepBot, type BotState, type BotView } from './bot-brain.js';
+import { SKILL_TREE } from '../shared/skilltree.js';
 import { sanitizeChat } from './chat.js';
 import { TokenBucket } from './rate-limit.js';
 import { runGuarded, GuardStats } from './resilience.js';
@@ -32,7 +33,7 @@ import {
 } from './player-store.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
-import { ARTIFICER_REROLL_GOLD, ARTIFICER_UNSOCKET_GOLD } from './world.js';
+import { ARTIFICER_REROLL_GOLD, ARTIFICER_UNSOCKET_GOLD, type World } from './world.js';
 import type { PartyMember } from '../shared/protocol.js';
 import { morningDayIndex } from './area-corruption.js';
 import { SpatialGrid } from './spatial.js';
@@ -134,9 +135,108 @@ const social = new SocialRegistry(friendStore);
 // AI bot players — real World player entities with no socket, driven each tick by a pure brain.
 // Spawned via the GM `/bot` command so the world feels alive (and to test co-op solo).
 interface BotRunner {
+  /** The GM who spawned this bot — `/bot clear` only removes your own, wherever they've roamed. */
+  owner: number;
   instanceId: string;
   state: BotState;
   seq: number;
+  /** Next tick at which to run the (throttled) gear/spell/points upkeep. */
+  upkeepAt: number;
+}
+
+/**
+ * The bot advancement ladder: the areas a bot journeys through toward endgame, each with the
+ * level it should reach before moving on. A bot grinds in milestone[i] until it hits `grad`, then
+ * routes (via the live portal graph) to milestone[i+1] — leveling, gearing, and learning spells
+ * the whole way out to the Unmade Court. The host BFS-routes between non-adjacent milestones, so
+ * this is just the ORDER + pacing, not the connectivity.
+ */
+const BOT_ADVANCEMENT: { area: string; grad: number }[] = [
+  { area: 'wilderness', grad: 6 },
+  { area: 'marsh', grad: 11 },
+  { area: 'mines', grad: 15 },
+  { area: 'frostpeak', grad: 20 },
+  { area: 'grimfrost_barrow', grad: 25 },
+  { area: 'howling_barrens', grad: 29 },
+  { area: 'sunken_pass', grad: 34 },
+  { area: 'ashveil_desert', grad: 45 },
+  { area: 'shattered_causeway', grad: 49 },
+  { area: 'voidmarch', grad: 55 },
+  { area: 'the_unmade_court', grad: 999 }, // the endgame — grind here forever
+];
+
+/** The area a bot of the given level should currently be working toward (the first unfinished rung). */
+function botTargetArea(level: number): string {
+  const rung =
+    BOT_ADVANCEMENT.find((m) => level < m.grad) ?? BOT_ADVANCEMENT[BOT_ADVANCEMENT.length - 1]!;
+  return rung.area;
+}
+
+/**
+ * BFS the live portal graph for the first hop from `fromArea` toward `toArea`; returns the portal
+ * in `fromArea` to walk into (its rect, already world-scaled), or undefined if same/unreachable.
+ */
+function nextPortalHop(fromArea: string, toArea: string): { x: number; y: number } | undefined {
+  if (fromArea === toArea) return undefined;
+  const c = getContent();
+  // BFS recording, for each discovered area, the FIRST area stepped to from the source.
+  const firstStep = new Map<string, string>(); // discoveredArea -> the area id of fromArea's portal
+  const queue: string[] = [];
+  for (const p of c.area(fromArea)?.portals ?? []) {
+    if (!firstStep.has(p.toArea)) {
+      firstStep.set(p.toArea, p.toArea);
+      queue.push(p.toArea);
+    }
+  }
+  while (queue.length) {
+    const cur = queue.shift()!;
+    if (cur === toArea) break;
+    for (const p of c.area(cur)?.portals ?? []) {
+      if (!firstStep.has(p.toArea)) {
+        firstStep.set(p.toArea, firstStep.get(cur)!);
+        queue.push(p.toArea);
+      }
+    }
+  }
+  const hopArea = firstStep.get(toArea);
+  if (!hopArea) return undefined;
+  const portal = (c.area(fromArea)?.portals ?? []).find((p) => p.toArea === hopArea);
+  if (!portal) return undefined;
+  return { x: portal.rect.x + portal.rect.w / 2, y: portal.rect.y + portal.rect.h / 2 };
+}
+
+/**
+ * Throttled upkeep so a bot actually GROWS: equip any bag gear that beats what's worn, read any
+ * spell tome in the bag, and spend attribute + skill points. Runs ~once a second per bot.
+ */
+function botUpkeep(world: World, id: number): void {
+  const stats = world.playerStats(id);
+  if (!stats) return;
+  const c = getContent();
+  // Learn every tome held (materials map keys like 'tome_fireball').
+  for (const itemId of Object.keys(stats.loot)) {
+    if (itemId.startsWith('tome_')) world.learn(id, itemId);
+  }
+  // Equip any bag piece that scores higher than the one in its slot.
+  const score = (it: { power: number; hp: number; affixes: { value: number }[] }): number =>
+    it.power + it.hp * 0.5 + it.affixes.reduce((s, a) => s + a.value, 0);
+  for (const item of stats.gear) {
+    const slot = c.item(item.baseId)?.slot;
+    if (!slot) continue;
+    const worn = stats.equipment[slot as keyof typeof stats.equipment];
+    if (!worn || score(item) > score(worn)) world.equip(id, item.uid);
+  }
+  // Spend points: strength + vitality (offense + survivability) alternately; first allocatable node.
+  for (let i = 0; i < stats.attrPoints; i++) {
+    world.allocateAttribute(id, i % 2 === 0 ? 'strength' : 'vitality');
+  }
+  if (stats.skillPoints > 0) {
+    for (const node of SKILL_TREE) {
+      const before = world.playerStats(id)?.skillPoints ?? 0;
+      world.allocateSkill(id, node.id);
+      if ((world.playerStats(id)?.skillPoints ?? 0) < before) break; // one allocated — done this pass
+    }
+  }
 }
 const bots = new Map<number, BotRunner>();
 const BOT_NAMES = [
@@ -154,8 +254,8 @@ const BOT_NAMES = [
   'Orin',
 ];
 
-/** Spawn `count` AI bot players into the caller's instance; returns how many actually joined. */
-function spawnBots(instanceId: string, count: number): number {
+/** Spawn `count` AI bot players into the owner's instance; returns how many actually joined. */
+function spawnBots(owner: number, instanceId: string, count: number): number {
   const inst = manager.get(instanceId);
   if (!inst) return 0;
   const areaId = inst.areaId;
@@ -164,20 +264,26 @@ function spawnBots(instanceId: string, count: number): number {
     const name = BOT_NAMES[(bots.size + i) % BOT_NAMES.length] ?? `Bot${bots.size + i}`;
     const placement = manager.join(`${name}`, areaId);
     bots.set(placement.entityId, {
+      owner,
       instanceId: placement.instanceId,
       state: newBotState(placement.entityId),
       seq: 0,
+      upkeepAt: 0,
     });
     spawned++;
   }
   return spawned;
 }
 
-/** Remove all bots (or only those in a given instance). Returns how many were despawned. */
-function clearBots(instanceId?: string): number {
+/**
+ * Despawn bots. Scoped by OWNER: a GM's `/bot clear` only removes the bots they spawned (wherever
+ * those have roamed), never another GM's — so cross-instance bot removal isn't possible. An
+ * undefined owner clears all (host shutdown / admin sweep only, never the player command).
+ */
+function clearBots(owner?: number): number {
   let removed = 0;
   for (const [id, b] of [...bots]) {
-    if (instanceId && b.instanceId !== instanceId) continue;
+    if (owner !== undefined && b.owner !== owner) continue;
     manager.remove(b.instanceId, id);
     bots.delete(id);
     removed++;
@@ -203,15 +309,27 @@ function driveBots(): void {
   for (const [instanceId, ids] of byInstance) {
     const world = manager.get(instanceId)?.world;
     if (!world) continue;
+    const areaId = manager.get(instanceId)!.areaId;
     const snap = world.snapshot();
     const mobs = snap.filter((e) => e.kind === 'mob' && e.hp > 0);
     const items = snap.filter((e) => e.kind === 'item');
-    const area = getContent().area(manager.get(instanceId)!.areaId);
+    const area = getContent().area(areaId);
     for (const id of ids) {
       const stats = world.playerStats(id);
       const me = snap.find((e) => e.id === id);
       const b = bots.get(id)!;
       if (!stats || !me) continue;
+
+      // Grow: equip/learn/spend-points on a ~1s throttle (cheap, and keeps the bot relevant).
+      if (tick >= b.upkeepAt) {
+        botUpkeep(world, id);
+        b.upkeepAt = tick + TICK_RATE;
+      }
+
+      // Journey toward endgame: head for the portal leading to the next milestone area; once
+      // standing in the milestone area itself, drop the goal and grind it to graduation.
+      const target = botTargetArea(stats.level);
+      const goal = areaId === target ? undefined : nextPortalHop(areaId, target);
       const view: BotView = {
         self: {
           x: me.x,
@@ -246,6 +364,7 @@ function driveBots(): void {
         width: area?.width ?? 1600,
         height: area?.height ?? 1200,
         potions: stats.potions,
+        ...(goal ? { goal } : {}),
       };
       const decision = stepBot(view, b.state, tick * (1000 / TICK_RATE));
       world.setInput(id, decision.input, ++b.seq);
@@ -806,8 +925,8 @@ wss.on('connection', (socket) => {
                   },
                   listPlayers: () => world.playerNames(),
                   setAccessFor: (u, lvl) => setAccess(getDb(), u, lvl),
-                  spawnBots: (count) => spawnBots(p.instanceId, count),
-                  clearBots: () => clearBots(),
+                  spawnBots: (count) => spawnBots(entityId, p.instanceId, count),
+                  clearBots: () => clearBots(entityId),
                   areaIds: () =>
                     getContent()
                       .areas()
@@ -872,6 +991,7 @@ wss.on('connection', (socket) => {
       // Drop out of any party (promote/disband) and tell the remaining members; go offline so
       // friends see it, then refresh everyone who had this player on their list.
       const affectedParty = parties.remove(entityId);
+      clearBots(entityId); // a disconnecting GM's bots go with them — never orphaned in the world
       manager.remove(p.instanceId, entityId);
       players.delete(entityId);
       social.setOffline(p.token);

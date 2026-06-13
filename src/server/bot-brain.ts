@@ -46,6 +46,9 @@ export interface BotView {
   height: number;
   /** Potions held in the belt (drives the panic quaff). */
   potions: { health: number; mana: number };
+  /** A travel waypoint the host sets while the bot is journeying to the next zone (a portal).
+   *  When set, the bot heads there — fighting anything in its path — instead of aimless wander. */
+  goal?: { x: number; y: number };
 }
 
 /** What the bot wants to do this tick. `input` is always present (idle = all false). */
@@ -74,7 +77,8 @@ const IDLE = { up: false, down: false, left: false, right: false } as const;
 const HEAL_POTION_HP_FRAC = 0.3; // quaff a health potion below 30% hp
 const FLEE_HP_FRAC = 0.25; // with no potions, run below 25% hp
 const RECOVER_HP_FRAC = 0.6; // ...until hp climbs back over 60%
-const ENGAGE_RANGE = 500; // start a fight only for mobs within this radius
+const ENGAGE_RANGE = 500; // start a fight only for mobs within this radius (free-roaming)
+const TRAVEL_FIGHT_RANGE = 240; // while travelling to a goal, only fight what's truly in the way
 const LOOT_RANGE = 250; // detour for items within this radius
 const STOP_RANGE_FRAC = 0.85; // hold position once inside 85% of the chosen ability's range
 const EDGE_MARGIN = 80; // steer back toward center within this distance of a bound
@@ -124,12 +128,22 @@ export function stepBot(view: BotView, state: BotState, nowMs: number): BotDecis
   }
 
   // --- Fight ------------------------------------------------------------------------
+  // When travelling to a goal, only stop for mobs that are genuinely in the way (closer than the
+  // travel-fight radius) so the bot still makes progress toward the next zone instead of getting
+  // pinned grinding forever. Free-roaming, it engages anything within the full engage range.
+  const fightRange = view.goal ? TRAVEL_FIGHT_RANGE : ENGAGE_RANGE;
   if (nearestMob) {
     const dist = Math.hypot(nearestMob.x - view.self.x, nearestMob.y - view.self.y);
-    if (dist <= ENGAGE_RANGE) {
+    if (dist <= fightRange) {
       state.mode = 'fight';
       return fight(view, nearestMob, dist);
     }
+  }
+
+  // --- Travel toward the goal (a portal the host is routing us to) -------------------
+  if (view.goal) {
+    state.mode = 'wander';
+    return { input: walkToward(view.self, view.goal.x, view.goal.y) };
   }
 
   // --- Wander / loot ----------------------------------------------------------------

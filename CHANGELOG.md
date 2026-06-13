@@ -71,10 +71,13 @@ versioning once it stabilizes.
 
 ### Added
 
-- **AI companion bots (`/bot`).** A GM command spawns AI players that roam, fight, loot, and level
-  in your area — `/bot 4` to populate, `/bot clear` to remove (up to 20). They're real World
-  entities driven by a pure server-side brain (`server/bot-brain.ts`), so the world feels alive
-  solo and you can see the co-op systems in action.
+- **AI companion bots (`/bot`).** A GM command spawns AI players that **journey from the starting
+  wilderness all the way to the endgame** — fighting, looting, auto-equipping better gear,
+  learning spell tomes, and spending attribute/skill points as they level, then routing through
+  the live portal graph zone-by-zone toward the Unmade Court. `/bot 4` to populate, `/bot clear`
+  to remove your own (up to 20). They're real World entities driven by a pure server-side brain
+  (`server/bot-brain.ts`) with a host-side progression director, so the world feels alive whether
+  they grind beside you or strike out on their own.
 - **Shared kill credit + co-op difficulty (dopamine-first).** Every player who *damages* a mob
   shares its full XP and quest credit — no last-hit stealing, helping always pays; party members
   present in the instance share too (proximity credit), plus a small group-size XP bonus. Tagged
