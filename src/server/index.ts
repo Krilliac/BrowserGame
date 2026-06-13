@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
+import { config } from './config.js';
 import { InstanceManager, type InstancingMode } from './instance-manager.js';
 import { newBotState, stepBot, type BotState, type BotView } from './bot-brain.js';
 import { SKILL_TREE } from '../shared/skilltree.js';
@@ -10,7 +11,6 @@ import { sanitizeChat } from './chat.js';
 import { TokenBucket } from './rate-limit.js';
 import { runGuarded, GuardStats } from './resilience.js';
 import {
-  DEFAULT_TICK_RATE,
   MAX_MESSAGE_BYTES,
   PROTOCOL_VERSION,
   decodeClient,
@@ -42,7 +42,7 @@ import { listTables, listColumns, listRows, getRow, editContent } from './conten
 
 // Load all game content from SQLite (the source of truth). Defaults to ./game.db; the file is
 // created and seeded from the built-in content on first run. Edit it with any SQLite tool.
-const content = initGameDb(process.env.GAME_DB ?? 'game.db');
+const content = initGameDb(config.server.gameDbPath);
 console.log(
   `[browsergame] content loaded: ${content.areas().length} areas, ${content.abilityOrder().length} abilities`,
 );
@@ -98,17 +98,17 @@ function applyThemeEdit(area: string, key: string, raw: string): string {
 
 // Area-of-interest half-extents: each player is sent only entities within this box around them,
 // generously larger than any viewport so nothing pops in at the screen edge.
-const AOI_HALF_W = 1400;
-const AOI_HALF_H = 1000;
+const AOI_HALF_W = config.networking.aoiHalfWidth;
+const AOI_HALF_H = config.networking.aoiHalfHeight;
 
 // Invasion events: how often we roll, and the per-instance chance each roll.
-const INVASION_INTERVAL_MS = 90_000;
-const INVASION_CHANCE = 0.35;
+const INVASION_INTERVAL_MS = config.invasion.intervalMs;
+const INVASION_CHANCE = config.invasion.chance;
 
-const PORT = Number(process.env.PORT ?? 8080);
-const TICK_RATE = Number(process.env.TICK_RATE ?? DEFAULT_TICK_RATE);
-const ENGINE_ADMIN_TOKEN = process.env.ENGINE_ADMIN_TOKEN ?? '';
-const INSTANCING: InstancingMode = process.env.INSTANCING === 'single' ? 'single' : 'auto';
+const PORT = config.server.port;
+const TICK_RATE = config.server.tickRate;
+const ENGINE_ADMIN_TOKEN = config.server.engineAdminToken;
+const INSTANCING: InstancingMode = config.server.instancing;
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const clientDir = join(here, '..', 'client'); // dist/client after build
@@ -511,7 +511,7 @@ const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MES
 // Heartbeat: ping every socket periodically; a client that misses a pong (tab closed abruptly, a
 // reload, a dropped network) is terminated so its player entity is removed promptly instead of
 // lingering as an idle "ghost" until TCP times out. (This is what piled up dozens of stale players.)
-const HEARTBEAT_MS = 15_000;
+const HEARTBEAT_MS = config.server.heartbeatMs;
 const alive = new WeakSet<WebSocket>();
 setInterval(() => {
   for (const client of wss.clients) {

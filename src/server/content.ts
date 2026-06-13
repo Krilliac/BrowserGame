@@ -1,3 +1,4 @@
+import { config } from './config.js';
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
 import type { AreaDef, DecorProp } from '../shared/areas.js';
@@ -92,13 +93,13 @@ interface LootGroup {
  * (dimensions, spawns, portals, NPCs, decor), so the sim, client, minimap, and collision all
  * agree without touching the authored sources.
  */
-const WORLD_SCALE = 5;
+const WORLD_SCALE = config.world.scale;
 /** Monster roster multiplier: the ground grows 25×, the packs grow 10× — still a sparser
  *  frontier than the old per-screen density, but the hunt is never far. */
-const MOB_COUNT_SCALE = 10;
+const MOB_COUNT_SCALE = config.world.mobCountScale;
 /** Portal TRIGGER spans scale less than the world (a generous pad, not a wall of light);
  *  their centers scale fully so they stay where the map says they are. */
-const PORTAL_SPAN_SCALE = 2;
+const PORTAL_SPAN_SCALE = config.world.portalSpanScale;
 
 export function loadContent(db: GameDatabase): Content {
   // Per-area environment themes (the data-driven look) — DEFAULT_THEME fills any area without a row.
