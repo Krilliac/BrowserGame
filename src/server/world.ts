@@ -1,5 +1,5 @@
 ﻿import { clamp } from '../shared/math.js';
-import { moveVector } from '../shared/movement.js';
+import { moveVector, stepToward } from '../shared/movement.js';
 import {
   MAX_NAME_LENGTH,
   PLAYER_SPEED,
@@ -133,7 +133,37 @@ function asBaseItem(def: {
 }
 
 const PICKUP_RADIUS = 30;
+/** Gold within this radius of a living player is vacuumed toward them (the ARPG gold-magnet feel). */
+const GOLD_MAGNET_RADIUS = 95;
+/** How fast vacuumed gold flies toward the player (world px/s). */
+const GOLD_MAGNET_SPEED = 460;
 let ITEM_TTL_MS = config.items.itemTtlMs;
+
+/**
+ * One gold-magnet step (pure): pull a gold drop toward the NEAREST living player that is within the
+ * magnet radius but still outside the pickup radius (inside pickup, the normal pickup collects it —
+ * we don't fight it). Returns the gold's new position; unchanged when no player qualifies. Exported
+ * so the vacuum behavior is unit-testable without a World.
+ */
+export function goldMagnetStep(
+  item: { x: number; y: number },
+  players: Iterable<{ x: number; y: number; dead: boolean }>,
+  dt: number,
+): { x: number; y: number } {
+  let bestDist = Infinity;
+  let target: { x: number; y: number } | undefined;
+  for (const p of players) {
+    if (p.dead) continue;
+    const d = Math.hypot(p.x - item.x, p.y - item.y);
+    if (d > GOLD_MAGNET_RADIUS || d <= PICKUP_RADIUS) continue; // out of band → leave it
+    if (d < bestDist) {
+      bestDist = d;
+      target = p;
+    }
+  }
+  if (!target) return { x: item.x, y: item.y };
+  return stepToward(item.x, item.y, target.x, target.y, GOLD_MAGNET_SPEED * dt);
+}
 
 /** Rift gold fee per tier â€” the endgame gold sink; the risk you choose is the fee you pay. */
 let RIFT_COST_PER_TIER = config.economy.riftCostPerTier;
@@ -3095,6 +3125,12 @@ export class World {
       if (item.ttl <= 0) {
         this.items.delete(item.id);
         continue;
+      }
+      // Gold-vacuum: pull a gold drop toward the nearest living player in magnet range (ARPG feel).
+      if (item.itemId === 'gold') {
+        const moved = goldMagnetStep(item, this.players.values(), dt);
+        item.x = moved.x;
+        item.y = moved.y;
       }
       for (const player of this.players.values()) {
         if (player.dead) continue;

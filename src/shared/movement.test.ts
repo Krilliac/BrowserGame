@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clamp, moveVector } from './movement.js';
+import { clamp, moveVector, stepToward } from './movement.js';
 import type { InputState } from './protocol.js';
 
 /** Build an InputState with all keys up, overriding the pressed ones. */
@@ -67,5 +67,26 @@ describe('clamp', () => {
   it('is idempotent (clamping an already-clamped value is a no-op)', () => {
     const once = clamp(50, 0, 10);
     expect(clamp(once, 0, 10)).toBe(once);
+  });
+});
+
+describe('stepToward', () => {
+  it('moves exactly maxDist toward a far target', () => {
+    const r = stepToward(0, 0, 100, 0, 25);
+    expect(r).toEqual({ x: 25, y: 0 });
+    const d = stepToward(0, 0, 30, 40, 25); // unit (0.6,0.8) × 25
+    expect(d.x).toBeCloseTo(15, 9);
+    expect(d.y).toBeCloseTo(20, 9);
+  });
+
+  it('snaps onto a target within reach (no overshoot)', () => {
+    expect(stepToward(0, 0, 10, 0, 25)).toEqual({ x: 10, y: 0 });
+    expect(stepToward(0, 0, 10, 0, 10)).toEqual({ x: 10, y: 0 }); // exactly reachable
+  });
+
+  it('is a no-op for non-positive maxDist or a zero-length gap', () => {
+    expect(stepToward(5, 5, 99, 99, 0)).toEqual({ x: 5, y: 5 });
+    expect(stepToward(5, 5, 99, 99, -3)).toEqual({ x: 5, y: 5 });
+    expect(stepToward(7, 7, 7, 7, 25)).toEqual({ x: 7, y: 7 });
   });
 });

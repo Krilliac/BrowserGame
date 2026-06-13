@@ -34,3 +34,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 1: movement.ts coverage (+9 tests)
 - iter 2: areas.ts coverage (+7 tests)
 - iter 3: hirelings.ts coverage (+12 tests)
+- iter 4: gold magnetism (Diablo-feel) + stepToward (+9 tests)

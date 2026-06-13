@@ -30,3 +30,14 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   wrong about the engage-range gate — fixed the TESTS to match the (correct) code, not vice-versa.
 - Tests: +12 (951 total). No production code changed.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 4 — gold magnetism (Diablo-feel) + stepToward
+- Picked: D3-style gold vacuum (tier: spec/feature — Diablo-feel; small, server-authoritative).
+- Did: added pure `stepToward` to shared/movement.ts; new pure `goldMagnetStep` in world.ts pulls a
+  gold drop toward the nearest LIVING player inside the magnet band (pickup 30 < d <= 95) at 460 px/s;
+  wired into tickItems (gold only). Client needs no change — gold is a snapshot entity, so it visibly
+  flies in via interpolation. Existing pickup logic untouched (still collects inside 30).
+- Tests: +9 (stepToward in movement.test.ts; world-gold-magnet.test.ts — band, dead-skip, nearest,
+  multi-tick convergence). Existing world-pots test still green (gold still collects).
+- Result: COMMITTED — gate check+build GREEN.
+- Notes for human: gentle vacuum (95px / 460px·s); tune GOLD_MAGNET_RADIUS / _SPEED in world.ts.
