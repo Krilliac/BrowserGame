@@ -20,11 +20,16 @@ versioning once it stabilizes.
 
 ### Deferred (rendering spec)
 
-- **Terrain elevation (RENDER-08)** and **water reflections (RENDER-11)** are deferred — both lack a
-  data model in the current codebase (no per-cell height field; no water-region data), and RENDER-08's
-  visual subset is incompatible with the single baked-`TilingSprite` ground (per-cell vertical offset
-  needs a heightmapped mesh), while its true form couples to server collision. See the Roadmap's
-  "Deliberately deferred" section for what each needs before it can ship.
+- **Terrain elevation (RENDER-08)** and **water reflections (RENDER-11)** are deferred.
+  RENDER-08's visual subset is incompatible with the single baked-`TilingSprite` ground (per-cell
+  vertical offset needs a heightmapped mesh), and its true form couples to server collision.
+  RENDER-11 was prototyped (a `water.ts` with a rippling reflective surface + masked, flipped actor
+  reflections, driven by a client-side water-region registry), but a world-space water layer does not
+  compose with the now-enabled deferred-lighting render path (the world is rendered to a RenderTexture
+  with `renderable=false`, and a fresh non-sortable subtree added to it didn't draw); with no natural
+  water areas to justify the deeper rework, it was reverted. **16-direction sprites (RENDER-09)** stay
+  capability-ready (the `ClipSet.dirCount` path) but inactive — fabricating 16-direction art from the
+  4-direction LPC sheets isn't possible without source renders. See the Roadmap for details.
 - **Premultiplied-alpha audit (RENDER-15).** Verified every blended/additive sprite path (lighting,
   particles, weather) relies on Pixi v8's default premultiplied-alpha upload and premultiply-aware
   `'add'` blend — no `alphaMode` overrides, no edge fringing. No code change required.
