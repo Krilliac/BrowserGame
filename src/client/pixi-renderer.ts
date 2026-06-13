@@ -25,6 +25,15 @@ import { PostFx, type Quality } from './post-fx.js';
 import { Decals } from './decals.js';
 import { ParticleSystem } from './particles.js';
 import { palisadeStakes } from './prop-sort.js';
+import {
+  DeferredLighting,
+  cullLights,
+  packLights,
+  pointToGpuLight,
+  sunGpuLight,
+  type GpuLight,
+} from './deferred-lighting.js';
+import { NORMAL_OVERRIDES, hasRealNormals } from './normal-atlas.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
   newAnimView,
@@ -372,6 +381,13 @@ export class PixiRenderer {
   private readonly decals = new Decals(this.quality);
   // General particle bursts (sparks, blood spray, dust, embers) in the world-space fxLayer.
   private readonly particles = new ParticleSystem(this.quality);
+  // Deferred normal-mapped lighting (RENDER-01). Inactive until 'high' quality AND real normal maps
+  // load; today none exist, so the additive-halo lighting below carries the scene unchanged.
+  private readonly deferred = new DeferredLighting();
+  // Screen-space sprite that shows the deferred-lit result in place of the world when the pass runs.
+  private readonly litSprite = new Sprite();
+  // Normal-map srcs that actually loaded — drives whether the deferred pass activates.
+  private readonly loadedNormals = new Set<string>();
   private readonly grade = new ColorMatrixFilter(); // per-area color grading (one pass on the world)
   private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
@@ -444,9 +460,11 @@ export class PixiRenderer {
     // Draw order (back→front): ground, world, ambient motes, weather, the screen wash (day/night +
     // mood tint + vignette darkening), then additive LIGHTS on top so torch/portal glow punches
     // through the darkness, and finally the area-change fade covering everything mid-transition.
+    this.litSprite.visible = false; // shown only while the deferred pass is active (RENDER-01)
     app.stage.addChild(
       this.ground,
       this.world,
+      this.litSprite,
       this.atmosphere.particleLayer,
       this.weather.layer,
       this.atmosphere.screen,
@@ -501,6 +519,25 @@ export class PixiRenderer {
           }),
       ),
     );
+
+    // Optional normal maps (RENDER-01): load any registered `*_n.png` sheets independently. The
+    // override map is empty until normal art is authored, so today nothing loads and the deferred
+    // lighting pass stays inactive — the scene renders exactly as it does now. Register a sheet's
+    // normal map in NORMAL_OVERRIDES (or drop the conventional `<sheet>_n.png`) to light it per-pixel.
+    const normalSrcs = Object.values(NORMAL_OVERRIDES);
+    if (normalSrcs.length > 0) {
+      await Promise.allSettled(
+        normalSrcs.map(async (src) => {
+          const t = (await Assets.load({ src })) as Texture;
+          if (t) {
+            t.source.scaleMode = 'nearest';
+            this.loadedNormals.add(src);
+          }
+        }),
+      );
+    }
+    // Activate the deferred pass only on desktop ('high') once at least one real normal map loaded.
+    this.deferred.setEnabled(this.quality === 'high' && hasRealNormals(this.loadedNormals));
   }
 
   /**
@@ -1444,6 +1481,11 @@ export class PixiRenderer {
     // Soft bloom on the light overlay so torch/portal/spell glow blooms (desktop only).
     this.postFx.update(this.lighting.layer, sw, sh);
 
+    // Deferred normal-mapped lighting (RENDER-01): when active, render the world through the GPU
+    // light list and show the lit result in place of the world. Inactive today (no normal maps
+    // loaded) → this early-returns and the world renders directly with the additive halos above.
+    this.runDeferred(lights, sw, sh);
+
     // Area-change fade-from-black, eased toward 0.
     // The arrival fade lifts with a cubic ease-out: dark lingers a beat, then clears fast.
     this.fadeAlpha = Math.max(0, this.fadeAlpha - dt / FADE_SECONDS);
@@ -1573,6 +1615,34 @@ export class PixiRenderer {
     if (moved > 1.2 && now - this.lastFootstepAt > 150) {
       this.lastFootstepAt = now;
       this.particles.emit('dust', self.x, self.y);
+    }
+  }
+
+  /**
+   * Run the deferred normal-mapped lighting pass (RENDER-01) when it is active, swapping the live
+   * world for the lit render-texture result. When inactive (no normal maps, or 'low' quality) it
+   * restores the direct world render and returns immediately — the no-regression path used today.
+   */
+  private runDeferred(lights: LightSource[], sw: number, sh: number): void {
+    if (!this.deferred.isEnabled()) {
+      if (this.litSprite.visible) {
+        this.litSprite.visible = false;
+        this.world.renderable = true;
+      }
+      return;
+    }
+    const night = this.atmosphere.nightFactor();
+    const pointIntensity = 0.6 + night * 0.7; // torches matter more after dark
+    const gpu: GpuLight[] = [];
+    for (const l of lights) gpu.push(pointToGpuLight(l, 40, pointIntensity));
+    gpu.push(sunGpuLight(night));
+    const culled = cullLights(gpu, sw / 2, sh * CAM_DOLLY_Y);
+    const packed = packLights(culled);
+    const lit = this.deferred.run(this.app.renderer, this.world, packed, sw, sh);
+    if (lit) {
+      this.litSprite.texture = lit;
+      this.litSprite.visible = true;
+      this.world.renderable = false;
     }
   }
 
