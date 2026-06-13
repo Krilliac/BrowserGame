@@ -21,7 +21,9 @@ import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
 import { Weather } from './weather.js';
 import { Lighting, type LightSource } from './lighting.js';
-import { PostFx } from './post-fx.js';
+import { PostFx, type Quality } from './post-fx.js';
+import { Decals } from './decals.js';
+import { ParticleSystem } from './particles.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
   newAnimView,
@@ -361,8 +363,14 @@ export class PixiRenderer {
   private readonly atmosphere = new Atmosphere();
   private readonly weather = new Weather();
   private readonly lighting = new Lighting();
+  // One render-quality split for every cosmetic system: phones (touch) get the cheap 'low' paths.
+  private readonly quality: Quality = navigator.maxTouchPoints > 0 ? 'low' : 'high';
   // Bloom on the additive light overlay (torch, portals, spell glow). Quality-gated for phones.
-  private readonly postFx = new PostFx(navigator.maxTouchPoints > 0 ? 'low' : 'high');
+  private readonly postFx = new PostFx(this.quality);
+  // Ground decals (blood/scorch/corpse stains) — world-space, above ground, below props/actors.
+  private readonly decals = new Decals(this.quality);
+  // General particle bursts (sparks, blood spray, dust, embers) in the world-space fxLayer.
+  private readonly particles = new ParticleSystem(this.quality);
   private readonly grade = new ColorMatrixFilter(); // per-area color grading (one pass on the world)
   private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
@@ -396,6 +404,10 @@ export class PixiRenderer {
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
+  private lastDecalT0 = 0; // newest FX timestamp already turned into decals/particles
+  private lastFootstepAt = 0; // throttle for local-player footstep dust
+  private lastSelfX = 0; // last local-player world pos, for footstep-dust movement detection
+  private lastSelfY = 0;
   private zoom = 1.15; // camera zoom (player-adjustable); >1 = closer, a more intimate D3 framing
   private camX = 0; // last camera world-x (screen center), for screen->world picking
   private camY = 0; // last camera world-y, for per-actor faux-perspective depth scaling
@@ -417,8 +429,16 @@ export class PixiRenderer {
     this.roofLayer.sortableChildren = true;
     // roofLayer is added LAST so house roofs draw in front of actors (occluding them) until they
     // fade as the local player steps inside through the south door.
-    this.world.addChild(this.propLayer, this.actorLayer, this.fxLayer, this.roofLayer);
+    // decals first → above the ground texture but behind every prop and actor (RENDER-02).
+    this.world.addChild(
+      this.decals.layer,
+      this.propLayer,
+      this.actorLayer,
+      this.fxLayer,
+      this.roofLayer,
+    );
     this.fxLayer.addChild(this.fxGfx);
+    this.fxLayer.addChild(this.particles.layer); // world-space particle bursts (RENDER-03)
     this.fade.eventMode = 'none';
     // Draw order (back→front): ground, world, ambient motes, weather, the screen wash (day/night +
     // mood tint + vignette darkening), then additive LIGHTS on top so torch/portal glow punches
@@ -559,6 +579,9 @@ export class PixiRenderer {
     // Roofs live in their own layer above the actors — clear them too so leaving the area never
     // leaks a previous area's house roofs over the new scene.
     for (const child of this.roofLayer.removeChildren()) child.destroy();
+    // Drop any blood/scorch stains and live particles so they don't bleed across a zone change.
+    this.decals.clear();
+    this.particles.clear();
 
     this.portalCenters = [];
     this.decorLights = [];
@@ -1386,6 +1409,8 @@ export class PixiRenderer {
     // regardless of what the update calls did). The screen wash + lights stay for the art direction.
     this.weather.layer.visible = this.effectsEnabled;
     this.atmosphere.particleLayer.visible = this.effectsEnabled;
+    this.decals.setVisible(this.effectsEnabled);
+    this.particles.setVisible(this.effectsEnabled);
 
     // Dynamic lights (additive): the local player carries a torch at screen center; portals glow.
     // Strength scales with night + the area's ambient-light theme, so they matter after dark.
@@ -1464,6 +1489,14 @@ export class PixiRenderer {
 
     this.updateFx(state.fx);
 
+    // Decals + particles: spawn from new FX events, kick footstep dust, then integrate both pools.
+    if (this.effectsEnabled) {
+      this.spawnFxDecalsAndParticles(state.fx, now);
+      this.footstepDust(state, now);
+    }
+    this.decals.update(now);
+    this.particles.update(dt * 1000);
+
     // Fade house roofs based on whether the LOCAL player stands inside each footprint. Uses the
     // authoritative self entity's world position (the camera trails it, so the actual entity is the
     // truthful test). Eased frame-rate-independently off `dt` — no Date.now()/Math.random().
@@ -1504,6 +1537,57 @@ export class PixiRenderer {
       if (t0 > newest) newest = t0;
     }
     this.lastDeathT0 = newest;
+  }
+
+  /**
+   * Spawn ground decals + particle bursts from FX events we haven't consumed yet (RENDER-02/03).
+   * Cosmetic only — purely a function of the broadcast `state.fx`, never of local simulation. FX
+   * coordinates are world-space (the same x/y the actors use), so they map straight onto the decal
+   * layer and particle system, both of which live inside the world container.
+   */
+  private spawnFxDecalsAndParticles(fx: TimedFx[], now: number): void {
+    let newest = this.lastDecalT0;
+    for (const { ev, t0 } of fx) {
+      if (t0 <= this.lastDecalT0) continue;
+      if (t0 > newest) newest = t0;
+      switch (ev.kind) {
+        case 'death':
+          // A lasting stain plus a short blood spray at the kill site.
+          this.decals.spawn('corpse', ev.x, ev.y, now);
+          this.decals.spawn('blood', ev.x, ev.y, now, { scale: 0.8 });
+          this.particles.emit('blood', ev.x, ev.y);
+          break;
+        case 'hit':
+          // Impact sparks; crits throw a bigger golden burst.
+          this.particles.emit(ev.crit ? 'critHit' : 'hit', ev.x, ev.y);
+          break;
+        case 'slam':
+          // Heavy AoE impact: a scorch/crater mark and a ring of kicked-up dust.
+          this.decals.spawn('crater', ev.x, ev.y, now, { scale: ((ev.radius ?? 80) / 80) * 1.1 });
+          this.particles.emit('slam', ev.x, ev.y);
+          break;
+        default:
+          break;
+      }
+    }
+    this.lastDecalT0 = newest;
+  }
+
+  /**
+   * Kick a small puff of dust under the LOCAL player while they move. Throttled so a continuous walk
+   * emits at a steady cadence rather than once per frame, and gated on actual displacement so
+   * standing still is silent. Mirrors the roof-fade rule of keying off the authoritative self entity.
+   */
+  private footstepDust(state: RenderState, now: number): void {
+    const self = state.entities.find((e) => e.id === state.selfId);
+    if (!self) return;
+    const moved = Math.hypot(self.x - this.lastSelfX, self.y - this.lastSelfY);
+    this.lastSelfX = self.x;
+    this.lastSelfY = self.y;
+    if (moved > 1.2 && now - this.lastFootstepAt > 150) {
+      this.lastFootstepAt = now;
+      this.particles.emit('dust', self.x, self.y);
+    }
   }
 
   /**

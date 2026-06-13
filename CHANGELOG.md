@@ -8,6 +8,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Ground decals (RENDER-02).** Combat now leaves the ground marked: deaths drop a corpse stain
+  and a blood spray, heavy slams leave a crater/scorch. Decals are pooled (cap 120, 48 on touch),
+  baked procedurally (no asset fetch), sort above the ground but below actors, fade out over their
+  lifetime, and clear on area change. Honors the "reduce effects" toggle.
+- **General particle emitter (RENDER-03).** A reusable, data-driven particle system (`particles.ts`)
+  with a library of bursts — impact sparks (gold on crits), blood spray, footstep dust, slam dust,
+  embers. Pooled (cap 600 / 160 on touch) with zero steady-state allocation; additive particles glow
+  via `blendMode='add'`. World-space (sorts/scrolls with the scene). Honors "reduce effects".
 - **Ground tile-edge blending (RENDER-04).** The baked ground texture no longer lattice-scatters
   detail tiles (wildflowers, leaf piles) as lone squares on a regular grid. Tilesets can opt into a
   `blend` field; the bake then clusters those detail tiles into organic patches driven by
