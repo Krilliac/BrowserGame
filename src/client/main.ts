@@ -27,6 +27,7 @@ import { PixiRenderer } from './pixi-renderer.js';
 import { Sound } from './sound.js';
 import { SettingsStore, ACCESS_GM, ZOOM_BOUNDS, type Settings } from './settings.js';
 import { createSettingsPanel } from './settings-panel.js';
+import { createEnginePanel } from './engine-panel.js';
 import { Predictor } from './predictor.js';
 import { wallsForDecor } from '../shared/collision.js';
 import { drawBelt } from './belt.js';
@@ -109,14 +110,19 @@ function nudgeZoom(delta: number): void {
 }
 
 const settingsPanel = createSettingsPanel({ store: settings, getAccess: () => net.accessLevel });
-// A /login that changes access level re-reveals (or hides) the GM-only rows live.
-net.onAccess = () => settingsPanel.syncAccess();
+// The full Dev "Game Engine" editor — its launcher button only appears at Developer access.
+const enginePanel = createEnginePanel({ net, getAccess: () => net.accessLevel });
+// A /login that changes access level re-reveals (or hides) the gated UI live.
+net.onAccess = () => {
+  settingsPanel.syncAccess();
+  enginePanel.refreshAccess();
+};
 
-/** True when the player is typing in chat or the settings drawer is open — gameplay hotkeys must
- *  stand down so a slider drag or a checkbox toggle isn't read as a spell cast (movement is
- *  click-to-move, so it keeps working). */
+/** True when the player is typing in chat or a staff panel is open — gameplay hotkeys must stand
+ *  down so a slider drag or a form field isn't read as a spell cast (movement is click-to-move, so
+ *  it keeps working). */
 function uiCaptured(): boolean {
-  return document.activeElement === chatInputEl || settingsPanel.isOpen();
+  return document.activeElement === chatInputEl || settingsPanel.isOpen() || enginePanel.isOpen();
 }
 
 // Settings hotkey: O toggles the drawer; Escape closes it. Runs ahead of the gameplay guard so
@@ -125,6 +131,9 @@ window.addEventListener('keydown', (e) => {
   if (document.activeElement === chatInputEl) return;
   if (e.key.toLowerCase() === 'o') {
     settingsPanel.toggle();
+    e.preventDefault();
+  } else if (e.key === 'Escape' && enginePanel.isOpen()) {
+    enginePanel.toggle();
     e.preventDefault();
   } else if (e.key === 'Escape' && settingsPanel.isOpen()) {
     settingsPanel.toggle();

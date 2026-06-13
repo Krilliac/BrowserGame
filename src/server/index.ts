@@ -21,7 +21,8 @@ import {
 import { isAbilityId, type AbilityId } from '../shared/combat.js';
 import { initGameDb, getDb, getContent, reloadContent } from './content.js';
 import { isCommand, runCommand } from './commands.js';
-import { verifyLogin, setAccess } from './accounts.js';
+import { verifyLogin, setAccess, AccessLevel } from './accounts.js';
+import { engineSchema, engineRows, setEngineConfig } from './engine.js';
 import {
   isValidToken,
   loadSave,
@@ -33,8 +34,13 @@ import {
 } from './player-store.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
-import { ARTIFICER_REROLL_GOLD, ARTIFICER_UNSOCKET_GOLD, type World } from './world.js';
-import type { PartyMember } from '../shared/protocol.js';
+import {
+  ARTIFICER_REROLL_GOLD,
+  ARTIFICER_UNSOCKET_GOLD,
+  applyRuntimeConfig,
+  type World,
+} from './world.js';
+import type { EngineResData, PartyMember } from '../shared/protocol.js';
 import { morningDayIndex } from './area-corruption.js';
 import { SpatialGrid } from './spatial.js';
 import { THEME_KEYS, coerceThemeValue } from '../shared/theme.js';
@@ -971,6 +977,139 @@ wss.on('connection', (socket) => {
                 ? `accepted: ${msg.command} (engine commands land here)`
                 : 'denied: invalid or unset ENGINE_ADMIN_TOKEN',
             });
+            break;
+          }
+          case 'engine_req': {
+            // The Dev "Game Engine" panel. The ENTIRE surface is gated on Developer access,
+            // server-side — isolated from any normal player path (CLAUDE.md security pillar).
+            const p = players.get(entityId);
+            if (!p) break;
+            const rid = msg.rid;
+            const reply = (ok: boolean, message?: string, data?: EngineResData): void => {
+              const out: ServerMessage = { t: 'engine_res', rid, ok };
+              if (message !== undefined) (out as { message?: string }).message = message;
+              if (data !== undefined) (out as { data?: EngineResData }).data = data;
+              send(socket, out);
+            };
+            if (p.accessLevel < AccessLevel.Developer) {
+              reply(false, 'The engine panel requires Developer access (/login).');
+              break;
+            }
+            const op = msg.op;
+            const instance = manager.get(p.instanceId);
+            const world = instance?.world;
+            switch (op.kind) {
+              case 'schema':
+                reply(true, undefined, { kind: 'schema', schema: engineSchema() });
+                break;
+              case 'rows': {
+                const res = engineRows(op.table);
+                if ('error' in res) reply(false, res.error);
+                else reply(true, undefined, res);
+                break;
+              }
+              case 'edit': {
+                const out = editContent(op.table, op.id, op.column, op.value);
+                if (out.ok) rebroadcastContent();
+                reply(out.ok, out.message);
+                break;
+              }
+              case 'config': {
+                const applied = setEngineConfig(op.path, op.value);
+                if (applied === null) {
+                  reply(false, `Unknown or invalid config knob: ${op.path}`);
+                  break;
+                }
+                applyRuntimeConfig(); // re-read the live config into the sim's tuning bindings
+                reply(true, `Set ${op.path} = ${applied} — applied live.`);
+                break;
+              }
+              case 'reload': {
+                const n = rebroadcastContent();
+                reply(true, `Reloaded content — re-skinned ${n} areas.`);
+                break;
+              }
+              case 'spawn_bots': {
+                const count = Math.max(0, Math.min(2000, Math.floor(op.count) || 0));
+                reply(true, `Spawned ${spawnBots(entityId, p.instanceId, count)} bot(s).`);
+                break;
+              }
+              case 'clear_bots':
+                reply(true, `Cleared ${clearBots(entityId)} bot(s).`);
+                break;
+              case 'give': {
+                if (!world) return reply(false, 'No active instance.');
+                const qty = Math.max(1, Math.min(10_000, Math.floor(op.qty) || 1));
+                const ok = world.giveItem(entityId, op.itemId, qty);
+                reply(ok, ok ? `Gave ${qty}× ${op.itemId}.` : `Unknown item: ${op.itemId}`);
+                break;
+              }
+              case 'add_xp': {
+                if (!world) return reply(false, 'No active instance.');
+                const amt = Math.max(0, Math.floor(op.amount) || 0);
+                world.addXp(entityId, amt);
+                reply(true, `Granted ${amt} XP.`);
+                break;
+              }
+              case 'set_level': {
+                if (!world) return reply(false, 'No active instance.');
+                const lvl = Math.max(1, Math.min(999, Math.floor(op.level) || 1));
+                world.setLevel(entityId, lvl);
+                reply(true, `Set level to ${lvl}.`);
+                break;
+              }
+              case 'spawn_mob': {
+                if (!world) return reply(false, 'No active instance.');
+                const n = Math.max(1, Math.min(200, Math.floor(op.count) || 1));
+                let made = 0;
+                for (let k = 0; k < n; k++) if (world.spawnMobAt(entityId, op.templateId)) made++;
+                reply(
+                  made > 0,
+                  made > 0
+                    ? `Spawned ${made}× ${op.templateId}.`
+                    : `Unknown template: ${op.templateId}`,
+                );
+                break;
+              }
+              case 'weather': {
+                if (!instance) return reply(false, 'No active instance.');
+                // Route through the theme editor so it's both visual and persistent (re-skins clients).
+                const msgOut = applyThemeEdit(instance.areaId, 'weather', op.weather);
+                rebroadcastContent();
+                reply(true, msgOut);
+                break;
+              }
+              case 'teleport': {
+                const ev = manager.teleport(p.instanceId, entityId, op.areaId);
+                if (!ev) return reply(false, `Cannot teleport to: ${op.areaId}`);
+                p.instanceId = ev.toInstanceId;
+                send(p.socket, {
+                  t: 'area_changed',
+                  areaId: ev.toAreaId,
+                  instanceId: ev.toInstanceId,
+                });
+                announceArrival(p.socket, ev.toAreaId);
+                reply(true, `Teleported to ${ev.toAreaId}.`);
+                break;
+              }
+              case 'heal': {
+                if (!world) return reply(false, 'No active instance.');
+                reply(world.devHeal(entityId), 'Restored HP + mana.');
+                break;
+              }
+              case 'set_access': {
+                const ok = setAccess(getDb(), op.username, op.level);
+                reply(
+                  ok,
+                  ok
+                    ? `Set ${op.username} to access ${op.level}.`
+                    : `No such account: ${op.username}`,
+                );
+                break;
+              }
+              default:
+                reply(false, 'Unsupported engine op.');
+            }
             break;
           }
           default:
