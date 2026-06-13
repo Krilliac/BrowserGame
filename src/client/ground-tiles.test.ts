@@ -35,7 +35,7 @@ describe('groundTilesetFor', () => {
 
   it('accepts instance ids (areaId#seq) and resolves them to the base area', () => {
     expect(groundTilesetFor('crypt#3', '#16161c')).toBe(groundTilesetFor('crypt', '#16161c'));
-    expect(groundTilesetFor('town#12', '#2f3b29')).toBe(GROUND_TILESETS['town']);
+    expect(groundTilesetFor('town#12', '#2f3b29')).toBe(GROUND_TILESETS['meadow']); // town → generated meadow
   });
 
   it('classifies unknown areas coarsely from their ground color', () => {

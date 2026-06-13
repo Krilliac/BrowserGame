@@ -11,11 +11,11 @@ const BIOMES: BiomeSpec[] = [
   {
     name: 'meadow',
     tileSize: 32,
-    hue: 110,
-    sat: 0.32,
-    light: 0.4,
+    hue: 104,
+    sat: 0.4,
+    light: 0.56,
     detail: 'flower',
-    detailHue: 320,
+    detailHue: 330,
   },
   { name: 'wastes', tileSize: 32, hue: 30, sat: 0.18, light: 0.36, detail: 'crack', detailHue: 24 },
   {

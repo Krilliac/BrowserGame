@@ -61,6 +61,37 @@ export interface GroundTileset {
 const TILES = '/assets/curated/tiles';
 
 export const GROUND_TILESETS: Record<string, GroundTileset> = {
+  // Generated meadow (tools/assetgen/tiles) — our own art, replacing the licensed Mana Seed grass for
+  // the village green. Base-heavy weighted tiles + a clustered wildflower blend (RENDER-04).
+  meadow: {
+    src: `${TILES}/meadow.png`,
+    tileSize: 32,
+    tiles: [
+      { col: 0, row: 0, weight: 60 },
+      { col: 1, row: 0, weight: 6 },
+      { col: 2, row: 0, weight: 6 },
+      { col: 3, row: 0, weight: 6 },
+      { col: 0, row: 1, weight: 6 },
+      { col: 1, row: 1, weight: 6 },
+      { col: 2, row: 1, weight: 6 },
+    ],
+    blend: {
+      patch: [
+        { col: 3, row: 1 },
+        { col: 0, row: 2 },
+        { col: 1, row: 2 },
+        { col: 2, row: 2 },
+        { col: 3, row: 2 },
+        { col: 0, row: 3 },
+        { col: 1, row: 3 },
+        { col: 2, row: 3 },
+        { col: 3, row: 3 },
+      ],
+      scale: 5,
+      threshold: 0.6,
+      margin: 0.1,
+    },
+  },
   // Aldermere village green — bright spring grass with wildflower patches clustered into beds.
   town: {
     src: `${TILES}/forest_spring.png`,
@@ -245,7 +276,7 @@ export const GROUND_TILESETS: Record<string, GroundTileset> = {
 
 /** Every area seeded in shared/areas.ts → its biome key (dungeons reuse overworld biomes). */
 const AREA_BIOME: Record<string, string> = {
-  town: 'town',
+  town: 'meadow', // generated meadow (our art) instead of the licensed grass pack
   wilderness: 'forest',
   marsh: 'marsh',
   crypt: 'crypt',
