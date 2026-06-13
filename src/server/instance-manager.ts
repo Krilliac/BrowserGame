@@ -1,3 +1,4 @@
+import { config } from './config.js';
 import { World, type PlayerSave } from './world.js';
 import { pointInRect, START_AREA, type AreaDef } from '../shared/areas.js';
 import { getContent } from './content.js';
@@ -5,13 +6,13 @@ import { AreaCorruption } from './area-corruption.js';
 
 /** Minimum players an instance holds before the load balancer spins up another — a global floor
  *  over the authored per-area caps, so a crowd (or a bot flood) stays together in one world.
- *  Sized to 100 deliberately: mob-density scaling caps per-instance (~1200 mobs at 6×), so packing
- *  more players into ONE instance is far cheaper for the whole-server tick than spreading them
- *  across many instances that each independently balloon their roster. The spatial-grid tickMobs
- *  keeps a packed instance at ~15ms p99 even at 500 players / 1200 mobs (tools/playtest/tick-bench).
- *  Network (per-socket snapshot/AoI) is the real concurrency ceiling (~500–600 single-process),
- *  and it's independent of how players are grouped — so a higher floor never costs more there. */
-const MIN_INSTANCE_CAP = 100;
+ *  Sized high deliberately (see config.instances.minCap): mob-density scaling caps per-instance
+ *  (~1200 mobs at 6×), so packing more players into ONE instance is far cheaper for the
+ *  whole-server tick than spreading them across many instances that each balloon their roster.
+ *  The spatial-grid tickMobs keeps a packed instance at ~15ms p99 even at 500 players / 1200 mobs
+ *  (tools/playtest/tick-bench). Network (per-socket snapshot/AoI) is the real concurrency ceiling
+ *  (~500–600 single-process), independent of grouping — so a higher floor never costs more there. */
+const MIN_INSTANCE_CAP = config.instances.minCap;
 
 /** One running area instance — conceptually its own "area server", here in-process. */
 export interface Instance {

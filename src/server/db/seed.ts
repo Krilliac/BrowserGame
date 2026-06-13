@@ -1,4 +1,5 @@
 import type { Database } from 'better-sqlite3';
+import { config } from '../config.js';
 import { AREAS, AREA_THEMES, type DecorProp } from '../../shared/areas.js';
 import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
@@ -920,7 +921,7 @@ function ensureSpellbookContent(db: Database): void {
 /** Seed a default developer account if none exists. Password from DEV_PASSWORD (default insecure). */
 function seedAccounts(db: Database): void {
   if (accountCount(db) > 0) return;
-  const password = process.env.DEV_PASSWORD ?? 'changeme';
+  const password = config.server.devPassword;
   if (password === 'changeme') {
     console.warn(
       '[accounts] seeding dev account with default password — set DEV_PASSWORD to secure it.',

@@ -24,6 +24,7 @@ import {
   type AbilityId,
   type FxEvent,
 } from '../shared/combat.js';
+import { config } from './config.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
 import {
   applyCrit,
@@ -130,10 +131,10 @@ function asBaseItem(def: {
 }
 
 const PICKUP_RADIUS = 30;
-const ITEM_TTL_MS = 30_000;
+const ITEM_TTL_MS = config.items.itemTtlMs;
 
 /** Rift gold fee per tier â€” the endgame gold sink; the risk you choose is the fee you pay. */
-const RIFT_COST_PER_TIER = 100;
+const RIFT_COST_PER_TIER = config.economy.riftCostPerTier;
 /** Highest rift tier a player may open: one tier unlocked per 3 levels, clamped to 1..10. */
 function maxRiftTier(level: number): number {
   return Math.max(1, Math.min(10, Math.floor(level / 3)));
@@ -141,88 +142,88 @@ function maxRiftTier(level: number): number {
 const INTERACT_RANGE = 70;
 // The unequipped-gear bag holds up to this many pieces; a new piece beyond the cap evicts the oldest
 // (sell or equip to keep the good stuff). The HUD only shows the newest few â€” see the client.
-const MAX_BAG_GEAR = 30;
+const MAX_BAG_GEAR = config.items.maxBagGear;
 // Bank stash slots â€” far larger than the bag, so the overflow has somewhere safe to go.
-const STASH_CAP = 60;
+const STASH_CAP = config.items.stashCap;
 // Shrines (decor kind 'shrine'): step within this radius to be blessed; the shrine then recharges
 // for the cooldown before it can bless again (shared across players, Diablo-shrine style).
 const SHRINE_RADIUS = 46;
 const SHRINE_COOLDOWN_MS = 60_000;
 // Chests (decor kind 'chest'): walk within this radius to pry one open once; it spills gold + gear.
 const CHEST_RADIUS = 52;
-const CHEST_GOLD_MIN = 25;
-const CHEST_GOLD_MAX = 90;
+const CHEST_GOLD_MIN = config.economy.chestGoldMin;
+const CHEST_GOLD_MAX = config.economy.chestGoldMax;
 
 // Breakable pots (decor kind 'pot'): brush against one to smash it â€” a little gold spills out,
 // and once in a while it tops up a belt potion. The Diablo "smash everything" dopamine layer.
 const POT_RADIUS = 30;
-const POT_GOLD_MIN = 2;
-const POT_GOLD_MAX = 14;
+const POT_GOLD_MIN = config.economy.potGoldMin;
+const POT_GOLD_MAX = config.economy.potGoldMax;
 
 // Global difficulty tuning â€” the world is balanced to be DANGEROUS: monsters hit much harder,
 // live longer, and notice you from farther away, so ground is earned rather than strolled
 // through. Pairs with the exponential XP curve (progression.ts) for an hours-long climb.
-const MOB_DMG_TUNING = 1.5;
-const MOB_HP_TUNING = 1.4;
-const MOB_AGGRO_TUNING = 1.2;
+const MOB_DMG_TUNING = config.difficulty.mobDamage;
+const MOB_HP_TUNING = config.difficulty.mobHp;
+const MOB_AGGRO_TUNING = config.difficulty.mobAggro;
 // Per-level HP growth (×(1 + this×level)): early mobs barely change (L2 ≈ +10%), late mobs and
 // bosses get genuinely tanky (L18 ≈ +1.9×, L40 ≈ +3×) so player power growth never trivializes
 // a same-level fight. Calibrated against the pacing sim's one-shot-by-L8 finding.
-const LEVEL_HP_SCALE = 0.05;
+const LEVEL_HP_SCALE = config.difficulty.levelHpScale;
 // Co-op difficulty: each extra living player in an instance raises monster outgoing damage by
 // this much (capped), so grouping up makes the area meaningfully harder — survival wants a team.
-const COOP_DAMAGE_PER_PLAYER = 0.15;
-const COOP_DAMAGE_CAP = 2.2;
+const COOP_DAMAGE_PER_PLAYER = config.coop.damagePerPlayer;
+const COOP_DAMAGE_CAP = config.coop.damageCap;
 // Crowd mob-density scaling (maintainDensity): each extra living player raises the target living-
 // mob count by this fraction of the base roster, capped, topped up gradually so a flooded zone
 // stays full of targets instead of being farmed to extinction.
-const DENSITY_PER_PLAYER = 0.25;
-const DENSITY_CAP = 6;
-const DENSITY_TOPUP_PER_CALL = 40;
+const DENSITY_PER_PLAYER = config.density.perPlayer;
+const DENSITY_CAP = config.density.cap;
+const DENSITY_TOPUP_PER_CALL = config.density.topupPerCall;
 // Radius within which same-template monsters count as "packmates" for the trait AI (pack speed,
 // craven-in-numbers). Queried via a spatial grid so it's a local check, not an O(mobs²) scan.
 const PACK_RADIUS = 220;
 
 // Quick-use potion belt: instant restore on use, a shared use-cooldown, and a carry cap. Topped up
 // by the Healer and found in chests â€” the active-survival layer on top of passive regen.
-const POTION_CAP = 8;
-const POTION_START = 3; // a new character starts with a few of each
-const POTION_HEAL = 70; // HP restored by a health potion
-const POTION_MANA = 60; // mana restored by a mana potion
-const POTION_COOLDOWN_MS = 2500;
+const POTION_CAP = config.potions.cap;
+const POTION_START = config.potions.start; // a new character starts with a few of each
+const POTION_HEAL = config.potions.heal; // HP restored by a health potion
+const POTION_MANA = config.potions.mana; // mana restored by a mana potion
+const POTION_COOLDOWN_MS = config.potions.cooldownMs;
 // Passive skill-tree points earned per level (separate pool from attribute points).
-const SKILL_POINTS_PER_LEVEL = 1;
+const SKILL_POINTS_PER_LEVEL = config.progression.skillPointsPerLevel;
 // Unique (named legendary) drop chances: the loot chase. A slim base chance on any gear drop, better
 // from a chest. Elites/bosses already drop more gear, so they roll the base chance more often.
-const UNIQUE_DROP_CHANCE = 0.02;
-const CHEST_UNIQUE_CHANCE = 0.08;
+const UNIQUE_DROP_CHANCE = config.drops.unique;
+const CHEST_UNIQUE_CHANCE = config.drops.chestUnique;
 // Artificer service costs (flat, predictable): reroll an item's affixes for gold + a rune shard;
 // pop a socketed gem back to the bag for gold.
-export const ARTIFICER_REROLL_GOLD = 250;
-export const ARTIFICER_UNSOCKET_GOLD = 120;
+export const ARTIFICER_REROLL_GOLD = config.economy.artificerRerollGold;
+export const ARTIFICER_UNSOCKET_GOLD = config.economy.artificerUnsocketGold;
 const DASH_MS = 300; // how long a charger's lunge lasts
 
 // Living loot meta â€” a "hunting bounty" per monster type that regenerates while it is left alone and
 // is consumed on a kill, so the first kills after a lull are richer and spam-farming yields base loot.
-const BOUNTY_FULL_MS = 60_000; // a minute untouched = a full bounty
-const BOUNTY_MAX_CHANCE = 0.5; // bonus-drop chance at a full bounty
+const BOUNTY_FULL_MS = config.bounty.fullMs; // a minute untouched = a full bounty
+const BOUNTY_MAX_CHANCE = config.bounty.maxChance; // bonus-drop chance at a full bounty
 
 // Extra corrupted-gear sources independent of the area's corruption level: a slim chance from
 // invasion champions, and an even slimmer chance from bosses (below the ~0.43% legendary rate).
-const INVASION_CORRUPT_CHANCE = 0.08;
-const BOSS_CORRUPT_CHANCE = 0.003;
+const INVASION_CORRUPT_CHANCE = config.bounty.invasionCorruptChance;
+const BOSS_CORRUPT_CHANCE = config.bounty.bossCorruptChance;
 
 // Spellbook drops: spells are loot. An independent per-kill roll (separate from gear/materials)
 // drops a random tome â€” the exciting acquisition path beside the deterministic vendor shelf.
 // Tuned to ~1â€“2 books per play-hour in level-appropriate content (PoE2 uncut-gem model).
-const SPELLBOOK_DROP_NORMAL = 0.004; // 0.4% per ordinary kill (1 in 250)
-const SPELLBOOK_DROP_ELITE = 0.03; // 3% per champion
-const SPELLBOOK_DROP_BOSS = 0.3; // 30% per area boss
+const SPELLBOOK_DROP_NORMAL = config.drops.spellbookNormal; // 0.4% per ordinary kill (1 in 250)
+const SPELLBOOK_DROP_ELITE = config.drops.spellbookElite; // 3% per champion
+const SPELLBOOK_DROP_BOSS = config.drops.spellbookBoss; // 30% per area boss
 
 // Gem drops: more common than spellbooks (they stack into sockets, a smaller per-item bonus).
-const GEM_DROP_NORMAL = 0.02; // 2% per ordinary kill
-const GEM_DROP_ELITE = 0.12; // 12% per champion
-const GEM_DROP_BOSS = 0.6; // 60% per area boss
+const GEM_DROP_NORMAL = config.drops.gemNormal; // 2% per ordinary kill
+const GEM_DROP_ELITE = config.drops.gemElite; // 12% per champion
+const GEM_DROP_BOSS = config.drops.gemBoss; // 60% per area boss
 
 // How often a support-caster monster may re-cast its self-buff/heal (War Cry / Sprint / Renew).
 const MOB_SUPPORT_COOLDOWN_MS = 7000;
@@ -230,12 +231,12 @@ const MOB_SUPPORT_COOLDOWN_MS = 7000;
 // Vendor stock: spell prices are scaled up (a gold sink that keeps drops the exciting path), and a
 // vendor shows only a rotating WINDOW of its tomes so the shop never overflows the UI. The window
 // advances on a sim-time bucket, so the spell selection rotates over the session.
-const VENDOR_PRICE_MULT = 1.6;
-const VENDOR_STOCK_CAP = 10;
-const VENDOR_ROTATE_MS = 240_000; // ~4 minutes per rotation
+const VENDOR_PRICE_MULT = config.economy.vendorPriceMult;
+const VENDOR_STOCK_CAP = config.economy.vendorStockCap;
+const VENDOR_ROTATE_MS = config.economy.vendorRotateMs; // ~4 minutes per rotation
 
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
-const ELITE_CHANCE = 0.09;
+const ELITE_CHANCE = config.difficulty.eliteChance;
 const ELITE_MODIFIERS: { name: string; hp: number; dmg: number; spd: number }[] = [
   { name: 'Swift', hp: 2.0, dmg: 1.3, spd: 1.6 }, // fast and harassing
   { name: 'Brutal', hp: 2.4, dmg: 1.9, spd: 1.0 }, // hits like a truck

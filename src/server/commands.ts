@@ -1,3 +1,4 @@
+import { config } from './config.js';
 import { AccessLevel, accessName } from './accounts.js';
 import { THEME_KEYS, type AreaTheme } from '../shared/theme.js';
 import type { World } from './world.js';
@@ -48,7 +49,7 @@ interface Command {
 // Max bots a SINGLE /bot call may spawn — generous (a real flood) but finite so a typo like
 // /bot 9999999 can't lock the event loop joining entities. Run the command repeatedly to stack
 // past this into an arbitrarily large army.
-const BOT_SPAWN_PER_CALL_MAX = 2000;
+const BOT_SPAWN_PER_CALL_MAX = config.bots.spawnPerCallMax;
 
 function int(args: string[], i: number, fallback: number): number {
   const n = Number.parseInt(args[i] ?? '', 10);

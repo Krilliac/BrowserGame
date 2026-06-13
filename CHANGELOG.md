@@ -28,8 +28,28 @@ versioning once it stabilizes.
   artificer action (reroll / unsocket / combine) silently failed its proximity check. The allowlist
   now includes `artificer`, restoring the whole crafting window. (Found by the new gem-combine tests.)
 
+### Performance
+
+- **Spatial grid for `tickMobs` — a packed instance now ticks ~3× under budget.** The two
+  `O(mobs²)` passes (pack-proximity counting + crowd separation, ~1.44M distance checks/tick once
+  density scaled mobs to the ~1200 cap) drove the 20Hz tick to ~44ms avg / 58ms p99, over the 50ms
+  budget. Both now use `SpatialGrid.queryRadius`. Benchmark (`tools/playtest/tick-bench.ts`,
+  Gloomwood, density-scaled): 500 players / 1200 mobs went from ~58ms p99 to **~15–20ms p99** — a
+  single instance comfortably holds a 500-bot "best-case launch" wave.
+
 ### Changed
 
+- **All tunable server/balance knobs live in one file (`src/server/config.ts`).** Difficulty,
+  co-op + crowd-density scaling, world scaling, drop rates, the economy, the bounty/corruption +
+  invasion meta, item/potion limits, instance capacity, bot limits, and the operational settings
+  (port, tick rate, instancing, admin token, db path, dev password — with their env overrides) are
+  no longer scattered across `world.ts`/`index.ts`/`content.ts`/etc. Each module binds its local
+  names to `config.*`, so editing one file retunes the game. The two wire-shared pure modules
+  (the XP curve in `progression.ts`, the combat math in `combat-formulas.ts`) deliberately stay
+  self-contained — they're client-importable and must remain free of any `process.env` dependency.
+- **Per-instance player floor raised 50 → 100.** Mob-density scaling caps *per instance*, so packing
+  players into fewer, fuller instances is cheaper for the whole-server tick than spreading them
+  across instances that each balloon to the ~1200-mob cap. (See `config.instances.minCap`.)
 - **Mob HP scales with level.** Player attack power climbs fast (gear + strength + skill nodes),
   so without this a mid-level monster died in one hit and the danger evaporated. Mob HP now grows
   ×(1 + 0.05 × level) — early mobs barely change, but L18 mobs are ~1.9× tankier and the L40+ apex
