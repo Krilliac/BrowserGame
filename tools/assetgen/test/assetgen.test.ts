@@ -215,3 +215,19 @@ describe('sprites/synth — equipment layers (paper-doll)', () => {
     expect(armoredOpaque).toBeGreaterThan(bareOpaque); // layers add coverage
   });
 });
+
+describe('creatures/synth — generated mob sheets', () => {
+  it('renders each creature deterministically with an 8-dir engine-matching manifest', async () => {
+    const { CREATURES, synthCreature } = await import('../creatures/synth.ts');
+    for (const spec of CREATURES) {
+      const a = synthCreature(spec, `/x/${spec.name}.png`);
+      const b = synthCreature(spec, `/x/${spec.name}.png`);
+      expect(Buffer.from(a.png).equals(Buffer.from(b.png))).toBe(true);
+      expect(a.manifest.dirCount).toBe(8);
+      expect(Object.keys(a.manifest.clips).sort()).toEqual(
+        ['attack', 'death', 'hurt', 'idle', 'walk'].sort(),
+      );
+      expect(a.manifest.clips.hurt!.dirless).toBe(true);
+    }
+  });
+});

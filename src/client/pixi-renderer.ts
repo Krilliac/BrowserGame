@@ -91,7 +91,6 @@ const DEPTH_SCALE_K = 0.00035; // per world-unit of y relative to the camera
 const DEPTH_SCALE_MIN = 0.9;
 const DEPTH_SCALE_MAX = 1.12;
 const FX_DURATION = 700;
-const WALK_FRAME_MS = 120;
 
 // Light sources for the lighting overlay: the local player carries a warm torch, and portals glow.
 const PLAYER_LIGHT = { radius: 190, color: 0xffd9a0 };
@@ -170,25 +169,6 @@ interface Sheet {
 }
 
 /**
- * The Universal LPC Spritesheet block layout (832×1344 = 21 rows): each animation block is 4 rows
- * in the order up(N)/left(W)/down(S)/right(E). spellcast 0–3, thrust 4–7, walk 8–11, slash 12–15,
- * shoot 16–19, hurt/death 20 (a single down-facing row whose last frame is the fallen pose).
- */
-function lpcClips(): ClipSet {
-  return {
-    dirOrder: ['N', 'W', 'S', 'E'],
-    clips: {
-      idle: { row0: 8, startCol: 0, frames: 1, perFrameMs: 1, loop: true },
-      walk: { row0: 8, startCol: 1, frames: 8, perFrameMs: WALK_FRAME_MS, loop: true },
-      cast: { row0: 0, startCol: 0, frames: 7, perFrameMs: 70, loop: false },
-      attack: { row0: 12, startCol: 0, frames: 6, perFrameMs: 60, loop: false },
-      hurt: { row0: 20, startCol: 0, frames: 6, perFrameMs: 45, loop: false, dirless: true },
-      death: { row0: 20, startCol: 0, frames: 6, perFrameMs: 75, loop: false, dirless: true },
-    },
-  };
-}
-
-/**
  * 16-direction adventurer clip set (RENDER-09) — matches the procedurally-generated sheet from
  * `tools/assetgen/sprites` (public/assets/sprites/adventurer16.json). 16 directional rows per clip,
  * ordered clockwise from East (engine `dirIndex`); hurt/death are dirless single rows.
@@ -221,6 +201,25 @@ const EQUIP_LAYER_SRCS: Record<string, string> = {
 };
 const EQUIP_LAYER_ORDER = ['armor', 'weapon', 'helm'] as const;
 
+/**
+ * 8-direction creature clip set — matches the generated creature sheets from `tools/assetgen/creatures`
+ * (skeleton/wolf/bat). idle/walk/attack are directional (8 rows each, clockwise from East via
+ * `dirIndex`); hurt/death are dirless single rows. Replaces the licensed LPC mob art.
+ */
+function creatureClips(): ClipSet {
+  return {
+    dirOrder: ['N', 'W', 'S', 'E'], // unused when dirCount > 4
+    dirCount: 8,
+    clips: {
+      idle: { row0: 0, startCol: 0, frames: 1, perFrameMs: 260, loop: true },
+      walk: { row0: 8, startCol: 0, frames: 6, perFrameMs: 120, loop: true },
+      attack: { row0: 16, startCol: 0, frames: 5, perFrameMs: 65, loop: false },
+      hurt: { row0: 24, startCol: 0, frames: 3, perFrameMs: 55, loop: false, dirless: true },
+      death: { row0: 25, startCol: 0, frames: 4, perFrameMs: 90, loop: false, dirless: true },
+    },
+  };
+}
+
 const SHEETS: Record<string, Sheet> = {
   // The player/NPCs/hirelings use the generated 16-direction adventurer for smooth rotation (RENDER-09).
   hero: {
@@ -230,42 +229,23 @@ const SHEETS: Record<string, Sheet> = {
     scale: 0.95,
     clips: adventurer16Clips(),
   },
+  // Mobs use generated 8-direction creature sheets (our art, replacing the licensed LPC packs).
   skeleton: {
-    src: '/assets/sprites/skeleton_lpc.png',
-    fw: 64,
-    fh: 64,
-    scale: 0.7,
-    clips: lpcClips(),
+    src: '/assets/sprites/skeleton_gen.png',
+    fw: 48,
+    fh: 48,
+    scale: 0.95,
+    clips: creatureClips(),
   },
-  // Wolf: a 6-row walk-only sheet (4 directional walk rows). No action clips → falls back to walk.
-  wolf: {
-    src: '/assets/sprites/wolf_lpc.png',
-    fw: 64,
-    fh: 64,
-    scale: 0.75,
-    clips: {
-      dirOrder: ['N', 'W', 'S', 'E'],
-      clips: {
-        idle: { row0: 0, startCol: 0, frames: 1, perFrameMs: 1, loop: true },
-        walk: { row0: 0, startCol: 0, frames: 9, perFrameMs: WALK_FRAME_MS, loop: true },
-      },
-    },
+  wolf: { src: '/assets/sprites/wolf_gen.png', fw: 48, fh: 48, scale: 1.0, clips: creatureClips() },
+  bat: { src: '/assets/sprites/bat_gen.png', fw: 48, fh: 48, scale: 1.0, clips: creatureClips() },
+  boss: {
+    src: '/assets/sprites/skeleton_gen.png',
+    fw: 48,
+    fh: 48,
+    scale: 1.8,
+    clips: creatureClips(),
   },
-  // Bat: 32px 4×4 sheet, direction rows S/W/E/N, 4 flap frames.
-  bat: {
-    src: '/assets/sprites/bat.png',
-    fw: 32,
-    fh: 32,
-    scale: 1.5,
-    clips: {
-      dirOrder: ['S', 'W', 'E', 'N'],
-      clips: {
-        idle: { row0: 0, startCol: 0, frames: 4, perFrameMs: WALK_FRAME_MS, loop: true },
-        walk: { row0: 0, startCol: 0, frames: 4, perFrameMs: WALK_FRAME_MS, loop: true },
-      },
-    },
-  },
-  boss: { src: '/assets/sprites/skeleton_lpc.png', fw: 64, fh: 64, scale: 1.6, clips: lpcClips() },
 };
 
 /**

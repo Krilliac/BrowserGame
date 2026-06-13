@@ -29,6 +29,7 @@
     "chaos": "tsx tools/bots/chaos.ts",
     "screenshot": "node scripts/screenshot.mjs",
     "gen:sprites": "tsx tools/assetgen/sprites/cli.ts",
+    "gen:creatures": "tsx tools/assetgen/creatures/cli.ts",
     "gen:fx": "tsx tools/assetgen/fx/cli.ts",
     "gen:tiles": "tsx tools/assetgen/tiles/cli.ts",
     "gen:icons": "tsx tools/assetgen/icons/cli.ts",
