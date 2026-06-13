@@ -8,6 +8,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Direction-count-aware animation (RENDER-09).** The animation controller now supports 8/16-
+  direction sheets via an optional `ClipSet.dirCount`: a sheet that declares it rotates in that many
+  steps (`dirIndex`, clockwise from East) for smoother hero/boss turning, while sheets that don't
+  (every sheet today) keep the exact 4-cardinal mapping — so behavior is unchanged until 16-direction
+  art is added, then it activates per-sheet with a clean fall-back.
 - **Extended weather (RENDER-14).** Four new weather types widen the mood range: `ash` (slow grey
   drift), `sand` (fast wind-blown grit), `leaves` (tumbling autumn leaves with spin), and `lightning`
   (occasional full-screen flashes). Each respects `weatherIntensity` and "reduce effects", and all

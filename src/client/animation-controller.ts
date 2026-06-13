@@ -32,6 +32,13 @@ export interface Clip {
 export interface ClipSet {
   /** Maps a Dir to its row offset within a block: index = dirOrder.indexOf(dir). */
   dirOrder: Dir[];
+  /**
+   * Direction count for this sheet (RENDER-09). Omitted/4 → the classic `dirOrder` cardinal mapping
+   * (unchanged). 8 or 16 → the sheet has that many directional rows, ordered clockwise from East
+   * (E, then clockwise), and the row offset is `dirIndex(facing, dirCount)`. A higher-direction hero
+   * sheet rotates more smoothly; mobs that only ship 4-dir art simply omit this and are unaffected.
+   */
+  dirCount?: 4 | 8 | 16;
   clips: Partial<Record<AnimState, Clip>>;
 }
 
@@ -58,6 +65,17 @@ export function newAnimView(): AnimView {
 export function dirOf(facing: number): Dir {
   const q = ((Math.round(facing / (Math.PI / 2)) % 4) + 4) % 4;
   return (['E', 'S', 'W', 'N'] as const)[q]!;
+}
+
+/**
+ * Quantize a facing angle to a directional ROW INDEX for an N-direction sheet (RENDER-09): index 0
+ * is East and increases clockwise (E → S → W → N, matching `dirOf` at N=4), since screen +y points
+ * south. Used by sheets that declare `dirCount` 8 or 16 for smoother rotation. Pure → unit-tested.
+ */
+export function dirIndex(facing: number, dirCount: number): number {
+  const n = Math.max(1, Math.round(dirCount));
+  const step = (Math.PI * 2) / n;
+  return ((Math.round(facing / step) % n) + n) % n;
 }
 
 /**
@@ -91,12 +109,10 @@ export function resolveAnim(
   moving: boolean,
   now: number,
 ): { row: number; col: number } {
-  const dir = dirOf(facing);
-
   // Death is terminal: play the death clip and hold its last frame.
   if (v.dead) {
     const clip = set.clips.death ?? set.clips.hurt;
-    if (clip) return frameAt(set, dir, clip, clip.frames - 1);
+    if (clip) return frameAt(set, facing, clip, clip.frames - 1);
   }
 
   // An in-flight one-shot owns the pose until it ends.
@@ -104,7 +120,7 @@ export function resolveAnim(
     const clip = set.clips[v.action];
     if (clip) {
       const idx = Math.min(clip.frames - 1, Math.floor((now - v.actionStart) / clip.perFrameMs));
-      return frameAt(set, dir, clip, idx);
+      return frameAt(set, facing, clip, idx);
     }
   }
   v.action = null; // one-shot finished (or its clip vanished) → back to locomotion
@@ -115,15 +131,26 @@ export function resolveAnim(
   const idx = clip.loop
     ? Math.floor(now / clip.perFrameMs) % clip.frames
     : Math.min(clip.frames - 1, Math.floor((now - v.actionStart) / clip.perFrameMs));
-  return frameAt(set, dir, clip, idx);
+  return frameAt(set, facing, clip, idx);
 }
 
+/**
+ * Row/col for a frame. Directional clips offset their row by the facing's direction index: a sheet
+ * declaring `dirCount` 8/16 uses the clockwise-from-East `dirIndex` (RENDER-09); otherwise the
+ * classic 4-cardinal `dirOrder` mapping is used unchanged. `dirless` clips ignore facing entirely.
+ */
 function frameAt(
   set: ClipSet,
-  dir: Dir,
+  facing: number,
   clip: Clip,
   frameIdx: number,
 ): { row: number; col: number } {
-  const dirIdx = clip.dirless ? 0 : Math.max(0, set.dirOrder.indexOf(dir));
+  let dirIdx = 0;
+  if (!clip.dirless) {
+    dirIdx =
+      set.dirCount && set.dirCount > 4
+        ? dirIndex(facing, set.dirCount)
+        : Math.max(0, set.dirOrder.indexOf(dirOf(facing)));
+  }
   return { row: clip.row0 + dirIdx, col: clip.startCol + frameIdx };
 }

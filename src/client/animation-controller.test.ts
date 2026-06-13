@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  dirIndex,
   dirOf,
   newAnimView,
   resolveAnim,
@@ -125,3 +126,50 @@ function newAnimView2(state: 'hurt'): ReturnType<typeof newAnimView> {
   triggerOneShot(v, state, 0, LPC);
   return v;
 }
+
+/** A 16-direction hero sheet (RENDER-09): walk rows are ordered clockwise from East by dirIndex. */
+const HERO16: ClipSet = {
+  dirOrder: ['N', 'W', 'S', 'E'], // unused when dirCount > 4, but kept for the type
+  dirCount: 16,
+  clips: {
+    walk: { row0: 0, startCol: 0, frames: 8, perFrameMs: 100, loop: true },
+  },
+};
+
+describe('dirIndex (RENDER-09)', () => {
+  it('quantizes to N rows, clockwise from East, and wraps', () => {
+    expect(dirIndex(0, 8)).toBe(0); // East
+    expect(dirIndex(Math.PI * 2, 8)).toBe(0); // wraps a full turn
+    expect(dirIndex(Math.PI / 2, 8)).toBe(2); // quarter turn = 2/8
+    expect(dirIndex(Math.PI, 16)).toBe(8); // half turn = 8/16
+  });
+
+  it('handles negative angles (North) without going out of range', () => {
+    const i = dirIndex(-Math.PI / 2, 16);
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(i).toBeLessThan(16);
+    expect(i).toBe(12); // three-quarter turn clockwise from East
+  });
+
+  it('agrees with the 4-cardinal mapping at N=4 (0=E, 1=S, 2=W, 3=N)', () => {
+    expect(dirIndex(0, 4)).toBe(0);
+    expect(dirIndex(Math.PI / 2, 4)).toBe(1);
+    expect(dirIndex(Math.PI, 4)).toBe(2);
+    expect(dirIndex(-Math.PI / 2, 4)).toBe(3);
+  });
+});
+
+describe('resolveAnim with a 16-direction sheet (RENDER-09)', () => {
+  it('offsets the walk row by the 16-way direction index', () => {
+    const v = newAnimView();
+    expect(resolveAnim(v, HERO16, 0, true, 0).row).toBe(0); // East → row 0
+    expect(resolveAnim(v, HERO16, Math.PI / 2, true, 0).row).toBe(4); // South → row 4
+    expect(resolveAnim(v, HERO16, Math.PI, true, 0).row).toBe(8); // West → row 8
+  });
+
+  it('8-dir/4-dir sheets are unaffected (fall back to the cardinal dirOrder mapping)', () => {
+    const v = newAnimView();
+    // LPC has dirOrder ['N','W','S','E']; East → index 3 → walk row 8+3 = 11.
+    expect(resolveAnim(v, LPC, 0, true, 0).row).toBe(11);
+  });
+});
