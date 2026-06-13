@@ -34,7 +34,6 @@ import {
   sunGpuLight,
   type GpuLight,
 } from './deferred-lighting.js';
-import { NORMAL_OVERRIDES, hasRealNormals } from './normal-atlas.js';
 import { AREA_SCREEN_FX, ScreenFx } from './screen-fx.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
@@ -393,13 +392,11 @@ export class PixiRenderer {
   private readonly decals = new Decals(this.quality);
   // General particle bursts (sparks, blood spray, dust, embers) in the world-space fxLayer.
   private readonly particles = new ParticleSystem(this.quality);
-  // Deferred normal-mapped lighting (RENDER-01). Inactive until 'high' quality AND real normal maps
-  // load; today none exist, so the additive-halo lighting below carries the scene unchanged.
+  // Per-pixel dynamic lighting (RENDER-01): derives normals from the albedo and rakes light across
+  // surface relief. Enabled on 'high' quality (off on touch). The additive halos still draw on top.
   private readonly deferred = new DeferredLighting();
   // Screen-space sprite that shows the deferred-lit result in place of the world when the pass runs.
   private readonly litSprite = new Sprite();
-  // Normal-map srcs that actually loaded — drives whether the deferred pass activates.
-  private readonly loadedNormals = new Set<string>();
   // Per-area screen polish filters: godrays / heat-haze / LUT grade (RENDER-10/12/13). Default-off.
   private readonly screenFx = new ScreenFx(this.quality);
   private readonly grade = new ColorMatrixFilter(); // per-area color grading (one pass on the world)
@@ -538,24 +535,9 @@ export class PixiRenderer {
       ),
     );
 
-    // Optional normal maps (RENDER-01): load any registered `*_n.png` sheets independently. The
-    // override map is empty until normal art is authored, so today nothing loads and the deferred
-    // lighting pass stays inactive — the scene renders exactly as it does now. Register a sheet's
-    // normal map in NORMAL_OVERRIDES (or drop the conventional `<sheet>_n.png`) to light it per-pixel.
-    const normalSrcs = Object.values(NORMAL_OVERRIDES);
-    if (normalSrcs.length > 0) {
-      await Promise.allSettled(
-        normalSrcs.map(async (src) => {
-          const t = (await Assets.load({ src })) as Texture;
-          if (t) {
-            t.source.scaleMode = 'nearest';
-            this.loadedNormals.add(src);
-          }
-        }),
-      );
-    }
-    // Activate the deferred pass only on desktop ('high') once at least one real normal map loaded.
-    this.deferred.setEnabled(this.quality === 'high' && hasRealNormals(this.loadedNormals));
+    // Per-pixel dynamic lighting (RENDER-01) derives normals from the albedo, so it needs no normal
+    // art — enable it on desktop ('high'); touch keeps the cheaper additive-halo-only lighting.
+    this.deferred.setEnabled(this.quality === 'high');
 
     // Optional per-area LUT textures for the ColorMapFilter grade (RENDER-12). Empty until an area
     // registers a `lut` in AREA_SCREEN_FX, so today nothing loads and the ColorMatrix grade stays.

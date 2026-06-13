@@ -47,16 +47,15 @@ versioning once it stabilizes.
   the shadow reads as a real cast silhouette that matches the pose (D2's method). The copy shares the
   body's frame texture (no per-frame texture allocation) and updates with the pose, including the
   corpse frame on death. Minor mobs and flyers keep the cheap blob.
-- **Deferred normal-mapped lighting pipeline (RENDER-01).** The light contract + GPU composite for
-  real per-pixel lighting (point lights and a directional sun shading geometry through normal maps).
-  The pure light pipeline — screen projection, deterministic farthest-first cull to 16 lights, sun
-  derivation, night modulation, uniform packing — is complete and unit-tested. The composite uses a
-  relief formulation so a flat (un-mapped) normal is an exact identity. The pass is activation-gated:
-  it runs only on desktop ('high') once at least one real `*_n.png` normal map loads. **No normal art
-  exists yet, so the pass is inactive and the scene renders exactly as before** — drop a normal map
-  beside a sheet (or register it in `NORMAL_OVERRIDES`) to light that surface per-pixel, sheet by
-  sheet. Touch devices always keep the existing additive-halo lighting. (The GPU composite path
-  itself awaits visual verification once normal art is added.)
+- **Per-pixel dynamic lighting (RENDER-01).** A GPU pass renders the world to an albedo target, then
+  a fullscreen composite **derives per-pixel normals from the albedo's luminance gradient** (a Sobel
+  emboss — so no normal-map art is needed; existing sprite/ground detail is the relief) and rakes the
+  screen-space light list (torches, portals, spells, a directional sun) across it. A relief
+  formulation (`lit = albedo·(1 + Σrelief)`) preserves daylight exposure — only textured surfaces and
+  edges catch each light's direction. Enabled on desktop ('high'); touch keeps the cheaper additive
+  halos, which still draw on top everywhere. The pure light pipeline (projection, farthest-first cull
+  to 16, sun, night modulation, packing) is unit-tested; the GPU result was verified via the
+  screenshot harness. Replaces the earlier normal-map-asset approach (no art dependency).
 - **Tall-object depth sorting (RENDER-05).** Line props (palisade/fence walls) are now built as one
   container per stake, each sorting at its own ground row, so an actor walking alongside a long wall
   is correctly occluded by the posts north of their feet and occludes the posts to the south —

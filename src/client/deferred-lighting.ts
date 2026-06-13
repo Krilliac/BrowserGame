@@ -1,24 +1,21 @@
 /**
- * Deferred normal-mapped lighting (RENDER-01).
+ * Per-pixel dynamic lighting (RENDER-01).
  *
- * Goal: real per-pixel lighting — point lights (torches, spells, portals) and one global "sun"
- * shade actor/ground geometry through normal maps, so a torch to the player's left genuinely darkens
- * their right side. This module owns two parts:
+ * Real per-pixel lighting — point lights (torches, spells, portals) and one global "sun" rake across
+ * surface relief, so a torch to one side genuinely shades the other. Two parts:
  *
  *   1. A PURE light pipeline (no Pixi): project gathered lights into the GPU light contract, derive
  *      the directional sun, modulate by night, cull to MAX_LIGHTS deterministically (farthest from
- *      the camera focus dropped first), and pack into flat uniform arrays. This is the genuinely
- *      reusable, unit-tested core.
- *   2. A GPU composite pass (`DeferredLighting`) that renders the world's albedo + normals to render
- *      targets and composites them through the light list. It is ACTIVATION-GATED: it only runs when
- *      quality is 'high' AND at least one real normal map has loaded (`hasRealNormals`). With no
- *      normal art — the state today — it stays inactive and the renderer keeps its additive-halo
- *      lighting, so the scene is byte-for-byte what it is now. The pass activates incrementally as
- *      `*_n.png` normal sheets are dropped in, sheet by sheet.
+ *      the camera focus dropped first), and pack into flat uniform arrays — reusable, unit-tested.
+ *   2. A GPU pass (`DeferredLighting`) that renders the world to an albedo target, then a fullscreen
+ *      composite DERIVES per-pixel normals from that albedo's luminance gradient (a Sobel emboss) and
+ *      lights them. Deriving normals from the art means NO normal-map assets are needed — the existing
+ *      sprite/ground detail is the relief. Gated to 'high' quality; the additive light halos still
+ *      draw on top, so this adds directional per-pixel relief without replacing the glow.
  *
  * The composite uses a RELIEF formulation: `lit = albedo * (1 + reliefContribution)`, where a flat
- * tangent-space normal `(0,0,1)` contributes exactly 0 — guaranteeing that un-mapped sprites render
- * identically to today, and only surfaces whose normals deviate from flat catch the raking light.
+ * region (derived normal ≈ +Z) contributes ~0 — so daylight scenes keep their exposure and only
+ * textured surfaces and edges catch the directional rake of each light.
  */
 
 import {
@@ -184,15 +181,19 @@ void main() {
   gl_Position = vec4(aPosition * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-// Relief composite: a FLAT normal (0,0,1) contributes 0, so un-mapped sprites are identity.
+// Composite: derive a per-pixel normal from the albedo's luminance gradient (a cheap Sobel emboss),
+// then light it. This needs NO normal-map art — surface detail in the existing sprites/ground IS the
+// relief. The RELIEF formulation (`lit = albedo * (1 + Σ relief)`) keeps overall exposure: flat
+// regions (normal ≈ +Z) get ~0 relief and are unchanged, so daylight scenes don't darken; only
+// textured surfaces and edges catch the directional rake of each light.
 const FRAG = `#version 300 es
 precision highp float;
 in vec2 vUV;
 out vec4 fragColor;
 
 uniform sampler2D uAlbedo;
-uniform sampler2D uNormal;
 uniform vec2  uResolution;
+uniform float uReliefStrength;
 uniform int   uLightCount;
 uniform vec2  uLightPos[${MAX_LIGHTS}];
 uniform float uLightZ[${MAX_LIGHTS}];
@@ -202,20 +203,22 @@ uniform float uLightIntensity[${MAX_LIGHTS}];
 uniform int   uLightKind[${MAX_LIGHTS}];
 uniform vec2  uSunDir[${MAX_LIGHTS}];
 
+float lum(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+
 void main() {
   vec4 albedo = texture(uAlbedo, vUV);
   if (albedo.a < 0.001) { fragColor = vec4(0.0); return; }
 
-  vec3 n = texture(uNormal, vUV).rgb * 2.0 - 1.0;
-  if (dot(n, n) < 0.01) n = vec3(0.0, 0.0, 1.0);
-  n = normalize(n);
+  // Screen-space normal from the albedo luminance gradient. Brighter→raised; the Z term keeps it
+  // mostly facing the camera so the relief stays subtle.
+  vec2 texel = 1.0 / uResolution;
+  float lL = lum(texture(uAlbedo, vUV - vec2(texel.x, 0.0)).rgb);
+  float lR = lum(texture(uAlbedo, vUV + vec2(texel.x, 0.0)).rgb);
+  float lU = lum(texture(uAlbedo, vUV - vec2(0.0, texel.y)).rgb);
+  float lD = lum(texture(uAlbedo, vUV + vec2(0.0, texel.y)).rgb);
+  vec3 n = normalize(vec3((lL - lR) * uReliefStrength, (lU - lD) * uReliefStrength, 1.0));
 
   vec2 fragPx = vUV * uResolution;
-  // Relief term accumulates how much each light rakes the surface RELATIVE to flat (n.z).
-  // For a flat normal n=(0,0,1): a point light's L.z/|L| equals what a flat surface already gets,
-  // so (ndl - flat) ≈ 0 and the pixel is unchanged. Only real surface relief produces shading —
-  // which is why un-mapped sprites stay identical to today (no ambient floor needed; the base is
-  // the already-exposed albedo).
   vec3 relief = vec3(0.0);
   for (int i = 0; i < ${MAX_LIGHTS}; i++) {
     if (i >= uLightCount) break;
@@ -233,30 +236,31 @@ void main() {
       atten *= atten;
     }
     float ndl = max(dot(n, L), 0.0);
-    float flat_ = max(L.z, 0.0); // what a flat surface would receive
-    relief += uLightColor[i] * uLightIntensity[i] * (ndl - flat_) * atten;
+    float flatN = max(L.z, 0.0); // what a flat surface would already receive
+    relief += uLightColor[i] * uLightIntensity[i] * (ndl - flatN) * atten;
   }
 
   vec3 lit = albedo.rgb * (1.0 + relief);
   fragColor = vec4(clamp(lit, 0.0, 1.0), albedo.a);
 }`;
 
+/** How strongly the albedo luminance gradient bends the derived normal (higher = sharper relief). */
+const RELIEF_STRENGTH = 10.0;
+
 /**
- * GPU deferred-lighting pass. Owns the albedo/normal/lit render targets and the composite mesh.
- * Inactive (and allocation-free) until `setEnabled(true)` — which the renderer only does on 'high'
- * quality once real normal maps have loaded. While inactive, `run()` is a no-op and the renderer's
- * existing additive-halo lighting carries the scene unchanged.
+ * GPU per-pixel lighting pass (RENDER-01). Renders the world to an albedo render target, then a
+ * fullscreen composite derives normals from that albedo and lights them with the screen-space light
+ * list, returning a lit RenderTexture the renderer shows in place of the world. The existing additive
+ * light halos still draw on top, so this adds directional per-pixel RELIEF (lights rake across
+ * surface detail) without darkening the scene. Inactive (allocation-free) until `setEnabled(true)`.
  */
 export class DeferredLighting {
   private enabled = false;
   private albedoRT?: RenderTexture;
-  private normalRT?: RenderTexture;
   private litRT?: RenderTexture;
   private mesh?: Mesh<Geometry, Shader>;
   private w = 0;
   private h = 0;
-  /** Flat fallback normal (0,0,1) for sprites with no normal map yet. */
-  private readonly flatNormal = makeFlatNormalTexture();
 
   isEnabled(): boolean {
     return this.enabled;
@@ -272,10 +276,8 @@ export class DeferredLighting {
     this.w = w;
     this.h = h;
     this.albedoRT?.destroy(true);
-    this.normalRT?.destroy(true);
     this.litRT?.destroy(true);
     this.albedoRT = RenderTexture.create({ width: w, height: h, antialias: false });
-    this.normalRT = RenderTexture.create({ width: w, height: h, antialias: false });
     this.litRT = RenderTexture.create({ width: w, height: h, antialias: false });
     if (!this.mesh) this.mesh = this.buildCompositeMesh();
   }
@@ -290,9 +292,9 @@ export class DeferredLighting {
       glProgram,
       resources: {
         uAlbedo: Texture.EMPTY.source,
-        uNormal: this.flatNormal.source,
         compositeUniforms: {
           uResolution: { value: new Float32Array([1, 1]), type: 'vec2<f32>' },
+          uReliefStrength: { value: RELIEF_STRENGTH, type: 'f32' },
           uLightCount: { value: 0, type: 'i32' },
           uLightPos: {
             value: new Float32Array(2 * MAX_LIGHTS),
@@ -316,10 +318,9 @@ export class DeferredLighting {
   }
 
   /**
-   * Run the deferred pass: render `world` to albedo + normal targets, composite through `packed`,
-   * and return the lit RenderTexture for the renderer to display in place of the world. Returns null
-   * when inactive (the renderer then shows the world directly, as today). Un-mapped sprites sample
-   * the flat normal and composite to an exact identity, so only real surface relief catches light.
+   * Render `world` to the albedo target, composite it through the light list (deriving normals from
+   * the albedo), and return the lit RenderTexture for the renderer to display in place of the world.
+   * Returns null when inactive (the renderer then shows the world directly).
    */
   run(
     renderer: Renderer,
@@ -331,20 +332,13 @@ export class DeferredLighting {
     if (!this.enabled) return null;
     this.ensureTargets(w, h);
     const albedoRT = this.albedoRT!;
-    const normalRT = this.normalRT!;
     const litRT = this.litRT!;
     const mesh = this.mesh!;
 
-    // Pass 1 — albedo.
     renderer.render({ container: world, target: albedoRT, clear: true });
-    // Pass 2 — normals. With no per-sprite normal art yet the world renders flat-normal silhouettes,
-    // which the relief composite treats as identity. (Per-sprite normal swap lands with the art.)
-    renderer.render({ container: world, target: normalRT, clear: true });
 
-    // Bind sources + uniforms and composite to litRT.
     const u = mesh.shader!.resources.compositeUniforms.uniforms as Record<string, unknown>;
     mesh.shader!.resources.uAlbedo = albedoRT.source;
-    mesh.shader!.resources.uNormal = normalRT.source;
     (u.uResolution as Float32Array)[0] = w;
     (u.uResolution as Float32Array)[1] = h;
     u.uLightCount = packed.count;
@@ -362,20 +356,7 @@ export class DeferredLighting {
 
   destroy(): void {
     this.albedoRT?.destroy(true);
-    this.normalRT?.destroy(true);
     this.litRT?.destroy(true);
     this.mesh?.destroy();
-    this.flatNormal.destroy(true);
   }
-}
-
-/** A 1×1 flat tangent-space normal (128,128,255) → (0,0,1). */
-function makeFlatNormalTexture(): Texture {
-  const cv = document.createElement('canvas');
-  cv.width = 1;
-  cv.height = 1;
-  const ctx = cv.getContext('2d')!;
-  ctx.fillStyle = 'rgb(128,128,255)';
-  ctx.fillRect(0, 0, 1, 1);
-  return Texture.from(cv);
 }

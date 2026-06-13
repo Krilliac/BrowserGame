@@ -4,9 +4,8 @@
  * These are drop-in `pixi-filters` effects gated two ways: by render quality (all off on 'low'/touch)
  * and by a per-area config registry (`AREA_SCREEN_FX`). The registry is EMPTY by default, so today no
  * area enables any of them and the scene is unchanged — exactly like RENDER-01's normal-map rollout.
- * Enable an effect by adding an entry here (cosmetic + client-only, so it lives on the client, mirroring
- * the `NORMAL_OVERRIDES` pattern). The values were left conservative so enabling one reads as a subtle
- * art-direction touch rather than a wash.
+ * Enable an effect by adding an entry here (cosmetic + client-only, so it lives on the client). The
+ * values were left conservative so enabling one reads as a subtle art-direction touch rather than a wash.
  *
  *  - godrays: volumetric light shafts over a screen overlay — outdoor / portal mood.
  *  - heat:    a scrolling-noise DisplacementFilter that gently wobbles the world (forges, lava).
