@@ -27,9 +27,11 @@ export interface CommandContext {
   areaTheme: (areaId: string) => AreaTheme | undefined;
   setTheme: (areaId: string, key: string, value: string) => string;
   reloadContent: () => string;
-  // AI bot players (GameMaster): spawn companions into your instance / clear them.
+  // AI bot players (GameMaster): spawn companions into your instance / clear them / dump run report.
   spawnBots: (count: number) => number;
   clearBots: () => number;
+  /** Write the current squad run report (markdown + JSON) and return a one-line summary, or null. */
+  botReport: () => string | null;
   // Generic live content editing (Developer): edit any whitelisted content table/column.
   contentTables: () => string;
   contentColumns: (table: string) => string;
@@ -173,6 +175,20 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'speed',
+    minLevel: AccessLevel.GameMaster,
+    usage: '/speed <multiplier>',
+    help: 'Set your movement-speed multiplier (e.g. /speed 2 = double, /speed 0.5 = half, /speed 1 = reset).',
+    run: (ctx) => {
+      const m = Number.parseFloat(ctx.args[0] ?? '');
+      if (!Number.isFinite(m)) {
+        return ctx.reply('Usage: /speed <multiplier> — e.g. 2 (double), 0.5 (half), 1 (reset).');
+      }
+      const applied = ctx.world.setDebugSpeed(ctx.playerId, m);
+      ctx.reply(`Movement speed set to ${applied}×.`);
+    },
+  },
+  {
     name: 'spawn',
     minLevel: AccessLevel.GameMaster,
     usage: '/spawn <mob> [count]',
@@ -189,13 +205,17 @@ const COMMAND_LIST: Command[] = [
   {
     name: 'bot',
     minLevel: AccessLevel.GameMaster,
-    usage: '/bot <count> | /bot clear',
-    help: 'Spawn AI companions that roam, fight, and journey to endgame, or clear them. Stackable — run it again to add more.',
+    usage: '/bot <count> | /bot clear | /bot report',
+    help: 'Spawn a cooperating AI squad that roams, fights, and journeys to endgame, or clear them. /bot report writes the run metrics. Stackable — run it again to add more.',
     run: (ctx) => {
       const arg = (ctx.args[0] ?? '').toLowerCase();
       if (arg === 'clear' || arg === 'off' || arg === '0') {
         const n = ctx.clearBots();
         return ctx.reply(n ? `Cleared ${n} bot${n === 1 ? '' : 's'}.` : 'No bots to clear.');
+      }
+      if (arg === 'report' || arg === 'metrics' || arg === 'stats') {
+        const summary = ctx.botReport();
+        return ctx.reply(summary ?? 'No active bot squad to report on.');
       }
       // Uncapped for floods — only a sanity ceiling per call so one fat-fingered number can't
       // freeze the event loop spawning entities. Stack calls for an arbitrarily large army.

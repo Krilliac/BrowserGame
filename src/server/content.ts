@@ -100,6 +100,24 @@ const MOB_COUNT_SCALE = config.world.mobCountScale;
 /** Portal TRIGGER spans scale less than the world (a generous pad, not a wall of light);
  *  their centers scale fully so they stay where the map says they are. */
 const PORTAL_SPAN_SCALE = config.world.portalSpanScale;
+/** Terrain footprint size multiplier — dramatic landmark, not a screen-filling ×WORLD_SCALE wall. */
+const TERRAIN_SIZE_SCALE = config.world.terrainSizeScale;
+/**
+ * Footprint decor whose SIZE is decoupled from WORLD_SCALE so it doesn't become a giant — only the
+ * position rides the world scale. `house` keeps canonical 1× size; terrain (cliffs/massifs/boulders)
+ * uses TERRAIN_SIZE_SCALE. Everything else (e.g. the town palisade) scales fully. The value is the
+ * size multiplier for that kind's footprint half-extents.
+ */
+const SIZE_SCALED_KINDS = new Map<string, number>([
+  ['house', 1],
+  ['cliff', TERRAIN_SIZE_SCALE],
+  ['ridge', TERRAIN_SIZE_SCALE],
+  ['barrier', TERRAIN_SIZE_SCALE],
+  ['wall', TERRAIN_SIZE_SCALE],
+  ['mountain', TERRAIN_SIZE_SCALE],
+  ['boulder', TERRAIN_SIZE_SCALE],
+  ['peak', TERRAIN_SIZE_SCALE],
+]);
 
 export function loadContent(db: GameDatabase): Content {
   // Per-area environment themes (the data-driven look) — DEFAULT_THEME fills any area without a row.
@@ -110,11 +128,32 @@ export function loadContent(db: GameDatabase): Content {
 
   // Static set-dressing props per area (tents, palisade, bonfire…). Optional columns map to optional
   // fields only when non-null, so exactOptionalPropertyTypes stays happy.
+  //
+  // Object SIZE vs world SCALE: the world is inflated ×WORLD_SCALE so zones are real expeditions, but
+  // a building should not become a ×WORLD_SCALE GIANT — it should sit where the big world places it
+  // yet render at its canonical (retail) size. So for CANONICAL_SIZE_KINDS we scale the footprint's
+  // CENTER by the world scale but keep its authored half-extents (1× size). Everything else (terrain
+  // cliffs/massifs, the town palisade) keeps scaling fully, so terrain stays dramatic and walls still
+  // ring the world. Positions, spacing, ranges, and mob density are untouched.
   const decor = new Map<string, DecorProp[]>();
   for (const r of db.prepare('SELECT * FROM decor').all() as DecorRow[]) {
     const prop: DecorProp = { kind: r.kind, x: r.x * WORLD_SCALE, y: r.y * WORLD_SCALE };
-    if (r.x2 !== null) prop.x2 = r.x2 * WORLD_SCALE;
-    if (r.y2 !== null) prop.y2 = r.y2 * WORLD_SCALE;
+    const hasFoot = r.x2 !== null && r.y2 !== null;
+    const sizeScale = SIZE_SCALED_KINDS.get(r.kind);
+    if (hasFoot && sizeScale !== undefined) {
+      // Position rides the world scale; footprint size uses the (smaller) per-kind size scale.
+      const cx = ((r.x + r.x2!) / 2) * WORLD_SCALE;
+      const cy = ((r.y + r.y2!) / 2) * WORLD_SCALE;
+      const hw = (Math.abs(r.x2! - r.x) / 2) * sizeScale;
+      const hh = (Math.abs(r.y2! - r.y) / 2) * sizeScale;
+      prop.x = cx - hw;
+      prop.y = cy - hh;
+      prop.x2 = cx + hw;
+      prop.y2 = cy + hh;
+    } else {
+      if (r.x2 !== null) prop.x2 = r.x2 * WORLD_SCALE;
+      if (r.y2 !== null) prop.y2 = r.y2 * WORLD_SCALE;
+    }
     if (r.color !== null) prop.color = r.color;
     if (r.scale !== null) prop.scale = r.scale;
     const list = decor.get(r.area_id) ?? [];

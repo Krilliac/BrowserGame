@@ -103,6 +103,17 @@ export const EXPANSION_DECOR: DecorRow[] = [
     { kind: 'bones', x: 1750, y: 720 },
     { kind: 'bones', x: 900, y: 1700 },
     { kind: 'skull_pile', x: 1980, y: 1560 },
+    // --- The Gloomwood Pass (RENDER terrain): a cliff ridge across the mid-map with a single
+    // walkable GAP you funnel through; the gap lines up with the Catacombs (top) + Marsh (bottom)
+    // portals so the pass connects them. Footprints are kept landmark-sized (not screen-filling) —
+    // they read as imposing terrain, not walls. `cliff` = solid rect face; `mountain`/`boulder` =
+    // solid circle you walk around. Live-editable in the DB; server + client collide identically.
+    { kind: 'cliff', x: 860, y: 1238, x2: 980, y2: 1280 }, // west cliff of the ridge
+    { kind: 'cliff', x: 1180, y: 1238, x2: 1300, y2: 1280 }, // east cliff of the ridge
+    { kind: 'boulder', x: 992, y: 1214, x2: 1064, y2: 1276 }, // boulders pinch the gap mouth
+    { kind: 'boulder', x: 1108, y: 1250, x2: 1180, y2: 1312 },
+    { kind: 'boulder', x: 772, y: 1004, x2: 844, y2: 1068 }, // a scattered rock in mob territory
+    { kind: 'mountain', x: 1740, y: 840, x2: 1900, y2: 1000 }, // a rounded massif to skirt around
   ]),
 
   // --- Shadow Crypt (1400x1400) — a graveyard heart, ruin arches by both stairways,

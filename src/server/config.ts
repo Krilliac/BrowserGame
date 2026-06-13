@@ -70,6 +70,10 @@ export const config = {
     mobCountScale: 10,
     /** Portal trigger-span multiplier (less than the world scale — a pad, not a wall of light). */
     portalSpanScale: 2,
+    /** SIZE multiplier for terrain footprints (cliffs/mountains/boulders). Their POSITION still rides
+     *  `scale`, but their size uses this — kept at canonical 1× so terrain is a ground feature, not a
+     *  screen-filling wall. Tune up (e.g. 1.5–2) for more imposing massifs. */
+    terrainSizeScale: 1,
   },
 
   /** Global difficulty — the world is balanced to be dangerous so ground is earned, not strolled. */

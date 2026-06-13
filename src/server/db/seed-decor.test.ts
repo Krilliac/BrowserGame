@@ -29,6 +29,15 @@ const ALLOWED_KINDS = new Set([
   'brazier',
   'chest',
   'shrine',
+  // Solid terrain (RENDER-08): cliffs are blocking rect faces; mountains/boulders are blocking
+  // circles. They feed the shared collision blockers and render as tall 2.5D terrain.
+  'cliff',
+  'ridge',
+  'barrier',
+  'wall',
+  'mountain',
+  'boulder',
+  'peak',
 ]);
 
 /**

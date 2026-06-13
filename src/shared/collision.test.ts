@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import type { Rect } from './areas.js';
+import type { DecorProp, Rect } from './areas.js';
 import {
+  blockersForDecor,
   houseWalls,
+  pointInAnyBlocker,
   pointInAnyRect,
+  pointInCircle,
   pointInRect,
   resolveCircleMove,
   segmentIntersectsRect,
   separateCircles,
+  wallsForDecor,
   type Footprint,
 } from './collision.js';
 
@@ -209,5 +213,91 @@ describe('pointInAnyRect', () => {
   it('includes edges (same boundary as pointInRect) and is false for an empty list', () => {
     expect(pointInAnyRect(10, 10, rects)).toBe(true);
     expect(pointInAnyRect(5, 5, [])).toBe(false);
+  });
+});
+
+describe('blockersForDecor', () => {
+  it('turns cliff/ridge/barrier/wall footprints into solid rects', () => {
+    const decor: DecorProp[] = [
+      { kind: 'cliff', x: 100, y: 100, x2: 300, y2: 160 },
+      { kind: 'ridge', x: 400, y: 0, x2: 420, y2: 500 },
+      { kind: 'barrier', x: 10, y: 10, x2: 60, y2: 20 },
+      { kind: 'wall', x: 0, y: 0, x2: 5, y2: 5 },
+      { kind: 'tree', x: 200, y: 200 }, // non-solid → ignored
+    ];
+    const { rects, circles } = blockersForDecor(decor);
+    expect(circles).toHaveLength(0);
+    expect(rects).toContainEqual({ x: 100, y: 100, w: 200, h: 60 });
+    expect(rects).toContainEqual({ x: 400, y: 0, w: 20, h: 500 });
+    expect(rects).toHaveLength(4); // tree contributes nothing
+  });
+
+  it('turns mountains/boulders into solid circles (inscribed for footprints, scaled otherwise)', () => {
+    const decor: DecorProp[] = [
+      { kind: 'mountain', x: 0, y: 0, x2: 200, y2: 120 }, // inscribed r = min(200,120)/2 = 60
+      { kind: 'boulder', x: 500, y: 500, scale: 2 }, // r = 90 * 2 = 180
+      { kind: 'peak', x: 800, y: 800 }, // default scale 1 → r = 90
+    ];
+    const { rects, circles } = blockersForDecor(decor);
+    expect(rects).toHaveLength(0);
+    expect(circles).toContainEqual({ cx: 100, cy: 60, r: 60 });
+    expect(circles).toContainEqual({ cx: 500, cy: 500, r: 180 });
+    expect(circles).toContainEqual({ cx: 800, cy: 800, r: 90 });
+  });
+
+  it('still produces house walls, and wallsForDecor returns only the rects', () => {
+    const decor: DecorProp[] = [
+      { kind: 'house', x: 0, y: 0, x2: 200, y2: 200 },
+      { kind: 'boulder', x: 500, y: 500, scale: 1 },
+    ];
+    const { rects, circles } = blockersForDecor(decor);
+    expect(rects.length).toBeGreaterThan(0); // house walls
+    expect(circles).toHaveLength(1);
+    expect(wallsForDecor(decor)).toEqual(rects); // back-compat: rects only
+  });
+});
+
+describe('resolveCircleMove with circle blockers', () => {
+  const boulder = [{ cx: 200, cy: 200, r: 50 }];
+
+  it('blocks a head-on move into a boulder (stops at the rim + radius)', () => {
+    // Move from left straight into the boulder center; radius 13, so rest at cx - (50+13) = 137.
+    const r = resolveCircleMove(100, 200, 200, 200, 13, [], boulder);
+    expect(r.y).toBeCloseTo(200);
+    expect(r.x).toBeCloseTo(137, 5);
+    // And it is no longer overlapping.
+    expect(pointInCircle(r.x, r.y, boulder[0]!)).toBe(false);
+  });
+
+  it('lets a move that misses the boulder pass through unchanged', () => {
+    const r = resolveCircleMove(0, 0, 20, 20, 13, [], boulder);
+    expect(r).toEqual({ x: 20, y: 20 });
+  });
+
+  it('pushes a body radially out so it can slide around the boulder', () => {
+    // Aimed just below center: the radial push has a downward component → the body slides off.
+    const r = resolveCircleMove(100, 230, 200, 230, 13, [], boulder);
+    const fromCenter = Math.hypot(r.x - 200, r.y - 200);
+    expect(fromCenter).toBeGreaterThanOrEqual(50 - 1e-6); // ends outside the boulder rim
+    expect(r.y).toBeGreaterThan(200); // pushed downward (around), not straight back
+  });
+
+  it('resolves rects AND circles together', () => {
+    const rects: Rect[] = [{ x: 300, y: 0, w: 20, h: 400 }];
+    const r = resolveCircleMove(100, 200, 200, 200, 13, rects, boulder);
+    expect(pointInCircle(r.x, r.y, boulder[0]!)).toBe(false);
+  });
+});
+
+describe('pointInAnyBlocker', () => {
+  it('is true inside a rect or a circle, false outside both', () => {
+    const blockers = {
+      rects: [{ x: 0, y: 0, w: 10, h: 10 }],
+      circles: [{ cx: 100, cy: 100, r: 20 }],
+    };
+    expect(pointInAnyBlocker(5, 5, blockers)).toBe(true); // in rect
+    expect(pointInAnyBlocker(100, 100, blockers)).toBe(true); // in circle
+    expect(pointInAnyBlocker(110, 100, blockers)).toBe(true); // on circle rim (inclusive)
+    expect(pointInAnyBlocker(60, 60, blockers)).toBe(false);
   });
 });

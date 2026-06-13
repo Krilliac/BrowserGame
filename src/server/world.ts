@@ -77,11 +77,13 @@ import {
 } from './hirelings.js';
 import { DUNGEONS, isDungeon, type DungeonDef, type Rect } from '../shared/areas.js';
 import {
-  pointInAnyRect,
+  blockersForDecor,
+  pointInAnyBlocker,
   resolveCircleMove,
   separateCircles,
-  wallsForDecor,
   PLAYER_COLLISION_RADIUS,
+  type Blockers,
+  type Circle,
 } from '../shared/collision.js';
 import { mulberry32 } from '../shared/math.js';
 import {
@@ -330,6 +332,9 @@ interface Player {
   cooldownMult: number;
   /** Movement-speed multiplier (>1 = faster), from +move affixes; clamped. */
   moveMult: number;
+  /** GM debug speed multiplier (the `/speed` command); 1 = normal. Folds into playerMoveMul so the
+   *  client predictor (which reads the reported moveMul) stays in sync — no rubber-banding. */
+  debugSpeed: number;
   /** Incoming-damage multiplier from +fragile (raises it) and +armor (lowers it); floored. */
   damageTakenMult: number;
   /** Bonus HP regenerated per second from +vigor affixes (added to base regen). */
@@ -528,8 +533,9 @@ export class World {
   private now = 0; // accumulated sim time, ms (drives cooldowns/respawns)
   // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
-  // Solid wall colliders for this area (house footprints), lazily built from decor (null = not yet).
-  private walls: Rect[] | null = null;
+  // Solid colliders for this area — rects (house walls, cliffs, ridges, barriers) AND circles
+  // (round terrain: mountains, boulders). Lazily built from decor (null = not yet built).
+  private blockerCache: Blockers | null = null;
   // Lootable chests for this area, lazily built from 'chest' decor (null = not yet built).
   private chests: { id: number; x: number; y: number; opened: boolean }[] | null = null;
   // Breakable pots for this area, lazily built from 'pot' decor (null = not yet built).
@@ -1654,6 +1660,7 @@ export class World {
       lifesteal: 0,
       cooldownMult: 1,
       moveMult: 1,
+      debugSpeed: 1,
       damageTakenMult: 1,
       vigor: 0,
       god: false,
@@ -1869,8 +1876,26 @@ export class World {
    */
   private playerMoveMul(player: Player): number {
     return (
-      this.moveScale * player.moveMult * player.buffs.moveFactor() * player.debuffs.slowFactor()
+      this.moveScale *
+      player.moveMult *
+      player.debugSpeed *
+      player.buffs.moveFactor() *
+      player.debuffs.slowFactor()
     );
+  }
+
+  /**
+   * Set a player's GM debug speed multiplier (the `/speed` command). Clamped to a sane range so a
+   * typo can't make the player un-collidable (huge per-tick steps tunnel through walls). Returns the
+   * clamped value actually applied. Folds into playerMoveMul, so the reported moveMul carries it and
+   * the client predictor stays in lockstep.
+   */
+  setDebugSpeed(id: number, mult: number): number {
+    const player = this.players.get(id);
+    if (!player) return 1;
+    const clamped = Math.max(0.1, Math.min(10, mult));
+    player.debugSpeed = clamped;
+    return clamped;
   }
 
   /**
@@ -1943,6 +1968,7 @@ export class World {
           ny,
           PLAYER_COLLISION_RADIUS,
           this.wallList(),
+          this.circleList(),
         );
         player.x = resolved.x;
         player.y = resolved.y;
@@ -1956,11 +1982,18 @@ export class World {
   }
 
   /** The area's solid wall colliders, built once from its house decor (empty for areas with none). */
-  private wallList(): Rect[] {
-    if (this.walls === null) {
-      this.walls = wallsForDecor(getContent().area(this.areaId)?.decor ?? []);
+  /** The area's solid geometry (rects + circles), built once from decor and cached. */
+  private blockers(): Blockers {
+    if (this.blockerCache === null) {
+      this.blockerCache = blockersForDecor(getContent().area(this.areaId)?.decor ?? []);
     }
-    return this.walls;
+    return this.blockerCache;
+  }
+  private wallList(): readonly Rect[] {
+    return this.blockers().rects;
+  }
+  private circleList(): readonly Circle[] {
+    return this.blockers().circles;
   }
 
   /** The area's shrines, built once from its 'shrine' decor (empty for areas with none). */
@@ -2197,6 +2230,7 @@ export class World {
             clamp(mob.y + mob.dashVy * dt, 0, this.height),
             PLAYER_COLLISION_RADIUS,
             this.wallList(),
+            this.circleList(),
           );
           mob.x = dashed.x;
           mob.y = dashed.y;
@@ -2277,6 +2311,7 @@ export class World {
               clamp(mob.y + action.move.vy * speed * dt, 0, this.height),
               PLAYER_COLLISION_RADIUS,
               this.wallList(),
+              this.circleList(),
             );
             mob.x = resolved.x;
             mob.y = resolved.y;
@@ -2348,6 +2383,7 @@ export class World {
           ny,
           PLAYER_COLLISION_RADIUS,
           this.wallList(),
+          this.circleList(),
         );
         const intended = Math.hypot(nx - mob.x, ny - mob.y);
         const moved = Math.hypot(resolved.x - mob.x, resolved.y - mob.y);
@@ -2407,6 +2443,7 @@ export class World {
       clamp(mob.y + (best.y - mob.y) * inv * speed * dt, 0, this.height),
       PLAYER_COLLISION_RADIUS,
       this.wallList(),
+      this.circleList(),
     );
     mob.x = resolved.x;
     mob.y = resolved.y;
@@ -2666,7 +2703,7 @@ export class World {
       proj.ttl -= dt * 1000;
 
       // Walls stop shots: nobody (player, mob, or hireling) shoots through a house.
-      if (pointInAnyRect(proj.x, proj.y, this.wallList())) {
+      if (pointInAnyBlocker(proj.x, proj.y, this.blockers())) {
         this.projectiles.delete(proj.id);
         continue;
       }
@@ -2730,6 +2767,7 @@ export class World {
       clamp(mob.y + Math.sin(mob.wanderAngle) * speed * 0.35 * dt, 0, this.height),
       PLAYER_COLLISION_RADIUS,
       this.wallList(),
+      this.circleList(),
     );
     mob.x = resolved.x;
     mob.y = resolved.y;

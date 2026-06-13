@@ -17,6 +17,7 @@ import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import { RARITY, type Rarity } from '../shared/items.js';
 import type { EntityState } from '../shared/protocol.js';
 import { isDungeon, type DecorProp } from '../shared/areas.js';
+import { BOULDER_BASE_RADIUS } from '../shared/collision.js';
 import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
@@ -74,6 +75,11 @@ import { backOut, cubicOut } from './easing.js';
 // III-like, less straight-down). The whole projection (sprites' feet, shadows, portals) scales by
 // this consistently, so the look tilts without misaligning anything.
 const PITCH = 0.6;
+// RENDER-08 terrain heightmap mesh — OFF by default. It's the only object that renders through
+// PixiJS's GlMeshAdaptor, which null-derefs binding the texture sampler on some real GPU drivers
+// (BindGroup.setResource → "reading '0'"). Cosmetic only (collision is flat), so it stays off until
+// the bind is hardened; the flat tiled ground is used instead. Set true to re-enable for testing.
+const TERRAIN_HEIGHTMAP = false;
 // Camera dolly: the player sits a little BELOW screen-center so more of the world is visible ahead,
 // mimicking a tilted 3D camera (a D2 depth cue). The torch light follows to stay on the player.
 const CAM_DOLLY_Y = 0.58;
@@ -146,6 +152,32 @@ const HOUSE_INSIDE_MARGIN = 10; // world px the footprint is expanded by for the
 // (north of, or just south of, its base — where the foliage would otherwise swallow the character).
 // Eased at HOUSE_ROOF_FADE_RATE, the same frame-rate-independent approach as the roof fade.
 const OCCLUDER_PROP_KINDS = new Set<PropKind>(['tree', 'pillar']);
+
+// Solid terrain decor (RENDER-08): drawn as tall 2.5D rock so it reads as real height, and fed to
+// the shared collision blockers (see shared/collision.ts blockersForDecor). `cliff`/`ridge` are
+// rectangular rock FACES; `mountain`/`boulder`/`peak` are rounded rock. `barrier`/`wall` are
+// invisible collision-only (chokepoint authoring). All occlude the local player when he's behind.
+const TERRAIN_KINDS = new Set(['cliff', 'ridge', 'barrier', 'wall', 'mountain', 'boulder', 'peak']);
+const TERRAIN_INVISIBLE = new Set(['barrier', 'wall']); // collision-only, no visual
+/** Linear-blend two '#rrggbb' colors (t=0 → a, t=1 → b) into a single '#rrggbb'. */
+function mixHex(a: string, b: string, t: number): string {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const k = Math.max(0, Math.min(1, t));
+  const r = Math.round(((pa >> 16) & 0xff) * (1 - k) + ((pb >> 16) & 0xff) * k);
+  const g = Math.round(((pa >> 8) & 0xff) * (1 - k) + ((pb >> 8) & 0xff) * k);
+  const bl = Math.round((pa & 0xff) * (1 - k) + (pb & 0xff) * k);
+  return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, '0')}`;
+}
+const TERRAIN_PALETTE = {
+  face: '#403d45', // shadowed vertical rock face (the dark cliff front, Epic-Iso look)
+  faceDark: '#2c2a31', // base of the face, in deepest shade
+  faceLine: '#4f4b54', // vertical striations catching a little light
+  top: '#6d685f', // the lit flat plateau top
+  topLight: '#857f74', // sun-struck near edge of the top
+  rim: '#9b9486', // bright rocky rim line where top meets the face
+  snow: '#d9dde6', // peak cap / brightest highlight
+} as const;
 const OCCLUDER_FADE_ALPHA = 0.45;
 const HOUSE_WALL_HEIGHT = 30; // billboarded wall height (world px)
 const HOUSE_DOOR_WIDTH = 46; // gap left in the south wall, centered (world px)
@@ -553,6 +585,7 @@ export class PixiRenderer {
   private readonly frameCache = new Map<string, Texture>();
   private softShadow?: Texture; // shared soft-ellipse shadow, baked on first actor
   private placeholder?: Texture; // magenta/black checkerboard for missing/failed assets
+  private heavyGpuFxDisabled = false; // panic-disabled the deferred + terrain meshes after a GPU fault
 
   constructor(
     private readonly app: Application,
@@ -651,7 +684,24 @@ export class PixiRenderer {
 
     // Per-pixel dynamic lighting (RENDER-01) derives normals from the albedo, so it needs no normal
     // art — enable it on desktop ('high'); touch keeps the cheaper additive-halo-only lighting.
-    this.deferred.setEnabled(this.quality === 'high');
+    this.deferred.setEnabled(this.quality === 'high' && !this.heavyGpuFxDisabled);
+  }
+
+  /**
+   * Panic switch: turn off the OPTIONAL GPU passes — the deferred-lighting composite (a custom-shader
+   * Mesh) and the terrain heightmap Mesh — and revert to the safe flat-ground / direct-world render.
+   * Called by the main loop's render-fault guard: some drivers null-deref binding these meshes
+   * (`BindGroup.setResource`) in a way our headless GPU can't reproduce, so rather than crash every
+   * frame we drop the eye-candy and keep the game running. Idempotent.
+   */
+  disableHeavyGpuFx(): void {
+    if (this.heavyGpuFxDisabled) return;
+    this.heavyGpuFxDisabled = true;
+    this.deferred.setEnabled(false);
+    this.litSprite.visible = false;
+    this.world.renderable = true;
+    this.terrain.clear(); // tear down the heightmap mesh…
+    this.ground.visible = true; // …and show the flat tiled ground in its place
   }
 
   /**
@@ -748,7 +798,13 @@ export class PixiRenderer {
     // RENDER-08: wild areas render a heightmapped ground MESH (rolling hills) in place of the flat
     // tiled ground; the mesh tiles the same texture (one repeat per texture-width of world). Other
     // areas keep the flat TilingSprite. `terrainHeightAt` then also lifts props + actors to match.
-    if (areaHasTerrain(areaId)) {
+    // RENDER-08 heightmap mesh is DISABLED by default. It is the one display object in the scene that
+    // renders through PixiJS's GlMeshAdaptor (a Mesh with the default shader), and on some real GPU
+    // drivers that path null-derefs binding the texture sampler in BindGroup.setResource
+    // ("Cannot read properties of null (reading '0')") — a crash our headless GPU can't reproduce.
+    // It is purely cosmetic (collision is flat regardless), so wild areas use the flat tiled ground
+    // until the mesh's texture-bind is hardened. Flip TERRAIN_HEIGHTMAP to re-enable for testing.
+    if (TERRAIN_HEIGHTMAP && areaHasTerrain(areaId) && !this.heavyGpuFxDisabled) {
       this.terrain.build(area.width, area.height, groundTex, groundTex.width);
       this.ground.visible = false;
     } else {
@@ -814,6 +870,24 @@ export class PixiRenderer {
    */
   private buildDecor(decor: readonly DecorProp[]): void {
     for (const prop of decor) {
+      // Solid TERRAIN (cliffs/mountains/boulders) — tall 2.5D rock that also blocks movement. Checked
+      // before the line-prop branch because terrain carries a footprint too but is NOT a fence.
+      if (TERRAIN_KINDS.has(prop.kind)) {
+        const c = this.makeTerrainProp(prop);
+        this.propLayer.addChild(c);
+        // Occlude the local player when he walks behind a peak/cliff (RENDER-06), like trees.
+        if (!TERRAIN_INVISIBLE.has(prop.kind)) {
+          const ax = prop.x2 !== undefined ? (prop.x + prop.x2) / 2 : prop.x;
+          const ay =
+            prop.y2 !== undefined
+              ? prop.kind === 'cliff' || prop.kind === 'ridge'
+                ? Math.max(prop.y, prop.y2)
+                : (prop.y + prop.y2) / 2
+              : prop.y;
+          this.occluders.push({ container: c, x: ax, y: ay });
+        }
+        continue;
+      }
       // Line props (palisade/fence) are segment-split into per-stake containers so an actor beside
       // the run interleaves stake by stake instead of sorting against the whole wall (RENDER-05).
       if (prop.kind !== 'house' && prop.x2 !== undefined && prop.y2 !== undefined) {
@@ -822,6 +896,152 @@ export class PixiRenderer {
         this.propLayer.addChild(this.makeDecorProp(prop));
       }
     }
+  }
+
+  /**
+   * Build a solid-terrain prop as a tall, y-sorted 2.5D rock Container. Cliffs/ridges are a vertical
+   * rock FACE under a lit flat top (the Epic-Isometric plateau look); mountains/boulders/peaks are
+   * rounded rock. `barrier`/`wall` are invisible (collision only). The collider that matches each is
+   * built on BOTH server and client by shared `blockersForDecor`, so what you see is what blocks you.
+   */
+  private makeTerrainProp(prop: DecorProp): Container {
+    const c = new Container();
+    const hasFoot = prop.x2 !== undefined && prop.y2 !== undefined;
+    const minX = hasFoot ? Math.min(prop.x, prop.x2!) : prop.x;
+    const maxX = hasFoot ? Math.max(prop.x, prop.x2!) : prop.x;
+    const minY = hasFoot ? Math.min(prop.y, prop.y2!) : prop.y;
+    const maxY = hasFoot ? Math.max(prop.y, prop.y2!) : prop.y;
+    const cx = (minX + maxX) / 2;
+    const isFace = prop.kind === 'cliff' || prop.kind === 'ridge';
+    // Faces anchor + sort by their FRONT (south) edge; round terrain by its base center.
+    const anchorY = isFace ? maxY : (minY + maxY) / 2;
+    c.position.set(cx, anchorY * PITCH - this.groundLift(cx, anchorY));
+    c.zIndex = anchorY;
+
+    if (TERRAIN_INVISIBLE.has(prop.kind)) return c; // collision-only, draw nothing
+
+    if (isFace) {
+      this.drawCliff(c, maxX - minX, maxY - minY);
+    } else {
+      const r = hasFoot
+        ? Math.min(maxX - minX, maxY - minY) / 2
+        : BOULDER_BASE_RADIUS * (prop.scale ?? 1);
+      if (prop.kind === 'boulder') this.drawBoulder(c, r);
+      else this.drawMountain(c, r);
+    }
+    return c;
+  }
+
+  /**
+   * Draw a cliff/plateau into `c`, anchored at its FRONT (south) edge center. A dark vertical rock
+   * face rises `H` up the screen, capped by a lit flat top set back by the footprint depth — so it
+   * reads as a solid raised block with real height. `wWorld`/`depthWorld` are the footprint size.
+   */
+  private drawCliff(c: Container, wWorld: number, depthWorld: number): void {
+    const W = wWorld;
+    const depth = depthWorld * PITCH; // footprint depth in screen px (foreshortened)
+    const H = Math.min(130, 28 + wWorld * 0.42); // rock-face height, proportional to width (not towering)
+    const halfW = W / 2;
+    const g = new Graphics();
+
+    // Cast shadow: a long soft footprint thrown toward the lower-right (sun upper-left).
+    g.ellipse(28, depth * 0.5 + 10, halfW + 24, depth * 0.7 + 18).fill({
+      color: '#000000',
+      alpha: 0.28,
+    });
+
+    // Vertical front rock FACE (south wall) as a top-lit→base-dark GRADIENT (stacked bands), so it
+    // reads as a sunlit rock wall receding into shadow rather than a flat panel.
+    const bands = 7;
+    for (let i = 0; i < bands; i++) {
+      const t = i / (bands - 1); // 0 at top, 1 at base
+      const y = -H + (H * i) / bands;
+      const col = mixHex(TERRAIN_PALETTE.faceLine, TERRAIN_PALETTE.faceDark, t);
+      g.rect(-halfW, y, W, H / bands + 1).fill({ color: col });
+    }
+    // Jagged vertical fractures down the face — a few darker clefts for rocky texture.
+    const cols = Math.max(3, Math.round(W / 90));
+    for (let i = 1; i < cols; i++) {
+      const fx = -halfW + (i / cols) * W + (((i * 37) % 17) - 8);
+      g.rect(fx, -H + 8, 3, H - 12).fill({ color: TERRAIN_PALETTE.faceDark, alpha: 0.45 });
+      g.rect(fx + 3, -H + 8, 1.5, H - 12).fill({ color: TERRAIN_PALETTE.snow, alpha: 0.12 });
+    }
+
+    // Flat plateau TOP (footprint raised by H): lit grey rock, brighter toward the sunlit north edge.
+    g.rect(-halfW, -depth - H, W, depth).fill({ color: TERRAIN_PALETTE.top });
+    g.rect(-halfW, -depth - H, W, Math.max(8, depth * 0.4)).fill({
+      color: TERRAIN_PALETTE.topLight,
+      alpha: 0.55,
+    });
+    // A thin mossy fringe + a bright sun rim along the front lip where the top breaks to the face.
+    g.rect(-halfW, -H - 7, W, 5).fill({ color: '#5c6b3a', alpha: 0.5 }); // moss caps the lip
+    g.rect(-halfW, -H - 3, W, 3).fill({ color: TERRAIN_PALETTE.rim }); // bright sunlit rim
+    c.addChild(g);
+  }
+
+  /** Draw a rounded mountain/peak into `c`, anchored at its base center; rises ~1.9× its radius. */
+  private drawMountain(c: Container, r: number): void {
+    const baseRy = r * PITCH;
+    const H = r * 1.35; // peak height (kept modest so a massif doesn't tower over the screen)
+    const g = new Graphics();
+    g.ellipse(14, baseRy * 0.5, r * 1.04, baseRy).fill({ color: '#000000', alpha: 0.22 }); // shadow
+    // Body silhouette: a smoothed peaked massif from the base up to the summit.
+    g.poly([
+      -r,
+      0,
+      -r * 0.62,
+      -H * 0.42,
+      -r * 0.28,
+      -H * 0.74,
+      0,
+      -H,
+      r * 0.32,
+      -H * 0.72,
+      r * 0.66,
+      -H * 0.4,
+      r,
+      0,
+    ]).fill({ color: TERRAIN_PALETTE.top });
+    // Shaded (right/away-from-sun) flank.
+    g.poly([0, -H, r * 0.32, -H * 0.72, r * 0.66, -H * 0.4, r, 0, r * 0.2, 0]).fill({
+      color: TERRAIN_PALETTE.face,
+      alpha: 0.85,
+    });
+    // Ridgelines + a bright snow cap near the summit.
+    g.moveTo(-r * 0.28, -H * 0.74)
+      .lineTo(0, -H)
+      .lineTo(r * 0.32, -H * 0.72)
+      .stroke({
+        width: 2,
+        color: TERRAIN_PALETTE.faceDark,
+        alpha: 0.5,
+      });
+    g.poly([0, -H, -r * 0.16, -H * 0.82, r * 0.16, -H * 0.82]).fill({
+      color: TERRAIN_PALETTE.snow,
+    });
+    c.addChild(g);
+  }
+
+  /** Draw a rounded boulder into `c`, anchored at its base center; a shaded rock ~1.15× its radius. */
+  private drawBoulder(c: Container, r: number): void {
+    const baseRy = r * PITCH;
+    const H = r * 1.15;
+    const g = new Graphics();
+    g.ellipse(8, baseRy * 0.4, r * 0.98, baseRy * 0.9).fill({ color: '#000000', alpha: 0.22 });
+    g.ellipse(0, -H * 0.45, r, H * 0.62).fill({ color: TERRAIN_PALETTE.top }); // rock body
+    g.ellipse(r * 0.28, -H * 0.32, r * 0.66, H * 0.42).fill({
+      color: TERRAIN_PALETTE.face,
+      alpha: 0.7,
+    }); // shaded right
+    g.ellipse(-r * 0.32, -H * 0.62, r * 0.34, H * 0.24).fill({
+      color: TERRAIN_PALETTE.topLight,
+      alpha: 0.8,
+    }); // sunlit upper-left
+    // A facet crack for a chiseled rock feel.
+    g.moveTo(-r * 0.1, -H * 0.7)
+      .lineTo(r * 0.12, -H * 0.3)
+      .stroke({ width: 1.5, color: TERRAIN_PALETTE.faceDark, alpha: 0.5 });
+    c.addChild(g);
   }
 
   /**
@@ -1871,11 +2091,21 @@ export class PixiRenderer {
     gpu.push(sunGpuLight(night));
     const culled = cullLights(gpu, sw / 2, sh * CAM_DOLLY_Y);
     const packed = packLights(culled);
-    const lit = this.deferred.run(this.app.renderer, this.world, packed, sw, sh);
-    if (lit) {
-      this.litSprite.texture = lit;
-      this.litSprite.visible = true;
-      this.world.renderable = false;
+    // Self-healing: the deferred composite is the only GPU pass that can fault on a driver we can't
+    // test headlessly. If it ever throws, disable it for good and fall back to the direct world
+    // render — a missing relief effect is fine; a hard crash every frame is not.
+    try {
+      const lit = this.deferred.run(this.app.renderer, this.world, packed, sw, sh);
+      if (lit) {
+        this.litSprite.texture = lit;
+        this.litSprite.visible = true;
+        this.world.renderable = false;
+      }
+    } catch (err) {
+      console.warn('[render] deferred lighting disabled after a GPU error:', err);
+      this.deferred.setEnabled(false);
+      this.litSprite.visible = false;
+      this.world.renderable = true;
     }
   }
 

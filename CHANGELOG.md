@@ -8,6 +8,54 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Real terrain collision + walkable mountain passes (RENDER-08, true elevation).** Mountains,
+  cliffs, and boulders are now SOLID and authoritative — you walk *around* them and *through* the gaps
+  (paths), not over them. It's built on the shared collision module so the server simulation and the
+  client predictor resolve it identically (no rubber-banding):
+  - `shared/collision.ts` gains **circle blockers** alongside rects: `resolveCircleMove` pushes the
+    player radially out of round terrain (slide around a boulder), and `blockersForDecor()` turns decor
+    into solid geometry — `cliff`/`ridge`/`barrier`/`wall` → rects (tall faces, ledges, invisible
+    chokepoints), `mountain`/`boulder`/`peak` → circles. Projectiles stop on either (`pointInAnyBlocker`).
+  - The server (`world.ts`) and predictor (`predictor.ts`) both collide against these `Blockers`
+    (rects + circles); walls/cliffs and round terrain are one shared source of truth.
+  - **Authored in the content DB** (live-editable): new solid decor kinds, seeded as the **Gloomwood
+    Pass** — a cliff ridge across mid-wilderness with a single walkable gap that lines up with the
+    Catacombs and Marsh portals, so the pass is a real chokepoint connecting them.
+  - **Tall 2.5D visuals**: cliffs render as a gradient rock FACE under a lit, moss-capped plateau TOP
+    with a cast shadow; mountains/boulders as rounded rock. All occlude the local player when he's
+    behind them (RENDER-06). Pure Graphics — no `Mesh`, so it can't hit the GlMeshAdaptor crash.
+
+### Changed
+
+- **Buildings render at canonical (retail) size in the scaled world.** The world is inflated
+  `×WORLD_SCALE` so zones are expeditions, but that was making footprint objects — houses especially —
+  into `×WORLD_SCALE` giants (a ~170-unit house became ~850 px). Object SIZE is now decoupled from the
+  world scale (`content.ts` `CANONICAL_SIZE_KINDS`): a house's POSITION still rides the world scale
+  (so the world stays as spacious as before — positions, spacing, aggro/attack ranges, and mob
+  density are all untouched), but its footprint keeps its **authored 1× size**. As a bonus the south
+  door is now a proper doorway again instead of a thin slit in a giant wall. **Terrain** uses its own
+  `world.terrainSizeScale` (default ×1, canonical) so cliffs/massifs are ground features, not
+  screen-filling ×WORLD_SCALE walls — tune it up (1.5–2) for more imposing massifs. The town palisade
+  (a world-spanning wall) still scales fully so it keeps ringing the town. Safe villages are scrubbed
+  of any stray terrain decor on boot (`cleanupStrayTerrain`), so a town never sprouts a mountain.
+- **Cooperating bot squads + run metrics.** Bots spawned by one GM (`/bot N`) now act as a
+  **cooperating party** on their journey to endgame instead of independent roamers:
+  - **Roles** (`bot-squad.ts`): every bot that owns a heal is a `healer` (support survivor — heal is
+    self-only, so it keeps *itself* up as the durable member), the toughest of the rest is the `tank`
+    (crowds the target), and everyone else is `dps` (kites at range).
+  - **Focus fire**: the squad concentrates on ONE shared target — boss → elite → most-wounded →
+    nearest the party centroid — committing to it from farther than a solo bot would, so they collapse
+    enemies together.
+  - **Travel & regroup**: the squad heads to the same milestone zone paced by its **slowest living
+    member** (no one runs to endgame alone), and **regroups/holds** — converging on a rally point — when
+    the party scatters, a member drops low, or a member dies (rescue), rather than pushing on.
+  - **Run metrics** (`bot-metrics.ts`): the host records the squad's whole journey — milestone arrival
+    times, level/gold/gear/XP curves, every death (with the blamed mob), and boss attempts. When the
+    squad kills the final boss (Athraxis, the Unmade God) it auto-writes **`botrun-report.md` +
+    `botrun-report.json`** (also on demand via **`/bot report`**) with a timeline, curves, deaths, and
+    auto-generated **improvement findings** (slowest band, death hotspots, progression stalls, boss
+    wipe risk). All times are sim-clock so reports are reproducible at any tick rate.
+
 - **Generated item icons replace the licensed sheets (`gen:icons`).** Inventory/vault/belt icons now
   draw from a procedurally-generated, **kind-keyed** sheet (`/assets/icons/items_gen.png`) instead of
   the licensed 32rogues atlas + minerals gem files. `item-icons.ts` resolves every item id to one of a

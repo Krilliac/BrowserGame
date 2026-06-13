@@ -58,20 +58,23 @@ export function waterPondsFor(areaId: string, width: number, height: number): Po
     // One pond near the green, sized to the area (sits under the central paths so actors reflect).
     return [{ cx: width * 0.5, cy: height * 0.6, rx: 185, ry: 125 }];
   }
-  // Wetland: scatter ponds on a ~360px grid, ~35% of cells, with hash-varied size + jitter.
+  // Wetland: a HANDFUL of ponds, scattered on a coarse grid. The cell scales with the map so the
+  // count stays small at any world size — a fixed grid produced hundreds of ponds once the world was
+  // inflated ×WORLD_SCALE. Target ~4 cells per side, ~25% of which become a pond (so ~3–5 per zone).
   const ponds: Pond[] = [];
-  const cell = 360;
+  const cell = Math.max(360, Math.min(width, height) / 4);
   const cols = Math.max(1, Math.floor(width / cell));
   const rows = Math.max(1, Math.floor(height / cell));
   for (let gx = 0; gx < cols; gx++) {
     for (let gy = 0; gy < rows; gy++) {
-      if (hash2(gx * 7 + 1, gy * 13 + 5) > 0.35) continue;
+      if (hash2(gx * 7 + 1, gy * 13 + 5) > 0.25) continue;
       const jx = hash2(gx, gy * 3);
       const jy = hash2(gx * 5, gy);
       const cx = (gx + 0.2 + jx * 0.6) * cell;
       const cy = (gy + 0.2 + jy * 0.6) * cell;
       if (cx < 120 || cy < 120 || cx > width - 120 || cy > height - 120) continue; // keep off edges
-      const rx = 90 + hash2(gx * 3, gy * 7) * 110;
+      // Bigger, varied pools so the few that remain read as proper lakes rather than puddles.
+      const rx = 150 + hash2(gx * 3, gy * 7) * 200;
       const ry = rx * (0.62 + hash2(gx, gy) * 0.2); // foreshortened, varied
       ponds.push({ cx, cy, rx, ry });
     }

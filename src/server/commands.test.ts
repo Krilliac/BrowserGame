@@ -35,6 +35,7 @@ function makeCtx(
     setAccessFor: () => true,
     spawnBots: () => 0,
     clearBots: () => 0,
+    botReport: () => null,
     areaIds: () => ['town'],
     areaTheme: () => undefined,
     setTheme: () => 'ok',
