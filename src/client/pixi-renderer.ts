@@ -485,11 +485,10 @@ export class PixiRenderer {
       this.atmosphere.particleLayer,
       this.weather.layer,
       this.atmosphere.screen,
+      this.screenFx.godrayLayer, // additive light shafts over the mood wash (RENDER-10)
       this.lighting.layer,
       this.fade,
     );
-    // Godrays (RENDER-10) render over the screen-space day/night wash when an area enables them.
-    this.screenFx.bindOverlay(this.atmosphere.screen);
   }
 
   /** Load sprite sheets + FX/item textures. Falls back to procedural shapes on failure. */
@@ -638,7 +637,7 @@ export class PixiRenderer {
     this.currentTheme = theme;
     this.atmosphere.setArea(theme);
     this.weather.setWeather(theme.weather, theme.weatherIntensity, theme.fogColor);
-    this.screenFx.setArea(areaId); // godrays + LUT/heat config for this area (RENDER-10/12/13)
+    this.screenFx.setArea(areaId, theme.outdoor); // godrays + LUT/heat config (RENDER-10/12/13)
     this.applyGrade(theme);
     this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
     // Real tiled ground where a biome tileset exists; the procedural speckle is the fallback.
@@ -1527,8 +1526,8 @@ export class PixiRenderer {
     this.postFx.update(this.lighting.layer, sw, sh);
 
     // Animate the optional screen polish filters (godray drift, heat-haze scroll). No-op when the
-    // current area enables none of them (the default) — the filters aren't even allocated.
-    this.screenFx.update(now);
+    // current area enables none of them.
+    this.screenFx.update(now, sw, sh);
 
     // Deferred normal-mapped lighting (RENDER-01): when active, render the world through the GPU
     // light list and show the lit result in place of the world. Inactive today (no normal maps

@@ -1,20 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { AREA_SCREEN_FX, activeScreenEffects, screenFxFor } from './screen-fx.js';
+import { OUTDOOR_GODRAYS, activeScreenEffects, effectiveFx, screenFxFor } from './screen-fx.js';
 
-describe('screenFxFor (RENDER-10/12/13)', () => {
-  it('returns empty config for unregistered areas (default-off)', () => {
-    expect(screenFxFor('town')).toEqual({});
-    expect(Object.keys(AREA_SCREEN_FX)).toHaveLength(0); // empty by default → no regression
+describe('screenFxFor / effectiveFx (RENDER-10/12/13)', () => {
+  it('resolves instance ids (area#seq) to the base area override', () => {
+    expect(screenFxFor('town#4')).toEqual(screenFxFor('town'));
   });
 
-  it('resolves instance ids (area#seq) to the base area config', () => {
-    // Drive the lookup through a temporary entry, then clean up so the suite stays order-independent.
-    AREA_SCREEN_FX['town'] = { godrays: 0.5 };
-    try {
-      expect(screenFxFor('town#4')).toEqual({ godrays: 0.5 });
-    } finally {
-      delete AREA_SCREEN_FX['town'];
-    }
+  it('gives outdoor areas the default godray shafts, indoor areas none', () => {
+    expect(effectiveFx('wilderness', true).godrays).toBe(OUTDOOR_GODRAYS); // no override → default
+    expect(effectiveFx('some_cave', false).godrays).toBe(0); // indoor → no shafts
+  });
+
+  it('lets a per-area override win over the outdoor default', () => {
+    expect(effectiveFx('town', true).godrays).toBe(0.4); // town override is stronger
   });
 });
 

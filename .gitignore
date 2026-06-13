@@ -46,3 +46,4 @@ public/assets/*/
 game.db
 game.db-shm
 game.db-wal
+.shots/

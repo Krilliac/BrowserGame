@@ -14,7 +14,7 @@
  *             Needs a LUT texture to be loaded; absent → the ColorMatrix grade stays (the fallback).
  */
 
-import { DisplacementFilter, Sprite, Texture, type Container, type Filter } from 'pixi.js';
+import { Container, DisplacementFilter, Sprite, Texture, type Filter } from 'pixi.js';
 import { ColorMapFilter, GodrayFilter } from 'pixi-filters';
 import type { Quality } from './post-fx.js';
 
@@ -27,13 +27,30 @@ export interface AreaScreenFx {
   lut?: string;
 }
 
-/** Per-area screen-FX config. Empty by default — add an area id to light it up. Accepts base ids. */
-export const AREA_SCREEN_FX: Record<string, AreaScreenFx> = {};
+/** Per-area screen-FX overrides. Defaults (e.g. outdoor godrays) are applied in `effectiveFx`; an
+ *  entry here overrides them for a specific area (set `godrays: 0` to suppress, higher for portals). */
+export const AREA_SCREEN_FX: Record<string, AreaScreenFx> = {
+  // Portal/crossing-heavy areas read well with stronger shafts.
+  town: { godrays: 0.4 },
+};
 
-/** Resolve an area (or instance `area#seq`) to its screen-FX config, or empty when none. */
+/** Subtle default light-shaft intensity for outdoor areas (RENDER-10) when no override is set. */
+export const OUTDOOR_GODRAYS = 0.28;
+
+/** Raw per-area override config (or empty). Accepts instance ids `area#seq`. */
 export function screenFxFor(areaId: string): AreaScreenFx {
   const base = areaId.split('#', 1)[0] ?? areaId;
   return AREA_SCREEN_FX[base] ?? {};
+}
+
+/**
+ * The effective config for an area: the per-area override merged over the outdoor-godrays default,
+ * so every outdoor area gets subtle shafts unless it opts out. `outdoor` comes from the area theme.
+ */
+export function effectiveFx(areaId: string, outdoor: boolean): AreaScreenFx {
+  const override = screenFxFor(areaId);
+  const godrays = override.godrays ?? (outdoor ? OUTDOOR_GODRAYS : 0);
+  return { ...override, godrays };
 }
 
 /** Which effects are active for a config at a quality tier — pure, so the gating is unit-tested. */
@@ -52,20 +69,29 @@ export function activeScreenEffects(
  */
 export class ScreenFx {
   private readonly quality: Quality;
+  /**
+   * Godrays render as a DEDICATED additive screen overlay (a full-screen white sprite the
+   * GodrayFilter turns into bright ray streaks; additive blend then adds only the shafts to the
+   * scene below). This keeps them screen-space and subtle, and never washes the scene the way
+   * filtering the mood-tint layer did. The renderer adds `godrayLayer` to the stage above the world.
+   */
+  readonly godrayLayer = new Container();
+  private readonly godraySprite = new Sprite(Texture.WHITE);
   private godray?: GodrayFilter;
   private heat?: DisplacementFilter;
   private heatSprite?: Sprite;
-  private overlay?: Container;
   private cfg: AreaScreenFx = {};
   private readonly luts = new Map<string, Texture>();
 
   constructor(quality: Quality) {
     this.quality = quality;
-  }
-
-  /** Bind the screen-space overlay the godrays render on (added to the stage by the renderer). */
-  bindOverlay(overlay: Container): void {
-    this.overlay = overlay;
+    this.godrayLayer.eventMode = 'none';
+    this.godrayLayer.visible = false;
+    // The GodrayFilter outputs ray streaks over a black base. We composite that output ADDITIVELY
+    // (blendMode on the FILTER — a sprite's own blendMode doesn't propagate through a filter in v8),
+    // so the black gaps add nothing and only the bright shafts lighten the scene behind.
+    this.godraySprite.tint = 0x000000;
+    this.godrayLayer.addChild(this.godraySprite);
   }
 
   /** Register a loaded LUT texture so areas referencing it grade through a ColorMapFilter. */
@@ -73,19 +99,23 @@ export class ScreenFx {
     this.luts.set(src, tex);
   }
 
-  /** Switch to an area: (re)apply the godray overlay filter. Returns nothing; world filters are pulled. */
-  setArea(areaId: string): void {
-    this.cfg = screenFxFor(areaId);
+  /** Switch to an area. `outdoor` (from the area theme) drives the default godray shafts. World
+   *  filters (LUT/heat) are pulled separately by the renderer when it rebuilds `world.filters`. */
+  setArea(areaId: string, outdoor: boolean): void {
+    this.cfg = effectiveFx(areaId, outdoor);
     const on = activeScreenEffects(this.cfg, this.quality);
-    if (this.overlay) {
-      if (on.godrays) {
-        if (!this.godray)
-          this.godray = new GodrayFilter({ gain: 0.5, lacunarity: 2.2, alpha: 0.85 });
-        this.godray.gain = 0.5 * (this.cfg.godrays ?? 0);
-        this.overlay.filters = [this.godray];
-      } else if (this.overlay.filters && (this.overlay.filters as readonly unknown[]).length > 0) {
-        this.overlay.filters = [];
+    if (on.godrays) {
+      const intensity = this.cfg.godrays ?? 0;
+      if (!this.godray) {
+        this.godray = new GodrayFilter({ gain: 0.35, lacunarity: 2.5, alpha: 1 });
+        this.godray.blendMode = 'add'; // composite the ray output additively over the scene
       }
+      this.godray.gain = 0.45 * intensity; // ray contrast scales with intensity
+      this.godraySprite.filters = [this.godray];
+      this.godraySprite.alpha = 0.6 * intensity; // overall shaft strength (subtle)
+      this.godrayLayer.visible = true;
+    } else {
+      this.godrayLayer.visible = false;
     }
   }
 
@@ -114,9 +144,13 @@ export class ScreenFx {
     return this.heat!;
   }
 
-  /** Animate the active filters (godray shafts drift; the heat noise scrolls). */
-  update(now: number): void {
-    if (this.godray) this.godray.time = now / 1000;
+  /** Animate the active effects and keep the godray overlay sized to the screen. */
+  update(now: number, sw: number, sh: number): void {
+    if (this.godrayLayer.visible) {
+      this.godraySprite.width = sw;
+      this.godraySprite.height = sh;
+      if (this.godray) this.godray.time = now / 1000;
+    }
     if (this.heatSprite) {
       this.heatSprite.x = Math.sin(now / 900) * 24;
       this.heatSprite.y = -((now / 28) % 256);
@@ -128,12 +162,13 @@ export class ScreenFx {
     this.heatSprite = new Sprite(makeNoiseTexture());
     this.heatSprite.texture.source.addressMode = 'repeat';
     // The displacement sprite must live in the scene graph for its transform; it never draws visibly.
-    this.overlay?.addChild(this.heatSprite);
+    this.godrayLayer.addChild(this.heatSprite);
     this.heat = new DisplacementFilter({ sprite: this.heatSprite, scale: 0 });
   }
 
   destroy(): void {
     this.heatSprite?.destroy();
+    this.godrayLayer.destroy({ children: true });
     for (const t of this.luts.values()) t.destroy(true);
     this.luts.clear();
   }
