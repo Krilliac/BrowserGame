@@ -35,6 +35,7 @@ import {
   type GpuLight,
 } from './deferred-lighting.js';
 import { ScreenFx } from './screen-fx.js';
+import { Water, isOverWater, waterPondsFor } from './water.js';
 import { DEFAULT_THEME, type AreaTheme, type PropKind } from '../shared/theme.js';
 import {
   newAnimView,
@@ -390,6 +391,8 @@ export class PixiRenderer {
   private readonly postFx = new PostFx(this.quality);
   // Ground decals (blood/scorch/corpse stains) — world-space, above ground, below props/actors.
   private readonly decals = new Decals(this.quality);
+  // Water ponds (RENDER-11): a stage-level, world-anchored layer above the ground, below the world.
+  private readonly water = new Water(this.quality);
   // General particle bursts (sparks, blood spray, dust, embers) in the world-space fxLayer.
   private readonly particles = new ParticleSystem(this.quality);
   // Per-pixel dynamic lighting (RENDER-01): derives normals from the albedo and rakes light across
@@ -477,6 +480,7 @@ export class PixiRenderer {
     this.litSprite.visible = false; // shown only while the deferred pass is active (RENDER-01)
     app.stage.addChild(
       this.ground,
+      this.water.layer, // world-anchored ponds: above the ground, below the world (RENDER-11)
       this.world,
       this.litSprite,
       this.atmosphere.particleLayer,
@@ -621,6 +625,8 @@ export class PixiRenderer {
     // Drop any blood/scorch stains and live particles so they don't bleed across a zone change.
     this.decals.clear();
     this.particles.clear();
+    // Procedural water ponds for this area (RENDER-11), tinted toward a dark teal pool.
+    this.water.setRegions(waterPondsFor(areaId, area.width, area.height), 0x2c5a6e);
 
     this.portalCenters = [];
     this.decorLights = [];
@@ -1442,6 +1448,7 @@ export class PixiRenderer {
     const originY = sh * CAM_DOLLY_Y - this.camY * PITCH * z + shY;
     this.world.position.set(originX, originY);
     this.world.scale.set(z);
+    this.water.syncTransform(originX, originY, z); // keep ponds world-anchored (RENDER-11)
     this.ground.width = sw;
     this.ground.height = sh;
     this.ground.tilePosition.set(originX, originY);
@@ -1549,6 +1556,33 @@ export class PixiRenderer {
     }
     this.decals.update(now);
     this.particles.update(dt * 1000);
+
+    // Water reflections (RENDER-11): mirror actors standing in/near a pond.
+    if (this.water.hasPonds()) {
+      if (this.effectsEnabled) {
+        const ponds = this.water.getPonds();
+        const items = [];
+        for (const e of state.entities) {
+          if (e.kind === 'projectile' || e.kind === 'item') continue;
+          if (!isOverWater(ponds, e.x, e.y, 40)) continue;
+          const view = this.views.get(e.id);
+          if (view?.sprite) {
+            items.push({
+              texture: view.sprite.texture,
+              x: e.x,
+              y: e.y,
+              scaleX: view.sprite.scale.x,
+              scaleY: view.sprite.scale.y,
+            });
+          }
+        }
+        this.water.reflect(items);
+      } else {
+        this.water.reflect([]);
+      }
+      this.water.update(now);
+      this.water.setVisible(this.effectsEnabled);
+    }
 
     // Fade house roofs based on whether the LOCAL player stands inside each footprint. Uses the
     // authoritative self entity's world position (the camera trails it, so the actual entity is the
