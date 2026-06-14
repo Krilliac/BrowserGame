@@ -29,6 +29,7 @@ import {
 import { applyItemSetOverrides, type ItemSetDef } from '../shared/item-sets.js';
 import { applyBossScriptOverrides, type BossScript, type BossStep } from './boss-scripts.js';
 import type { ProcDef, ProcEffect } from './item-procs.js';
+import type { GameEventDef } from './game-events.js';
 import { applySkillTreeOverrides, type SkillNode, type SkillEffects } from '../shared/skilltree.js';
 import { KIND_TO_NPC_FLAG } from '../shared/npc-flags.js';
 import {
@@ -176,6 +177,8 @@ export interface Content {
   itemProcs(sourceId: string): ProcDef[];
   /** Per-element damage resistances for a mob template (empty if it has none). */
   mobResists(templateId: string): ResistMap;
+  /** The timed liveops game events (recurrence schedules; the host applies them on the sim clock). */
+  gameEvents(): GameEventDef[];
   /** Affix roll ranges per scalar stat (server-only; overlaid onto the shared AFFIX_RANGES). */
   affixRanges(): Record<string, AffixRange>;
   /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
@@ -673,6 +676,20 @@ export function loadContent(db: GameDatabase): Content {
     mobResists.set(r.template_id, m);
   }
 
+  // Timed game events: recurrence schedules. snake_case → camelCase; nullable optional fields dropped
+  // so they stay truly absent (exactOptionalPropertyTypes). The host runs the pure schedule math.
+  const gameEvents = (db.prepare('SELECT * FROM game_events').all() as GameEventRow[]).map((r) => {
+    const ev: GameEventDef = {
+      id: r.id,
+      name: r.name,
+      periodMin: r.period_min,
+      lengthMin: r.length_min,
+    };
+    if (r.xp_bonus !== null) ev.xpBonus = r.xp_bonus;
+    if (r.announce !== null) ev.announce = r.announce;
+    return ev;
+  });
+
   // Affix roll ranges (server-only) + flavor names/tiers (client-coupled). A NULL up_to is Infinity.
   const affixRanges: Record<string, AffixRange> = {};
   for (const r of db.prepare('SELECT * FROM affix_ranges').all() as AffixRangeRow[]) {
@@ -776,6 +793,7 @@ export function loadContent(db: GameDatabase): Content {
     bossScripts: () => bossScripts,
     itemProcs: (sourceId) => itemProcs.get(sourceId) ?? [],
     mobResists: (templateId) => mobResists.get(templateId) ?? {},
+    gameEvents: () => gameEvents,
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
     skillTree: () => skillTree,
@@ -1092,6 +1110,14 @@ interface MobResistRow {
   template_id: string;
   element: string;
   value: number;
+}
+interface GameEventRow {
+  id: string;
+  name: string;
+  period_min: number;
+  length_min: number;
+  xp_bonus: number | null;
+  announce: string | null;
 }
 interface ItemProcRow {
   source_id: string;

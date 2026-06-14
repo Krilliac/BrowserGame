@@ -469,6 +469,19 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     },
   },
 
+  game_events: {
+    pk: 'id',
+    label: 'game event',
+    note: 'a timed recurring liveops event (period/length in minutes); /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      period_min: { type: 'int', min: 1, max: 100000 },
+      length_min: { type: 'int', min: 1, max: 100000 },
+      xp_bonus: { type: 'real', min: 0, max: 100, nullable: true },
+      announce: { type: 'text', nullable: true },
+    },
+  },
+
   mob_resists: {
     pk: 'id',
     label: 'mob resistance',

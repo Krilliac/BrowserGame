@@ -516,6 +516,18 @@ CREATE TABLE IF NOT EXISTS friends (
   PRIMARY KEY (owner_token, friend_name)
 );
 
+-- Game events: timed recurring liveops (TrinityCore GameEventMgr, cut down). Each row is a schedule
+-- (recurs every period_min, active for length_min) with an optional XP bonus + announce line. The
+-- schedule math is pure (game-events.ts); the host applies the active XP bonus + announces on start.
+CREATE TABLE IF NOT EXISTS game_events (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  period_min  INTEGER NOT NULL,        -- recurrence cadence (minutes)
+  length_min  INTEGER NOT NULL,        -- occurrence duration (minutes)
+  xp_bonus    REAL,                    -- nullable; fractional XP boost while active (0.5 = +50%)
+  announce    TEXT                     -- nullable; chat line broadcast when an occurrence begins
+);
+
 -- Ladder / leaderboard: the best-ever score per character per metric (server is the sole writer;
 -- scores are recorded from the authoritative save on autosave). One row per (name, metric); the
 -- value only ever climbs (recordScore keeps the max). Read by the /ladder command.

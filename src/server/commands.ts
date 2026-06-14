@@ -40,6 +40,8 @@ export interface CommandContext {
   setContent: (table: string, id: string, column: string, value: string) => string;
   /** Render the top of the ladder for a metric ('level' | 'gold'); unknown metrics fall back to level. */
   ladder: (metric: string) => string;
+  /** Render the timed game-events with their active state + time-to-flip (for /event). */
+  events: () => string;
 }
 
 interface Command {
@@ -92,6 +94,15 @@ const COMMAND_LIST: Command[] = [
       const metric = (ctx.args[0] ?? 'level').toLowerCase();
       // The accessor renders + clamps; it falls back to 'level' for an unknown metric.
       for (const line of ctx.ladder(metric).split('\n')) ctx.reply(line);
+    },
+  },
+  {
+    name: 'events',
+    minLevel: AccessLevel.GameMaster,
+    usage: '/events',
+    help: 'List timed game-events and whether each is active right now.',
+    run: (ctx) => {
+      for (const line of ctx.events().split('\n')) ctx.reply(line);
     },
   },
   {

@@ -40,6 +40,7 @@ import {
   removeFriend as dbRemoveFriend,
 } from './player-store.js';
 import { recordScore, formatLadder, isLeaderboardMetric } from './leaderboard.js';
+import { activeEvents, totalXpBonus, msUntilNextChange } from './game-events.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
 import {
@@ -1227,6 +1228,24 @@ wss.on('connection', (socket) => {
                   },
                   ladder: (metric) =>
                     formatLadder(getDb(), isLeaderboardMetric(metric) ? metric : 'level'),
+                  events: () => {
+                    const now = simMs();
+                    const evs = getContent().gameEvents();
+                    if (evs.length === 0) return 'No game events configured.';
+                    return evs
+                      .map((e) => {
+                        const active = msUntilNextChange(e, now);
+                        const on = totalXpBonus([e], now) > 0 || activeEvents([e], now).length > 0;
+                        const secs = Number.isFinite(active) ? Math.ceil(active / 1000) : Infinity;
+                        const when = Number.isFinite(secs)
+                          ? `${on ? 'ends' : 'starts'} in ${secs}s`
+                          : on
+                            ? 'always on'
+                            : 'never';
+                        return `${e.name} [${e.id}]: ${on ? 'ACTIVE' : 'idle'} (${when})`;
+                      })
+                      .join('\n');
+                  },
                 });
               } catch (err) {
                 console.error('[command] failed:', err);
@@ -1439,6 +1458,8 @@ function broadcastToInstance(instanceId: string, msg: ServerMessage): void {
 // --- Fixed-timestep authoritative loop ------------------------------------------------
 const dt = 1 / TICK_RATE;
 let tick = 0;
+/** The set of game-event ids active last tick — for the inactive→active edge that triggers an announce. */
+let lastActiveEventIds = new Set<string>();
 setInterval(() => {
   // Guard the whole tick: a throw from one corrupt entity/instance must not kill the interval and
   // freeze the world for everyone. On throw we skip this tick and carry on next frame.
@@ -1448,6 +1469,24 @@ setInterval(() => {
       if (bots.size > 0) driveBots(); // feed AI companions their inputs before the world advances
       const transfers = manager.tick(dt);
       tick++;
+
+      // Liveops timed game-events on the deterministic sim clock (NOT wall-clock, so replays stay
+      // reproducible): inject each world's XP multiplier from the active events, and announce one the
+      // moment it begins. The schedule math is pure (game-events.ts); the World just reads the number.
+      const evNow = simMs();
+      const events = getContent().gameEvents();
+      const eventMult = 1 + totalXpBonus(events, evNow);
+      for (const instance of manager.list()) instance.world.setXpEventMult(eventMult);
+      const nowActiveEventIds = new Set<string>();
+      for (const e of activeEvents(events, evNow)) {
+        nowActiveEventIds.add(e.id);
+        if (!lastActiveEventIds.has(e.id) && e.announce) {
+          for (const instance of manager.list()) {
+            broadcastToInstance(instance.id, { t: 'chat', from: 'System', text: e.announce });
+          }
+        }
+      }
+      lastActiveEventIds = nowActiveEventIds;
 
       // Area corruption: fade it once on the shared pool, and reset it every morning (06:00 local).
       manager.corruption.decay(dt);

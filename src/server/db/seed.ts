@@ -33,6 +33,7 @@ import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
 import { DEFAULT_ITEM_SETS } from '../../shared/item-sets.js';
 import { DEFAULT_BOSS_SCRIPTS } from '../boss-scripts.js';
 import { DEFAULT_ITEM_PROCS } from '../item-procs.js';
+import { DEFAULT_GAME_EVENTS } from '../game-events.js';
 import { DEFAULT_SKILL_TREE, type SkillEffects } from '../../shared/skilltree.js';
 import { DEFAULT_HIRELING_TEMPLATES } from '../hirelings.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
@@ -346,6 +347,7 @@ export function seed(db: Database): void {
   ensureItemProcs(db); // chance-on-hit/crit item procs (seeded from item-procs.ts defaults)
   ensureAbilityElements(db); // tag elemental abilities (fire/cold/...) — only ones still 'physical'
   ensureMobResists(db); // per-element mob resistances (seeded from mobs.ts MOB_RESISTS)
+  ensureGameEvents(db); // timed recurring liveops events (seeded from game-events.ts defaults)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
   ensureHirelings(db); // mercenary roster (seeded from hirelings.ts DEFAULT_HIRELING_TEMPLATES)
@@ -554,6 +556,21 @@ const ABILITY_ELEMENTS: Record<string, DamageElement> = {
 function ensureAbilityElements(db: Database): void {
   const upd = db.prepare("UPDATE abilities SET element = ? WHERE id = ? AND element = 'physical'");
   for (const [id, element] of Object.entries(ABILITY_ELEMENTS)) upd.run(element, id);
+}
+
+/**
+ * Seed the timed game events from the code defaults (game-events.ts). Idempotent: skips entirely once
+ * any event row exists, so designer edits/additions survive a restart.
+ */
+function ensureGameEvents(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM game_events LIMIT 1');
+  if (has.get()) return;
+  const ins = db.prepare(
+    'INSERT INTO game_events (id,name,period_min,length_min,xp_bonus,announce) VALUES (?,?,?,?,?,?)',
+  );
+  for (const e of DEFAULT_GAME_EVENTS) {
+    ins.run(e.id, e.name, e.periodMin, e.lengthMin, e.xpBonus ?? null, e.announce ?? null);
+  }
 }
 
 /**

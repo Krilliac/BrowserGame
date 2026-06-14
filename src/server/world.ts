@@ -607,6 +607,9 @@ export class World {
   private readonly allocId: () => number;
   private now = 0; // accumulated sim time, ms (drives cooldowns/respawns)
   private procDepth = 0; // recursion guard: a fired proc's own damage must not itself proc
+  // Liveops XP multiplier from active timed game-events. Injected by the host each tick (the schedule
+  // is wall-clock-ish and computed OUTSIDE the sim to keep the World deterministic); 1 = no event.
+  private xpEventMult = 1;
   // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
   // Solid colliders for this area — rects (house walls, cliffs, ridges, barriers) AND circles
@@ -1554,6 +1557,11 @@ export class World {
     player.equipment[s] = null;
     this.addGear(player, inst);
     this.recomputeStats(player);
+  }
+
+  /** Set the liveops XP multiplier (1 = none). Host-driven from active timed game-events; clamped >=0. */
+  setXpEventMult(mult: number): void {
+    this.xpEventMult = Number.isFinite(mult) && mult >= 0 ? mult : 1;
   }
 
   /** Derive power, max HP, crit, multishot, and damage-taken from level + every equipped instance. */
@@ -3040,7 +3048,10 @@ export class World {
       // A small group XP bonus on top of the elite multiplier — a kill that took several hands is
       // worth more total, so co-op pays even though everyone shares it.
       const groupBonus = 1 + 0.1 * Math.max(0, mob.taggers.size - 1);
-      const reward = Math.round(xpReward(mob.level) * (mob.elite ? 3 : 1) * groupBonus);
+      // xpEventMult folds in any active liveops event bonus (e.g. Bloodmoon +50%), injected by the host.
+      const reward = Math.round(
+        xpReward(mob.level) * (mob.elite ? 3 : 1) * groupBonus * this.xpEventMult,
+      );
       // Shared credit: EVERY player who tagged the mob, plus party members present in THIS instance,
       // each get the full XP and quest progress — grouping (and helping) is rewarded, never taxed.
       const credited = new Set<number>(mob.taggers);
