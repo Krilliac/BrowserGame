@@ -54,7 +54,7 @@ import {
   rollGemDrop,
 } from '../shared/gems.js';
 import { gambleCost, isGambleSlot, rollGamble } from '../shared/gamble.js';
-import { AreaCorruption, CORRUPT_DROP_MAX, CORRUPT_MAX_DMG_BONUS } from './area-corruption.js';
+import { AreaCorruption } from './area-corruption.js';
 import { EQUIP_SLOTS, dollSlotsFor, type EquipSlot, type ItemSlot } from '../shared/equipment.js';
 import {
   stepMob,
@@ -1861,7 +1861,7 @@ export class World {
 
   /** Mob-damage multiplier from corruption (1 at calm, up to 1 + CORRUPT_MAX_DMG_BONUS at full). */
   private corruptionDmg(): number {
-    return 1 + this.corruption() * CORRUPT_MAX_DMG_BONUS;
+    return 1 + this.corruption() * config.corruption.maxDmgBonus;
   }
 
   /**
@@ -2155,7 +2155,7 @@ export class World {
       c.opened = true;
       const gold = CHEST_GOLD_MIN + Math.floor(this.rand() * (CHEST_GOLD_MAX - CHEST_GOLD_MIN + 1));
       this.dropGround('gold', gold, c.x, c.y);
-      const corrupt = this.corruption() * CORRUPT_DROP_MAX;
+      const corrupt = this.corruption() * config.corruption.dropMax;
       this.dropBonusGear(c.x, c.y, 1, corrupt, CHEST_UNIQUE_CHANCE); // one good piece (rare unique)...
       if (this.rand() < 0.4) this.dropBonusGear(c.x, c.y, 0, corrupt); // ...sometimes a second
       // A chest also stocks your belt with a couple of potions.
@@ -2956,7 +2956,7 @@ export class World {
    * bonus for invasion champions and an even slimmer one for bosses.
    */
   private corruptedDropChance(mob: Mob, isBoss: boolean): number {
-    let chance = this.corruption() * CORRUPT_DROP_MAX;
+    let chance = this.corruption() * config.corruption.dropMax;
     if (mob.invader) chance += INVASION_CORRUPT_CHANCE;
     if (isBoss) chance += BOSS_CORRUPT_CHANCE;
     return chance;

@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import {
-  AreaCorruption,
-  CORRUPT_PER_DEATH,
-  CORRUPT_PER_KILL,
-  morningDayIndex,
-  tierOf,
-} from './area-corruption.js';
+import { AreaCorruption, morningDayIndex, tierOf } from './area-corruption.js';
+import { config } from './config.js';
+
+// The corruption scalars are data-driven via config.corruption (see the game_config overlay).
+const CORRUPT_PER_DEATH = config.corruption.perDeath;
+const CORRUPT_PER_KILL = config.corruption.perKill;
 
 describe('AreaCorruption', () => {
   it('defaults to 0 and accumulates deaths per area', () => {

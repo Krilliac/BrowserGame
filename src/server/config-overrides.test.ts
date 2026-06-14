@@ -28,6 +28,14 @@ describe('game_config overlay', () => {
     expect(TUNABLE_SECTIONS).not.toContain('server');
   });
 
+  it('seeds the corruption tuning section (corruption.perDeath)', () => {
+    const db = openDatabase(':memory:');
+    const row = db
+      .prepare('SELECT value FROM game_config WHERE key = ?')
+      .get('corruption.perDeath') as { value: number } | undefined;
+    expect(row?.value).toBe(0.15);
+  });
+
   it('overlays a DB value onto the target config section', () => {
     const db = openDatabase(':memory:');
     db.prepare('UPDATE game_config SET value = ? WHERE key = ?').run(9, 'difficulty.mobDamage');

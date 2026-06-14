@@ -148,6 +148,21 @@ export const config = {
     artificerUnsocketGold: 120,
   },
 
+  /** Area-wide corruption (dread level): how a zone's deaths/kills move the shared pool and what
+   *  full corruption does to mob damage + corrupted-gear drops. (The tier thresholds stay in code.) */
+  corruption: {
+    /** Natural fade per second (slow, so a day's deaths accumulate). */
+    decayPerSec: 0.003,
+    /** Corruption added by each player death in the area. */
+    perDeath: 0.15,
+    /** Corruption pushed back by each monster slain. */
+    perKill: 0.012,
+    /** Mob-damage bonus at full corruption (0.6 = +60%). */
+    maxDmgBonus: 0.6,
+    /** Share of gear drops that are corrupted at full corruption (0.3 = up to 30%). */
+    dropMax: 0.3,
+  },
+
   /** Living-loot bounty + extra corrupted-gear sources. */
   bounty: {
     /** A monster type left alone this long has a full hunting bounty. */
@@ -213,6 +228,7 @@ export const TUNABLE_SECTIONS = [
   'progression',
   'drops',
   'economy',
+  'corruption',
   'bounty',
   'invasion',
   'items',

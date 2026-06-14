@@ -5,11 +5,11 @@
  * (a 06:00 local-time boundary). Owned by the host, shared into each World by area id.
  */
 
-export const CORRUPT_DECAY_PER_SEC = 0.003; // slow fade, so a day's deaths accumulate
-export const CORRUPT_PER_DEATH = 0.15; // each player death feeds the corruption
-export const CORRUPT_PER_KILL = 0.012; // each monster slain pushes it back
-export const CORRUPT_MAX_DMG_BONUS = 0.6; // mob damage scales up to +60% at full corruption
-export const CORRUPT_DROP_MAX = 0.3; // at full corruption, up to 30% of gear drops are corrupted
+import { config } from './config.js';
+
+// The corruption scalars (decay/perDeath/perKill/maxDmgBonus/dropMax) are data-driven via
+// config.corruption (overlaid by the game_config table). Read them at call time so a live edit
+// (/set game_config corruption.* + /reloadcontent) takes effect without a restart.
 
 /** Corruption tiers by ascending threshold; index = tier (0 = calm ... 3 = rampant). */
 export const CORRUPT_TIERS = [0, 0.25, 0.55, 0.85];
@@ -33,18 +33,18 @@ export class AreaCorruption {
 
   /** A player died in this area — every player's death counts toward the shared pool. */
   addDeath(areaId: string): void {
-    this.bump(areaId, CORRUPT_PER_DEATH);
+    this.bump(areaId, config.corruption.perDeath);
   }
 
   /** A monster was slain in this area — push the corruption back. */
   pushBack(areaId: string): void {
-    this.bump(areaId, -CORRUPT_PER_KILL);
+    this.bump(areaId, -config.corruption.perKill);
   }
 
   /** Natural fade. Driven once per tick by the host (never per-instance, to avoid double decay). */
   decay(dt: number): void {
     for (const [areaId, v] of this.level) {
-      const next = Math.max(0, v - CORRUPT_DECAY_PER_SEC * dt);
+      const next = Math.max(0, v - config.corruption.decayPerSec * dt);
       if (next <= 0) this.level.delete(areaId);
       else this.level.set(areaId, next);
     }
