@@ -191,3 +191,12 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   (12 stable slots; rings share 'ring'). Closes the last data cross-reference gap.
 - Tests: +1 (999 total). Current data clean; future broken tome/slot references fail the build.
 - Result: COMMITTED — gate check+build GREEN.
+
+## STOP — backlog exhausted of safely-completable high-value items (after iter 17)
+- Re-anchored green (999 tests). Assessed candidates: combat-formulas, skilltree, gems, runewords,
+  items, instance-manager, potion-pickup routing — all already well-covered or correctly handled
+  (potions don't drop as ground items; pots top up the belt directly, so no mis-route bug).
+- Remaining backlog is all "do not do unattended": combat-lethality balance (no playtest),
+  pure-aesthetic visuals (no human eye), multi-system health globes (no clean ground-item test seam).
+- Per the loop rules, that is the backlog-exhausted STOP condition. Stopping clean + green at iter 17
+  rather than padding with busywork or shipping risky work. Wrote loop/SUMMARY.md. NOT rescheduling.
