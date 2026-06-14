@@ -36,3 +36,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 3: hirelings.ts coverage (+12 tests)
 - iter 4: gold magnetism (Diablo-feel) + stepToward (+9 tests)
 - iter 5: deflaked world-rifts elite-HP test (seeded)
+- iter 6: champion gold scales with level (+3 tests)

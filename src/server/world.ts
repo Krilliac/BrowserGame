@@ -103,7 +103,14 @@ import {
 } from '../shared/attributes.js';
 import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
-import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
+import {
+  championGoldPile,
+  levelForXp,
+  levelProgress,
+  maxHpForLevel,
+  xpForLevel,
+  xpReward,
+} from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { SpatialGrid } from './spatial.js';
 import { getContent, type QuestDef } from './content.js';
@@ -2904,9 +2911,9 @@ export class World {
       this.items.set(id, item);
     }
 
-    // Champion bonus: a pile of gold + one guaranteed, rarity-bumped piece of gear.
+    // Champion bonus: a level-scaled pile of gold + one guaranteed, rarity-bumped piece of gear.
     if (mob.elite) {
-      this.dropGround('gold', 30 + Math.floor(this.rand() * 50), mob.x, mob.y);
+      this.dropGround('gold', championGoldPile(mob.level, this.rand), mob.x, mob.y);
       this.dropBonusGear(mob.x, mob.y, 2, corruptedChance);
     }
 

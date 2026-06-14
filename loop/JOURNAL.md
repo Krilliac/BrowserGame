@@ -53,3 +53,14 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   scaling and the assertion holds every run. Assertion NOT weakened; nondeterminism removed.
 - Tests: same count; verified 8/8 deterministic. No production code changed.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 6 — champion gold scales with level (Diablo-feel)
+- Picked: flat champion/elite gold pile (`30 + rand*50`, level-independent) → un-Diablo (a level-60
+  rift champion dropped the same as a level-1 wolf). (tier: spec/feature — Diablo-feel.)
+- Did: new pure `championGoldPile(mobLevel, rng)` in progression.ts (flat base + level-scaled core +
+  level-scaled spread, sanitizes bad input); wired into the elite drop in world.ts.
+- Tests: +3 (progression.test.ts) — positive-int, scales with level (×5+ at L60), both spread ends
+  grow + band widens, bad input → level 1. 966 total.
+- Result: COMMITTED — gate check+build GREEN.
+- Notes for human: only the ELITE bonus pile scales here; base monster gold still comes from the DB
+  drop tables (a future data pass could scale those too).

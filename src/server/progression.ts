@@ -50,6 +50,16 @@ export function xpReward(mobLevel: number): number {
   return base + 2 * pastKnee * pastKnee;
 }
 
+/**
+ * Gold in a champion/elite monster's bonus pile, scaled by its level so the reward tracks the threat:
+ * a level-1 wolf spills a handful, a level-60 rift champion a real hoard. A flat base + a level-scaled
+ * core + a level-scaled random spread. Pure given the injected rng (deterministic + testable).
+ */
+export function championGoldPile(mobLevel: number, rng: () => number = Math.random): number {
+  const lvl = sanitizeLevel(mobLevel);
+  return Math.round(40 + lvl * 9 + rng() * (30 + lvl * 5));
+}
+
 /** Player max HP at a given level (base 100, scaling up per level). */
 export function maxHpForLevel(level: number): number {
   const lvl = sanitizeLevel(level);

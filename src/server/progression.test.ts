@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
+import {
+  championGoldPile,
+  levelForXp,
+  levelProgress,
+  maxHpForLevel,
+  xpForLevel,
+  xpReward,
+} from './progression.js';
 
 describe('progression (XP / leveling curve)', () => {
   it('starts level 1 at 0 XP and increases monotonically', () => {
@@ -111,5 +118,34 @@ describe('progression (XP / leveling curve)', () => {
     const p = levelProgress(mid);
     expect(p.level).toBe(2);
     expect(p.fraction).toBeCloseTo(0.5, 10);
+  });
+});
+
+describe('championGoldPile', () => {
+  const lo = () => 0; // floor of the random spread
+  const hi = () => 0.999999; // top of the random spread
+
+  it('is a positive integer that scales with monster level', () => {
+    for (const lvl of [1, 10, 30, 60]) {
+      const g = championGoldPile(lvl, () => 0.5);
+      expect(Number.isInteger(g)).toBe(true);
+      expect(g).toBeGreaterThan(0);
+    }
+    // Expected payout rises with level (a level-60 champion spills far more than a level-1 one).
+    expect(championGoldPile(60, () => 0.5)).toBeGreaterThan(championGoldPile(1, () => 0.5) * 5);
+  });
+
+  it('both ends of the random spread grow with level, and the band widens', () => {
+    const band = (lvl: number) => championGoldPile(lvl, hi) - championGoldPile(lvl, lo);
+    expect(championGoldPile(60, lo)).toBeGreaterThan(championGoldPile(1, lo));
+    expect(championGoldPile(60, hi)).toBeGreaterThan(championGoldPile(1, hi));
+    expect(band(60)).toBeGreaterThan(band(1)); // higher levels have a bigger gold swing
+  });
+
+  it('sanitizes bad level inputs to level 1 (never NaN / negative)', () => {
+    const base = championGoldPile(1, lo);
+    expect(championGoldPile(0, lo)).toBe(base);
+    expect(championGoldPile(-5, lo)).toBe(base);
+    expect(championGoldPile(NaN, lo)).toBe(base);
   });
 });
