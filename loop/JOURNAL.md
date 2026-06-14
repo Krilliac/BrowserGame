@@ -17,7 +17,17 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 
 | 6 | feat | **Content expansion** — 3 new proc weapons + Trinketer's Cabal jewelry set | green | 27eb389; +1 → 1227; 5 procs + 5 sets total now; integrity-guarded |
 
-### Iteration 7 plan: **per-element resistances (#14)** — bigger, own turn
+| 7 | feat | **Per-element resistances (#14)** — fire/cold/lightning/poison + mob resists | green | 3b230af; +12 → 1239; neutral-by-default; applied at both hit sites; 8 thematic mobs |
+
+### Iteration 8 candidates (vary axis after a run of big combat features)
+- **#8 versioned migration chain** (S, infra) — now well-justified (~10 new tables/cols added); safe, fully testable.
+- **#15 content-pack discovery** (M, tooling) — typed seed registry replacing explicit imports.
+- **#2 reconnect grace** (M, phone) — ws lifecycle in index.ts; harder to unit-test.
+- **#12 leaderboard** (S/M, liveops) — needs account identity + dynamic-DB writer.
+- Client polish: surface ability element + mob resists in tooltips (client UI — test via content-store).
+Lean: a clean infra/tooling or liveops item for variety; keep combat for later.
+
+### Iteration 7 plan: **per-element resistances (#14)** — bigger, own turn [DONE]
 DamageElement type (shared/combat.ts). abilities.element column DEFAULT 'physical' (so existing
 INSERTs untouched); tag a curated set via post-seed UPDATE map (ABILITY_ELEMENTS). New mob_resists
 child table + MOB_RESISTS code default + content.mobResists(tid). Pure resistedDamage(dmg,elem,resists).
