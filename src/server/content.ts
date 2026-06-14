@@ -4,6 +4,8 @@ import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
 import type { AreaDef, DecorProp } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
+import type { ItemInstance } from '../shared/items.js';
+import { pickUnique, rollUnique, type UniqueDef } from '../shared/uniques.js';
 import type { MobTemplate } from './mobs.js';
 
 /**
@@ -64,6 +66,13 @@ export interface Content {
   item(id: string): ItemDef | undefined;
   items(): ItemDef[];
   sellValue(itemId: string): number;
+  /** The unique (legendary) catalogue, loaded from the `uniques` table. */
+  uniques(): UniqueDef[];
+  unique(id: string): UniqueDef | undefined;
+  /** Unique defs whose base item occupies the given slot (for slot-targeted drops). */
+  uniquesForSlot(slot: string): UniqueDef[];
+  /** Mint a random legendary, resolving its base power/hp from the items table. */
+  rollRandomUnique(uid: number, rng?: () => number): ItemInstance | undefined;
   mobTemplate(id: string): MobTemplate | undefined;
   areaMobs(areaId: string): { templateId: string; count: number }[];
   npcs(areaId: string): NpcDef[];
@@ -229,6 +238,23 @@ export function loadContent(db: GameDatabase): Content {
     });
   }
 
+  // UNIQUE (legendary) catalogue — DB-driven; affixes stored as a JSON array.
+  const uniqueDefs: UniqueDef[] = [];
+  const uniquesById = new Map<string, UniqueDef>();
+  for (const r of db.prepare('SELECT * FROM uniques ORDER BY sort_order').all() as UniqueRow[]) {
+    const def: UniqueDef = {
+      id: r.id,
+      name: r.name,
+      baseId: r.base_id,
+      affixes: JSON.parse(r.affixes) as UniqueDef['affixes'],
+      ...(r.flavor !== null ? { flavor: r.flavor } : {}),
+    };
+    uniqueDefs.push(def);
+    uniquesById.set(def.id, def);
+  }
+  const uniquesForSlot = (slot: string): UniqueDef[] =>
+    uniqueDefs.filter((d) => items.get(d.baseId)?.slot === slot);
+
   const stock = new Map<string, StockEntry[]>();
   for (const r of db
     .prepare('SELECT * FROM vendor_stock ORDER BY sort_order')
@@ -339,6 +365,15 @@ export function loadContent(db: GameDatabase): Content {
     item: (id) => items.get(id),
     items: () => [...items.values()],
     sellValue: (id) => items.get(id)?.sellValue ?? 0,
+    uniques: () => [...uniqueDefs],
+    unique: (id) => uniquesById.get(id),
+    uniquesForSlot,
+    rollRandomUnique: (uid, rng = Math.random) => {
+      const def = pickUnique(uniqueDefs, rng);
+      if (!def) return undefined;
+      const base = items.get(def.baseId);
+      return rollUnique(uid, def, { power: base?.power ?? 0, hp: base?.hp ?? 0 }, rng);
+    },
     mobTemplate: (id) => mobTemplates.get(id),
     areaMobs: (areaId) => areaMobs.get(areaId) ?? [],
     npcs: (areaId) => npcs.get(areaId) ?? [],
@@ -497,6 +532,14 @@ interface ItemRow {
   color: string | null;
   sell_value: number;
   teaches: string | null;
+}
+interface UniqueRow {
+  id: string;
+  name: string;
+  base_id: string;
+  affixes: string;
+  flavor: string | null;
+  sort_order: number;
 }
 interface VendorStockRow {
   area_id: string;

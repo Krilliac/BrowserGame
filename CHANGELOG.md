@@ -29,6 +29,19 @@ versioning once it stabilizes.
   - **Client message pump is contained:** a well-formed-but-unexpected server frame hitting a handler
     is caught per-message so it can't throw out of the socket listener and stop later frames.
 
+### Changed
+
+- **Legendaries are now database-driven (content-engine phase 1).** The hand-authored `UNIQUES`
+  catalogue, previously a hardcoded array in `src/shared/uniques.ts`, now lives in a new `uniques`
+  SQLite table seeded from `src/server/db/seed-uniques.ts` and loaded by `content.ts` — the same
+  DB-as-source-of-truth pattern the rest of the content uses. `content.ts` owns the catalogue,
+  `uniquesForSlot`, and `rollRandomUnique` (resolving each base's power/hp from the `items` table);
+  `world.ts` mints legendaries through the `Content` API. `shared/uniques.ts` is reduced to a pure,
+  data-free roller (`rollUnique` + `pickUnique`) shared by the seed layer, the loader, and the
+  tests. You can now add or rebalance a legendary with SQL — no code change. This is the first step
+  of a phased move of all content (items, spells, monsters, quests, terrain, objects) to a
+  TrinityCore/MaNGOS-style DB content engine; see `wiki/architecture/Content-Engine.md`.
+
 ### Added
 
 - **Eight new original legendaries — the unique loot chase now covers every slot.** Expanded the

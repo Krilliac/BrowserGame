@@ -92,7 +92,6 @@ import {
   stepBossScript,
   type BossScriptState,
 } from './boss-scripts.js';
-import { rollRandomUnique } from '../shared/uniques.js';
 import {
   type AttributeSet,
   attributeBonuses,
@@ -1003,9 +1002,11 @@ export class World {
     // the character.
     const place = (k: number) => ({ x: player.x + (k - 2.5) * 96, y: player.y + 150 });
 
-    const unique = rollRandomUnique(this.allocId());
-    this.dropGround(unique.baseId, 1, place(0).x, place(0).y).instance = unique;
-    n++;
+    const unique = getContent().rollRandomUnique(this.allocId());
+    if (unique) {
+      this.dropGround(unique.baseId, 1, place(0).x, place(0).y).instance = unique;
+      n++;
+    }
     const corruptBase = this.randomEquipBase();
     if (corruptBase) {
       const corrupt = rollCorruptedInstance(this.allocId(), corruptBase);
@@ -3005,9 +3006,11 @@ export class World {
       if (def && def.kind === 'equip') {
         // The loot chase: a slim chance (better from bosses) the gear is instead a named unique.
         const uniqueChance = isBoss ? UNIQUE_DROP_CHANCE * 4 : UNIQUE_DROP_CHANCE;
-        if (this.rand() < uniqueChance) {
-          item.instance = rollRandomUnique(this.allocId());
-          item.itemId = item.instance.baseId;
+        const unique =
+          this.rand() < uniqueChance ? content.rollRandomUnique(this.allocId()) : undefined;
+        if (unique) {
+          item.instance = unique;
+          item.itemId = unique.baseId;
         } else {
           // A gear drop rolls a *random* equippable (any slot) for full variety; the loot table just
           // controls how often gear drops. Relabel the ground item so the glint matches the piece.
@@ -3094,9 +3097,11 @@ export class World {
   ): void {
     // The loot chase: a slim chance the piece is instead a named unique (its own base + fixed affixes).
     if (uniqueChance > 0 && this.rand() < uniqueChance) {
-      const inst = rollRandomUnique(this.allocId());
-      this.dropGround(inst.baseId, 1, x, y).instance = inst;
-      return;
+      const inst = getContent().rollRandomUnique(this.allocId());
+      if (inst) {
+        this.dropGround(inst.baseId, 1, x, y).instance = inst;
+        return;
+      }
     }
     const base = this.randomEquipBase();
     if (!base) return;

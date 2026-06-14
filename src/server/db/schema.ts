@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS items (
   teaches     TEXT                             -- spellbook only: the ability id it teaches
 );
 
+-- UNIQUE (named legendary) items: the hand-authored loot chase. Each builds on a real items.id
+-- base (for slot + base power/hp) and carries fixed, build-defining affixes (JSON array of
+-- {stat,value}). DB-driven like the rest of content: edit/add rows to change the legendaries.
+CREATE TABLE IF NOT EXISTS uniques (
+  id        TEXT PRIMARY KEY,
+  name      TEXT NOT NULL,
+  base_id   TEXT NOT NULL REFERENCES items(id),
+  affixes   TEXT NOT NULL,                      -- JSON array of { stat, value }
+  flavor    TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 -- What a vendor NPC sells, keyed by area + NPC name (NPC row ids are autoincrement, names are
 -- the stable handle). Edit rows live (e.g. /set) to change a shop's shelf.
 CREATE TABLE IF NOT EXISTS vendor_stock (

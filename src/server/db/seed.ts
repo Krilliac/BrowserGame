@@ -16,6 +16,7 @@ import { ensureSpellTomeContent } from './seed-spells.js';
 import { FRONTIER_NPCS, FRONTIER_DECOR, FRONTIER_LOOT, FRONTIER_QUESTS } from './seed-frontier.js';
 import { ACTS_NPCS, ACTS_DECOR, ACTS_LOOT, ACTS_QUESTS, ACTS_VENDOR_STOCK } from './seed-acts.js';
 import { WILDS_AREA_MOBS, WILDS_LOOT } from './seed-wilds.js';
+import { UNIQUES } from './seed-uniques.js';
 
 /** Display names + colors for the non-equipment loot materials (and gold). */
 const MATERIALS: Record<string, { name: string; color: string }> = {
@@ -308,6 +309,7 @@ export function seed(db: Database): void {
   ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
   ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
   ensureExpansionContent(db); // hand-placed decor, new-monster rosters/loot, sprite tints
+  ensureUniquesContent(db); // the legendary (unique) catalogue → the `uniques` table
   ensureWildsContent(db); // wildlife/vermin rosters + loot spread across the existing zones
   ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
   ensureActsContent(db); // the Act 2 road + all of Act 3 (Vhalreth, its zones, the Unmade Court)
@@ -708,6 +710,21 @@ function ensureWildsContent(db: Database): void {
     ['mob:void_vermin', '#a07ad0'], // rift-violet swarm
   ];
   for (const [target, tint] of WILDS_TINTS) tintIns.run(target, tint);
+}
+
+/**
+ * Upsert the legendary (unique) catalogue (src/server/db/seed-uniques.ts) into the `uniques` table.
+ * Idempotent: INSERT OR IGNORE on the unique id. Affixes are stored as a JSON array; content.ts
+ * parses them back and owns the random pick + base resolution. Runs after items exist (the rows
+ * reference an items.id base), so it lives in the always-run ensure section.
+ */
+function ensureUniquesContent(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO uniques (id,name,base_id,affixes,flavor,sort_order) VALUES (?,?,?,?,?,?)',
+  );
+  UNIQUES.forEach((u, i) =>
+    ins.run(u.id, u.name, u.baseId, JSON.stringify(u.affixes), u.flavor ?? null, i),
+  );
 }
 
 /**
