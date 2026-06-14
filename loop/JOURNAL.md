@@ -8,7 +8,8 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 |---|------|--------|------|-------|
 | 0 | setup | Created loop branch, ran baseline gate | green* | 1176 tests; *2 flaky-under-load files pass in isolation |
 | 1 | feat | **Item sets** (#5 in mining backlog) — D2-style set bonuses | green | 0173a5b; +23 tests → 1199 green, no flakes; 3 sets from existing gear |
-| 2 | feat | **mob_scripts** (#3) — data-drive BOSS_SCRIPTS into a table | green | +9 tests → 1208; executor/BossStep stay in code; defensive row→step (bad rows dropped) |
+| 2 | feat | **mob_scripts** (#3) — data-drive BOSS_SCRIPTS into a table | green | 907b015; +9 tests → 1208; executor/BossStep stay in code; defensive row→step |
+| 3 | coverage | **Integrity guards** for new content (item-sets + boss-scripts) | pending | +4 integrity tests: set pieces→real items, boss summon/cast refs→real mobs/abilities |
 
 ## Gate rule (important)
 Two tests flake under full-suite parallel load but pass in isolation — treat the gate as GREEN
