@@ -26,7 +26,7 @@ import {
   type ServerMessage,
 } from '../shared/protocol.js';
 import { isAbilityId, type AbilityId } from '../shared/combat.js';
-import { initGameDb, getDb, getContent, reloadContent } from './content.js';
+import { initGameDb, getDb, getContent, reloadContent, type Content } from './content.js';
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess, AccessLevel } from './accounts.js';
 import { engineSchema, engineRows, setEngineConfig } from './engine.js';
@@ -55,7 +55,18 @@ import { listTables, listColumns, listRows, getRow, editContent } from './conten
 
 // Load all game content from SQLite (the source of truth). Defaults to ./game.db; the file is
 // created and seeded from the built-in content on first run. Edit it with any SQLite tool.
-const content = initGameDb(config.server.gameDbPath);
+// A failure here (corrupt/locked db file, bad permissions, an unmigratable schema) is fatal — the
+// server has no content to serve — so fail loudly with a clear message instead of a raw stack.
+let content: Content;
+try {
+  content = initGameDb(config.server.gameDbPath);
+} catch (err) {
+  console.error(
+    `[browsergame] FATAL: could not open game database at "${config.server.gameDbPath}":`,
+    err instanceof Error ? err.message : err,
+  );
+  process.exit(1);
+}
 console.log(
   `[browsergame] content loaded: ${content.areas().length} areas, ${content.abilityOrder().length} abilities`,
 );
@@ -745,6 +756,13 @@ function contentType(path: string): string {
 // maxPayload caps frame size so a single client can't send a giant message (DoS guard).
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: MAX_MESSAGE_BYTES });
 
+// A server-level ws error (distinct from the per-socket 'error' handled on each connection) is
+// emitted on the WebSocketServer itself; with no handler Node rethrows it and the process dies.
+// Log and keep serving — one transport hiccup must not take the whole world down.
+wss.on('error', (err) => {
+  console.error('[ws] server error:', err instanceof Error ? err.message : err);
+});
+
 // Heartbeat: ping every socket periodically; a client that misses a pong (tab closed abruptly, a
 // reload, a dropped network) is terminated so its player entity is removed promptly instead of
 // lingering as an idle "ghost" until TCP times out. (This is what piled up dozens of stale players.)
@@ -763,6 +781,19 @@ setInterval(() => {
 
 // Tracks how often each guarded unit of work throws, for the /health readout.
 const guardStats = new GuardStats();
+
+// Last-resort safety net. The tick loop, message dispatch, and command handlers are each guarded,
+// but a stray throw/rejection from outside those scopes (a timer callback, a library emit, an async
+// gap) would otherwise crash the whole process and disconnect every player. A long-lived game server
+// should survive that: log it under a stable label, count it for the /health readout, and stay up.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaught]', err);
+  guardStats.record('uncaughtException');
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+  guardStats.record('unhandledRejection');
+});
 
 wss.on('connection', (socket) => {
   let entityId = 0;
@@ -1547,43 +1578,62 @@ setInterval(() => {
 }, 1000 / TICK_RATE);
 
 // Periodic autosave: persist every connected character so progress survives a server crash, not
-// just a clean disconnect. Cheap (a handful of upserts) and infrequent.
+// just a clean disconnect. Cheap (a handful of upserts) and infrequent. Guarded so a single failed
+// write (db momentarily locked, disk hiccup) can't throw out of the timer and kill all future saves.
 setInterval(() => {
-  const db = getDb();
-  for (const [id, p] of players) {
-    const save = manager.get(p.instanceId)?.world.exportPlayer(id);
-    if (save) storeSave(db, p.token, save);
-  }
+  runGuarded(
+    'autosave',
+    () => {
+      const db = getDb();
+      for (const [id, p] of players) {
+        const save = manager.get(p.instanceId)?.world.exportPlayer(id);
+        if (save) storeSave(db, p.token, save);
+      }
+    },
+    (label) => guardStats.record(label),
+  );
 }, 20_000);
 
 // Social liveness: once a second, refresh party rosters (HP/level/area move) and keep each online
 // player's presence (level) current so friends lists reflect it. Cheap — parties + friends are tiny.
 setInterval(() => {
-  for (const [id, p] of players) {
-    const lvl = manager.get(p.instanceId)?.world.playerStats(id)?.level;
-    if (lvl !== undefined)
-      social.updatePresence(p.token, manager.get(p.instanceId)?.areaId ?? '', lvl);
-    if (parties.partyOf(id)) sendPartyState(id);
-  }
+  runGuarded(
+    'social-liveness',
+    () => {
+      for (const [id, p] of players) {
+        const lvl = manager.get(p.instanceId)?.world.playerStats(id)?.level;
+        if (lvl !== undefined)
+          social.updatePresence(p.token, manager.get(p.instanceId)?.areaId ?? '', lvl);
+        if (parties.partyOf(id)) sendPartyState(id);
+      }
+    },
+    (label) => guardStats.record(label),
+  );
 }, 1000);
 
 // Invasion events: every so often a populated, non-town instance is raided by a champion wave — a
 // spontaneous group fight that turns a quiet farm into an onslaught.
 setInterval(() => {
-  for (const instance of manager.list()) {
-    if (instance.areaId === 'town') continue;
-    if (manager.playerIdsIn(instance.id).length === 0) continue;
-    if (Math.random() > INVASION_CHANCE) continue;
-    const count = 3 + Math.floor(Math.random() * 3); // 3–5 champions
-    if (instance.world.spawnInvasion(instance.areaId, count)) {
-      const area = getContent().area(instance.areaId);
-      broadcastToInstance(instance.id, {
-        t: 'chat',
-        from: 'System',
-        text: `⚔ An invasion! Champions pour into ${area?.name ?? instance.areaId} — survive the onslaught.`,
-      });
-    }
-  }
+  runGuarded(
+    'invasion',
+    () => {
+      for (const instance of manager.list()) {
+        if (instance.areaId === 'town') continue;
+        if (manager.playerIdsIn(instance.id).length === 0) continue;
+        if (Math.random() > INVASION_CHANCE) continue;
+        const count = 3 + Math.floor(Math.random() * 3); // 3–5 champions
+        if (instance.world.spawnInvasion(instance.areaId, count)) {
+          const area = getContent().area(instance.areaId);
+          broadcastToInstance(instance.id, {
+            t: 'chat',
+            from: 'System',
+            text: `⚔ An invasion! Champions pour into ${area?.name ?? instance.areaId} — survive the onslaught.`,
+          });
+        }
+      }
+    },
+    (label) => guardStats.record(label),
+  );
 }, INVASION_INTERVAL_MS);
 
 // Crowd density maintenance: keep busy overworld instances stocked with monsters so a flood of
@@ -1598,20 +1648,26 @@ setInterval(() => {
 // "The forces of darkness grow stronger/weaker" — announce per-area corruption tier crossings
 // (no numeric meter), broadcast to every instance of the area whose darkness shifted.
 setInterval(() => {
-  const seen = new Set<string>();
-  for (const instance of manager.list()) {
-    if (instance.areaId === 'town' || seen.has(instance.areaId)) continue;
-    seen.add(instance.areaId);
-    const change = manager.corruption.pollTierChange(instance.areaId);
-    if (!change) continue;
-    const area = getContent().area(instance.areaId);
-    const text = corruptionFlavor(area?.name ?? instance.areaId, change.tier, change.dir);
-    for (const inst of manager.list()) {
-      if (inst.areaId === instance.areaId) {
-        broadcastToInstance(inst.id, { t: 'chat', from: 'System', text });
+  runGuarded(
+    'corruption-announce',
+    () => {
+      const seen = new Set<string>();
+      for (const instance of manager.list()) {
+        if (instance.areaId === 'town' || seen.has(instance.areaId)) continue;
+        seen.add(instance.areaId);
+        const change = manager.corruption.pollTierChange(instance.areaId);
+        if (!change) continue;
+        const area = getContent().area(instance.areaId);
+        const text = corruptionFlavor(area?.name ?? instance.areaId, change.tier, change.dir);
+        for (const inst of manager.list()) {
+          if (inst.areaId === instance.areaId) {
+            broadcastToInstance(inst.id, { t: 'chat', from: 'System', text });
+          }
+        }
       }
-    }
-  }
+    },
+    (label) => guardStats.record(label),
+  );
 }, 4000);
 
 /** Diablo-style flavor for a corruption tier crossing — louder as the darkness deepens. */
@@ -1625,6 +1681,20 @@ function corruptionFlavor(area: string, tier: number, dir: 'up' | 'down'): strin
   if (tier === 1) return `The forces of darkness grow weaker in ${area}.`;
   return `The darkness loosens its grip on ${area}.`;
 }
+
+// A listen failure (port already in use, no permission to bind) surfaces as an 'error' event; with
+// no handler Node rethrows it as a raw stack. Translate the common case into a clear, actionable
+// message and exit cleanly — there is no server to run without a bound port.
+http.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `[browsergame] FATAL: port ${PORT} is already in use (set PORT to another value).`,
+    );
+  } else {
+    console.error('[browsergame] FATAL: http server error:', err.message);
+  }
+  process.exit(1);
+});
 
 http.listen(PORT, () => {
   console.log(`[browsergame] world server on :${PORT} @ ${TICK_RATE}Hz · instancing=${INSTANCING}`);

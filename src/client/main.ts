@@ -68,13 +68,20 @@ await app.init({
   background: '#0e0f13',
   preference: 'webgl',
 });
-const name =
-  window.localStorage.getItem('bg.name') ??
-  (() => {
+// Pick (or mint) the player's display name. localStorage can throw (private mode / disabled
+// storage), and this runs at bootstrap — an unguarded throw here would blank the whole app — so
+// fall back to a fresh in-memory name when persistence is unavailable.
+const name = ((): string => {
+  try {
+    const saved = window.localStorage.getItem('bg.name');
+    if (saved) return saved;
     const n = `Hero${Math.floor(Math.random() * 1000)}`;
     window.localStorage.setItem('bg.name', n);
     return n;
-  })();
+  } catch {
+    return `Hero${Math.floor(Math.random() * 1000)}`;
+  }
+})();
 
 // Net is created first so the renderer can read game content from its store (filled by the
 // server's `content` packet — the client mirrors the SQLite DB).
