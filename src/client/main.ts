@@ -1138,6 +1138,7 @@ function frame(): void {
       camX,
       camY,
       corruption: net.you.corruption,
+      targetId,
     });
   }
   sound.setArea(net.areaId);
