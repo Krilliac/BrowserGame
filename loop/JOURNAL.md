@@ -45,7 +45,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 19 | feat | **Kill counter** → kill achievements + /ladder kills metric | green | e47fee7; +1 → 1421; Player.kills+save; creditKill increments; Slayer→Reaper tiers |
 
-NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
+| 20 | feat(ui) | **Set-piece tags on items** — green ◆ SetName in stat lines | green | bb45ea3; client-only ITEM_SETS; helps spot set pieces while looting |
+
+NEXT (it.21): backend via parallel agent (alternation). Push after this iteration's journal commit.
+
+OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
 
 (old it.19 note below — superseded)
