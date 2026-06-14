@@ -515,4 +515,15 @@ CREATE TABLE IF NOT EXISTS friends (
   friend_name TEXT NOT NULL,
   PRIMARY KEY (owner_token, friend_name)
 );
+
+-- Ladder / leaderboard: the best-ever score per character per metric (server is the sole writer;
+-- scores are recorded from the authoritative save on autosave). One row per (name, metric); the
+-- value only ever climbs (recordScore keeps the max). Read by the /ladder command.
+CREATE TABLE IF NOT EXISTS leaderboard (
+  name        TEXT NOT NULL,
+  metric      TEXT NOT NULL,            -- 'level' | 'gold'
+  value       REAL NOT NULL,
+  achieved_at INTEGER NOT NULL,         -- wall-clock ms when this best was reached
+  PRIMARY KEY (name, metric)
+);
 `;

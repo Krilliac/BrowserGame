@@ -38,6 +38,8 @@ export interface CommandContext {
   contentRows: (table: string) => string;
   contentRow: (table: string, id: string) => string;
   setContent: (table: string, id: string, column: string, value: string) => string;
+  /** Render the top of the ladder for a metric ('level' | 'gold'); unknown metrics fall back to level. */
+  ladder: (metric: string) => string;
 }
 
 interface Command {
@@ -79,6 +81,17 @@ const COMMAND_LIST: Command[] = [
     run: (ctx) => {
       const players = ctx.listPlayers();
       ctx.reply(`Players here (${players.length}): ${players.join(', ')}`);
+    },
+  },
+  {
+    name: 'ladder',
+    minLevel: AccessLevel.Player,
+    usage: '/ladder [level|gold]',
+    help: 'Show the top characters by level (default) or gold.',
+    run: (ctx) => {
+      const metric = (ctx.args[0] ?? 'level').toLowerCase();
+      // The accessor renders + clamps; it falls back to 'level' for an unknown metric.
+      for (const line of ctx.ladder(metric).split('\n')) ctx.reply(line);
     },
   },
   {

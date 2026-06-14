@@ -39,6 +39,7 @@ import {
   addFriend as dbAddFriend,
   removeFriend as dbRemoveFriend,
 } from './player-store.js';
+import { recordScore, formatLadder, isLeaderboardMetric } from './leaderboard.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
 import {
@@ -1224,6 +1225,8 @@ wss.on('connection', (socket) => {
                     if (r.ok) rebroadcastContent(); // reload + push to all clients, re-apply weather
                     return r.message;
                   },
+                  ladder: (metric) =>
+                    formatLadder(getDb(), isLeaderboardMetric(metric) ? metric : 'level'),
                 });
               } catch (err) {
                 console.error('[command] failed:', err);
@@ -1594,9 +1597,15 @@ setInterval(() => {
     'autosave',
     () => {
       const db = getDb();
+      const at = Date.now();
       for (const [id, p] of players) {
         const save = manager.get(p.instanceId)?.world.exportPlayer(id);
-        if (save) storeSave(db, p.token, save);
+        if (save) {
+          storeSave(db, p.token, save);
+          // Record best-ever ladder standings from the authoritative save (server is sole writer).
+          recordScore(db, save.name, 'level', save.level, at);
+          recordScore(db, save.name, 'gold', save.gold, at);
+        }
       }
     },
     (label) => guardStats.record(label),
