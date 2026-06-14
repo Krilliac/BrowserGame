@@ -466,6 +466,37 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       sort_order: { type: 'int', min: 0, max: 9999 },
     },
   },
+
+  affix_ranges: {
+    pk: 'stat',
+    label: 'affix range',
+    note: 'affix roll range; /reloadcontent to apply',
+    columns: {
+      min_value: { type: 'real', min: 0, max: 100000 },
+      max_value: { type: 'real', min: 0, max: 100000 },
+    },
+  },
+
+  affix_names: {
+    pk: 'stat',
+    label: 'affix name',
+    note: 'where an affix sits in the title; /reloadcontent to apply',
+    columns: {
+      kind: { type: 'enum', values: ['prefix', 'suffix'] },
+    },
+  },
+
+  affix_name_tiers: {
+    pk: 'id',
+    label: 'affix name tier',
+    note: 'tiered word for an affix (up_to NULL = top tier); /reloadcontent to apply',
+    columns: {
+      stat: { type: 'text' },
+      up_to: { type: 'real', min: 0, max: 1000000, nullable: true },
+      word: { type: 'text' },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

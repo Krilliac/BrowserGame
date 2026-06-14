@@ -188,6 +188,31 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Affix roll ranges: the pre-rarity-scaling base value range per scalar affix stat. Server-only
+-- (rollAffixes reads them). Seeded from DEFAULT_AFFIX_RANGES (items.ts).
+CREATE TABLE IF NOT EXISTS affix_ranges (
+  stat      TEXT PRIMARY KEY,           -- a rollable AffixStat (excl. multishot, handled specially)
+  min_value REAL NOT NULL,
+  max_value REAL NOT NULL
+);
+
+-- Affix flavor names: where an affix sits in the item title (prefix/suffix). Seeded from
+-- DEFAULT_AFFIX_NAMES (items.ts); shipped to the client so item titles compose from DB data.
+CREATE TABLE IF NOT EXISTS affix_names (
+  stat TEXT PRIMARY KEY,                -- an AffixStat
+  kind TEXT NOT NULL                    -- 'prefix' | 'suffix'
+);
+
+-- The tiered word per affix name: ascending value thresholds -> the word used at that tier. up_to is
+-- the inclusive upper bound for that tier; NULL means "no upper bound" (Infinity, the top tier).
+CREATE TABLE IF NOT EXISTS affix_name_tiers (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  stat       TEXT NOT NULL,
+  up_to      REAL,                      -- NULL = Infinity (top tier)
+  word       TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 -- Unique (named legendary) items: a hand-authored name + a real base item id + fixed signature
 -- affixes (unique_affixes). Seeded from DEFAULT_UNIQUES (uniques.ts); minting is server-side. Add a
 -- row (+ its affixes) to introduce a new unique to the loot chase.

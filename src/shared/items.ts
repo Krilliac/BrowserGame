@@ -173,8 +173,20 @@ const AFFIX_STATS: RollableStat[] = [
   'vigor',
 ];
 
-/** Pre-rarity-scaling base value ranges for the scalar affix stats (multishot is handled specially). */
-const AFFIX_RANGES: Record<Exclude<RollableStat, 'multishot'>, { min: number; max: number }> = {
+/** A scalar affix's pre-rarity-scaling base value range. */
+export interface AffixRange {
+  min: number;
+  max: number;
+}
+
+/** The scalar affix stats that have a rollable range (multishot is handled specially). */
+type RangeStat = Exclude<RollableStat, 'multishot'>;
+
+/**
+ * Code DEFAULTS for the affix roll ranges — the seed source for `affix_ranges` and the fallback the
+ * live {@link AFFIX_RANGES} resets to. Treat as immutable; tune via the DB.
+ */
+export const DEFAULT_AFFIX_RANGES: Record<RangeStat, AffixRange> = {
   power: { min: 2, max: 6 },
   hp: { min: 8, max: 22 },
   crit: { min: 2, max: 6 },
@@ -184,6 +196,26 @@ const AFFIX_RANGES: Record<Exclude<RollableStat, 'multishot'>, { min: number; ma
   armor: { min: 2, max: 5 },
   vigor: { min: 1, max: 3 },
 };
+
+/** The LIVE affix roll ranges (server-only; overlaid from the `affix_ranges` DB table at load). */
+export const AFFIX_RANGES: Record<RangeStat, AffixRange> = Object.fromEntries(
+  (Object.entries(DEFAULT_AFFIX_RANGES) as [RangeStat, AffixRange][]).map(([s, r]) => [
+    s,
+    { ...r },
+  ]),
+) as Record<RangeStat, AffixRange>;
+
+/**
+ * Overlay affix roll ranges onto the live {@link AFFIX_RANGES} (mutating fields in place). A stat
+ * absent from `ranges` resets to its {@link DEFAULT_AFFIX_RANGES} value, so `{}` restores defaults.
+ */
+export function applyAffixRangeOverrides(ranges: Partial<Record<string, AffixRange>>): void {
+  for (const stat of Object.keys(AFFIX_RANGES) as RangeStat[]) {
+    const o = ranges[stat] ?? DEFAULT_AFFIX_RANGES[stat];
+    AFFIX_RANGES[stat].min = o.min;
+    AFFIX_RANGES[stat].max = o.max;
+  }
+}
 
 /** How many affixes a rarity rolls (common gear has none — rarity is the dopamine gate). */
 export function affixCount(rarity: Rarity): number {
@@ -249,14 +281,18 @@ export function affixLabel(a: Affix): string {
 // ("Savage Iron Sword"), suffixes after ("... of the Boar"), tiered by magnitude. The numbers still
 // show on the stat line; this is the flavor layer that makes a magic drop read like a named item.
 
-interface AffixName {
+export interface AffixName {
   /** Where it sits in the title. */
   kind: 'prefix' | 'suffix';
-  /** Ascending value thresholds → the word/phrase used at that tier. */
+  /** Ascending value thresholds → the word/phrase used at that tier (upTo may be Infinity). */
   tiers: { upTo: number; word: string }[];
 }
 
-const AFFIX_NAMES: Record<AffixStat, AffixName> = {
+/**
+ * Code DEFAULTS for the affix flavor names — the seed source for `affix_names`/`affix_name_tiers`
+ * and the fallback the live {@link AFFIX_NAMES} resets to. Treat as immutable; tune via the DB.
+ */
+export const DEFAULT_AFFIX_NAMES: Record<AffixStat, AffixName> = {
   power: {
     kind: 'prefix',
     tiers: [
@@ -333,6 +369,21 @@ const AFFIX_NAMES: Record<AffixStat, AffixName> = {
   frail: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Frailty' }] },
   fragile: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Brittleness' }] },
 };
+
+/** The LIVE affix flavor names (overlaid from the `affix_names` DB tables; client + server). */
+export const AFFIX_NAMES: Record<AffixStat, AffixName> = Object.fromEntries(
+  (Object.entries(DEFAULT_AFFIX_NAMES) as [AffixStat, AffixName][]).map(([s, n]) => [s, n]),
+) as Record<AffixStat, AffixName>;
+
+/**
+ * Overlay affix flavor names onto the live {@link AFFIX_NAMES} (replacing each stat's value). A stat
+ * absent from `names` resets to its {@link DEFAULT_AFFIX_NAMES} value, so `{}` restores defaults.
+ */
+export function applyAffixNameOverrides(names: Partial<Record<AffixStat, AffixName>>): void {
+  for (const stat of Object.keys(AFFIX_NAMES) as AffixStat[]) {
+    AFFIX_NAMES[stat] = names[stat] ?? DEFAULT_AFFIX_NAMES[stat];
+  }
+}
 
 /** The evocative name + placement for one affix (e.g. {kind:'suffix', word:'of the Boar'}). */
 export function affixName(a: Affix): { kind: 'prefix' | 'suffix'; word: string } {

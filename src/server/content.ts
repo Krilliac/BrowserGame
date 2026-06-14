@@ -7,7 +7,16 @@ import type { Ability, AbilityId } from '../shared/combat.js';
 import { type MobTemplate, type EliteModifier, DEFAULT_ELITE_MODIFIERS } from './mobs.js';
 import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
 import type { StatusEffectKind } from './ability-effects.js';
-import { applyRarityOverrides, type Rarity, type RarityDef } from '../shared/items.js';
+import {
+  applyRarityOverrides,
+  applyAffixRangeOverrides,
+  applyAffixNameOverrides,
+  type Rarity,
+  type RarityDef,
+  type Affix,
+  type AffixName,
+  type AffixRange,
+} from '../shared/items.js';
 import { applyGemOverrides, type GemDef } from '../shared/gems.js';
 import {
   applyRuneOverrides,
@@ -15,7 +24,6 @@ import {
   type RuneDef,
   type RunewordDef,
 } from '../shared/runewords.js';
-import type { Affix } from '../shared/items.js';
 import { applyUniqueOverrides, type UniqueDef } from '../shared/uniques.js';
 import type { StatusId } from './status-effects.js';
 
@@ -115,6 +123,10 @@ export interface Content {
   runewords(): RunewordDef[];
   /** The unique (named legendary) pool (overlaid onto the shared UNIQUES list; server-side minting). */
   uniques(): UniqueDef[];
+  /** Affix roll ranges per scalar stat (server-only; overlaid onto the shared AFFIX_RANGES). */
+  affixRanges(): Record<string, AffixRange>;
+  /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
+  affixNames(): Record<string, AffixName>;
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -507,6 +519,23 @@ export function loadContent(db: GameDatabase): Content {
     return def;
   });
 
+  // Affix roll ranges (server-only) + flavor names/tiers (client-coupled). A NULL up_to is Infinity.
+  const affixRanges: Record<string, AffixRange> = {};
+  for (const r of db.prepare('SELECT * FROM affix_ranges').all() as AffixRangeRow[]) {
+    affixRanges[r.stat] = { min: r.min_value, max: r.max_value };
+  }
+  const tierStmt = db.prepare(
+    'SELECT up_to, word FROM affix_name_tiers WHERE stat = ? ORDER BY sort_order',
+  );
+  const affixNames: Record<string, AffixName> = {};
+  for (const r of db.prepare('SELECT * FROM affix_names').all() as AffixNameRow[]) {
+    const tiers = (tierStmt.all(r.stat) as { up_to: number | null; word: string }[]).map((t) => ({
+      upTo: t.up_to === null ? Infinity : t.up_to,
+      word: t.word,
+    }));
+    affixNames[r.stat] = { kind: r.kind === 'suffix' ? 'suffix' : 'prefix', tiers };
+  }
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -550,6 +579,8 @@ export function loadContent(db: GameDatabase): Content {
     runes: () => runes,
     runewords: () => runewords,
     uniques: () => uniques,
+    affixRanges: () => affixRanges,
+    affixNames: () => affixNames,
   };
 }
 
@@ -567,6 +598,8 @@ export function initGameDb(file?: string): Content {
   applyRuneOverrides(activeContent.runes()); // overlay rune pool onto shared RUNES
   applyRunewordOverrides(activeContent.runewords()); // overlay runeword recipes onto shared RUNEWORDS
   applyUniqueOverrides(activeContent.uniques()); // overlay unique pool onto shared UNIQUES
+  applyAffixRangeOverrides(activeContent.affixRanges()); // overlay affix roll ranges
+  applyAffixNameOverrides(activeContent.affixNames()); // overlay affix flavor names
   return activeContent;
 }
 
@@ -588,6 +621,8 @@ export function reloadContent(): Content {
   applyRuneOverrides(activeContent.runes()); // re-overlay rune pool on reload
   applyRunewordOverrides(activeContent.runewords()); // re-overlay runeword recipes on reload
   applyUniqueOverrides(activeContent.uniques()); // re-overlay unique pool on reload
+  applyAffixRangeOverrides(activeContent.affixRanges()); // re-overlay affix roll ranges on reload
+  applyAffixNameOverrides(activeContent.affixNames()); // re-overlay affix flavor names on reload
   return activeContent;
 }
 
@@ -834,4 +869,13 @@ interface UniqueRow {
   name: string;
   base_id: string;
   flavor: string | null;
+}
+interface AffixRangeRow {
+  stat: string;
+  min_value: number;
+  max_value: number;
+}
+interface AffixNameRow {
+  stat: string;
+  kind: string;
 }

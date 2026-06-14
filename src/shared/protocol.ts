@@ -10,7 +10,7 @@
 
 import type { AbilityId, Ability, EntityKind, FxEvent } from './combat.js';
 import type { AreaDef } from './areas.js';
-import type { ItemInstance, RarityDef } from './items.js';
+import type { ItemInstance, RarityDef, AffixName } from './items.js';
 import type { GemDef } from './gems.js';
 import type { AttributeSet } from './attributes.js';
 
@@ -310,6 +310,8 @@ export type ServerMessage =
       rarities?: Partial<Record<string, RarityDef>>;
       /** The gem catalog, so the client mirrors gem names/colors (incl. any added via SQL). */
       gems?: GemDef[];
+      /** Affix flavor names/tiers, so client item titles compose from DB data. */
+      affixNames?: Partial<Record<string, AffixName>>;
     }
   | {
       t: 'welcome';

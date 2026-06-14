@@ -15,7 +15,12 @@ import { WEATHER_KINDS } from '../../shared/theme.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
 import { DEFAULT_GEMS } from '../../shared/gems.js';
-import { DEFAULT_RARITY, type Rarity } from '../../shared/items.js';
+import {
+  DEFAULT_RARITY,
+  DEFAULT_AFFIX_RANGES,
+  DEFAULT_AFFIX_NAMES,
+  type Rarity,
+} from '../../shared/items.js';
 import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
 import { DEFAULT_UNIQUES } from '../../shared/uniques.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
@@ -330,6 +335,7 @@ export function seed(db: Database): void {
   ensureGems(db); // socketable gem catalog (seeded from gems.ts DEFAULT_GEMS)
   ensureRunewords(db); // rune pool + runeword recipes (seeded from runewords.ts defaults)
   ensureUniques(db); // unique (named legendary) pool (seeded from uniques.ts DEFAULT_UNIQUES)
+  ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -496,6 +502,31 @@ function ensureUniques(db: Database): void {
     if (has.get(u.id)) continue;
     insU.run(u.id, u.name, u.baseId, u.flavor ?? null);
     u.affixes.forEach((a, i) => insA.run(u.id, a.stat, a.value, i));
+  }
+}
+
+/**
+ * Seed the affix roll ranges + flavor names/tiers from the code defaults (items.ts). Idempotent:
+ * ranges/names use INSERT OR IGNORE keyed on stat; tiers are inserted once (skipped if the stat
+ * already has any tier row). A tier's Infinity upper bound is stored as NULL.
+ */
+function ensureAffixes(db: Database): void {
+  const insRange = db.prepare(
+    'INSERT OR IGNORE INTO affix_ranges (stat,min_value,max_value) VALUES (?,?,?)',
+  );
+  for (const [stat, r] of Object.entries(DEFAULT_AFFIX_RANGES)) insRange.run(stat, r.min, r.max);
+
+  const insName = db.prepare('INSERT OR IGNORE INTO affix_names (stat,kind) VALUES (?,?)');
+  const hasTier = db.prepare('SELECT 1 FROM affix_name_tiers WHERE stat = ? LIMIT 1');
+  const insTier = db.prepare(
+    'INSERT INTO affix_name_tiers (stat,up_to,word,sort_order) VALUES (?,?,?,?)',
+  );
+  for (const [stat, def] of Object.entries(DEFAULT_AFFIX_NAMES)) {
+    insName.run(stat, def.kind);
+    if (hasTier.get(stat)) continue;
+    def.tiers.forEach((t, i) =>
+      insTier.run(stat, Number.isFinite(t.upTo) ? t.upTo : null, t.word, i),
+    );
   }
 }
 

@@ -24,6 +24,9 @@ export interface EngineReply {
 import type { AbilityId } from '../shared/combat.js';
 import {
   applyRarityOverrides,
+  applyAffixNameOverrides,
+  type AffixName,
+  type AffixStat,
   type ItemInstance,
   type Rarity,
   type RarityDef,
@@ -346,6 +349,8 @@ export class Net {
         applyRarityOverrides((msg.rarities ?? {}) as Partial<Record<Rarity, RarityDef>>);
         // Mirror the gem catalog so client icons recognize gems added/edited via SQL.
         if (msg.gems) applyGemOverrides(msg.gems);
+        // Mirror affix flavor names so item titles compose from DB data.
+        applyAffixNameOverrides((msg.affixNames ?? {}) as Partial<Record<AffixStat, AffixName>>);
         this.contentRev++;
         break;
       case 'welcome':
