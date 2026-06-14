@@ -110,6 +110,7 @@ import { setBonuses } from '../shared/item-sets.js';
 import { resolveProcs, type ProcDef } from './item-procs.js';
 import { salvageYield, type MaterialKind, type MaterialYield } from './salvage.js';
 import { applyCraft } from './crafting.js';
+import { newlyEarned, DEFAULT_ACHIEVEMENTS } from './achievements.js';
 import {
   rollRiftModifiers,
   aggregateRiftEffects,
@@ -444,6 +445,8 @@ interface Player {
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
+  /** Unlocked achievement ids (milestone dedupe key; persisted in the save). */
+  earnedAchievements: Set<string>;
   /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
   known: Map<AbilityId, number>;
   /** Area ids this character has visited â€” the waypoint fast-travel list. */
@@ -493,6 +496,8 @@ export interface PlayerSave {
   god: boolean;
   quests: [string, number][];
   questsDone: string[];
+  /** Unlocked achievement ids (absent on pre-achievement saves — defaults to empty). */
+  earnedAchievements?: string[];
   /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
   known?: [string, number][];
   /** Visited area ids (waypoints). Absent on old saves â€” the current area is added on load. */
@@ -2079,6 +2084,7 @@ export class World {
       god: false,
       quests: new Map(),
       questsDone: new Set(),
+      earnedAchievements: new Set(),
       known: new Map(STARTER_ABILITIES.map((a) => [a, 1])),
       discovered: new Set([this.areaId]),
       input: { up: false, down: false, left: false, right: false },
@@ -2117,6 +2123,7 @@ export class World {
       god: p.god,
       quests: [...p.quests],
       questsDone: [...p.questsDone],
+      earnedAchievements: [...p.earnedAchievements],
       known: [...p.known],
       discovered: [...p.discovered],
       hireling: p.hireling,
@@ -2160,6 +2167,7 @@ export class World {
     p.god = save.god;
     p.quests = new Map(save.quests);
     p.questsDone = new Set(save.questsDone);
+    p.earnedAchievements = new Set(save.earnedAchievements ?? []);
     p.known = restoreKnown(save.known);
     // Carry visited areas across the transfer + always mark the area we just arrived in.
     p.discovered = new Set(save.discovered ?? []);
@@ -3586,6 +3594,34 @@ export class World {
     p.level = newLevel;
     this.recomputeStats(p);
     this.progressQuests(p, mobTemplateId);
+    this.checkAchievements(p);
+  }
+
+  /**
+   * Unlock any newly-earned achievements (level/gold milestones) for a player and announce them.
+   * Idempotent — the earned set dedupes, so calling this every kill is cheap and never re-announces.
+   */
+  private checkAchievements(player: Player): void {
+    const fresh = newlyEarned(
+      { level: player.level, gold: player.gold },
+      player.earnedAchievements,
+    );
+    for (const a of fresh) {
+      player.earnedAchievements.add(a.id);
+      this.notify(player.id, `Achievement unlocked: ${a.name} — ${a.desc}`);
+    }
+  }
+
+  /** Formatted achievement lines for /achievements: earned ones ticked, the rest with progress. */
+  achievementStatus(playerId: number): string[] {
+    const p = this.players.get(playerId);
+    if (!p) return ['No character.'];
+    const stats: Record<string, number> = { level: p.level, gold: p.gold };
+    return DEFAULT_ACHIEVEMENTS.map((a) => {
+      const cur = stats[a.metric] ?? 0;
+      const done = p.earnedAchievements.has(a.id) || cur >= a.threshold;
+      return done ? `✓ ${a.name} — ${a.desc}` : `· ${a.name} (${cur}/${a.threshold} ${a.metric})`;
+    });
   }
 
   private progressQuests(player: Player, mobTemplateId: string): void {

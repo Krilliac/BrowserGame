@@ -133,6 +133,15 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'achievements',
+    minLevel: AccessLevel.Player,
+    usage: '/achievements',
+    help: 'Show your achievements and progress.',
+    run: (ctx) => {
+      for (const line of ctx.world.achievementStatus(ctx.playerId)) ctx.reply(line);
+    },
+  },
+  {
     name: 'craft',
     minLevel: AccessLevel.Player,
     usage: '/craft <recipeId>',
