@@ -23,6 +23,16 @@ describe('content item procs', () => {
     expect(doom[0]!.effect).toEqual({ kind: 'damage', amount: 22 });
   });
 
+  it('exposes the additional seeded signature procs', () => {
+    const c = loadContent(openDatabase(':memory:'));
+    expect(c.itemProcs('serpentine_dagger')[0]!.effect).toEqual({
+      kind: 'status',
+      ability: 'poison_spit',
+    });
+    expect(c.itemProcs('reapers_scythe')[0]!.effect).toEqual({ kind: 'damage', amount: 20 });
+    expect(c.itemProcs('moonsilver_saber')[0]!.trigger).toBe('onCrit');
+  });
+
   it('a base item with no proc returns an empty list', () => {
     const c = loadContent(openDatabase(':memory:'));
     expect(c.itemProcs('iron_sword')).toEqual([]);

@@ -15,6 +15,15 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 
 | 5 | feat | **Item proc system** (#6) — chance-on-hit/crit gear effects | green | f8761ed; +13 → 1226; resolver+ICD+recursion guard; 2 seeded procs; firing=guarded glue (world test deferred) |
 
+| 6 | feat | **Content expansion** — 3 new proc weapons + Trinketer's Cabal jewelry set | pending | serpentine(poison)/reaper(dmg)/moonsilver(crit) procs; 5th set (neck+2rings+trinket); integrity-guarded |
+
+### Iteration 7 plan: **per-element resistances (#14)** — bigger, own turn
+DamageElement type (shared/combat.ts). abilities.element column DEFAULT 'physical' (so existing
+INSERTs untouched); tag a curated set via post-seed UPDATE map (ABILITY_ELEMENTS). New mob_resists
+child table + MOB_RESISTS code default + content.mobResists(tid). Pure resistedDamage(dmg,elem,resists).
+Apply at melee hit (world.ts ~1976) + projectile hit (~2913). World-testable via public cast() +
+seeded World (100% resist → immune). Neutral by default = safe.
+
 ### Iteration 5 plan (proc system — needs focus) [DONE]
 Highest felt-value next: on-hit **proc system** (#6, anchor "loot=build" identity). Hook point
 found: `damageMob` (world.ts:2949) is the single chokepoint; `attacker = players.get(attackerId)`.

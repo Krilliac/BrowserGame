@@ -64,6 +64,30 @@ export const DEFAULT_ITEM_PROCS: ProcSeed[] = [
     icdMs: 2500,
     effect: { kind: 'damage', amount: 22 },
   },
+  // A venomous dagger that poisons on hit — reuses Poison Spit's damage-over-time.
+  {
+    sourceId: 'serpentine_dagger',
+    trigger: 'onHit',
+    chance: 0.3,
+    icdMs: 2600,
+    effect: { kind: 'status', ability: 'poison_spit' },
+  },
+  // A reaper's scythe that bites deep — bonus damage on hit.
+  {
+    sourceId: 'reapers_scythe',
+    trigger: 'onHit',
+    chance: 0.15,
+    icdMs: 3500,
+    effect: { kind: 'damage', amount: 20 },
+  },
+  // A moonsilver saber whose crits flare with extra force.
+  {
+    sourceId: 'moonsilver_saber',
+    trigger: 'onCrit',
+    chance: 1.0,
+    icdMs: 3000,
+    effect: { kind: 'damage', amount: 16 },
+  },
 ];
 
 /**

@@ -101,6 +101,19 @@ export const DEFAULT_ITEM_SETS: ItemSetDef[] = [
     ],
     flavor: 'Moonlight forged into a panoply for the worthy.',
   },
+  {
+    id: 'set_trinketer',
+    name: "Trinketer's Cabal",
+    // A jewelry set (neck + two rings + trinket) — a glassy caster's bauble collection.
+    pieces: ['pendant', 'copper_ring', 'silver_ring', 'charm'],
+    bonuses: [
+      { requiredPieces: 2, affix: { stat: 'crit', value: 8 } },
+      { requiredPieces: 3, affix: { stat: 'move', value: 12 } },
+      { requiredPieces: 4, affix: { stat: 'multishot', value: 1 } },
+      { requiredPieces: 4, affix: { stat: 'crit', value: 8 } },
+    ],
+    flavor: 'Small charms, quietly conspiring toward something lethal.',
+  },
 ];
 
 /** Deep-copy a set definition so the live table never aliases the immutable defaults. */

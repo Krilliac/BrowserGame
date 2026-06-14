@@ -34,19 +34,18 @@ describe('content item sets', () => {
 
   it('supports a set added only in the DB', () => {
     const db = openDatabase(':memory:');
+    // Use base ids that belong to NO default set so this isolates the DB-only set's contribution.
     db.prepare('INSERT INTO item_sets (id,name,pieces,flavor) VALUES (?,?,?,?)').run(
       'set_db',
       'DB Set',
-      'copper_ring,silver_ring',
+      'rusty_sword,buckler',
       null,
     );
     db.prepare(
       'INSERT INTO item_set_bonuses (set_id,required_pieces,stat,value,sort_order) VALUES (?,?,?,?,?)',
     ).run('set_db', 2, 'crit', 42, 0);
     applyItemSetOverrides(loadContent(db).itemSets());
-    expect(setBonuses(['copper_ring', 'silver_ring']).find((a) => a.stat === 'crit')?.value).toBe(
-      42,
-    );
+    expect(setBonuses(['rusty_sword', 'buckler']).find((a) => a.stat === 'crit')?.value).toBe(42);
   });
 
   it('reset restores the code defaults', () => {
