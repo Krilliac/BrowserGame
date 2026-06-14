@@ -40,7 +40,9 @@ auto-attack ALREADY worked (moveSample/autoAttackAbility) — only the VISUALS w
 NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via parallel agent
 (achievements module, or #2 reconnect grace, or #15 content-pack discovery). Then another client-UX.
 
-### USER DIRECTIVE (2026-06-14): after the achievements iteration, COMMIT + PUSH everything.
+| 17 | feat | **Achievements** — level/gold milestone unlocks; /achievements | green | 4165ce5; +23 → 1420; earned[] in save; checkAchievements in creditKill; code-driven |
+
+### USER DIRECTIVE (2026-06-14): after the achievements iteration, COMMIT + PUSH everything. [DOING NOW]
 Push branch loop/autonomous-20260614 to origin (github.com/Krilliac/BrowserGame): `git push -u origin
 loop/autonomous-20260614`. 33 commits ahead of origin base. Iteration 17 = achievements (agent building
 achievements.ts; integrate: schema/seed/content + save earned[] + world unlock check on creditKill +
