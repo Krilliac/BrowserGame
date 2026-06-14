@@ -94,6 +94,7 @@ import {
   BOSS_SCRIPTS,
   newBossScriptState,
   stepBossScript,
+  bossEnrageMultiplier,
   type BossScriptState,
 } from './boss-scripts.js';
 import {
@@ -557,6 +558,8 @@ interface Mob {
   alertUntil: number;
   /** Apex-boss phase-script cursor (only set for templates in BOSS_SCRIPTS). */
   bossScript?: BossScriptState;
+  /** Sim time (ms) a scripted boss's current fight began (first player hit), for soft-enrage. */
+  engagedAt?: number;
 }
 
 interface Projectile {
@@ -2369,7 +2372,9 @@ export class World {
       mob.dmgMult *
       this.corruptionDmg() *
       mob.statuses.weakenFactor() *
-      mob.statuses.damageFactor()
+      mob.statuses.damageFactor() *
+      // Scripted-boss soft-enrage: damage climbs the longer a fight drags (engagedAt set on first hit).
+      (mob.engagedAt !== undefined ? bossEnrageMultiplier(this.now - mob.engagedAt) : 1)
     );
   }
 
@@ -3240,6 +3245,8 @@ export class World {
       mob.lastAttacker = attackerId;
       // Anyone who lands a hit is a TAGGER — they share the kill (no last-hit stealing).
       if (this.players.has(attackerId)) mob.taggers.add(attackerId);
+      // Start the soft-enrage clock the first time a scripted boss is engaged.
+      if (mob.engagedAt === undefined && BOSS_SCRIPTS[mob.templateId]) mob.engagedAt = this.now;
     }
     mob.hp -= amount;
     // A hurt monster is ALERTED (extended aggro reach â€” it hunts rather than idles), and a
@@ -3753,6 +3760,7 @@ export class World {
     mob.attackCd = 0;
     mob.taggers.clear(); // a respawned mob is un-claimed again
     delete mob.bossScript; // a fresh fight starts the phase loop from the top
+    delete mob.engagedAt; // and resets the soft-enrage clock
   }
 
   private outOfBounds(x: number, y: number): boolean {
