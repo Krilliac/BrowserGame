@@ -89,6 +89,15 @@ actors near center toward warm `PLAYER_LIGHT.color` (proximity-scaled) for a dir
 `pixi-filters@^6` (the v8 line). `AdvancedBloomFilter` on `fxLayer` + `lighting.layer` ONLY, never
 `this.world`; `resolution=0.5`, set `filterArea`. Gate behind a `quality` flag (off on phone).
 
+### 1.7 Drifting cloud shadows (Low, med-high — outdoor) — **done**
+World-anchored soft dark patches sailing across outdoor ground on the wind imply a sky + sun above
+the flat plane. **Implemented** as `client/clouds.ts` (+ pure `client/cloud-field.ts`:
+`cloudStrength` day-phase→strength, `wrapSpan` endless-field wrap, both tested): a small fixed pool
+of lumpy soft sprites, world coords synced to the camera each frame (like `Water`), wrapping around
+the view, alpha fading with `daylight` (gone at night). Drawn as a STAGE layer above ground/water,
+below the world — NOT inside `world` (its colour-grade filter isolates nested children from the
+ground). Outdoor-only, off on touch (fill rate), hidden by "reduce effects".
+
 **Skip:** normal-map deferred lighting (v7/@pixi/layers only, needs per-frame normal maps).
 
 ---

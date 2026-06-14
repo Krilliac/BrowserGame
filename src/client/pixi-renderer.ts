@@ -23,6 +23,7 @@ import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
 import { Weather } from './weather.js';
+import { CloudShadows } from './clouds.js';
 import { Lighting, type LightSource } from './lighting.js';
 import { PostFx, type Quality } from './post-fx.js';
 import { Decals } from './decals.js';
@@ -537,6 +538,8 @@ export class PixiRenderer {
   private readonly quality: Quality = navigator.maxTouchPoints > 0 ? 'low' : 'high';
   // Bloom on the additive light overlay (torch, portals, spell glow). Quality-gated for phones.
   private readonly postFx = new PostFx(this.quality);
+  // Drifting cloud shadows over the ground (outdoor + daylight only; off on touch). World-anchored.
+  private readonly clouds = new CloudShadows(this.quality, PITCH);
   // Ground decals (blood/scorch/corpse stains) — world-space, above ground, below props/actors.
   private readonly decals = new Decals(this.quality);
   // Water ponds (RENDER-11): a stage-level, world-anchored layer above the ground, below the world.
@@ -639,6 +642,7 @@ export class PixiRenderer {
       this.ground,
       this.terrain.layer, // heightmapped ground mesh for wild areas, replacing the flat ground (RENDER-08)
       this.water.layer, // world-anchored ponds: above the ground, below the world (RENDER-11)
+      this.clouds.layer, // world-anchored drifting cloud shadows: above ground/water, below the world
       this.world,
       this.litSprite,
       this.atmosphere.particleLayer,
@@ -810,6 +814,7 @@ export class PixiRenderer {
     this.currentTheme = theme;
     this.atmosphere.setArea(theme);
     this.weather.setWeather(theme.weather, theme.weatherIntensity, theme.fogColor);
+    this.clouds.setArea(theme.outdoor); // drifting ground cloud-shadows, outdoor only
     this.screenFx.setArea(areaId, theme.outdoor); // godrays + LUT/heat config (RENDER-10/12/13)
     this.applyGrade(theme);
     this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
@@ -1830,6 +1835,7 @@ export class PixiRenderer {
     this.world.position.set(originX, originY);
     this.world.scale.set(z);
     this.water.syncTransform(originX, originY, z); // keep ponds world-anchored (RENDER-11)
+    this.clouds.syncTransform(originX, originY, z); // keep cloud shadows world-anchored
     this.terrain.syncTransform(originX, originY, z); // keep the terrain mesh world-anchored (RENDER-08)
     this.ground.width = sw;
     this.ground.height = sh;
@@ -1844,6 +1850,18 @@ export class PixiRenderer {
     this.atmosphere.particleLayer.visible = this.effectsEnabled;
     this.decals.setVisible(this.effectsEnabled);
     this.particles.setVisible(this.effectsEnabled);
+
+    // Drifting cloud shadows: world-anchored patches that slide over the ground with the wind and
+    // fade with the sun (outdoor + daylight only). Visible world half-extents come straight from the
+    // projection; hidden with "reduce effects" alongside the weather + motes.
+    if (this.effectsEnabled) {
+      const cloudHalfW = sw / 2 / z;
+      const cloudHalfH = sh / (2 * PITCH * z);
+      const daylight = 1 - this.atmosphere.nightFactor();
+      this.clouds.update(now, this.camX, this.camY, cloudHalfW, cloudHalfH, daylight);
+    } else {
+      this.clouds.layer.visible = false;
+    }
 
     // Dynamic lights (additive): the local player carries a torch at screen center; portals glow.
     // Strength scales with night + the area's ambient-light theme, so they matter after dark.

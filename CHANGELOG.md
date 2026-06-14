@@ -31,6 +31,20 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Drifting cloud shadows over outdoor ground (world-anchored depth cue).** Soft dark patches now
+  sail slowly across the terrain on the wind, implying a sky and sun *above* the otherwise-flat
+  plane. They're **world-anchored** — cloud positions are world coordinates and the layer's transform
+  is synced to the camera's each frame (like the water layer), so the shadows slide past the player
+  as they walk rather than sticking to the screen. A small fixed pool of lumpy soft sprites wraps
+  endlessly around the camera, and the whole effect **fades with the sun** (gone at night, strongest
+  near midday) on the same day/night clock the shadows use:
+  - New pure helper `client/cloud-field.ts` (`cloudStrength` day-phase → strength, `wrapSpan`
+    endless-field wrap), unit-tested; the renderer-facing `client/clouds.ts` owns the sprite pool.
+  - Drawn as a **stage layer above the ground/water but below props/actors** (not inside `world`,
+    whose per-area colour-grade filter renders to an isolated buffer that a ground shadow nested
+    inside could never darken). Outdoor-only, and disabled wholesale on the low-quality (touch) path
+    since big soft sprites are fill-rate heavy on phones; hidden with "reduce effects". Verified with
+    the screenshot harness.
 - **Contact-AO grounding under actors (2.5D "planted" cue).** Beneath the directional shadow sits a
   small, tight, dark soft-ellipse **ambient-occlusion core pinned at the feet** that — unlike the
   cast shadow above it — never lifts with height or rakes with the sun. It's the dark contact where
