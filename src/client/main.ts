@@ -1699,10 +1699,59 @@ function drawErrorBadge(): void {
   hud.fillText(`⚠ ${(err?.message ?? 'error').slice(0, 34)}`, 14, 23);
 }
 
+/**
+ * Target frame: when you've clicked a mob (and are chasing + auto-attacking it), show a classic
+ * MMO-style portrait up top — name, level, and a live health bar — so the selection is visible.
+ * `targetMob()` self-clears when the target dies or leaves, so the frame disappears with it.
+ */
+function drawTargetFrame(): void {
+  const t = targetMob();
+  if (!t) return;
+  const cw = hudCanvas.width;
+  const fw = 244;
+  const fh = 52;
+  const fx = Math.round(cw / 2 - fw / 2);
+  const fy = 16;
+
+  hud.fillStyle = 'rgba(10,8,12,0.62)';
+  hud.fillRect(fx, fy, fw, fh);
+  hud.strokeStyle = t.elite ? 'rgba(255,200,80,0.9)' : 'rgba(220,80,80,0.85)';
+  hud.lineWidth = 2;
+  hud.strokeRect(fx + 1, fy + 1, fw - 2, fh - 2);
+
+  // Portrait swatch — the mob's own hue, so different foes read differently at a glance.
+  const ps = fh - 14;
+  hud.fillStyle = `hsl(${Math.round(t.hue)}, 55%, 45%)`;
+  hud.fillRect(fx + 7, fy + 7, ps, ps);
+  hud.strokeStyle = 'rgba(0,0,0,0.5)';
+  hud.lineWidth = 1;
+  hud.strokeRect(fx + 7, fy + 7, ps, ps);
+
+  const tx = fx + ps + 16;
+  hud.textAlign = 'left';
+  hud.font = 'bold 13px system-ui, sans-serif';
+  hud.fillStyle = t.elite ? '#ffd86a' : '#f0e0c0';
+  hud.fillText(`${t.elite ? '★ ' : ''}${t.name}`, tx, fy + 19);
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillStyle = '#b9ad92';
+  hud.fillText(`Level ${t.level}`, tx, fy + 33);
+
+  drawBar(
+    tx,
+    fy + 37,
+    fw - (tx - fx) - 12,
+    11,
+    t.maxHp > 0 ? t.hp / t.maxHp : 0,
+    '#b33',
+    `${Math.ceil(t.hp)} / ${t.maxHp}`,
+  );
+}
+
 function drawHud(): void {
   const w = hudCanvas.width;
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
+  drawTargetFrame();
 
   const slot = 52;
   const gap = 10;
