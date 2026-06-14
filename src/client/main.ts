@@ -322,6 +322,13 @@ let bannerName = '';
 let bannerUntil = 0;
 let lastContentRev = 0;
 
+// Achievement toast — a celebratory on-screen card when the server announces an unlock. We piggyback
+// on the System chat line ("Achievement unlocked: <Name> — <desc>") so no new protocol is needed.
+const TOAST_MS = 4500;
+let toastTitle = '';
+let toastUntil = 0;
+let toastScanLen = 0;
+
 window.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') {
     mouseX = e.clientX;
@@ -2047,6 +2054,8 @@ function drawHud(): void {
   }
 
   drawAreaBanner(w, h);
+  scanAchievementToasts(performance.now());
+  drawAchievementToast(w, h);
 
   if (net.you.dead) {
     hud.fillStyle = 'rgba(0,0,0,0.55)';
@@ -2057,6 +2066,61 @@ function drawHud(): void {
     const secs = Math.max(0, net.you.respawnIn / 1000).toFixed(1);
     hud.fillText(`You died — respawning in ${secs}s`, w / 2, h / 2);
   }
+}
+
+const ACHIEVEMENT_PREFIX = 'Achievement unlocked:';
+
+/** Watch new System chat lines for achievement unlocks and arm a toast for the most recent one. */
+function scanAchievementToasts(now: number): void {
+  // chat may have shifted off old lines (capped buffer); if it shrank, just resync the cursor.
+  if (net.chat.length < toastScanLen) toastScanLen = net.chat.length;
+  for (let i = toastScanLen; i < net.chat.length; i++) {
+    const line = net.chat[i];
+    if (line && line.from === 'System' && line.text.startsWith(ACHIEVEMENT_PREFIX)) {
+      // "Achievement unlocked: <Name> — <desc>" → keep just the name for the card.
+      const rest = line.text.slice(ACHIEVEMENT_PREFIX.length).trim();
+      toastTitle = rest.split(' — ')[0] ?? rest;
+      toastUntil = now + TOAST_MS;
+    }
+  }
+  toastScanLen = net.chat.length;
+}
+
+function drawAchievementToast(w: number, h: number): void {
+  const now = performance.now();
+  const left = toastUntil - now;
+  if (left <= 0 || !toastTitle) return;
+  // Ease in over 300ms, hold, ease out over the last 800ms.
+  const elapsed = TOAST_MS - left;
+  const alpha = Math.min(1, Math.min(elapsed / 300, left / 800));
+  const cx = w / 2;
+  const y = h * 0.12;
+
+  hud.save();
+  hud.globalAlpha = alpha;
+  hud.textAlign = 'center';
+
+  const header = '★ Achievement Unlocked';
+  hud.font = 'bold 26px system-ui, sans-serif';
+  const titleW = hud.measureText(toastTitle).width;
+  hud.font = '13px system-ui, sans-serif';
+  const headW = hud.measureText(header).width;
+  const boxW = Math.max(titleW, headW) + 48;
+  const boxH = 60;
+
+  hud.fillStyle = 'rgba(20,16,8,0.82)';
+  hud.fillRect(cx - boxW / 2, y - 22, boxW, boxH);
+  hud.strokeStyle = 'rgba(201,162,75,0.9)';
+  hud.lineWidth = 2;
+  hud.strokeRect(cx - boxW / 2, y - 22, boxW, boxH);
+
+  hud.fillStyle = '#c9a24b';
+  hud.font = '13px system-ui, sans-serif';
+  hud.fillText(header, cx, y - 4);
+  hud.fillStyle = '#f3e6bf';
+  hud.font = 'bold 26px system-ui, sans-serif';
+  hud.fillText(toastTitle, cx, y + 24);
+  hud.restore();
 }
 
 function drawAreaBanner(w: number, h: number): void {
