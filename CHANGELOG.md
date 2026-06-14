@@ -31,6 +31,17 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Wilds bestiary — wildlife & vermin spread across the world's existing zones.** Seven new
+  roaming species fill the ecological gaps from Gloomwood to the Sundered Wastes, each drawn from a
+  so-far-unused 32rogues sprite so new creature art appears in-world: the **Gloomweb Spider** and
+  goat-legged **Bramble Satyr** (Gloomwood), skittering **Tomb Rats** (Shadow Crypt), the
+  venom-spitting **Mire Serpent** (Rotfen Marsh), chitinous **Cinder Ants** (Emberdeep Mines), the
+  petrifying **Wyrmcrag Cockatrice** (Frostpeak Pass), and the void-bloated **Sundered Worm** (the
+  Sundered Wastes). Pure data through the established idempotent seed paths: templates in
+  `src/server/mobs.ts` (with packs/flankers/enrage traits and two new gaze/venom casters), spawns +
+  zone-matched loot in the new `src/server/db/seed-wilds.ts` (wired via `ensureWildsContent`), and
+  four new `rogues-sprites.ts` mapping rules (satyr / serpent / ant / cockatrice). Covered by
+  `seed-wilds.test.ts`, the content-integrity suite, and the sprite-resolution test.
 - **Drifting cloud shadows over outdoor ground (world-anchored depth cue).** Soft dark patches now
   sail slowly across the terrain on the wind, implying a sky and sun *above* the otherwise-flat
   plane. They're **world-anchored** — cloud positions are world coordinates and the layer's transform

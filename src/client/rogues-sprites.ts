@@ -195,11 +195,16 @@ const MOB_RULES: MobRule[] = [
   { re: /ettin/, sheet: 'monsters', label: 'two-headed-ettin' },
   { re: /myconid/, sheet: 'monsters', label: 'large-myconid' },
   { re: /basilisk/, sheet: 'monsters', label: 'basilisk' },
+  { re: /cockatrice/, sheet: 'monsters', label: 'cockatrice' },
   { re: /lycan/, sheet: 'monsters', label: 'lycanthrope' },
   { re: /manticore/, sheet: 'monsters', label: 'manticore' },
   { re: /harpy/, sheet: 'monsters', label: 'harpy' },
   { re: /drake|dragon/, sheet: 'monsters', label: 'drake' },
   { re: /minotaur/, sheet: 'monsters', label: 'minotaur' },
+  // --- Wilds bestiary (seed-wilds.ts): specific species words before the generics. ---
+  { re: /satyr|faun/, sheet: 'monsters', label: 'satyr' },
+  { re: /serpent|\bsnake\b|viper/, sheet: 'animals', label: 'snake' },
+  { re: /\bant\b/, sheet: 'monsters', label: 'giant-ant' },
   // --- Abyssal Throne bestiary (seed-frontier.ts): specific words before the generics. ---
   { re: /sovereign|nyxathor/, sheet: 'monsters', label: 'dragon' },
   { re: /sentinel/, sheet: 'monsters', label: 'death-knight' },

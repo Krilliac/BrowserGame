@@ -15,6 +15,7 @@ import { EXPANSION_DECOR } from './seed-decor.js';
 import { ensureSpellTomeContent } from './seed-spells.js';
 import { FRONTIER_NPCS, FRONTIER_DECOR, FRONTIER_LOOT, FRONTIER_QUESTS } from './seed-frontier.js';
 import { ACTS_NPCS, ACTS_DECOR, ACTS_LOOT, ACTS_QUESTS, ACTS_VENDOR_STOCK } from './seed-acts.js';
+import { WILDS_AREA_MOBS, WILDS_LOOT } from './seed-wilds.js';
 
 /** Display names + colors for the non-equipment loot materials (and gold). */
 const MATERIALS: Record<string, { name: string; color: string }> = {
@@ -307,6 +308,7 @@ export function seed(db: Database): void {
   ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
   ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
   ensureExpansionContent(db); // hand-placed decor, new-monster rosters/loot, sprite tints
+  ensureWildsContent(db); // wildlife/vermin rosters + loot spread across the existing zones
   ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
   ensureActsContent(db); // the Act 2 road + all of Act 3 (Vhalreth, its zones, the Unmade Court)
   ensureDenContent(db); // the generic cellar/den interior (procedural mini-dungeon shell)
@@ -658,6 +660,33 @@ function ensureExpansionContent(db: Database): void {
     ['mob:mosshide_orc', '#9ec09a'], // moss-stained skin (sprite shared with future orc kin)
   ];
   for (const [target, tint] of TINTS) tintIns.run(target, tint);
+}
+
+/**
+ * Upsert the wilds bestiary (src/server/db/seed-wilds.ts) into an already-seeded DB: the new
+ * wildlife/vermin rosters and their loot. The templates themselves flow through
+ * ensureWorldExpansion (it upserts every MOB_TEMPLATES row). Idempotent with the same guards
+ * the asset expansion uses: spawns per (area, template); loot once a mob has any rows.
+ */
+function ensureWildsContent(db: Database): void {
+  const areaMobExists = db.prepare('SELECT 1 FROM area_mobs WHERE area_id = ? AND template_id = ?');
+  const areaMobIns = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');
+  for (const s of WILDS_AREA_MOBS) {
+    if (!areaMobExists.get(s.areaId, s.templateId)) areaMobIns.run(s.areaId, s.templateId, s.count);
+  }
+
+  const lootExists = db.prepare('SELECT 1 FROM loot_entry WHERE mob_template_id = ? LIMIT 1');
+  const lootIns = db.prepare(
+    'INSERT INTO loot_entry (mob_template_id,grp,item_id,weight,min_qty,max_qty,is_nothing,chance) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  const lootMobs = new Set(WILDS_LOOT.map((l) => l.mobTemplateId));
+  for (const mobId of lootMobs) {
+    if (lootExists.get(mobId)) continue;
+    for (const l of WILDS_LOOT) {
+      if (l.mobTemplateId !== mobId) continue;
+      lootIns.run(mobId, l.grp, l.itemId, l.weight, l.minQty, l.maxQty, l.isNothing, l.chance);
+    }
+  }
 }
 
 /**

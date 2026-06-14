@@ -100,6 +100,14 @@ const SEEDED_MOB_NAMES = [
   'Executioner of the Unmade Court',
   'Oracle of the Unmade Court',
   'Athraxis, the Unmade God',
+  // --- Wilds bestiary (seed-wilds.ts) ---
+  'Gloomweb Spider',
+  'Bramble Satyr',
+  'Tomb Rat',
+  'Mire Serpent',
+  'Cinder Ant',
+  'Wyrmcrag Cockatrice',
+  'Sundered Worm',
 ];
 
 /** NPC kinds from the content DB enum (src/server/db/editable.ts). */
@@ -190,6 +198,25 @@ describe('mobSpriteCell', () => {
     expect(mobSpriteCell('Maelgor, the Tidewarden')).toEqual({
       sheet: 'monsters',
       ...MONSTER_CELLS['death-knight'],
+    });
+    // Wilds bestiary species map to their own art, not a generic archetype.
+    expect(mobSpriteCell('Wyrmcrag Cockatrice')).toEqual({
+      sheet: 'monsters',
+      ...MONSTER_CELLS['cockatrice'],
+    });
+    expect(mobSpriteCell('Bramble Satyr')).toEqual({
+      sheet: 'monsters',
+      ...MONSTER_CELLS['satyr'],
+    });
+    expect(mobSpriteCell('Cinder Ant')).toEqual({
+      sheet: 'monsters',
+      ...MONSTER_CELLS['giant-ant'],
+    });
+    expect(mobSpriteCell('Mire Serpent')).toEqual({ sheet: 'animals', ...ANIMAL_CELLS['snake'] });
+    // "Sundered Worm" is the earthworm, and "Cinder Ant" must not hit any imp/cinder rule.
+    expect(mobSpriteCell('Sundered Worm')).toEqual({
+      sheet: 'monsters',
+      ...MONSTER_CELLS['giant-earthworm'],
     });
   });
 

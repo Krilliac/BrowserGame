@@ -1375,6 +1375,129 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     telegraphMs: 880,
     slamRadius: 160,
   },
+
+  // ===================================================================================
+  // Wilds bestiary — wildlife and vermin that fill the ecological gaps across the world,
+  // each drawn from a so-far-unused 32rogues sprite (spider, satyr, rat, snake, ant,
+  // cockatrice, earthworm). Spread early→mid-late so every act gains a roaming species.
+  // Seeded into areas + loot via src/server/db/seed-wilds.ts.
+  // ===================================================================================
+
+  // --- Gloomwood Wilderness (L2-5): a venom-fanged ambusher and a goat-legged charger. ---
+  gloomweb_spider: {
+    id: 'gloomweb_spider',
+    name: 'Gloomweb Spider',
+    hp: 28,
+    level: 3,
+    hue: 280,
+    speed: 150, // a fast, flanking skitter
+    aggroRange: 300,
+    attackRange: 40,
+    damage: 6,
+    attackCooldownMs: 800,
+    behavior: 'melee',
+    telegraphMs: 150,
+  },
+  bramble_satyr: {
+    id: 'bramble_satyr',
+    name: 'Bramble Satyr',
+    hp: 64,
+    level: 5,
+    hue: 110,
+    speed: 100,
+    aggroRange: 360,
+    attackRange: 190, // charge-trigger distance
+    damage: 12,
+    attackCooldownMs: 1900,
+    behavior: 'charger',
+    telegraphMs: 480,
+    dashSpeed: 500,
+  },
+
+  // --- Shadow Crypt (L5-7): skittering tomb vermin that swarm and flee when alone. ---
+  tomb_rat: {
+    id: 'tomb_rat',
+    name: 'Tomb Rat',
+    hp: 22,
+    level: 5,
+    hue: 30,
+    speed: 155,
+    aggroRange: 260,
+    attackRange: 36,
+    damage: 6,
+    attackCooldownMs: 700,
+    behavior: 'melee',
+    telegraphMs: 130,
+  },
+
+  // --- Rotfen Marsh (L8-12): a venom-spitting serpent that kites from the reeds. ---
+  mire_serpent: {
+    id: 'mire_serpent',
+    name: 'Mire Serpent',
+    hp: 70,
+    level: 9,
+    hue: 140,
+    speed: 105,
+    aggroRange: 470,
+    attackRange: 350,
+    damage: 13,
+    attackCooldownMs: 1600,
+    behavior: 'ranged',
+    telegraphMs: 600,
+    projectileSpeed: 300,
+    kiteRange: 210,
+  },
+
+  // --- Emberdeep Mines (L12-16): a chitinous swarm-ant from the deep galleries. ---
+  cinder_ant: {
+    id: 'cinder_ant',
+    name: 'Cinder Ant',
+    hp: 110,
+    level: 14,
+    hue: 18,
+    speed: 120,
+    aggroRange: 320,
+    attackRange: 46,
+    damage: 18,
+    attackCooldownMs: 1000,
+    behavior: 'melee',
+    telegraphMs: 220,
+  },
+
+  // --- Frostpeak Pass (L15-20): a petrifying cockatrice whose gaze-bolt slows on hit. ---
+  wyrmcrag_cockatrice: {
+    id: 'wyrmcrag_cockatrice',
+    name: 'Wyrmcrag Cockatrice',
+    hp: 150,
+    level: 18,
+    hue: 200,
+    speed: 110,
+    aggroRange: 500,
+    attackRange: 360,
+    damage: 22,
+    attackCooldownMs: 1700,
+    behavior: 'ranged',
+    telegraphMs: 680,
+    projectileSpeed: 320,
+    kiteRange: 230,
+  },
+
+  // --- The Sundered Wastes (L20-26): a void-bloated burrower that heaves up to slam. ---
+  sundered_worm: {
+    id: 'sundered_worm',
+    name: 'Sundered Worm',
+    hp: 190,
+    level: 24,
+    hue: 300,
+    speed: 78,
+    aggroRange: 340,
+    attackRange: 60,
+    damage: 30,
+    attackCooldownMs: 1500,
+    behavior: 'melee',
+    telegraphMs: 560,
+    slamRadius: 120,
+  },
 };
 
 export interface AreaMobSpawn {
@@ -1510,6 +1633,9 @@ export const MOB_SPELLS: Record<string, AbilityId> = {
   ashveil_gorgon: 'frostlance', // the petrifying gaze — slows on hit
   vessirah: 'arcane_orb',
   court_oracle: 'thunderlance',
+  // Wilds bestiary casters.
+  mire_serpent: 'poison_spit', // a venom bolt from the reeds
+  wyrmcrag_cockatrice: 'frostlance', // the petrifying gaze — slows on hit
 };
 
 /**
@@ -1608,6 +1734,14 @@ export const MOB_TRAITS: Record<string, MobTrait[]> = {
   causeway_golem: ['enrage'],
   voidtouched_centaur: ['flanker'],
   null_revenant: ['enrage', 'flanker'],
+  // Wilds bestiary — vermin swarm, the cockatrice/worm enrage, beasts flank.
+  tomb_rat: ['pack', 'craven'],
+  cinder_ant: ['pack'],
+  gloomweb_spider: ['pack', 'flanker'],
+  bramble_satyr: ['flanker'],
+  mire_serpent: ['craven'],
+  wyrmcrag_cockatrice: ['enrage'],
+  sundered_worm: ['enrage'],
 };
 
 /**
