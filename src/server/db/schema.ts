@@ -175,6 +175,19 @@ CREATE TABLE IF NOT EXISTS sprite_tints (
   tint    TEXT NOT NULL
 );
 
+-- Per-ability ON-HIT status effects: a spell can chill (slow), ignite (burn = damage-over-time), or
+-- curse (weaken = reduced outgoing damage) what it strikes. One row per (ability, effect); an ability
+-- may carry several. Seeded from ability-effects.ts; magnitude is the factor (slow/weaken) or the
+-- per-tick damage (burn). Edit a row to retune a spell's utility without a recompile.
+CREATE TABLE IF NOT EXISTS ability_status_effects (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ability_id  TEXT NOT NULL,
+  effect      TEXT NOT NULL,            -- 'slow' | 'burn' | 'weaken' (maps to a StatusId)
+  duration_ms INTEGER NOT NULL,
+  magnitude   REAL NOT NULL,
+  UNIQUE (ability_id, effect)
+);
+
 -- Weather gameplay modifiers: how each WeatherKind affects the simulation (server-authoritative).
 -- move_scale multiplies player movement speed; aggro_scale multiplies monster aggro range
 -- (both 1 = no effect). Seeded from the code defaults in weather-effects.ts; edit a row to retune

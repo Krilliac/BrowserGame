@@ -6,6 +6,7 @@ import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
 import { EQUIPMENT } from '../../shared/equipment.js';
 import { MOB_TEMPLATES, AREA_MOBS, DEFAULT_ELITE_MODIFIERS } from '../mobs.js';
 import { weatherModifiers } from '../weather-effects.js';
+import { DEFAULT_ABILITY_STATUS_EFFECTS } from '../ability-effects.js';
 import { WEATHER_KINDS } from '../../shared/theme.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
@@ -314,6 +315,7 @@ export function seed(db: Database): void {
   ensureDenContent(db); // the generic cellar/den interior (procedural mini-dungeon shell)
   ensureWeatherModifiers(db); // per-WeatherKind gameplay multipliers (seeded from code defaults)
   ensureEliteModifiers(db); // champion stat-modifier roster (seeded from code defaults)
+  ensureAbilityStatusEffects(db); // per-ability on-hit slow/burn/weaken (seeded from code defaults)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -340,6 +342,18 @@ function ensureEliteModifiers(db: Database): void {
     'INSERT OR IGNORE INTO elite_modifiers (id,name,hp_mult,damage_mult,speed_mult,sort_order) VALUES (?,?,?,?,?,?)',
   );
   DEFAULT_ELITE_MODIFIERS.forEach((m, i) => ins.run(m.id, m.name, m.hp, m.dmg, m.spd, i));
+}
+
+/**
+ * Seed the per-ability on-hit status effects (slow/burn/weaken) from the code defaults
+ * (ability-effects.ts). Idempotent: INSERT OR IGNORE keyed on (ability_id, effect), so a designer's
+ * retuned durations/magnitudes survive a restart.
+ */
+function ensureAbilityStatusEffects(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO ability_status_effects (ability_id,effect,duration_ms,magnitude) VALUES (?,?,?,?)',
+  );
+  for (const e of DEFAULT_ABILITY_STATUS_EFFECTS) ins.run(e.abilityId, e.effect, e.ms, e.magnitude);
 }
 
 /**

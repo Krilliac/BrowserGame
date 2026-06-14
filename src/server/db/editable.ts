@@ -275,6 +275,18 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       sort_order: { type: 'int', min: 0, max: 9999 },
     },
   },
+
+  ability_status_effects: {
+    pk: 'id',
+    label: 'spell effect',
+    note: 'on-hit slow/burn/weaken; reload to apply',
+    columns: {
+      ability_id: { type: 'text' },
+      effect: { type: 'enum', values: ['slow', 'burn', 'weaken'] },
+      duration_ms: { type: 'int', min: 0, max: 60000 },
+      magnitude: { type: 'real', min: 0, max: 100000 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

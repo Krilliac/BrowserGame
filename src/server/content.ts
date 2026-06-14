@@ -6,6 +6,7 @@ import { DEFAULT_THEME, type AreaTheme, type WeatherKind } from '../shared/theme
 import type { Ability, AbilityId } from '../shared/combat.js';
 import { type MobTemplate, type EliteModifier, DEFAULT_ELITE_MODIFIERS } from './mobs.js';
 import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
+import type { StatusEffectKind } from './ability-effects.js';
 
 /**
  * Runtime game content, loaded from the SQLite database (the source of truth) via parametrized
@@ -81,6 +82,15 @@ export interface Content {
   weatherMods(weather: WeatherKind): WeatherModifiers;
   /** Elite ("champion") stat modifiers a spawn can roll, in deterministic pick order. */
   eliteModifiers(): EliteModifier[];
+  /** On-hit status effects (slow/burn/weaken) an ability applies — empty if it has none. */
+  abilityStatusEffects(abilityId: string): AbilityStatusEffect[];
+}
+
+/** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
+export interface AbilityStatusEffect {
+  effect: StatusEffectKind;
+  ms: number;
+  magnitude: number;
 }
 
 interface LootGroup {
@@ -348,6 +358,16 @@ export function loadContent(db: GameDatabase): Content {
     db.prepare('SELECT * FROM elite_modifiers ORDER BY sort_order').all() as EliteModRow[]
   ).map((r) => ({ id: r.id, name: r.name, hp: r.hp_mult, dmg: r.damage_mult, spd: r.speed_mult }));
 
+  // Per-ability on-hit status effects (slow/burn/weaken). An ability with no row carries none.
+  const statusEffects = new Map<string, AbilityStatusEffect[]>();
+  for (const r of db
+    .prepare('SELECT * FROM ability_status_effects ORDER BY ability_id, effect')
+    .all() as AbilityStatusRow[]) {
+    const list = statusEffects.get(r.ability_id) ?? [];
+    list.push({ effect: r.effect, ms: r.duration_ms, magnitude: r.magnitude });
+    statusEffects.set(r.ability_id, list);
+  }
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -380,6 +400,7 @@ export function loadContent(db: GameDatabase): Content {
     spriteTints: () => Object.fromEntries(tints),
     weatherMods: (weather) => weatherMods.get(weather) ?? weatherModifiers(weather),
     eliteModifiers: () => (eliteMods.length ? eliteMods : DEFAULT_ELITE_MODIFIERS),
+    abilityStatusEffects: (abilityId) => statusEffects.get(abilityId) ?? [],
   };
 }
 
@@ -590,4 +611,10 @@ interface EliteModRow {
   damage_mult: number;
   speed_mult: number;
   sort_order: number;
+}
+interface AbilityStatusRow {
+  ability_id: string;
+  effect: StatusEffectKind;
+  duration_ms: number;
+  magnitude: number;
 }

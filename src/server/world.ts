@@ -3461,44 +3461,6 @@ function rollAbilityDamage(
   return half + rollDamage(baseDamage - half);
 }
 
-/** Chilling/snaring spells that slow on hit: id â†’ {duration ms, movement factor}. */
-const SLOW_ON_HIT: Partial<Record<AbilityId, { ms: number; factor: number }>> = {
-  frost: { ms: 1500, factor: 0.4 },
-  venom: { ms: 2200, factor: 0.3 },
-  frostshard: { ms: 1200, factor: 0.5 },
-  frostlance: { ms: 1600, factor: 0.45 },
-  frostnova: { ms: 2000, factor: 0.4 },
-  glacierspike: { ms: 2000, factor: 0.4 },
-  entangling_vines: { ms: 2200, factor: 0.35 },
-  curse_of_decay: { ms: 1800, factor: 0.4 },
-  hamstring: { ms: 1600, factor: 0.45 },
-  mire_mortar: { ms: 2000, factor: 0.35 }, // the mud splat bogs everything it hits
-  earthshatter: { ms: 1800, factor: 0.35 }, // the tremor staggers
-};
-/** Fire / poison / bleed spells that burn (damage-over-time) on hit: id â†’ {duration ms, dmg per tick}. */
-const BURN_ON_HIT: Partial<Record<AbilityId, { ms: number; dmg: number }>> = {
-  fireball: { ms: 2000, dmg: 8 },
-  meteor: { ms: 2600, dmg: 14 },
-  emberbolt: { ms: 2000, dmg: 5 },
-  flamewave: { ms: 2200, dmg: 7 },
-  cinderorb: { ms: 2400, dmg: 9 },
-  infernonova: { ms: 2600, dmg: 10 },
-  poison_spit: { ms: 2600, dmg: 6 },
-  shadow_bolt: { ms: 2000, dmg: 6 },
-  draining_touch: { ms: 2000, dmg: 6 },
-  shadow_nova: { ms: 2200, dmg: 7 },
-  rend: { ms: 2400, dmg: 5 },
-  wyrmfire_lance: { ms: 2600, dmg: 11 },
-  starfall: { ms: 2800, dmg: 12 },
-};
-
-/** Curse spells that weaken a monster's outgoing damage on hit: id â†’ {duration ms, dmg-reduction}. */
-const WEAKEN_ON_HIT: Partial<Record<AbilityId, { ms: number; factor: number }>> = {
-  curse_of_decay: { ms: 3000, factor: 0.4 }, // the curse both slows and saps its bite
-  draining_touch: { ms: 2500, factor: 0.3 },
-  shadow_nova: { ms: 2500, factor: 0.3 },
-};
-
 /** Self-buff spells: which timed buff they grant the caster. */
 const BUFF_ON_CAST: Partial<
   Record<AbilityId, { id: 'might' | 'haste' | 'regen'; ms: number; magnitude: number }>
@@ -3522,26 +3484,21 @@ const SHRINE_BUFFS: {
 ];
 
 /**
- * Map an ability's on-hit effect onto a monster. A spell may appear in several maps (e.g. a curse
- * that both slows and weakens), so each is applied independently rather than first-match-wins.
+ * Map an ability's on-hit effect onto a monster. The effects are data-driven (the
+ * `ability_status_effects` content table); a spell may carry several (e.g. a curse that both slows
+ * and weakens), each applied independently.
  */
 function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
-  const slow = SLOW_ON_HIT[abilityId];
-  if (slow) mob.statuses.apply('slow', slow.ms, slow.factor);
-  const burn = BURN_ON_HIT[abilityId];
-  if (burn) mob.statuses.apply('burn', burn.ms, burn.dmg);
-  const weaken = WEAKEN_ON_HIT[abilityId];
-  if (weaken) mob.statuses.apply('weaken', weaken.ms, weaken.factor);
+  for (const e of getContent().abilityStatusEffects(abilityId)) {
+    mob.statuses.apply(e.effect, e.ms, e.magnitude);
+  }
 }
 
 /** Map an enemy spell's on-hit effect onto a PLAYER (so monster spells slow/burn/weaken you too). */
 function applyPlayerDebuff(player: { debuffs: StatusSet }, abilityId: AbilityId): void {
-  const slow = SLOW_ON_HIT[abilityId];
-  if (slow) player.debuffs.apply('slow', slow.ms, slow.factor);
-  const burn = BURN_ON_HIT[abilityId];
-  if (burn) player.debuffs.apply('burn', burn.ms, burn.dmg);
-  const weaken = WEAKEN_ON_HIT[abilityId];
-  if (weaken) player.debuffs.apply('weaken', weaken.ms, weaken.factor);
+  for (const e of getContent().abilityStatusEffects(abilityId)) {
+    player.debuffs.apply(e.effect, e.ms, e.magnitude);
+  }
 }
 
 function sanitizeName(name: string): string {

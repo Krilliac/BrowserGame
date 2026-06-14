@@ -323,6 +323,17 @@ describe('tuning tables are live-editable via /set', () => {
       value: 0.8,
     });
   });
+
+  it('ability_status_effects.duration_ms coerces an int', () => {
+    expect(coerceColumn('ability_status_effects', 'duration_ms', '2500')).toEqual({
+      ok: true,
+      value: 2500,
+    });
+  });
+
+  it('ability_status_effects.effect rejects an unknown status kind', () => {
+    expect(coerceColumn('ability_status_effects', 'effect', 'stun').ok).toBe(false);
+  });
 });
 
 describe('EDITABLE_TABLES invariants', () => {
