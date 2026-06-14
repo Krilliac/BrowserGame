@@ -19,7 +19,15 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 
 | 7 | feat | **Per-element resistances (#14)** — fire/cold/lightning/poison + mob resists | green | 3b230af; +12 → 1239; neutral-by-default; applied at both hit sites; 8 thematic mobs |
 
-| 8 | infra | **Versioned migration chain** (#8) — PRAGMA user_version + ordered MIGRATIONS[] | pending | exactly-once migrations in txns; migration #1 wraps existing column backfill; LATEST_DB_VERSION; +3 tests |
+| 8 | infra | **Versioned migration chain** (#8) — PRAGMA user_version + ordered MIGRATIONS[] | green | 70ae394; +3 → 1242; migration #1 wraps existing backfill; exactly-once in txns |
+
+### Iteration 9 candidates (keep varying)
+- **#12 leaderboard** (liveops) — dynamic-DB table written on level-up/boss/rift; `/ladder` reader. Needs account identity.
+- **#11 game_event timer** (liveops) — recurring world events w/ global modifier + `/event` GM cmd.
+- **#15 content-pack discovery** (tooling) — typed seed registry replacing explicit imports.
+- **Client polish** — surface ability element + mob resists in tooltips (content-store testable).
+- **#2 reconnect grace** (phone) — index.ts ws lifecycle; harder to unit-test.
+Decisive-pick worked well; keep iterations tight.
 
 ### Iteration 8 candidates (vary axis after a run of big combat features)
 - **#8 versioned migration chain** (S, infra) — now well-justified (~10 new tables/cols added); safe, fully testable.
