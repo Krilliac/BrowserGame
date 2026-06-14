@@ -31,6 +31,7 @@ import {
   attackRoll,
   BASE_CRIT_CHANCE,
   defenceRoll,
+  resistedDamage,
   rollCrit,
   rollDamage,
   rolledHit,
@@ -105,6 +106,28 @@ import {
 } from '../shared/attributes.js';
 import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
+import { setBonuses } from '../shared/item-sets.js';
+import { resolveProcs, type ProcDef } from './item-procs.js';
+import { salvageYield, type MaterialKind, type MaterialYield } from './salvage.js';
+import { applyCraft } from './crafting.js';
+import { newlyEarned, DEFAULT_ACHIEVEMENTS } from './achievements.js';
+import {
+  rollRiftModifiers,
+  aggregateRiftEffects,
+  type RiftModifierDef,
+  type RiftEffects,
+} from './rift-modifiers.js';
+import {
+  createTrade,
+  setOffer as tradeSetOfferPure,
+  confirm as tradeConfirmPure,
+  cancel as tradeCancelPure,
+  commit as tradeCommitPure,
+  bothConfirmed,
+  isParticipant,
+  type TradeSession,
+  type TradeOffer,
+} from './trade.js';
 import {
   championGoldPile,
   coopScale,
@@ -407,6 +430,10 @@ interface Player {
   vigor: number;
   /** Bonus mana/sec from the Energy attribute (added to base mana regen). */
   manaRegenBonus: number;
+  /** Item procs from equipped gear (rebuilt in recomputeStats; chance-on-hit/crit effects). */
+  procs: ProcDef[];
+  /** Per-proc internal-cooldown clocks (procId → next-ready sim time). Persists across recomputes. */
+  procIcd: Map<string, number>;
   /** Allocatable attributes (strength/vitality/dexterity/energy) feeding derived stats. */
   attributes: AttributeSet;
   /** Unspent attribute points (earned on level-up). */
@@ -418,6 +445,8 @@ interface Player {
   god: boolean;
   quests: Map<string, number>; // questId -> kill progress
   questsDone: Set<string>;
+  /** Unlocked achievement ids (milestone dedupe key; persisted in the save). */
+  earnedAchievements: Set<string>;
   /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
   known: Map<AbilityId, number>;
   /** Area ids this character has visited â€” the waypoint fast-travel list. */
@@ -467,6 +496,8 @@ export interface PlayerSave {
   god: boolean;
   quests: [string, number][];
   questsDone: string[];
+  /** Unlocked achievement ids (absent on pre-achievement saves — defaults to empty). */
+  earnedAchievements?: string[];
   /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
   known?: [string, number][];
   /** Visited area ids (waypoints). Absent on old saves â€” the current area is added on load. */
@@ -599,6 +630,14 @@ export class World {
   private localId = 1;
   private readonly allocId: () => number;
   private now = 0; // accumulated sim time, ms (drives cooldowns/respawns)
+  private procDepth = 0; // recursion guard: a fired proc's own damage must not itself proc
+  // Liveops XP multiplier from active timed game-events. Injected by the host each tick (the schedule
+  // is wall-clock-ish and computed OUTSIDE the sim to keep the World deterministic); 1 = no event.
+  private xpEventMult = 1;
+  // Active player-to-player trades, keyed by EACH participant's id (both map to the same session).
+  // One trade per player. The negotiation logic is the pure trade.ts state machine; the World owns
+  // the inventory transfer + re-validation at commit (security-critical).
+  private readonly tradeSessions = new Map<number, TradeSession>();
   // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
   // Solid colliders for this area — rects (house walls, cliffs, ridges, barriers) AND circles
@@ -678,7 +717,26 @@ export class World {
     this.areaId = areaId;
     this.areaCorruption = areaCorruption ?? new AreaCorruption();
     this.rand = mulberry32(this.seed);
+    // Rift modifiers: a tiered rift rolls named mutators (D3-style). Rolled from a DERIVED seed so it
+    // never disturbs the main spawn/loot rng — same rift seed ⇒ same modifiers. Tier 0 = none (the
+    // effects stay the neutral identity, so ordinary areas are completely unaffected).
+    if (this.tier > 0) {
+      const modRng = mulberry32((this.seed + 0x9e3779b9) >>> 0);
+      this.riftModifiers = rollRiftModifiers(this.tier, modRng, 2, getContent().riftModifiers());
+      this.riftEffects = aggregateRiftEffects(this.riftModifiers);
+    }
   }
+
+  /** The named rift mutators rolled for this instance (empty for a non-rift area). */
+  readonly riftModifiers: RiftModifierDef[] = [];
+  /** Aggregated rift-modifier effects, applied at mob spawn + reward sites; identity for tier 0. */
+  private riftEffects: RiftEffects = {
+    mobDamageMult: 1,
+    mobHpMult: 1,
+    mobSpeedMult: 1,
+    lootQuantityBonus: 0,
+    xpBonus: 0,
+  };
 
   /** The instance's seeded RNG â€” the only randomness source inside the simulation. */
   private readonly rand: () => number;
@@ -861,7 +919,11 @@ export class World {
     // template's level keeps same-level fights at several hits — and makes the apex bosses tanky.
     const levelHp = 1 + LEVEL_HP_SCALE * template.level;
     const hp = Math.round(
-      (mod ? template.hp * mod.hp : template.hp) * tierHp * MOB_HP_TUNING * levelHp,
+      (mod ? template.hp * mod.hp : template.hp) *
+        tierHp *
+        this.riftEffects.mobHpMult *
+        MOB_HP_TUNING *
+        levelHp,
     );
     this.mobs.set(id, {
       id,
@@ -893,8 +955,8 @@ export class World {
       dashVy: 0,
       dashHit: new Set(),
       elite,
-      dmgMult: (mod ? mod.dmg : 1) * tierDmg,
-      spdMult: mod ? mod.spd : 1,
+      dmgMult: (mod ? mod.dmg : 1) * tierDmg * this.riftEffects.mobDamageMult,
+      spdMult: (mod ? mod.spd : 1) * this.riftEffects.mobSpeedMult,
       invader,
       alertUntil: 0,
     });
@@ -1241,6 +1303,62 @@ export class World {
     this.pushStash(player);
   }
 
+  /** Abstract salvage material kind → the concrete content loot item id it grants. */
+  private static readonly SALVAGE_ITEM_ID: Record<MaterialKind, string> = {
+    scrap: 'mat_scrap',
+    dust: 'mat_dust',
+    essence: 'mat_essence',
+    shard: 'rune_shard', // the top tier reuses the existing rune-shard material
+  };
+
+  /**
+   * Salvage a BAG gear instance into crafting materials (D2-cube disenchant). Only unequipped bag
+   * items qualify (equipped gear lives in `equipment`, never found here). Deterministic via the
+   * world rng. Returns the materials granted, or a reason it failed.
+   */
+  salvage(
+    playerId: number,
+    uid: number,
+  ): { ok: boolean; reason?: string; yields?: MaterialYield[] } {
+    const player = this.players.get(playerId);
+    if (!player) return { ok: false, reason: 'No such player.' };
+    const idx = player.gear.findIndex((g) => g.uid === uid);
+    if (idx < 0) return { ok: false, reason: 'No such item in your bag.' };
+    const [inst] = player.gear.splice(idx, 1);
+    if (!inst) return { ok: false, reason: 'No such item.' };
+    const yields = salvageYield(inst, this.rand);
+    for (const y of yields) {
+      const itemId = World.SALVAGE_ITEM_ID[y.kind];
+      player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + y.qty);
+    }
+    return { ok: true, yields };
+  }
+
+  /**
+   * Craft a recipe: spend its material inputs from the player's loot for its outputs. The pure
+   * applyCraft validates affordability + does the check-then-mutate spend (never partial/negative).
+   * Returns whether it crafted; notifies the player either way. Recipe set is content-driven.
+   */
+  craft(playerId: number, recipeId: string): boolean {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+    const recipe = getContent()
+      .craftingRecipes()
+      .find((r) => r.id === recipeId);
+    if (!recipe) {
+      this.notify(playerId, `Unknown recipe "${recipeId}".`);
+      return false;
+    }
+    const have: Record<string, number> = Object.fromEntries(player.loot);
+    if (!applyCraft(recipe, have)) {
+      this.notify(playerId, `Not enough materials for ${recipe.name}.`);
+      return false;
+    }
+    player.loot = new Map(Object.entries(have));
+    this.notify(playerId, `Crafted: ${recipe.name}.`);
+    return true;
+  }
+
   /**
    * Artificer: reroll a bag gear instance's affixes for gold + a rune shard. Requires being next to
    * an artificer, the item to have affixes, and the player to afford the cost. Corrupted gear rerolls
@@ -1548,6 +1666,146 @@ export class World {
     this.recomputeStats(player);
   }
 
+  /** Set the liveops XP multiplier (1 = none). Host-driven from active timed game-events; clamped >=0. */
+  setXpEventMult(mult: number): void {
+    this.xpEventMult = Number.isFinite(mult) && mult >= 0 ? mult : 1;
+  }
+
+  // --- Player-to-player trading -----------------------------------------------------------
+  // Negotiation is the pure trade.ts state machine (offers + the anti-scam "change voids confirms"
+  // rule); the World owns proximity, the session registry, and the atomic re-validated swap.
+
+  /** Max distance (px) between two players to open a trade — they must be near each other. */
+  private static readonly TRADE_RANGE = 220;
+
+  /**
+   * Open a trade between two players in THIS instance. Both must exist, be alive, be within range,
+   * and neither already be trading. Returns the outcome for the host to relay to the initiator.
+   */
+  startTrade(aId: number, bId: number): { ok: boolean; reason?: string } {
+    if (aId === bId) return { ok: false, reason: 'You cannot trade with yourself.' };
+    const a = this.players.get(aId);
+    const b = this.players.get(bId);
+    if (!a || !b || a.dead || b.dead) return { ok: false, reason: 'That player is not available.' };
+    if (this.tradeSessions.has(aId) || this.tradeSessions.has(bId))
+      return { ok: false, reason: 'One of you is already trading.' };
+    if (Math.hypot(a.x - b.x, a.y - b.y) > World.TRADE_RANGE)
+      return { ok: false, reason: 'You are too far apart to trade.' };
+    const session = createTrade(aId, bId);
+    if (!session) return { ok: false, reason: 'Could not open trade.' };
+    this.tradeSessions.set(aId, session);
+    this.tradeSessions.set(bId, session);
+    return { ok: true };
+  }
+
+  /** Stage a player's offer (gold + bag-item uids). True if applied (host then re-broadcasts state). */
+  tradeSetOffer(playerId: number, offer: TradeOffer): boolean {
+    const s = this.tradeSessions.get(playerId);
+    if (!s) return false;
+    return tradeSetOfferPure(s, playerId, offer);
+  }
+
+  /**
+   * Confirm a player's side. When BOTH have confirmed, atomically commit the swap (re-validating
+   * ownership + gold + bag space) and tear the session down. Returns the resulting status so the
+   * host knows whether to re-broadcast state ('updated') or close the window ('committed'/'failed').
+   */
+  tradeConfirm(playerId: number): 'updated' | 'committed' | 'failed' | 'none' {
+    const s = this.tradeSessions.get(playerId);
+    if (!s) return 'none';
+    if (!tradeConfirmPure(s, playerId)) return 'failed';
+    if (!bothConfirmed(s)) return 'updated';
+    const plan = tradeCommitPure(s);
+    const done = plan ? this.applyTradeCommit(plan) : false;
+    this.endTradeFor(playerId);
+    return done ? 'committed' : 'failed';
+  }
+
+  /** Cancel a player's active trade. Returns the OTHER participant's id (to notify), or undefined. */
+  tradeCancel(playerId: number): number | undefined {
+    const s = this.tradeSessions.get(playerId);
+    if (!s) return undefined;
+    const other = s.aId === playerId ? s.bId : s.aId;
+    tradeCancelPure(s);
+    this.endTradeFor(playerId);
+    return other;
+  }
+
+  /** The current trade view for a participant (host sends it to BOTH sides after each change). */
+  tradeStateFor(playerId: number):
+    | {
+        aId: number;
+        bId: number;
+        aOffer: TradeOffer;
+        bOffer: TradeOffer;
+        aConfirmed: boolean;
+        bConfirmed: boolean;
+      }
+    | undefined {
+    const s = this.tradeSessions.get(playerId);
+    if (!s || !isParticipant(s, playerId)) return undefined;
+    return {
+      aId: s.aId,
+      bId: s.bId,
+      aOffer: s.aOffer,
+      bOffer: s.bOffer,
+      aConfirmed: s.aConfirmed,
+      bConfirmed: s.bConfirmed,
+    };
+  }
+
+  /** Both participant ids of a player's active trade (host uses it to message both), or undefined. */
+  tradePartners(playerId: number): { aId: number; bId: number } | undefined {
+    const s = this.tradeSessions.get(playerId);
+    return s ? { aId: s.aId, bId: s.bId } : undefined;
+  }
+
+  /** Drop the session both participants share (commit/cancel/disconnect/death). Idempotent. */
+  private endTradeFor(playerId: number): void {
+    const s = this.tradeSessions.get(playerId);
+    if (!s) return;
+    this.tradeSessions.delete(s.aId);
+    this.tradeSessions.delete(s.bId);
+  }
+
+  /**
+   * Atomically apply a confirmed trade plan: re-validate that each side STILL owns every offered uid
+   * (a BAG item) + has the gold + will fit the incoming items, then swap. SECURITY-CRITICAL — the
+   * pure module can't see inventories, so a client could move/sell an item between confirm and
+   * commit; we re-check here and abort the WHOLE trade on any failure (never a partial transfer).
+   */
+  private applyTradeCommit(plan: {
+    aId: number;
+    bId: number;
+    toA: TradeOffer;
+    toB: TradeOffer;
+  }): boolean {
+    const pa = this.players.get(plan.aId);
+    const pb = this.players.get(plan.bId);
+    if (!pa || !pb || pa.dead || pb.dead) return false;
+    const aGives = plan.toB; // A's own offer → B receives it
+    const bGives = plan.toA; // B's own offer → A receives it
+    // Re-validate ownership: every offered uid must still be a BAG item of the giver.
+    const aItems = aGives.itemUids.map((u) => pa.gear.find((g) => g.uid === u));
+    const bItems = bGives.itemUids.map((u) => pb.gear.find((g) => g.uid === u));
+    if (aItems.some((g) => g === undefined) || bItems.some((g) => g === undefined)) return false;
+    if (pa.gold < aGives.gold || pb.gold < bGives.gold) return false;
+    // Re-validate bag space after the net swap, so nobody overflows their bag.
+    const aFinal = pa.gear.length - aGives.itemUids.length + bGives.itemUids.length;
+    const bFinal = pb.gear.length - bGives.itemUids.length + aGives.itemUids.length;
+    if (aFinal > MAX_BAG_GEAR || bFinal > MAX_BAG_GEAR) return false;
+    // All checks passed — apply atomically (validate-all-then-mutate).
+    const aRemove = new Set(aGives.itemUids);
+    const bRemove = new Set(bGives.itemUids);
+    pa.gear = pa.gear.filter((g) => !aRemove.has(g.uid));
+    pb.gear = pb.gear.filter((g) => !bRemove.has(g.uid));
+    for (const g of aItems) if (g) pb.gear.push(g);
+    for (const g of bItems) if (g) pa.gear.push(g);
+    pa.gold += bGives.gold - aGives.gold;
+    pb.gold += aGives.gold - bGives.gold;
+    return true;
+  }
+
   /** Derive power, max HP, crit, multishot, and damage-taken from level + every equipped instance. */
   private recomputeStats(player: Player): void {
     let power = 0;
@@ -1560,11 +1818,13 @@ export class World {
     let move = 0; // percent move bonus
     let armor = 0; // percent incoming-damage reduction
     let vigor = 0; // bonus HP regenerated per second
+    const procs: ProcDef[] = []; // chance-on-hit/crit procs gathered from equipped gear
     for (const slot of EQUIP_SLOTS) {
       const inst = player.equipment[slot];
       if (!inst) continue;
       power += inst.power;
       bonusHp += inst.hp;
+      procs.push(...getContent().itemProcs(inst.baseId));
       for (const a of inst.affixes ?? []) {
         if (a.stat === 'power') power += a.value;
         else if (a.stat === 'hp') bonusHp += a.value;
@@ -1603,6 +1863,19 @@ export class World {
         else if (a.stat === 'vigor') vigor += a.value;
       }
     }
+    // Item-set bonuses: wearing several pieces of one set grants threshold bonuses (D2 set items).
+    // Folded once over the whole loadout (not per-item) since they depend on the equipped-piece count.
+    for (const a of setBonuses(EQUIP_SLOTS.map((s) => player.equipment[s]?.baseId))) {
+      if (a.stat === 'power') power += a.value;
+      else if (a.stat === 'hp') bonusHp += a.value;
+      else if (a.stat === 'crit') crit += a.value / 100;
+      else if (a.stat === 'multishot') multishot += a.value;
+      else if (a.stat === 'lifesteal') lifesteal += a.value;
+      else if (a.stat === 'swift') swift += a.value;
+      else if (a.stat === 'move') move += a.value;
+      else if (a.stat === 'armor') armor += a.value;
+      else if (a.stat === 'vigor') vigor += a.value;
+    }
     // Attribute bonuses (strengthâ†’power, vitalityâ†’maxHp, dexterityâ†’crit, energyâ†’mana regen).
     const attr = attributeBonuses(player.attributes);
     power += attr.power;
@@ -1621,6 +1894,7 @@ export class World {
     player.power = power;
     player.critChance = crit;
     player.multishot = multishot;
+    player.procs = procs;
     player.lifesteal = Math.min(0.6, lifesteal / 100); // cap life steal at 60% of damage
     player.cooldownMult = Math.max(0.4, 1 - swift / 100); // cap attack speed at +60%
     player.moveMult = Math.min(1.5, 1 + move / 100); // cap move speed at +50%
@@ -1791,6 +2065,8 @@ export class World {
       potions: { health: POTION_START, mana: POTION_START },
       potionReadyAt: 0,
       manaRegenBonus: 0,
+      procs: [],
+      procIcd: new Map(),
       attributes: emptyAttributes(),
       attrPoints: 0,
       skills: new Set(),
@@ -1808,6 +2084,7 @@ export class World {
       god: false,
       quests: new Map(),
       questsDone: new Set(),
+      earnedAchievements: new Set(),
       known: new Map(STARTER_ABILITIES.map((a) => [a, 1])),
       discovered: new Set([this.areaId]),
       input: { up: false, down: false, left: false, right: false },
@@ -1846,6 +2123,7 @@ export class World {
       god: p.god,
       quests: [...p.quests],
       questsDone: [...p.questsDone],
+      earnedAchievements: [...p.earnedAchievements],
       known: [...p.known],
       discovered: [...p.discovered],
       hireling: p.hireling,
@@ -1889,6 +2167,7 @@ export class World {
     p.god = save.god;
     p.quests = new Map(save.quests);
     p.questsDone = new Set(save.questsDone);
+    p.earnedAchievements = new Set(save.earnedAchievements ?? []);
     p.known = restoreKnown(save.known);
     // Carry visited areas across the transfer + always mark the area we just arrived in.
     p.discovered = new Set(save.discovered ?? []);
@@ -1902,6 +2181,7 @@ export class World {
   }
 
   remove(id: number): void {
+    this.endTradeFor(id); // drop any active trade so the partner isn't stuck "in trade"
     this.despawnHirelingOf(id);
     this.players.delete(id);
   }
@@ -1964,8 +2244,13 @@ export class World {
           const base = rollAbilityDamage(player.level, mob.level, power);
           const crit = base > 0 && rollCrit(this.rand, player.critChance);
           const dmg = applyCrit(base, crit);
-          this.damageMob(mob, dmg, abilityId, player.id, crit);
-          if (dmg > 0) applyStatus(mob, abilityId);
+          const finalDmg = resistedDamage(
+            dmg,
+            ability.element ?? 'physical',
+            getContent().mobResists(mob.templateId),
+          );
+          this.damageMob(mob, finalDmg, abilityId, player.id, crit);
+          if (finalDmg > 0) applyStatus(mob, abilityId);
         }
       }
     } else {
@@ -2896,8 +3181,13 @@ export class World {
             const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
             const crit = base > 0 && rollCrit(this.rand, proj.critChance);
             const dmg = applyCrit(base, crit);
-            this.damageMob(mob, dmg, proj.abilityId, proj.ownerId, crit);
-            if (dmg > 0) applyStatus(mob, proj.abilityId);
+            const finalDmg = resistedDamage(
+              dmg,
+              getContent().ability(proj.abilityId)?.element ?? 'physical',
+              getContent().mobResists(mob.templateId),
+            );
+            this.damageMob(mob, finalDmg, proj.abilityId, proj.ownerId, crit);
+            if (finalDmg > 0) applyStatus(mob, proj.abilityId);
             consumed = true;
             break;
           }
@@ -2970,6 +3260,28 @@ export class World {
       mob.respawnAt = this.now + MOB_RESPAWN_MS;
       this.events.push({ kind: 'death', x: mob.x, y: mob.y });
       this.onMobKilled(mob);
+    } else if (
+      this.procDepth === 0 &&
+      amount > 0 &&
+      attacker &&
+      !attacker.dead &&
+      attacker.procs.length > 0
+    ) {
+      // On-hit item procs (gear-granted "chance on hit/crit"). Only on a SURVIVING mob, and only at
+      // depth 0 so a proc's own damage can't itself proc — no proc-storm, no infinite recursion. A
+      // lethal proc's recursive damageMob handles the kill + loot exactly once.
+      this.procDepth++;
+      for (const eff of resolveProcs(
+        attacker.procs,
+        { crit, now: this.now },
+        attacker.procIcd,
+        this.rand,
+      )) {
+        if (eff.kind === 'damage') this.damageMob(mob, eff.amount, undefined, attackerId, false);
+        else applyStatus(mob, eff.ability as AbilityId);
+        if (mob.dead) break;
+      }
+      this.procDepth--;
     }
   }
 
@@ -2982,7 +3294,15 @@ export class World {
       // A small group XP bonus on top of the elite multiplier — a kill that took several hands is
       // worth more total, so co-op pays even though everyone shares it.
       const groupBonus = 1 + 0.1 * Math.max(0, mob.taggers.size - 1);
-      const reward = Math.round(xpReward(mob.level) * (mob.elite ? 3 : 1) * groupBonus);
+      // xpEventMult folds in a liveops event bonus (e.g. Bloodmoon); riftEffects.xpBonus folds in any
+      // rolled rift mutator (e.g. Scholarly +40% XP). Both default to neutral outside their context.
+      const reward = Math.round(
+        xpReward(mob.level) *
+          (mob.elite ? 3 : 1) *
+          groupBonus *
+          this.xpEventMult *
+          (1 + this.riftEffects.xpBonus),
+      );
       // Shared credit: EVERY player who tagged the mob, plus party members present in THIS instance,
       // each get the full XP and quest progress — grouping (and helping) is rewarded, never taxed.
       const credited = new Set<number>(mob.taggers);
@@ -3016,7 +3336,8 @@ export class World {
                 content.mobTemplate(mob.templateId)?.level ?? mob.level,
               ) * this.coopGoldScale(),
             )
-          : stack.qty;
+          : // Rift "Bountiful"-style mutators boost material stack sizes (0 outside a rift).
+            Math.max(1, Math.round(stack.qty * (1 + this.riftEffects.lootQuantityBonus)));
       const item: GroundItem = {
         id,
         itemId: stack.item,
@@ -3273,6 +3594,34 @@ export class World {
     p.level = newLevel;
     this.recomputeStats(p);
     this.progressQuests(p, mobTemplateId);
+    this.checkAchievements(p);
+  }
+
+  /**
+   * Unlock any newly-earned achievements (level/gold milestones) for a player and announce them.
+   * Idempotent — the earned set dedupes, so calling this every kill is cheap and never re-announces.
+   */
+  private checkAchievements(player: Player): void {
+    const fresh = newlyEarned(
+      { level: player.level, gold: player.gold },
+      player.earnedAchievements,
+    );
+    for (const a of fresh) {
+      player.earnedAchievements.add(a.id);
+      this.notify(player.id, `Achievement unlocked: ${a.name} — ${a.desc}`);
+    }
+  }
+
+  /** Formatted achievement lines for /achievements: earned ones ticked, the rest with progress. */
+  achievementStatus(playerId: number): string[] {
+    const p = this.players.get(playerId);
+    if (!p) return ['No character.'];
+    const stats: Record<string, number> = { level: p.level, gold: p.gold };
+    return DEFAULT_ACHIEVEMENTS.map((a) => {
+      const cur = stats[a.metric] ?? 0;
+      const done = p.earnedAchievements.has(a.id) || cur >= a.threshold;
+      return done ? `✓ ${a.name} — ${a.desc}` : `· ${a.name} (${cur}/${a.threshold} ${a.metric})`;
+    });
   }
 
   private progressQuests(player: Player, mobTemplateId: string): void {

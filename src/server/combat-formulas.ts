@@ -8,6 +8,8 @@
  * globals. See wiki/research/runescape-mechanics.md §4 for the source formulas.
  */
 
+import type { DamageElement } from '../shared/combat.js';
+
 /** Effective-level offset added to a skill before rolling (OSRS uses +8 on the stance stack). */
 const EFFECTIVE_LEVEL_OFFSET = 8;
 
@@ -94,6 +96,20 @@ export function applyCrit(
   multiplier: number = CRIT_MULTIPLIER,
 ): number {
   return crit ? Math.round(damage * multiplier) : damage;
+}
+
+/** Per-element resistance fractions for a defender (missing element = 0, i.e. no resistance). */
+export type ResistMap = Partial<Record<DamageElement, number>>;
+
+/**
+ * Reduce a damage amount by the defender's resistance to its element. Resistance is a fraction:
+ * 0 = no effect (the neutral default), 1 = immune (0 damage), and a negative value = vulnerable
+ * (e.g. -0.5 takes 50% more). Clamped to [-1, 1] so resistance can at most null damage and at most
+ * double it. Rounded to a whole number, never below 0. Pure.
+ */
+export function resistedDamage(damage: number, element: DamageElement, resists: ResistMap): number {
+  const r = Math.max(-1, Math.min(1, resists[element] ?? 0));
+  return Math.max(0, Math.round(damage * (1 - r)));
 }
 
 /** The outcome of resolving a single attack. */

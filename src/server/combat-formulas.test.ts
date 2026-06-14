@@ -7,6 +7,7 @@ import {
   defenceRoll,
   hitChance,
   maxHit,
+  resistedDamage,
   resolveAttack,
   rollCrit,
   rollDamage,
@@ -18,6 +19,32 @@ function seqRng(values: number[]): () => number {
   let i = 0;
   return () => values[Math.min(i++, values.length - 1)] ?? 0;
 }
+
+describe('resistedDamage', () => {
+  it('passes damage through unchanged when there is no matching resistance', () => {
+    expect(resistedDamage(100, 'fire', {})).toBe(100);
+    expect(resistedDamage(100, 'physical', { fire: 0.5 })).toBe(100); // resist is for a different element
+  });
+
+  it('reduces typed damage by the resistance fraction (rounded)', () => {
+    expect(resistedDamage(100, 'fire', { fire: 0.5 })).toBe(50);
+    expect(resistedDamage(41, 'cold', { cold: 0.5 })).toBe(21); // round(20.5)
+    expect(resistedDamage(100, 'fire', { fire: 0.6 })).toBe(40);
+  });
+
+  it('makes 100% resistance fully immune (0 damage)', () => {
+    expect(resistedDamage(250, 'lightning', { lightning: 1 })).toBe(0);
+  });
+
+  it('amplifies damage for a vulnerability (negative resist), clamped to -1 (double)', () => {
+    expect(resistedDamage(100, 'cold', { cold: -0.3 })).toBe(130);
+    expect(resistedDamage(100, 'fire', { fire: -5 })).toBe(200); // clamped at -1 → ×2, not ×6
+  });
+
+  it('clamps resistance above 1 to full immunity and never returns below 0', () => {
+    expect(resistedDamage(100, 'poison', { poison: 5 })).toBe(0);
+  });
+});
 
 describe('attackRoll / defenceRoll (effective rolls)', () => {
   it('adds the +8 offset and the optional bonus', () => {

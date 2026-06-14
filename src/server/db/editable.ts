@@ -105,6 +105,7 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       mana_cost: { type: 'int', min: 0, max: 1000 },
       color: { type: 'color' },
       radius: { type: 'real', min: 0, max: 400 },
+      element: { type: 'enum', values: ['physical', 'fire', 'cold', 'lightning', 'poison'] },
       sort_order: { type: 'int', min: 0, max: 99 },
       melee_half_angle: { type: 'real', min: 0, max: 3.2, nullable: true },
       projectile_speed: { type: 'real', min: 0, max: 4000, nullable: true },
@@ -428,6 +429,152 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       },
       value: { type: 'real', min: 0, max: 100000 },
       sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
+  item_sets: {
+    pk: 'id',
+    label: 'item set',
+    note: 'set membership (comma-separated base item ids); /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      pieces: { type: 'text' },
+      flavor: { type: 'text', nullable: true },
+    },
+  },
+
+  item_set_bonuses: {
+    pk: 'id',
+    label: 'item set bonus',
+    note: 'a buff a set grants at a piece-count threshold; /reloadcontent to apply',
+    columns: {
+      set_id: { type: 'text' },
+      required_pieces: { type: 'int', min: 2, max: 99 },
+      stat: {
+        type: 'enum',
+        values: [
+          'power',
+          'hp',
+          'crit',
+          'multishot',
+          'lifesteal',
+          'swift',
+          'move',
+          'armor',
+          'vigor',
+        ],
+      },
+      value: { type: 'real', min: 0, max: 100000 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
+  crafting_recipes: {
+    pk: 'id',
+    label: 'crafting recipe',
+    note: 'a recipe header; edit its inputs/outputs in crafting_recipe_io; /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+    },
+  },
+
+  crafting_recipe_io: {
+    pk: 'id',
+    label: 'crafting recipe i/o',
+    note: 'one input/output line of a recipe; /reloadcontent to apply',
+    columns: {
+      recipe_id: { type: 'text' },
+      role: { type: 'enum', values: ['input', 'output'] },
+      item_id: { type: 'text' },
+      qty: { type: 'int', min: 1, max: 9999 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
+  rift_modifiers: {
+    pk: 'id',
+    label: 'rift modifier',
+    note: 'a D3-style rift mutator (multipliers/bonuses); /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      descr: { type: 'text' },
+      min_tier: { type: 'int', min: 0, max: 100 },
+      mob_damage_mult: { type: 'real', min: 0, max: 100 },
+      mob_hp_mult: { type: 'real', min: 0, max: 100 },
+      mob_speed_mult: { type: 'real', min: 0, max: 100 },
+      loot_quantity_bonus: { type: 'real', min: 0, max: 100 },
+      xp_bonus: { type: 'real', min: 0, max: 100 },
+    },
+  },
+
+  game_events: {
+    pk: 'id',
+    label: 'game event',
+    note: 'a timed recurring liveops event (period/length in minutes); /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      period_min: { type: 'int', min: 1, max: 100000 },
+      length_min: { type: 'int', min: 1, max: 100000 },
+      xp_bonus: { type: 'real', min: 0, max: 100, nullable: true },
+      announce: { type: 'text', nullable: true },
+    },
+  },
+
+  mob_resists: {
+    pk: 'id',
+    label: 'mob resistance',
+    note: 'per-element damage resistance for a mob template (1=immune, negative=vulnerable); /reloadcontent to apply',
+    columns: {
+      template_id: { type: 'text' },
+      element: { type: 'enum', values: ['physical', 'fire', 'cold', 'lightning', 'poison'] },
+      value: { type: 'real', min: -1, max: 1 },
+    },
+  },
+
+  item_procs: {
+    pk: 'id',
+    label: 'item proc',
+    note: 'a chance-on-hit/crit effect a base item grants; /reloadcontent to apply',
+    columns: {
+      source_id: { type: 'text' },
+      trigger: { type: 'enum', values: ['onHit', 'onCrit'] },
+      chance: { type: 'real', min: 0, max: 1 },
+      icd_ms: { type: 'int', min: 0, max: 600000 },
+      effect: { type: 'enum', values: ['damage', 'status'] },
+      amount: { type: 'real', min: 0, max: 100000, nullable: true },
+      ability: { type: 'text', nullable: true },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
+  mob_script_phases: {
+    pk: 'id',
+    label: 'boss script phase',
+    note: 'a boss phase (active while hp/maxHp < hp_below); /reloadcontent to apply',
+    columns: {
+      template_id: { type: 'text' },
+      hp_below: { type: 'real', min: 0, max: 1 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
+  mob_script_steps: {
+    pk: 'id',
+    label: 'boss script step',
+    note: 'one step of a boss phase loop; only the columns for its kind are used; /reloadcontent to apply',
+    columns: {
+      phase_id: { type: 'int', min: 1, max: 9999999 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+      kind: { type: 'enum', values: ['moveTo', 'wait', 'brawl', 'cast', 'summon', 'shout'] },
+      x: { type: 'real', min: 0, max: 1, nullable: true },
+      y: { type: 'real', min: 0, max: 1, nullable: true },
+      speed_mult: { type: 'real', min: 0, max: 10, nullable: true },
+      ms: { type: 'int', min: 0, max: 600000, nullable: true },
+      ability: { type: 'text', nullable: true },
+      summon_template: { type: 'text', nullable: true },
+      summon_count: { type: 'int', min: 0, max: 99, nullable: true },
+      summon_radius: { type: 'real', min: 0, max: 4000, nullable: true },
+      text: { type: 'text', nullable: true },
     },
   },
 

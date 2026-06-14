@@ -22,6 +22,13 @@ export type EntityKind =
 // that one object automatically extends the id type, ABILITY_ORDER, and the content seeding.
 export type AbilityKind = 'melee' | 'projectile' | 'heal';
 
+/**
+ * The damage school of an ability. 'physical' is the neutral default (no mob carries physical
+ * resistance by default, so untyped content behaves exactly as before). The elemental schools let
+ * gear/affixes and mob resistances open a whole defensive axis (a fire mob shrugs off fireballs).
+ */
+export type DamageElement = 'physical' | 'fire' | 'cold' | 'lightning' | 'poison';
+
 export interface Ability {
   id: string;
   name: string;
@@ -43,6 +50,8 @@ export interface Ability {
   projectileTtlMs?: number;
   /** Projectile hit radius / melee arc thickness. */
   radius: number;
+  /** Damage school (defaults to 'physical' when the DB column is unset). Drives mob resistances. */
+  element?: DamageElement;
 }
 
 const ABILITY_DEFS = {

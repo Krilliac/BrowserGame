@@ -39,6 +39,8 @@ import {
   addFriend as dbAddFriend,
   removeFriend as dbRemoveFriend,
 } from './player-store.js';
+import { recordScore, formatLadder, isLeaderboardMetric } from './leaderboard.js';
+import { activeEvents, totalXpBonus, msUntilNextChange } from './game-events.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
 import {
@@ -91,6 +93,7 @@ function encodeContent(): string {
     gems: c.gems(),
     affixNames: c.affixNames(),
     skillTree: c.skillTree(),
+    itemSets: c.itemSets(),
   });
 }
 
@@ -688,6 +691,30 @@ function sendPartyState(playerId: number): void {
   send(conn.socket, inviteFrom ? { t: 'party', members, inviteFrom } : { t: 'party', members });
 }
 
+/** One-invite-per-second cooldown per player (sim-clock ms), to stop trade-invite popup spam. */
+const tradeInviteAt = new Map<number, number>();
+
+/** Send the current trade table to BOTH participants (so confirmations stay honest on each side). */
+function sendTradeState(world: World, anyParticipantId: number): void {
+  const s = world.tradeStateFor(anyParticipantId);
+  if (!s) return;
+  const stateMsg: ServerMessage = {
+    t: 'trade_state',
+    aId: s.aId,
+    bId: s.bId,
+    aGold: s.aOffer.gold,
+    aItemUids: s.aOffer.itemUids,
+    bGold: s.bOffer.gold,
+    bItemUids: s.bOffer.itemUids,
+    aConfirmed: s.aConfirmed,
+    bConfirmed: s.bConfirmed,
+  };
+  for (const id of [s.aId, s.bId]) {
+    const c = players.get(id);
+    if (c) send(c.socket, stateMsg);
+  }
+}
+
 /** Send a player their friends list with live presence. */
 function sendFriends(playerId: number): void {
   const conn = players.get(playerId);
@@ -912,6 +939,28 @@ wss.on('connection', (socket) => {
             if (p) manager.get(p.instanceId)?.world.unequip(entityId, msg.slot);
             break;
           }
+          case 'salvage': {
+            const p = players.get(entityId);
+            if (!p || typeof msg.uid !== 'number') break;
+            const r = manager.get(p.instanceId)?.world.salvage(entityId, msg.uid);
+            if (r?.ok) {
+              const mats = (r.yields ?? []).map((y) => `${y.qty} ${y.kind}`).join(', ');
+              send(p.socket, {
+                t: 'chat',
+                from: 'System',
+                text: `Salvaged → ${mats}.`,
+                channel: 'system',
+              });
+            } else if (r) {
+              send(p.socket, {
+                t: 'chat',
+                from: 'System',
+                text: r.reason ?? 'Could not salvage that.',
+                channel: 'system',
+              });
+            }
+            break;
+          }
           case 'learn': {
             const p = players.get(entityId);
             if (p && typeof msg.itemId === 'string') {
@@ -965,6 +1014,18 @@ wss.on('connection', (socket) => {
                 instanceId: ev.toInstanceId,
               });
               announceArrival(p.socket, ev.toAreaId);
+              // Announce the rolled rift mutators so the player knows what twist they're walking into.
+              const riftWorld = manager.get(p.instanceId)?.world;
+              if (riftWorld && riftWorld.riftModifiers.length > 0) {
+                for (const m of riftWorld.riftModifiers) {
+                  send(p.socket, {
+                    t: 'chat',
+                    from: 'System',
+                    text: `Rift mutator — ${m.name}: ${m.desc}`,
+                    channel: 'system',
+                  });
+                }
+              }
               const stats = manager.get(p.instanceId)?.world.playerStats(entityId);
               social.updatePresence(p.token, ev.toAreaId, stats?.level ?? 1);
               const name = nameOf(entityId);
@@ -1111,6 +1172,87 @@ wss.on('connection', (socket) => {
             for (const m of affected) sendPartyState(m);
             break;
           }
+          case 'trade_invite': {
+            if (!players.has(entityId) || typeof msg.targetName !== 'string') break;
+            const now = simMs();
+            if ((tradeInviteAt.get(entityId) ?? 0) > now) break; // anti-spam: one invite/sec
+            tradeInviteAt.set(entityId, now + 1000);
+            const target = findPlayerByName(msg.targetName);
+            const me = players.get(entityId);
+            const them = target !== undefined ? players.get(target) : undefined;
+            if (target === undefined || !me || !them || me.instanceId !== them.instanceId) {
+              send(socket, {
+                t: 'chat',
+                from: 'System',
+                text: 'That player is not nearby.',
+                channel: 'system',
+              });
+              break;
+            }
+            const world = manager.get(me.instanceId)?.world;
+            if (!world) break;
+            const r = world.startTrade(entityId, target);
+            if (!r.ok) {
+              send(socket, {
+                t: 'chat',
+                from: 'System',
+                text: r.reason ?? 'Could not trade.',
+                channel: 'system',
+              });
+              break;
+            }
+            send(me.socket, { t: 'trade_open', otherId: target, otherName: nameOf(target) ?? '?' });
+            send(them.socket, {
+              t: 'trade_open',
+              otherId: entityId,
+              otherName: nameOf(entityId) ?? '?',
+            });
+            sendTradeState(world, entityId);
+            break;
+          }
+          case 'trade_offer': {
+            const me = players.get(entityId);
+            const world = me ? manager.get(me.instanceId)?.world : undefined;
+            if (!world) break;
+            const gold = typeof msg.gold === 'number' ? msg.gold : 0;
+            const itemUids = Array.isArray(msg.itemUids)
+              ? msg.itemUids.filter((u): u is number => typeof u === 'number')
+              : [];
+            if (world.tradeSetOffer(entityId, { gold, itemUids })) sendTradeState(world, entityId);
+            break;
+          }
+          case 'trade_confirm': {
+            const me = players.get(entityId);
+            const world = me ? manager.get(me.instanceId)?.world : undefined;
+            if (!world) break;
+            const partners = world.tradePartners(entityId); // capture before commit clears the session
+            const result = world.tradeConfirm(entityId);
+            if (result === 'updated') {
+              sendTradeState(world, entityId);
+            } else if ((result === 'committed' || result === 'failed') && partners) {
+              const reason = result === 'committed' ? 'committed' : 'aborted';
+              for (const id of [partners.aId, partners.bId]) {
+                const c = players.get(id);
+                // The committed swap is reflected to each client by the next per-tick `you` update.
+                if (c) send(c.socket, { t: 'trade_closed', reason });
+              }
+            }
+            break;
+          }
+          case 'trade_cancel': {
+            const me = players.get(entityId);
+            const world = me ? manager.get(me.instanceId)?.world : undefined;
+            if (!world) break;
+            const partners = world.tradePartners(entityId);
+            world.tradeCancel(entityId);
+            if (partners) {
+              for (const id of [partners.aId, partners.bId]) {
+                const c = players.get(id);
+                if (c) send(c.socket, { t: 'trade_closed', reason: 'cancelled' });
+              }
+            }
+            break;
+          }
           case 'friend_add': {
             const p = players.get(entityId);
             if (p && typeof msg.name === 'string') {
@@ -1223,6 +1365,35 @@ wss.on('connection', (socket) => {
                     const r = editContent(table, id, column, value);
                     if (r.ok) rebroadcastContent(); // reload + push to all clients, re-apply weather
                     return r.message;
+                  },
+                  ladder: (metric) =>
+                    formatLadder(getDb(), isLeaderboardMetric(metric) ? metric : 'level'),
+                  events: () => {
+                    const now = simMs();
+                    const evs = getContent().gameEvents();
+                    if (evs.length === 0) return 'No game events configured.';
+                    return evs
+                      .map((e) => {
+                        const active = msUntilNextChange(e, now);
+                        const on = totalXpBonus([e], now) > 0 || activeEvents([e], now).length > 0;
+                        const secs = Number.isFinite(active) ? Math.ceil(active / 1000) : Infinity;
+                        const when = Number.isFinite(secs)
+                          ? `${on ? 'ends' : 'starts'} in ${secs}s`
+                          : on
+                            ? 'always on'
+                            : 'never';
+                        return `${e.name} [${e.id}]: ${on ? 'ACTIVE' : 'idle'} (${when})`;
+                      })
+                      .join('\n');
+                  },
+                  recipes: () => {
+                    const rs = getContent().craftingRecipes();
+                    if (rs.length === 0) return 'No crafting recipes configured.';
+                    const fmt = (io: { itemId: string; qty: number }[]): string =>
+                      io.map((x) => `${x.qty} ${x.itemId}`).join(' + ');
+                    return rs
+                      .map((r) => `${r.id} — ${fmt(r.inputs)} → ${fmt(r.outputs)}`)
+                      .join('\n');
                   },
                 });
               } catch (err) {
@@ -1436,6 +1607,8 @@ function broadcastToInstance(instanceId: string, msg: ServerMessage): void {
 // --- Fixed-timestep authoritative loop ------------------------------------------------
 const dt = 1 / TICK_RATE;
 let tick = 0;
+/** The set of game-event ids active last tick — for the inactive→active edge that triggers an announce. */
+let lastActiveEventIds = new Set<string>();
 setInterval(() => {
   // Guard the whole tick: a throw from one corrupt entity/instance must not kill the interval and
   // freeze the world for everyone. On throw we skip this tick and carry on next frame.
@@ -1445,6 +1618,24 @@ setInterval(() => {
       if (bots.size > 0) driveBots(); // feed AI companions their inputs before the world advances
       const transfers = manager.tick(dt);
       tick++;
+
+      // Liveops timed game-events on the deterministic sim clock (NOT wall-clock, so replays stay
+      // reproducible): inject each world's XP multiplier from the active events, and announce one the
+      // moment it begins. The schedule math is pure (game-events.ts); the World just reads the number.
+      const evNow = simMs();
+      const events = getContent().gameEvents();
+      const eventMult = 1 + totalXpBonus(events, evNow);
+      for (const instance of manager.list()) instance.world.setXpEventMult(eventMult);
+      const nowActiveEventIds = new Set<string>();
+      for (const e of activeEvents(events, evNow)) {
+        nowActiveEventIds.add(e.id);
+        if (!lastActiveEventIds.has(e.id) && e.announce) {
+          for (const instance of manager.list()) {
+            broadcastToInstance(instance.id, { t: 'chat', from: 'System', text: e.announce });
+          }
+        }
+      }
+      lastActiveEventIds = nowActiveEventIds;
 
       // Area corruption: fade it once on the shared pool, and reset it every morning (06:00 local).
       manager.corruption.decay(dt);
@@ -1594,9 +1785,15 @@ setInterval(() => {
     'autosave',
     () => {
       const db = getDb();
+      const at = Date.now();
       for (const [id, p] of players) {
         const save = manager.get(p.instanceId)?.world.exportPlayer(id);
-        if (save) storeSave(db, p.token, save);
+        if (save) {
+          storeSave(db, p.token, save);
+          // Record best-ever ladder standings from the authoritative save (server is sole writer).
+          recordScore(db, save.name, 'level', save.level, at);
+          recordScore(db, save.name, 'gold', save.gold, at);
+        }
       }
     },
     (label) => guardStats.record(label),

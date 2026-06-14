@@ -3,7 +3,8 @@ import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
 import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme, type WeatherKind } from '../shared/theme.js';
-import type { Ability, AbilityId } from '../shared/combat.js';
+import type { Ability, AbilityId, DamageElement } from '../shared/combat.js';
+import type { ResistMap } from './combat-formulas.js';
 import {
   hasItemFlag,
   ItemFlags,
@@ -25,6 +26,12 @@ import {
   type RuneDef,
   type RunewordDef,
 } from '../shared/runewords.js';
+import { applyItemSetOverrides, type ItemSetDef } from '../shared/item-sets.js';
+import { applyBossScriptOverrides, type BossScript, type BossStep } from './boss-scripts.js';
+import type { ProcDef, ProcEffect } from './item-procs.js';
+import type { GameEventDef } from './game-events.js';
+import type { RiftModifierDef } from './rift-modifiers.js';
+import type { CraftRecipe } from './crafting.js';
 import { applySkillTreeOverrides, type SkillNode, type SkillEffects } from '../shared/skilltree.js';
 import { KIND_TO_NPC_FLAG } from '../shared/npc-flags.js';
 import {
@@ -164,6 +171,20 @@ export interface Content {
   runes(): RuneDef[];
   /** The runeword recipes (overlaid onto the shared RUNEWORDS list). */
   runewords(): RunewordDef[];
+  /** The item sets + threshold bonuses (overlaid onto the shared ITEM_SETS list). */
+  itemSets(): ItemSetDef[];
+  /** Scripted boss phases keyed by boss template id (overlaid onto the live BOSS_SCRIPTS). */
+  bossScripts(): Record<string, BossScript>;
+  /** The procs a base item carries (chance-on-hit/crit effects); empty if it has none. */
+  itemProcs(sourceId: string): ProcDef[];
+  /** Per-element damage resistances for a mob template (empty if it has none). */
+  mobResists(templateId: string): ResistMap;
+  /** The timed liveops game events (recurrence schedules; the host applies them on the sim clock). */
+  gameEvents(): GameEventDef[];
+  /** The rift mutator pool (a tiered rift rolls a couple at open; the World applies their effects). */
+  riftModifiers(): RiftModifierDef[];
+  /** The crafting recipes (material refinement ladder + sinks; World.craft applies them). */
+  craftingRecipes(): CraftRecipe[];
   /** Affix roll ranges per scalar stat (server-only; overlaid onto the shared AFFIX_RANGES). */
   affixRanges(): Record<string, AffixRange>;
   /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
@@ -324,6 +345,7 @@ export function loadContent(db: GameDatabase): Content {
       manaCost: r.mana_cost,
       color: r.color,
       radius: r.radius,
+      element: (r.element ?? 'physical') as DamageElement,
     };
     if (r.melee_half_angle !== null) ability.meleeHalfAngle = r.melee_half_angle;
     if (r.projectile_speed !== null) ability.projectileSpeed = r.projectile_speed;
@@ -590,6 +612,123 @@ export function loadContent(db: GameDatabase): Content {
     return def;
   });
 
+  // Item sets: membership (comma-separated base ids) + threshold bonuses, server-side stat folding.
+  const setBonusStmt = db.prepare(
+    'SELECT required_pieces, stat, value FROM item_set_bonuses WHERE set_id = ? ORDER BY sort_order',
+  );
+  const itemSets = (db.prepare('SELECT * FROM item_sets').all() as ItemSetRow[]).map((r) => {
+    const bonuses = (
+      setBonusStmt.all(r.id) as { required_pieces: number; stat: string; value: number }[]
+    ).map((b) => ({
+      requiredPieces: b.required_pieces,
+      affix: { stat: b.stat as Affix['stat'], value: b.value },
+    }));
+    const def: ItemSetDef = {
+      id: r.id,
+      name: r.name,
+      pieces: r.pieces.split(',').filter((s) => s.length > 0),
+      bonuses,
+    };
+    if (r.flavor !== null) def.flavor = r.flavor;
+    return def;
+  });
+
+  // Scripted boss phases: rebuild Record<bossId, BossScript> from the phase + step rows. Each step
+  // row only fills the columns its `kind` uses; rowToStep validates that and DROPS malformed rows
+  // (a bad SQL edit degrades a fight gracefully — it never crashes the boss tick).
+  const stepStmt = db.prepare(
+    'SELECT * FROM mob_script_steps WHERE phase_id = ? ORDER BY sort_order',
+  );
+  const bossScripts: Record<string, BossScript> = {};
+  for (const p of db
+    .prepare('SELECT * FROM mob_script_phases ORDER BY template_id, sort_order')
+    .all() as MobScriptPhaseRow[]) {
+    const loop = (stepStmt.all(p.id) as MobScriptStepRow[])
+      .map(rowToBossStep)
+      .filter((s): s is BossStep => s !== null);
+    (bossScripts[p.template_id] ??= { phases: [] }).phases.push({ hpBelow: p.hp_below, loop });
+  }
+
+  // Item procs, keyed by source base-item id. A stable per-source index gives each proc an id for
+  // ICD bookkeeping. Malformed rows (a status proc with no ability, a damage proc with no positive
+  // amount) are dropped so a bad SQL edit can't crash the hit path.
+  const itemProcs = new Map<string, ProcDef[]>();
+  for (const r of db
+    .prepare('SELECT * FROM item_procs ORDER BY source_id, sort_order')
+    .all() as ItemProcRow[]) {
+    let effect: ProcEffect | null = null;
+    if (r.effect === 'status' && r.ability) effect = { kind: 'status', ability: r.ability };
+    else if (r.effect === 'damage' && r.amount !== null && r.amount > 0)
+      effect = { kind: 'damage', amount: r.amount };
+    if (!effect) continue;
+    const list = itemProcs.get(r.source_id) ?? [];
+    list.push({
+      id: `${r.source_id}#${list.length}`,
+      sourceId: r.source_id,
+      trigger: r.trigger === 'onCrit' ? 'onCrit' : 'onHit',
+      chance: r.chance,
+      icdMs: r.icd_ms,
+      effect,
+    });
+    itemProcs.set(r.source_id, list);
+  }
+
+  // Mob resistances by template id (sparse — only non-zero resists get a row). Looked up at the
+  // damage site to reduce typed (elemental) hits; a missing element means no resistance.
+  const mobResists = new Map<string, ResistMap>();
+  for (const r of db.prepare('SELECT * FROM mob_resists').all() as MobResistRow[]) {
+    const m = mobResists.get(r.template_id) ?? {};
+    m[r.element as DamageElement] = r.value;
+    mobResists.set(r.template_id, m);
+  }
+
+  // Timed game events: recurrence schedules. snake_case → camelCase; nullable optional fields dropped
+  // so they stay truly absent (exactOptionalPropertyTypes). The host runs the pure schedule math.
+  const gameEvents = (db.prepare('SELECT * FROM game_events').all() as GameEventRow[]).map((r) => {
+    const ev: GameEventDef = {
+      id: r.id,
+      name: r.name,
+      periodMin: r.period_min,
+      lengthMin: r.length_min,
+    };
+    if (r.xp_bonus !== null) ev.xpBonus = r.xp_bonus;
+    if (r.announce !== null) ev.announce = r.announce;
+    return ev;
+  });
+
+  // Crafting recipes: header + I/O rows rebuilt into CraftRecipe shape (inputs/outputs in sort order).
+  const ioStmt = db.prepare(
+    'SELECT role, item_id, qty FROM crafting_recipe_io WHERE recipe_id = ? ORDER BY role, sort_order',
+  );
+  const craftingRecipes = (
+    db.prepare('SELECT id, name FROM crafting_recipes').all() as { id: string; name: string }[]
+  ).map((h) => {
+    const io = ioStmt.all(h.id) as { role: string; item_id: string; qty: number }[];
+    return {
+      id: h.id,
+      name: h.name,
+      inputs: io.filter((x) => x.role === 'input').map((x) => ({ itemId: x.item_id, qty: x.qty })),
+      outputs: io
+        .filter((x) => x.role === 'output')
+        .map((x) => ({ itemId: x.item_id, qty: x.qty })),
+    };
+  });
+
+  // Rift modifiers: the mutator pool. snake_case → camelCase; all fields present (DB has defaults).
+  const riftModifiers = (db.prepare('SELECT * FROM rift_modifiers').all() as RiftModifierRow[]).map(
+    (r) => ({
+      id: r.id,
+      name: r.name,
+      desc: r.descr,
+      minTier: r.min_tier,
+      mobDamageMult: r.mob_damage_mult,
+      mobHpMult: r.mob_hp_mult,
+      mobSpeedMult: r.mob_speed_mult,
+      lootQuantityBonus: r.loot_quantity_bonus,
+      xpBonus: r.xp_bonus,
+    }),
+  );
+
   // Affix roll ranges (server-only) + flavor names/tiers (client-coupled). A NULL up_to is Infinity.
   const affixRanges: Record<string, AffixRange> = {};
   for (const r of db.prepare('SELECT * FROM affix_ranges').all() as AffixRangeRow[]) {
@@ -689,6 +828,13 @@ export function loadContent(db: GameDatabase): Content {
     gems: () => gems,
     runes: () => runes,
     runewords: () => runewords,
+    itemSets: () => itemSets,
+    bossScripts: () => bossScripts,
+    itemProcs: (sourceId) => itemProcs.get(sourceId) ?? [],
+    mobResists: (templateId) => mobResists.get(templateId) ?? {},
+    gameEvents: () => gameEvents,
+    riftModifiers: () => riftModifiers,
+    craftingRecipes: () => craftingRecipes,
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
     skillTree: () => skillTree,
@@ -709,6 +855,8 @@ export function initGameDb(file?: string): Content {
   applyGemOverrides(activeContent.gems()); // overlay the DB gem catalog onto shared GEMS
   applyRuneOverrides(activeContent.runes()); // overlay rune pool onto shared RUNES
   applyRunewordOverrides(activeContent.runewords()); // overlay runeword recipes onto shared RUNEWORDS
+  applyItemSetOverrides(activeContent.itemSets()); // overlay item sets onto shared ITEM_SETS
+  applyBossScriptOverrides(activeContent.bossScripts()); // overlay boss scripts onto live BOSS_SCRIPTS
   applyAffixRangeOverrides(activeContent.affixRanges()); // overlay affix roll ranges
   applyAffixNameOverrides(activeContent.affixNames()); // overlay affix flavor names
   applySkillTreeOverrides(activeContent.skillTree()); // overlay the passive skill tree
@@ -733,6 +881,8 @@ export function reloadContent(): Content {
   applyGemOverrides(activeContent.gems()); // re-overlay gem catalog on reload
   applyRuneOverrides(activeContent.runes()); // re-overlay rune pool on reload
   applyRunewordOverrides(activeContent.runewords()); // re-overlay runeword recipes on reload
+  applyItemSetOverrides(activeContent.itemSets()); // re-overlay item sets on reload
+  applyBossScriptOverrides(activeContent.bossScripts()); // re-overlay boss scripts on reload
   applyAffixRangeOverrides(activeContent.affixRanges()); // re-overlay affix roll ranges on reload
   applyAffixNameOverrides(activeContent.affixNames()); // re-overlay affix flavor names on reload
   applySkillTreeOverrides(activeContent.skillTree()); // re-overlay the passive skill tree on reload
@@ -837,6 +987,7 @@ interface AbilityRow {
   projectile_speed: number | null;
   projectile_ttl_ms: number | null;
   radius: number;
+  element: string | null;
 }
 interface ItemRow {
   id: string;
@@ -995,6 +1146,98 @@ interface RunewordRow {
   name: string;
   runes: string;
   flavor: string | null;
+}
+interface MobResistRow {
+  template_id: string;
+  element: string;
+  value: number;
+}
+interface GameEventRow {
+  id: string;
+  name: string;
+  period_min: number;
+  length_min: number;
+  xp_bonus: number | null;
+  announce: string | null;
+}
+interface RiftModifierRow {
+  id: string;
+  name: string;
+  descr: string;
+  min_tier: number;
+  mob_damage_mult: number;
+  mob_hp_mult: number;
+  mob_speed_mult: number;
+  loot_quantity_bonus: number;
+  xp_bonus: number;
+}
+interface ItemProcRow {
+  source_id: string;
+  trigger: string;
+  chance: number;
+  icd_ms: number;
+  effect: string;
+  amount: number | null;
+  ability: string | null;
+}
+interface ItemSetRow {
+  id: string;
+  name: string;
+  pieces: string;
+  flavor: string | null;
+}
+interface MobScriptPhaseRow {
+  id: number;
+  template_id: string;
+  hp_below: number;
+  sort_order: number;
+}
+interface MobScriptStepRow {
+  kind: string;
+  x: number | null;
+  y: number | null;
+  speed_mult: number | null;
+  ms: number | null;
+  ability: string | null;
+  summon_template: string | null;
+  summon_count: number | null;
+  summon_radius: number | null;
+  text: string | null;
+}
+
+/**
+ * Rebuild one {@link BossStep} from a DB row, or return null if the row is malformed (wrong `kind`
+ * or a missing required column for that kind). Null rows are dropped on load so a bad SQL edit
+ * degrades a fight rather than crashing the boss tick — the executor only ever sees valid steps.
+ */
+function rowToBossStep(r: MobScriptStepRow): BossStep | null {
+  switch (r.kind) {
+    case 'moveTo':
+      if (r.x === null || r.y === null) return null;
+      return r.speed_mult === null
+        ? { kind: 'moveTo', x: r.x, y: r.y }
+        : { kind: 'moveTo', x: r.x, y: r.y, speedMult: r.speed_mult };
+    case 'wait':
+      return r.ms === null ? null : { kind: 'wait', ms: r.ms };
+    case 'brawl':
+      return r.ms === null ? null : { kind: 'brawl', ms: r.ms };
+    case 'cast':
+      return r.ability === null ? null : { kind: 'cast', ability: r.ability as AbilityId };
+    case 'summon':
+      if (r.summon_template === null || r.summon_count === null || r.summon_radius === null) {
+        return null;
+      }
+      return {
+        kind: 'summon',
+        templateId: r.summon_template,
+        count: r.summon_count,
+        radius: r.summon_radius,
+      };
+    case 'shout':
+      return r.text === null ? null : { kind: 'shout', text: r.text };
+    default:
+      return null;
+  }
 }
 interface AffixRangeRow {
   stat: string;

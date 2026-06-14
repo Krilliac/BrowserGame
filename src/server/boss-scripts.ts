@@ -180,10 +180,14 @@ function advance(state: BossScriptState): void {
 }
 
 /**
- * The authored fights, keyed by MOB_TEMPLATES id. Both bosses spend most of each loop
- * brawling (normal AI — Nyxathor's charge, Athraxis's slam); the scripted beats punctuate it.
+ * The authored fights, keyed by MOB_TEMPLATES id — the SEED SOURCE for the `mob_script_phases` /
+ * `mob_script_steps` content tables and the fallback the live {@link BOSS_SCRIPTS} resets to. Both
+ * bosses spend most of each loop brawling (normal AI — Nyxathor's charge, Athraxis's slam); the
+ * scripted beats punctuate it. Treat as immutable; author new fights in the DB (or here) — the
+ * executor (`stepBossScript`) and the {@link BossStep} vocabulary stay in code (a closed, safe enum;
+ * content supplies only data, never executable behavior).
  */
-export const BOSS_SCRIPTS: Record<string, BossScript> = {
+export const DEFAULT_BOSS_SCRIPTS: Record<string, BossScript> = {
   // Nyxathor, the Abyssal Sovereign (L40 charger, the Abyssal Throne).
   nyxathor: {
     phases: [
@@ -286,3 +290,22 @@ export const BOSS_SCRIPTS: Record<string, BossScript> = {
     ],
   },
 };
+
+/**
+ * The LIVE boss scripts the World reads at tick time. Initialized from {@link DEFAULT_BOSS_SCRIPTS};
+ * the server overlays the `mob_script_*` DB rows onto it on content load/reload (see content.ts).
+ * The object reference is stable (keys are mutated in place) so `world.ts`'s `BOSS_SCRIPTS[id]`
+ * lookups always see the current data without re-importing.
+ */
+export const BOSS_SCRIPTS: Record<string, BossScript> = structuredClone(DEFAULT_BOSS_SCRIPTS);
+
+/**
+ * Overlay boss scripts onto the live {@link BOSS_SCRIPTS} (replacing all keys in place). An empty
+ * `scripts` RESETS to {@link DEFAULT_BOSS_SCRIPTS}, so `applyBossScriptOverrides({})` restores the
+ * code defaults and tests stay clean. Cloned so the live table never aliases the immutable defaults.
+ */
+export function applyBossScriptOverrides(scripts: Record<string, BossScript>): void {
+  for (const k of Object.keys(BOSS_SCRIPTS)) delete BOSS_SCRIPTS[k];
+  const src = Object.keys(scripts).length ? scripts : DEFAULT_BOSS_SCRIPTS;
+  for (const [k, v] of Object.entries(src)) BOSS_SCRIPTS[k] = structuredClone(v);
+}

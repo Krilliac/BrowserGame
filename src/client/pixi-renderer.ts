@@ -454,6 +454,8 @@ export interface RenderState {
   camY: number;
   /** Area corruption 0..1 — darkens the scene with a creeping crimson pall. */
   corruption?: number;
+  /** The mob the player has selected (click-to-target) — draws a bright ground-ring under it. */
+  targetId?: number | null;
 }
 
 interface ActorView {
@@ -561,6 +563,8 @@ export class PixiRenderer {
   private readonly fxTexts: Text[] = [];
   private readonly explosionPool: Sprite[] = [];
   private readonly views = new Map<number, ActorView>();
+  /** The currently click-selected mob id (for the target ground-ring); set each update(). */
+  private targetId: number | null = null;
   private currentArea = '';
   private currentTheme: AreaTheme = DEFAULT_THEME;
   // World-space portal waymarks: glow-light anchors + the hover-tooltip labels.
@@ -1773,6 +1777,7 @@ export class PixiRenderer {
 
   update(state: RenderState): void {
     this.setArea(state.areaId);
+    this.targetId = state.targetId ?? null;
 
     const now = performance.now();
     const dt = Math.min(0.05, (now - this.lastFrameAt) / 1000);
@@ -2355,6 +2360,13 @@ export class PixiRenderer {
         view.dyn
           .ellipse(0, 2, MOB_RADIUS + 7, (MOB_RADIUS + 7) * 0.5)
           .stroke({ width: 2, color: '#ffcf5a', alpha: 0.9 });
+      }
+      // Your selected target (click-to-target): a bright white ground-ring, drawn larger than the
+      // elite/tagged rings so the mob you're chasing + auto-attacking stands out in a pack.
+      if (e.id === this.targetId) {
+        view.dyn
+          .ellipse(0, 2, MOB_RADIUS + 9, (MOB_RADIUS + 9) * 0.5)
+          .stroke({ width: 2.5, color: '#ffffff', alpha: 0.95 });
       }
       // Tagged/engaged mob: a cyan claim ring + a small swordfight pip over the bar, so you can
       // see at a glance which monsters are already someone's fight (you still get shared credit).

@@ -10,8 +10,10 @@ import {
   MOB_SPELLS,
   MOB_SUPPORT,
   MOB_TRAITS,
+  MOB_RESISTS,
   DEFAULT_ELITE_MODIFIERS,
 } from '../mobs.js';
+import type { DamageElement } from '../../shared/combat.js';
 import { weatherModifiers } from '../weather-effects.js';
 import {
   DEFAULT_ABILITY_STATUS_EFFECTS,
@@ -28,6 +30,12 @@ import {
   type Rarity,
 } from '../../shared/items.js';
 import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
+import { DEFAULT_ITEM_SETS } from '../../shared/item-sets.js';
+import { DEFAULT_BOSS_SCRIPTS } from '../boss-scripts.js';
+import { DEFAULT_ITEM_PROCS } from '../item-procs.js';
+import { DEFAULT_GAME_EVENTS } from '../game-events.js';
+import { DEFAULT_RIFT_MODIFIERS } from '../rift-modifiers.js';
+import { DEFAULT_RECIPES } from '../crafting.js';
 import { DEFAULT_SKILL_TREE, type SkillEffects } from '../../shared/skilltree.js';
 import { DEFAULT_HIRELING_TEMPLATES } from '../hirelings.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
@@ -336,6 +344,14 @@ export function seed(db: Database): void {
   ensureRarityTiers(db); // item rarity tiers (seeded from items.ts DEFAULT_RARITY)
   ensureGems(db); // socketable gem catalog (seeded from gems.ts DEFAULT_GEMS)
   ensureRunewords(db); // rune pool + runeword recipes (seeded from runewords.ts defaults)
+  ensureItemSets(db); // item-set membership + threshold bonuses (seeded from item-sets.ts defaults)
+  ensureBossScripts(db); // scripted apex-boss phases/steps (seeded from boss-scripts.ts defaults)
+  ensureItemProcs(db); // chance-on-hit/crit item procs (seeded from item-procs.ts defaults)
+  ensureAbilityElements(db); // tag elemental abilities (fire/cold/...) — only ones still 'physical'
+  ensureMobResists(db); // per-element mob resistances (seeded from mobs.ts MOB_RESISTS)
+  ensureGameEvents(db); // timed recurring liveops events (seeded from game-events.ts defaults)
+  ensureRiftModifiers(db); // D3-style rift mutators (seeded from rift-modifiers.ts defaults)
+  ensureCrafting(db); // crafting recipes (seeded from crafting.ts DEFAULT_RECIPES)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
   ensureHirelings(db); // mercenary roster (seeded from hirelings.ts DEFAULT_HIRELING_TEMPLATES)
@@ -460,6 +476,203 @@ function ensureRunewords(db: Database): void {
     if (hasRw.get(rw.id)) continue;
     insRw.run(rw.id, rw.name, rw.runes.join(','), rw.flavor ?? null);
     rw.bonuses.forEach((b, i) => insBonus.run(rw.id, b.stat, b.value, i));
+  }
+}
+
+/**
+ * Seed the item sets + their threshold bonuses from the code defaults (item-sets.ts). Idempotent:
+ * a set whose row already exists is skipped (so designer edits survive a restart). Membership is
+ * stored comma-joined; each (threshold, stat) bonus is one row in sort order.
+ */
+function ensureItemSets(db: Database): void {
+  const hasSet = db.prepare('SELECT 1 FROM item_sets WHERE id = ?');
+  const insSet = db.prepare('INSERT INTO item_sets (id,name,pieces,flavor) VALUES (?,?,?,?)');
+  const insBonus = db.prepare(
+    'INSERT INTO item_set_bonuses (set_id,required_pieces,stat,value,sort_order) VALUES (?,?,?,?,?)',
+  );
+  for (const s of DEFAULT_ITEM_SETS) {
+    if (hasSet.get(s.id)) continue;
+    insSet.run(s.id, s.name, s.pieces.join(','), s.flavor ?? null);
+    s.bonuses.forEach((b, i) =>
+      insBonus.run(s.id, b.requiredPieces, b.affix.stat, b.affix.value, i),
+    );
+  }
+}
+
+/**
+ * Seed the item procs from the code defaults (item-procs.ts). Idempotent: a source item that already
+ * has a proc row is skipped (so designer edits survive a restart). Each seed default is one proc on a
+ * distinct source, so a single row per source is written.
+ */
+function ensureItemProcs(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM item_procs WHERE source_id = ? LIMIT 1');
+  const ins = db.prepare(
+    'INSERT INTO item_procs (source_id,trigger,chance,icd_ms,effect,amount,ability,sort_order) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  for (const p of DEFAULT_ITEM_PROCS) {
+    if (has.get(p.sourceId)) continue;
+    ins.run(
+      p.sourceId,
+      p.trigger,
+      p.chance,
+      p.icdMs,
+      p.effect.kind,
+      p.effect.kind === 'damage' ? p.effect.amount : null,
+      p.effect.kind === 'status' ? p.effect.ability : null,
+      0,
+    );
+  }
+}
+
+/**
+ * The damage school of each clearly-elemental ability. The base abilities seed as 'physical' (the
+ * column default); this map promotes the elemental ones. Ids not present in the DB are simply
+ * skipped (the UPDATE matches 0 rows), so the map can list more than any one build ships.
+ */
+const ABILITY_ELEMENTS: Record<string, DamageElement> = {
+  fireball: 'fire',
+  meteor: 'fire',
+  emberbolt: 'fire',
+  flamewave: 'fire',
+  cinderorb: 'fire',
+  infernonova: 'fire',
+  wyrmfire_lance: 'fire',
+  pyre_lance: 'fire',
+  frostbolt: 'cold',
+  glacierspike: 'cold',
+  frostnova: 'cold',
+  frost_lance: 'cold',
+  glacial_spike: 'cold',
+  lightning: 'lightning',
+  chain_lightning: 'lightning',
+  shock_nova: 'lightning',
+  voltaic_bolt: 'lightning',
+  poison_spit: 'poison',
+  toxic_cloud: 'poison',
+  venom_lance: 'poison',
+  mire_mortar: 'poison',
+};
+
+/**
+ * Tag elemental abilities with their damage school. Idempotent + edit-preserving: only updates rows
+ * still at the default 'physical', so a designer who re-schools an ability in the DB keeps it.
+ */
+function ensureAbilityElements(db: Database): void {
+  const upd = db.prepare("UPDATE abilities SET element = ? WHERE id = ? AND element = 'physical'");
+  for (const [id, element] of Object.entries(ABILITY_ELEMENTS)) upd.run(element, id);
+}
+
+/**
+ * Seed the timed game events from the code defaults (game-events.ts). Idempotent: skips entirely once
+ * any event row exists, so designer edits/additions survive a restart.
+ */
+function ensureGameEvents(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM game_events LIMIT 1');
+  if (has.get()) return;
+  const ins = db.prepare(
+    'INSERT INTO game_events (id,name,period_min,length_min,xp_bonus,announce) VALUES (?,?,?,?,?,?)',
+  );
+  for (const e of DEFAULT_GAME_EVENTS) {
+    ins.run(e.id, e.name, e.periodMin, e.lengthMin, e.xpBonus ?? null, e.announce ?? null);
+  }
+}
+
+/**
+ * Seed the crafting recipes from the code defaults (crafting.ts). Idempotent: skipped once any row
+ * exists. Header + normalized I/O rows (role input|output) in declaration order.
+ */
+function ensureCrafting(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM crafting_recipes LIMIT 1');
+  if (has.get()) return;
+  const insR = db.prepare('INSERT INTO crafting_recipes (id,name) VALUES (?,?)');
+  const insIO = db.prepare(
+    'INSERT INTO crafting_recipe_io (recipe_id,role,item_id,qty,sort_order) VALUES (?,?,?,?,?)',
+  );
+  for (const r of DEFAULT_RECIPES) {
+    insR.run(r.id, r.name);
+    r.inputs.forEach((i, n) => insIO.run(r.id, 'input', i.itemId, i.qty, n));
+    r.outputs.forEach((o, n) => insIO.run(r.id, 'output', o.itemId, o.qty, n));
+  }
+}
+
+/**
+ * Seed the rift modifiers from the code defaults (rift-modifiers.ts). Idempotent: skipped once any
+ * row exists, so designer edits/additions survive a restart.
+ */
+function ensureRiftModifiers(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM rift_modifiers LIMIT 1');
+  if (has.get()) return;
+  const ins = db.prepare(
+    `INSERT INTO rift_modifiers
+       (id,name,descr,min_tier,mob_damage_mult,mob_hp_mult,mob_speed_mult,loot_quantity_bonus,xp_bonus)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+  );
+  for (const m of DEFAULT_RIFT_MODIFIERS) {
+    ins.run(
+      m.id,
+      m.name,
+      m.desc,
+      m.minTier,
+      m.mobDamageMult ?? 1,
+      m.mobHpMult ?? 1,
+      m.mobSpeedMult ?? 1,
+      m.lootQuantityBonus ?? 0,
+      m.xpBonus ?? 0,
+    );
+  }
+}
+
+/**
+ * Seed per-element mob resistances from the code defaults (mobs.ts MOB_RESISTS). Idempotent: a
+ * template that already has any resist row is skipped, so designer edits survive a restart.
+ */
+function ensureMobResists(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM mob_resists WHERE template_id = ? LIMIT 1');
+  const ins = db.prepare('INSERT INTO mob_resists (template_id,element,value) VALUES (?,?,?)');
+  for (const [templateId, resists] of Object.entries(MOB_RESISTS)) {
+    if (has.get(templateId)) continue;
+    for (const [element, value] of Object.entries(resists)) ins.run(templateId, element, value);
+  }
+}
+
+/**
+ * Seed the scripted boss phases + steps from the code defaults (boss-scripts.ts). Idempotent: a boss
+ * that already has any phase row is skipped, so designer edits survive a restart. Each step writes
+ * only the columns its `kind` uses (the rest stay NULL); the content loader skips malformed rows.
+ */
+function ensureBossScripts(db: Database): void {
+  const hasPhase = db.prepare('SELECT 1 FROM mob_script_phases WHERE template_id = ? LIMIT 1');
+  const insPhase = db.prepare(
+    'INSERT INTO mob_script_phases (template_id,hp_below,sort_order) VALUES (?,?,?)',
+  );
+  const insStep = db.prepare(
+    `INSERT INTO mob_script_steps
+       (phase_id,sort_order,kind,x,y,speed_mult,ms,ability,summon_template,summon_count,summon_radius,text)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  for (const [templateId, script] of Object.entries(DEFAULT_BOSS_SCRIPTS)) {
+    if (hasPhase.get(templateId)) continue;
+    script.phases.forEach((phase, pi) => {
+      const phaseId = insPhase.run(templateId, phase.hpBelow, pi).lastInsertRowid as
+        | number
+        | bigint;
+      phase.loop.forEach((step, si) => {
+        insStep.run(
+          phaseId,
+          si,
+          step.kind,
+          step.kind === 'moveTo' ? step.x : null,
+          step.kind === 'moveTo' ? step.y : null,
+          step.kind === 'moveTo' ? (step.speedMult ?? null) : null,
+          step.kind === 'wait' || step.kind === 'brawl' ? step.ms : null,
+          step.kind === 'cast' ? step.ability : null,
+          step.kind === 'summon' ? step.templateId : null,
+          step.kind === 'summon' ? step.count : null,
+          step.kind === 'summon' ? step.radius : null,
+          step.kind === 'shout' ? step.text : null,
+        );
+      });
+    });
   }
 }
 

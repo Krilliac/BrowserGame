@@ -45,6 +45,9 @@ function makeCtx(
     contentRows: () => 'rows',
     contentRow: () => 'row',
     setContent: () => 'ok',
+    ladder: (metric) => `Top ${metric}:\n1. Tester — 1`,
+    events: () => 'Bloodmoon Rising [bloodmoon]: idle (starts in 60s)',
+    recipes: () => 'refine_scrap — 3 mat_scrap → 1 mat_dust',
   };
   return { ctx, cap };
 }
@@ -63,6 +66,15 @@ describe('commands', () => {
     expect(cap.replies.join(' ')).toContain('/help');
     runCommand('/roll 6', ctx);
     expect(cap.broadcasts.join(' ')).toMatch(/rolls \d+ \(1-6\)/);
+  });
+
+  it('ladder is available to players and passes the metric through', () => {
+    const world = new World();
+    const id = world.spawn('Tester');
+    const { ctx, cap } = makeCtx(world, id, AccessLevel.Player);
+    runCommand('/ladder gold', ctx);
+    expect(cap.replies).toContain('Top gold:');
+    expect(cap.replies.join(' ')).toContain('Tester');
   });
 
   it('gates GM commands by access level', () => {

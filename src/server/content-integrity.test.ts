@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getContent, initGameDb } from './content.js';
 import { MOB_TEMPLATES } from './mobs.js';
 import { isDungeon } from '../shared/areas.js';
+import { dollSlotsFor, type ItemSlot } from '../shared/equipment.js';
 
 initGameDb(':memory:');
 const c = getContent();
@@ -131,6 +132,136 @@ describe('drop-table integrity (sampled)', () => {
           const ok = stack.item === 'gold' || c.item(stack.item) !== undefined;
           expect(ok, `${id} drops unknown item "${stack.item}"`).toBe(true);
           expect(stack.qty, `${id} ${stack.item} qty`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+});
+
+describe('item-set integrity', () => {
+  // The buff affix stats a set bonus may grant (mirrors the item_set_bonuses editable enum).
+  const buffStats = new Set([
+    'power',
+    'hp',
+    'crit',
+    'multishot',
+    'lifesteal',
+    'swift',
+    'move',
+    'armor',
+    'vigor',
+  ]);
+
+  it('every set names ≥2 REAL item pieces with no duplicates', () => {
+    for (const s of c.itemSets()) {
+      expect(s.id, 'set id').toBeTruthy();
+      expect(s.pieces.length, `${s.id} piece count`).toBeGreaterThanOrEqual(2);
+      expect(new Set(s.pieces).size, `${s.id} duplicate pieces`).toBe(s.pieces.length);
+      for (const piece of s.pieces) {
+        // A typo'd piece id would make the set silently un-completable in-game.
+        expect(c.item(piece), `${s.id} piece "${piece}" is not a real item`).toBeDefined();
+      }
+    }
+  });
+
+  it('every set is COMPLETABLE: its pieces fit distinct doll slots', () => {
+    // A set whose pieces collide on a slot (e.g. two chest pieces) can never reach its top
+    // threshold — the bonus would be dead content. Rings are the one slot with capacity 2.
+    for (const s of c.itemSets()) {
+      const perSlot = new Map<string, number>();
+      for (const piece of s.pieces) {
+        const slot = c.item(piece)?.slot as ItemSlot | null | undefined;
+        expect(slot, `${s.id} piece "${piece}" has no slot`).toBeTruthy();
+        perSlot.set(slot as string, (perSlot.get(slot as string) ?? 0) + 1);
+      }
+      for (const [slot, count] of perSlot) {
+        const capacity = dollSlotsFor(slot as ItemSlot).length; // ring -> 2, everything else -> 1
+        expect(
+          count,
+          `${s.id} has ${count} '${slot}' pieces but only ${capacity} slot(s)`,
+        ).toBeLessThanOrEqual(capacity);
+      }
+    }
+  });
+
+  it('every set bonus has a valid threshold + buff stat + positive value', () => {
+    for (const s of c.itemSets()) {
+      expect(s.bonuses.length, `${s.id} bonuses`).toBeGreaterThan(0);
+      for (const b of s.bonuses) {
+        expect(b.requiredPieces, `${s.id} threshold`).toBeGreaterThanOrEqual(2);
+        expect(b.requiredPieces, `${s.id} threshold exceeds piece count`).toBeLessThanOrEqual(
+          s.pieces.length,
+        );
+        expect(buffStats.has(b.affix.stat), `${s.id} bad bonus stat "${b.affix.stat}"`).toBe(true);
+        expect(b.affix.value, `${s.id} ${b.affix.stat} value`).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
+describe('boss-script integrity', () => {
+  it('every scripted boss is a real mob template with well-formed phases', () => {
+    for (const [bossId, script] of Object.entries(c.bossScripts())) {
+      expect(
+        c.mobTemplate(bossId),
+        `boss script "${bossId}" is not a real mob template`,
+      ).toBeDefined();
+      expect(script.phases.length, `${bossId} phases`).toBeGreaterThan(0);
+      for (const phase of script.phases) {
+        expect(phase.hpBelow, `${bossId} hpBelow`).toBeGreaterThan(0);
+        expect(phase.hpBelow, `${bossId} hpBelow`).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('every script step references only real abilities + summon templates', () => {
+    for (const [bossId, script] of Object.entries(c.bossScripts())) {
+      for (const phase of script.phases) {
+        for (const step of phase.loop) {
+          if (step.kind === 'cast') {
+            // A cast step naming a deleted/typo'd ability would silently do nothing.
+            expect(
+              c.ability(step.ability),
+              `${bossId} casts unknown ability "${step.ability}"`,
+            ).toBeDefined();
+          } else if (step.kind === 'summon') {
+            expect(
+              c.mobTemplate(step.templateId),
+              `${bossId} summons unknown template "${step.templateId}"`,
+            ).toBeDefined();
+            expect(step.count, `${bossId} summon count`).toBeGreaterThan(0);
+            expect(step.radius, `${bossId} summon radius`).toBeGreaterThan(0);
+          } else if (step.kind === 'wait' || step.kind === 'brawl') {
+            expect(step.ms, `${bossId} ${step.kind} ms`).toBeGreaterThan(0);
+          } else if (step.kind === 'moveTo') {
+            expect(step.x, `${bossId} moveTo x`).toBeGreaterThanOrEqual(0);
+            expect(step.x, `${bossId} moveTo x`).toBeLessThanOrEqual(1);
+            expect(step.y, `${bossId} moveTo y`).toBeGreaterThanOrEqual(0);
+            expect(step.y, `${bossId} moveTo y`).toBeLessThanOrEqual(1);
+          } else if (step.kind === 'shout') {
+            expect(step.text, `${bossId} shout text`).toBeTruthy();
+          }
+        }
+      }
+    }
+  });
+});
+
+describe('item-proc integrity', () => {
+  it('every proc on a real item has sane numbers + a status ability that does something', () => {
+    for (const item of c.items()) {
+      for (const p of c.itemProcs(item.id)) {
+        expect(p.chance, `${item.id} proc chance`).toBeGreaterThanOrEqual(0);
+        expect(p.chance, `${item.id} proc chance`).toBeLessThanOrEqual(1);
+        expect(p.icdMs, `${item.id} proc icd`).toBeGreaterThanOrEqual(0);
+        if (p.effect.kind === 'damage') {
+          expect(p.effect.amount, `${item.id} proc damage amount`).toBeGreaterThan(0);
+        } else {
+          // A status proc whose ability has no on-hit effect would be a silent no-op.
+          expect(
+            c.abilityStatusEffects(p.effect.ability).length,
+            `${item.id} status proc ability "${p.effect.ability}" applies no status`,
+          ).toBeGreaterThan(0);
         }
       }
     }

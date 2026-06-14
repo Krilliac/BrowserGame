@@ -10,6 +10,7 @@ import {
   type Rarity,
 } from '../shared/items.js';
 import { SLOT_LABELS } from '../shared/equipment.js';
+import { ITEM_SETS } from '../shared/item-sets.js';
 import { drawPartyPanel, type PartyButton } from './party-panel.js';
 import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
@@ -468,7 +469,9 @@ window.addEventListener('pointerdown', (e) => {
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    net.sendEquip(bag.uid);
+    // Shift-click salvages the item into crafting materials; a plain click/tap equips it.
+    if (e.shiftKey) net.sendSalvage(bag.uid);
+    else net.sendEquip(bag.uid);
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
@@ -744,7 +747,9 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    net.sendEquip(bag.uid);
+    // Shift-click salvages the item into crafting materials; a plain click/tap equips it.
+    if (e.shiftKey) net.sendSalvage(bag.uid);
+    else net.sendEquip(bag.uid);
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
@@ -1138,6 +1143,7 @@ function frame(): void {
       camX,
       camY,
       corruption: net.you.corruption,
+      targetId,
     });
   }
   sound.setArea(net.areaId);
@@ -1458,6 +1464,24 @@ function drawCharacterPanel(): void {
     hud.textAlign = 'center';
     hud.fillText('+', btn.x + 12, btn.y + 15);
   });
+
+  // Active item-set progress — the bonuses themselves already fold into the Power/Crit/Max HP totals
+  // above; this line surfaces WHICH sets you're building and how close they are to the next threshold.
+  const eqBaseIds = new Set(
+    Object.values(net.you.equipment)
+      .filter((i): i is ItemInstance => !!i)
+      .map((i) => i.baseId),
+  );
+  const sets = ITEM_SETS.map((s) => ({ s, n: s.pieces.filter((p) => eqBaseIds.has(p)).length }))
+    .filter((x) => x.n > 0)
+    .map((x) => `${x.s.name} ${x.n}/${x.s.pieces.length}`);
+  if (sets.length > 0) {
+    hud.textAlign = 'left';
+    hud.font = '11px system-ui, sans-serif';
+    hud.fillStyle = '#9be09b';
+    hud.fillText(`Sets: ${sets.join(' · ')}`, px + 14, py + ph - 12);
+  }
+
   hud.textAlign = 'left';
 }
 
@@ -1699,10 +1723,59 @@ function drawErrorBadge(): void {
   hud.fillText(`⚠ ${(err?.message ?? 'error').slice(0, 34)}`, 14, 23);
 }
 
+/**
+ * Target frame: when you've clicked a mob (and are chasing + auto-attacking it), show a classic
+ * MMO-style portrait up top — name, level, and a live health bar — so the selection is visible.
+ * `targetMob()` self-clears when the target dies or leaves, so the frame disappears with it.
+ */
+function drawTargetFrame(): void {
+  const t = targetMob();
+  if (!t) return;
+  const cw = hudCanvas.width;
+  const fw = 244;
+  const fh = 52;
+  const fx = Math.round(cw / 2 - fw / 2);
+  const fy = 16;
+
+  hud.fillStyle = 'rgba(10,8,12,0.62)';
+  hud.fillRect(fx, fy, fw, fh);
+  hud.strokeStyle = t.elite ? 'rgba(255,200,80,0.9)' : 'rgba(220,80,80,0.85)';
+  hud.lineWidth = 2;
+  hud.strokeRect(fx + 1, fy + 1, fw - 2, fh - 2);
+
+  // Portrait swatch — the mob's own hue, so different foes read differently at a glance.
+  const ps = fh - 14;
+  hud.fillStyle = `hsl(${Math.round(t.hue)}, 55%, 45%)`;
+  hud.fillRect(fx + 7, fy + 7, ps, ps);
+  hud.strokeStyle = 'rgba(0,0,0,0.5)';
+  hud.lineWidth = 1;
+  hud.strokeRect(fx + 7, fy + 7, ps, ps);
+
+  const tx = fx + ps + 16;
+  hud.textAlign = 'left';
+  hud.font = 'bold 13px system-ui, sans-serif';
+  hud.fillStyle = t.elite ? '#ffd86a' : '#f0e0c0';
+  hud.fillText(`${t.elite ? '★ ' : ''}${t.name}`, tx, fy + 19);
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillStyle = '#b9ad92';
+  hud.fillText(`Level ${t.level}`, tx, fy + 33);
+
+  drawBar(
+    tx,
+    fy + 37,
+    fw - (tx - fx) - 12,
+    11,
+    t.maxHp > 0 ? t.hp / t.maxHp : 0,
+    '#b33',
+    `${Math.ceil(t.hp)} / ${t.maxHp}`,
+  );
+}
+
 function drawHud(): void {
   const w = hudCanvas.width;
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
+  drawTargetFrame();
 
   const slot = 52;
   const gap = 10;
@@ -2191,6 +2264,12 @@ function drawInventory(w: number): void {
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'left';
   hud.fillText('Bag', px + 8, py + 16);
+  // Hint: gear rows equip on click, salvage (→ crafting materials) on shift-click.
+  hud.font = '9px system-ui, sans-serif';
+  hud.fillStyle = '#9a8f76';
+  hud.textAlign = 'right';
+  hud.fillText('click: equip · shift-click: salvage', px + pw - 8, py + 16);
+  hud.textAlign = 'left';
   hud.font = '12px system-ui, sans-serif';
   items.forEach(([id, n], i) => {
     const ry = py + 24 + i * 16;

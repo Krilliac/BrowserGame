@@ -38,6 +38,12 @@ export interface CommandContext {
   contentRows: (table: string) => string;
   contentRow: (table: string, id: string) => string;
   setContent: (table: string, id: string, column: string, value: string) => string;
+  /** Render the top of the ladder for a metric ('level' | 'gold'); unknown metrics fall back to level. */
+  ladder: (metric: string) => string;
+  /** Render the timed game-events with their active state + time-to-flip (for /event). */
+  events: () => string;
+  /** Render the crafting recipes (id — name: inputs → outputs) for /recipes. */
+  recipes: () => string;
 }
 
 interface Command {
@@ -79,6 +85,74 @@ const COMMAND_LIST: Command[] = [
     run: (ctx) => {
       const players = ctx.listPlayers();
       ctx.reply(`Players here (${players.length}): ${players.join(', ')}`);
+    },
+  },
+  {
+    name: 'ladder',
+    minLevel: AccessLevel.Player,
+    usage: '/ladder [level|gold]',
+    help: 'Show the top characters by level (default) or gold.',
+    run: (ctx) => {
+      const metric = (ctx.args[0] ?? 'level').toLowerCase();
+      // The accessor renders + clamps; it falls back to 'level' for an unknown metric.
+      for (const line of ctx.ladder(metric).split('\n')) ctx.reply(line);
+    },
+  },
+  {
+    name: 'events',
+    minLevel: AccessLevel.GameMaster,
+    usage: '/events',
+    help: 'List timed game-events and whether each is active right now.',
+    run: (ctx) => {
+      for (const line of ctx.events().split('\n')) ctx.reply(line);
+    },
+  },
+  {
+    name: 'salvage',
+    minLevel: AccessLevel.Player,
+    usage: '/salvage <itemUid>',
+    help: 'Break a bag item down into crafting materials.',
+    run: (ctx) => {
+      const uid = int(ctx.args, 0, -1);
+      const r = ctx.world.salvage(ctx.playerId, uid);
+      if (!r.ok) {
+        ctx.reply(r.reason ?? 'Could not salvage that.');
+        return;
+      }
+      const mats = (r.yields ?? []).map((y) => `${y.qty} ${y.kind}`).join(', ');
+      ctx.reply(`Salvaged → ${mats}.`);
+    },
+  },
+  {
+    name: 'recipes',
+    minLevel: AccessLevel.Player,
+    usage: '/recipes',
+    help: 'List crafting recipes you can make with /craft.',
+    run: (ctx) => {
+      for (const line of ctx.recipes().split('\n')) ctx.reply(line);
+    },
+  },
+  {
+    name: 'achievements',
+    minLevel: AccessLevel.Player,
+    usage: '/achievements',
+    help: 'Show your achievements and progress.',
+    run: (ctx) => {
+      for (const line of ctx.world.achievementStatus(ctx.playerId)) ctx.reply(line);
+    },
+  },
+  {
+    name: 'craft',
+    minLevel: AccessLevel.Player,
+    usage: '/craft <recipeId>',
+    help: 'Craft a recipe from your materials (see /recipes).',
+    run: (ctx) => {
+      const id = ctx.args[0];
+      if (!id) {
+        ctx.reply('Usage: /craft <recipeId> — see /recipes.');
+        return;
+      }
+      ctx.world.craft(ctx.playerId, id); // the world notifies success/failure
     },
   },
   {
