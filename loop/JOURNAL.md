@@ -158,3 +158,15 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   any moderate variance). Assertion unchanged; nondeterminism removed (same pattern as iter 5).
 - Tests: same count; verified full check 3/3 green. No production code changed.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 15 — content-data integrity coverage
+- Picked: the game is data-driven (SQLite areas/mobs/abilities/items/drops) but had no integrity
+  test — a seed typo (0-HP mob, portal to nowhere, roster naming a missing template, drop referencing
+  a non-existent item) would only surface at runtime. (tier: coverage for risky data.)
+- Did: `content-integrity.test.ts` enumerating EVERY record — areas (positive dims, spawn in bounds,
+  every portal → a real area/dungeon, positive portal span), every area roster → a real mob template,
+  every MOB_TEMPLATES entry well-formed (positive hp/speed/ranges/cooldown, level>=1, valid behavior),
+  every ability (valid kind, non-negative numbers), every item (id/kind/name), and a sampled
+  drop-table check (25 rngs/mob) that all rolled loot resolves to a real item or gold.
+- Tests: +7 (996 total). Confirms current seed data is clean; future typos now fail the build.
+- Result: COMMITTED — gate check+build GREEN.
