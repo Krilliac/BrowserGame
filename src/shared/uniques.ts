@@ -35,7 +35,7 @@ export interface UniqueDef {
  * the agreed band: power 12-22, crit 10-20, multishot 2, lifesteal 6-10, move 12-18, vigor 8-15,
  * hp 40-70, swift 10-18, armor 8-14.
  */
-export const UNIQUES: UniqueDef[] = [
+export const DEFAULT_UNIQUES: UniqueDef[] = [
   {
     id: 'stormcallers_reach',
     name: "Stormcaller's Reach",
@@ -168,6 +168,18 @@ export const UNIQUES: UniqueDef[] = [
     flavor: 'It sees three paths where the prey sees one.',
   },
 ];
+
+/**
+ * The LIVE unique pool (overlaid from the `uniques` DB tables on load). Replaced in place by
+ * {@link applyUniqueOverrides} so the roller/uniquesForSlot see DB edits without a re-import.
+ */
+export const UNIQUES: UniqueDef[] = DEFAULT_UNIQUES.map((u) => ({ ...u }));
+
+/** Replace the live {@link UNIQUES} pool; an empty list RESETS to {@link DEFAULT_UNIQUES}. In place. */
+export function applyUniqueOverrides(list: UniqueDef[]): void {
+  UNIQUES.length = 0;
+  UNIQUES.push(...(list.length ? list : DEFAULT_UNIQUES));
+}
 
 /** Look up the base item for a unique def, falling back to a zero-stat placeholder if missing. */
 function baseOf(def: UniqueDef): { power: number; hp: number } {

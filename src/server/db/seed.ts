@@ -17,6 +17,7 @@ import { SELL_VALUES } from '../vendor.js';
 import { DEFAULT_GEMS } from '../../shared/gems.js';
 import { DEFAULT_RARITY, type Rarity } from '../../shared/items.js';
 import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
+import { DEFAULT_UNIQUES } from '../../shared/uniques.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 import { EXPANSION_AREA_MOBS, EXPANSION_LOOT } from './seed-expansion.js';
 import { EXPANSION_DECOR } from './seed-decor.js';
@@ -328,6 +329,7 @@ export function seed(db: Database): void {
   ensureRarityTiers(db); // item rarity tiers (seeded from items.ts DEFAULT_RARITY)
   ensureGems(db); // socketable gem catalog (seeded from gems.ts DEFAULT_GEMS)
   ensureRunewords(db); // rune pool + runeword recipes (seeded from runewords.ts defaults)
+  ensureUniques(db); // unique (named legendary) pool (seeded from uniques.ts DEFAULT_UNIQUES)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -477,6 +479,23 @@ function ensureRunewords(db: Database): void {
     if (hasRw.get(rw.id)) continue;
     insRw.run(rw.id, rw.name, rw.runes.join(','), rw.flavor ?? null);
     rw.bonuses.forEach((b, i) => insBonus.run(rw.id, b.stat, b.value, i));
+  }
+}
+
+/**
+ * Seed the unique (named legendary) pool from the code defaults (uniques.ts). Idempotent: skips a
+ * unique whose row already exists, so designer edits survive a restart. Affixes are one row each.
+ */
+function ensureUniques(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM uniques WHERE id = ?');
+  const insU = db.prepare('INSERT INTO uniques (id,name,base_id,flavor) VALUES (?,?,?,?)');
+  const insA = db.prepare(
+    'INSERT INTO unique_affixes (unique_id,stat,value,sort_order) VALUES (?,?,?,?)',
+  );
+  for (const u of DEFAULT_UNIQUES) {
+    if (has.get(u.id)) continue;
+    insU.run(u.id, u.name, u.baseId, u.flavor ?? null);
+    u.affixes.forEach((a, i) => insA.run(u.id, a.stat, a.value, i));
   }
 }
 

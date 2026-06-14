@@ -430,6 +430,42 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       sort_order: { type: 'int', min: 0, max: 9999 },
     },
   },
+
+  uniques: {
+    pk: 'id',
+    label: 'unique item',
+    note: 'named legendary; /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      base_id: { type: 'text' },
+      flavor: { type: 'text', nullable: true },
+    },
+  },
+
+  unique_affixes: {
+    pk: 'id',
+    label: 'unique affix',
+    note: 'a fixed affix on a unique; /reloadcontent to apply',
+    columns: {
+      unique_id: { type: 'text' },
+      stat: {
+        type: 'enum',
+        values: [
+          'power',
+          'hp',
+          'crit',
+          'multishot',
+          'lifesteal',
+          'swift',
+          'move',
+          'armor',
+          'vigor',
+        ],
+      },
+      value: { type: 'real', min: 0, max: 100000 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

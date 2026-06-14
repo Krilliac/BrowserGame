@@ -16,6 +16,7 @@ import {
   type RunewordDef,
 } from '../shared/runewords.js';
 import type { Affix } from '../shared/items.js';
+import { applyUniqueOverrides, type UniqueDef } from '../shared/uniques.js';
 import type { StatusId } from './status-effects.js';
 
 /**
@@ -112,6 +113,8 @@ export interface Content {
   runes(): RuneDef[];
   /** The runeword recipes (overlaid onto the shared RUNEWORDS list). */
   runewords(): RunewordDef[];
+  /** The unique (named legendary) pool (overlaid onto the shared UNIQUES list; server-side minting). */
+  uniques(): UniqueDef[];
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -490,6 +493,20 @@ export function loadContent(db: GameDatabase): Content {
     return def;
   });
 
+  // Unique (named legendary) pool: hand-authored name + base + fixed affixes (server-side minting).
+  const uAffixStmt = db.prepare(
+    'SELECT stat, value FROM unique_affixes WHERE unique_id = ? ORDER BY sort_order',
+  );
+  const uniques = (db.prepare('SELECT * FROM uniques').all() as UniqueRow[]).map((r) => {
+    const affixes = (uAffixStmt.all(r.id) as { stat: string; value: number }[]).map((a) => ({
+      stat: a.stat as Affix['stat'],
+      value: a.value,
+    }));
+    const def: UniqueDef = { id: r.id, name: r.name, baseId: r.base_id, affixes };
+    if (r.flavor !== null) def.flavor = r.flavor;
+    return def;
+  });
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -532,6 +549,7 @@ export function loadContent(db: GameDatabase): Content {
     gems: () => gems,
     runes: () => runes,
     runewords: () => runewords,
+    uniques: () => uniques,
   };
 }
 
@@ -548,6 +566,7 @@ export function initGameDb(file?: string): Content {
   applyGemOverrides(activeContent.gems()); // overlay the DB gem catalog onto shared GEMS
   applyRuneOverrides(activeContent.runes()); // overlay rune pool onto shared RUNES
   applyRunewordOverrides(activeContent.runewords()); // overlay runeword recipes onto shared RUNEWORDS
+  applyUniqueOverrides(activeContent.uniques()); // overlay unique pool onto shared UNIQUES
   return activeContent;
 }
 
@@ -568,6 +587,7 @@ export function reloadContent(): Content {
   applyGemOverrides(activeContent.gems()); // re-overlay gem catalog on reload
   applyRuneOverrides(activeContent.runes()); // re-overlay rune pool on reload
   applyRunewordOverrides(activeContent.runewords()); // re-overlay runeword recipes on reload
+  applyUniqueOverrides(activeContent.uniques()); // re-overlay unique pool on reload
   return activeContent;
 }
 
@@ -807,5 +827,11 @@ interface RunewordRow {
   id: string;
   name: string;
   runes: string;
+  flavor: string | null;
+}
+interface UniqueRow {
+  id: string;
+  name: string;
+  base_id: string;
   flavor: string | null;
 }

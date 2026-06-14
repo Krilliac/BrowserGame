@@ -188,6 +188,25 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Unique (named legendary) items: a hand-authored name + a real base item id + fixed signature
+-- affixes (unique_affixes). Seeded from DEFAULT_UNIQUES (uniques.ts); minting is server-side. Add a
+-- row (+ its affixes) to introduce a new unique to the loot chase.
+CREATE TABLE IF NOT EXISTS uniques (
+  id      TEXT PRIMARY KEY,
+  name    TEXT NOT NULL,
+  base_id TEXT NOT NULL,                -- a real EQUIPMENT/items base id (gives slot + base power/hp)
+  flavor  TEXT
+);
+
+-- The fixed signature affixes a unique always grants. One row per (unique, stat).
+CREATE TABLE IF NOT EXISTS unique_affixes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  unique_id  TEXT NOT NULL,
+  stat       TEXT NOT NULL,             -- an AffixStat
+  value      REAL NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 -- Runes: the socketable atoms players slot to build runewords. Seeded from DEFAULT_RUNES
 -- (runewords.ts); also registered as content items so the client shows their name/icon.
 CREATE TABLE IF NOT EXISTS runes (
