@@ -15,6 +15,7 @@ import {
 } from 'pixi.js';
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import { RARITY, type Rarity } from '../shared/items.js';
+import { lootGlint } from './loot-glint.js';
 import type { EntityState } from '../shared/protocol.js';
 import { isDungeon, type DecorProp } from '../shared/areas.js';
 import { BOULDER_BASE_RADIUS } from '../shared/collision.js';
@@ -2546,6 +2547,22 @@ export class PixiRenderer {
       const shadow = new Graphics();
       shadow.ellipse(0, 0, 8, 4).fill({ color: '#000000', alpha: 0.3 });
       container.addChild(shadow);
+      // Rarity glint: a static additive halo under the drop in its rarity color (brighter the rarer),
+      // so a good drop reads from across the screen — the ARPG loot-pop. Drawn once (no per-frame
+      // cost); hidden when effects are reduced.
+      if (this.effectsEnabled) {
+        const glint = lootGlint(e.rarity);
+        if (glint.intensity > 0) {
+          const glow = new Graphics();
+          const r = 9 + glint.intensity * 8;
+          glow.circle(0, -8, r).fill({ color: glint.color, alpha: 0.1 + glint.intensity * 0.16 });
+          glow
+            .circle(0, -8, r * 0.55)
+            .fill({ color: glint.color, alpha: 0.12 + glint.intensity * 0.18 });
+          glow.blendMode = 'add';
+          container.addChild(glow);
+        }
+      }
       view = {
         container,
         topY: 0,
