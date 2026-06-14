@@ -47,7 +47,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 20 | feat(ui) | **Set-piece tags on items** — green ◆ SetName in stat lines | green | bb45ea3; client-only ITEM_SETS; helps spot set pieces while looting |
 
-NEXT (it.21): backend via parallel agent (alternation). Push after this iteration's journal commit.
+| 21 | feat | **Boss soft-enrage** — bosses ramp damage past 90s | green | fe3e8d1; +3 → 1424; pure bossEnrageMultiplier; engagedAt clock; mobOutgoing hook |
+
+NEXT (it.22): client-UX (alternation). Then backend. Push every few iterations.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
