@@ -105,6 +105,7 @@ import {
 } from '../shared/attributes.js';
 import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
+import { setBonuses } from '../shared/item-sets.js';
 import {
   championGoldPile,
   coopScale,
@@ -1602,6 +1603,19 @@ export class World {
         else if (a.stat === 'armor') armor += a.value;
         else if (a.stat === 'vigor') vigor += a.value;
       }
+    }
+    // Item-set bonuses: wearing several pieces of one set grants threshold bonuses (D2 set items).
+    // Folded once over the whole loadout (not per-item) since they depend on the equipped-piece count.
+    for (const a of setBonuses(EQUIP_SLOTS.map((s) => player.equipment[s]?.baseId))) {
+      if (a.stat === 'power') power += a.value;
+      else if (a.stat === 'hp') bonusHp += a.value;
+      else if (a.stat === 'crit') crit += a.value / 100;
+      else if (a.stat === 'multishot') multishot += a.value;
+      else if (a.stat === 'lifesteal') lifesteal += a.value;
+      else if (a.stat === 'swift') swift += a.value;
+      else if (a.stat === 'move') move += a.value;
+      else if (a.stat === 'armor') armor += a.value;
+      else if (a.stat === 'vigor') vigor += a.value;
     }
     // Attribute bonuses (strengthâ†’power, vitalityâ†’maxHp, dexterityâ†’crit, energyâ†’mana regen).
     const attr = attributeBonuses(player.attributes);

@@ -28,6 +28,7 @@ import {
   type Rarity,
 } from '../../shared/items.js';
 import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
+import { DEFAULT_ITEM_SETS } from '../../shared/item-sets.js';
 import { DEFAULT_SKILL_TREE, type SkillEffects } from '../../shared/skilltree.js';
 import { DEFAULT_HIRELING_TEMPLATES } from '../hirelings.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
@@ -336,6 +337,7 @@ export function seed(db: Database): void {
   ensureRarityTiers(db); // item rarity tiers (seeded from items.ts DEFAULT_RARITY)
   ensureGems(db); // socketable gem catalog (seeded from gems.ts DEFAULT_GEMS)
   ensureRunewords(db); // rune pool + runeword recipes (seeded from runewords.ts defaults)
+  ensureItemSets(db); // item-set membership + threshold bonuses (seeded from item-sets.ts defaults)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
   ensureHirelings(db); // mercenary roster (seeded from hirelings.ts DEFAULT_HIRELING_TEMPLATES)
@@ -460,6 +462,26 @@ function ensureRunewords(db: Database): void {
     if (hasRw.get(rw.id)) continue;
     insRw.run(rw.id, rw.name, rw.runes.join(','), rw.flavor ?? null);
     rw.bonuses.forEach((b, i) => insBonus.run(rw.id, b.stat, b.value, i));
+  }
+}
+
+/**
+ * Seed the item sets + their threshold bonuses from the code defaults (item-sets.ts). Idempotent:
+ * a set whose row already exists is skipped (so designer edits survive a restart). Membership is
+ * stored comma-joined; each (threshold, stat) bonus is one row in sort order.
+ */
+function ensureItemSets(db: Database): void {
+  const hasSet = db.prepare('SELECT 1 FROM item_sets WHERE id = ?');
+  const insSet = db.prepare('INSERT INTO item_sets (id,name,pieces,flavor) VALUES (?,?,?,?)');
+  const insBonus = db.prepare(
+    'INSERT INTO item_set_bonuses (set_id,required_pieces,stat,value,sort_order) VALUES (?,?,?,?,?)',
+  );
+  for (const s of DEFAULT_ITEM_SETS) {
+    if (hasSet.get(s.id)) continue;
+    insSet.run(s.id, s.name, s.pieces.join(','), s.flavor ?? null);
+    s.bonuses.forEach((b, i) =>
+      insBonus.run(s.id, b.requiredPieces, b.affix.stat, b.affix.value, i),
+    );
   }
 }
 

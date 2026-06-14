@@ -314,6 +314,26 @@ CREATE TABLE IF NOT EXISTS runeword_bonuses (
   sort_order   INTEGER NOT NULL DEFAULT 0
 );
 
+-- Item sets: equipping multiple pieces of one set grants threshold bonuses (D2-style set items).
+-- pieces is the comma-separated base item-id membership; the bonuses live in item_set_bonuses.
+-- Seeded from DEFAULT_ITEM_SETS (item-sets.ts); applied server-side in recomputeStats (world.ts).
+CREATE TABLE IF NOT EXISTS item_sets (
+  id     TEXT PRIMARY KEY,
+  name   TEXT NOT NULL,
+  pieces TEXT NOT NULL,                 -- comma-separated base item ids that count toward the set
+  flavor TEXT
+);
+
+-- A bonus a set grants once required_pieces of its pieces are equipped. One row per (set, threshold, stat).
+CREATE TABLE IF NOT EXISTS item_set_bonuses (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  set_id          TEXT NOT NULL,
+  required_pieces INTEGER NOT NULL,
+  stat            TEXT NOT NULL,        -- a buff AffixStat
+  value           REAL NOT NULL,
+  sort_order      INTEGER NOT NULL DEFAULT 0
+);
+
 -- Gems: the socketable catalog. Each gem grants a flat bonus to one affix stat. Seeded from
 -- DEFAULT_GEMS (gems.ts); overlaid onto the shared GEMS catalog on both sides (server load + content
 -- packet). Add a row to introduce a new gem; tier drives the combine chain + drop weight (in code).

@@ -431,6 +431,43 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     },
   },
 
+  item_sets: {
+    pk: 'id',
+    label: 'item set',
+    note: 'set membership (comma-separated base item ids); /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      pieces: { type: 'text' },
+      flavor: { type: 'text', nullable: true },
+    },
+  },
+
+  item_set_bonuses: {
+    pk: 'id',
+    label: 'item set bonus',
+    note: 'a buff a set grants at a piece-count threshold; /reloadcontent to apply',
+    columns: {
+      set_id: { type: 'text' },
+      required_pieces: { type: 'int', min: 2, max: 99 },
+      stat: {
+        type: 'enum',
+        values: [
+          'power',
+          'hp',
+          'crit',
+          'multishot',
+          'lifesteal',
+          'swift',
+          'move',
+          'armor',
+          'vigor',
+        ],
+      },
+      value: { type: 'real', min: 0, max: 100000 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
   uniques: {
     pk: 'id',
     label: 'unique item',

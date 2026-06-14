@@ -25,6 +25,7 @@ import {
   type RuneDef,
   type RunewordDef,
 } from '../shared/runewords.js';
+import { applyItemSetOverrides, type ItemSetDef } from '../shared/item-sets.js';
 import { applySkillTreeOverrides, type SkillNode, type SkillEffects } from '../shared/skilltree.js';
 import { KIND_TO_NPC_FLAG } from '../shared/npc-flags.js';
 import {
@@ -164,6 +165,8 @@ export interface Content {
   runes(): RuneDef[];
   /** The runeword recipes (overlaid onto the shared RUNEWORDS list). */
   runewords(): RunewordDef[];
+  /** The item sets + threshold bonuses (overlaid onto the shared ITEM_SETS list). */
+  itemSets(): ItemSetDef[];
   /** Affix roll ranges per scalar stat (server-only; overlaid onto the shared AFFIX_RANGES). */
   affixRanges(): Record<string, AffixRange>;
   /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
@@ -590,6 +593,27 @@ export function loadContent(db: GameDatabase): Content {
     return def;
   });
 
+  // Item sets: membership (comma-separated base ids) + threshold bonuses, server-side stat folding.
+  const setBonusStmt = db.prepare(
+    'SELECT required_pieces, stat, value FROM item_set_bonuses WHERE set_id = ? ORDER BY sort_order',
+  );
+  const itemSets = (db.prepare('SELECT * FROM item_sets').all() as ItemSetRow[]).map((r) => {
+    const bonuses = (
+      setBonusStmt.all(r.id) as { required_pieces: number; stat: string; value: number }[]
+    ).map((b) => ({
+      requiredPieces: b.required_pieces,
+      affix: { stat: b.stat as Affix['stat'], value: b.value },
+    }));
+    const def: ItemSetDef = {
+      id: r.id,
+      name: r.name,
+      pieces: r.pieces.split(',').filter((s) => s.length > 0),
+      bonuses,
+    };
+    if (r.flavor !== null) def.flavor = r.flavor;
+    return def;
+  });
+
   // Affix roll ranges (server-only) + flavor names/tiers (client-coupled). A NULL up_to is Infinity.
   const affixRanges: Record<string, AffixRange> = {};
   for (const r of db.prepare('SELECT * FROM affix_ranges').all() as AffixRangeRow[]) {
@@ -689,6 +713,7 @@ export function loadContent(db: GameDatabase): Content {
     gems: () => gems,
     runes: () => runes,
     runewords: () => runewords,
+    itemSets: () => itemSets,
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
     skillTree: () => skillTree,
@@ -709,6 +734,7 @@ export function initGameDb(file?: string): Content {
   applyGemOverrides(activeContent.gems()); // overlay the DB gem catalog onto shared GEMS
   applyRuneOverrides(activeContent.runes()); // overlay rune pool onto shared RUNES
   applyRunewordOverrides(activeContent.runewords()); // overlay runeword recipes onto shared RUNEWORDS
+  applyItemSetOverrides(activeContent.itemSets()); // overlay item sets onto shared ITEM_SETS
   applyAffixRangeOverrides(activeContent.affixRanges()); // overlay affix roll ranges
   applyAffixNameOverrides(activeContent.affixNames()); // overlay affix flavor names
   applySkillTreeOverrides(activeContent.skillTree()); // overlay the passive skill tree
@@ -733,6 +759,7 @@ export function reloadContent(): Content {
   applyGemOverrides(activeContent.gems()); // re-overlay gem catalog on reload
   applyRuneOverrides(activeContent.runes()); // re-overlay rune pool on reload
   applyRunewordOverrides(activeContent.runewords()); // re-overlay runeword recipes on reload
+  applyItemSetOverrides(activeContent.itemSets()); // re-overlay item sets on reload
   applyAffixRangeOverrides(activeContent.affixRanges()); // re-overlay affix roll ranges on reload
   applyAffixNameOverrides(activeContent.affixNames()); // re-overlay affix flavor names on reload
   applySkillTreeOverrides(activeContent.skillTree()); // re-overlay the passive skill tree on reload
@@ -994,6 +1021,12 @@ interface RunewordRow {
   id: string;
   name: string;
   runes: string;
+  flavor: string | null;
+}
+interface ItemSetRow {
+  id: string;
+  name: string;
+  pieces: string;
   flavor: string | null;
 }
 interface AffixRangeRow {
