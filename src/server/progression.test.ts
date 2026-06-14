@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
+import {
+  championGoldPile,
+  coopScale,
+  healthGlobeHeal,
+  levelForXp,
+  levelProgress,
+  maxHpForLevel,
+  scaleDamageForLevel,
+  scaleGoldForLevel,
+  tierGoldScale,
+  xpForLevel,
+  xpReward,
+} from './progression.js';
 
 describe('progression (XP / leveling curve)', () => {
   it('starts level 1 at 0 XP and increases monotonically', () => {
@@ -111,5 +123,159 @@ describe('progression (XP / leveling curve)', () => {
     const p = levelProgress(mid);
     expect(p.level).toBe(2);
     expect(p.fraction).toBeCloseTo(0.5, 10);
+  });
+});
+
+describe('championGoldPile', () => {
+  const lo = () => 0; // floor of the random spread
+  const hi = () => 0.999999; // top of the random spread
+
+  it('is a positive integer that scales with monster level', () => {
+    for (const lvl of [1, 10, 30, 60]) {
+      const g = championGoldPile(lvl, () => 0.5);
+      expect(Number.isInteger(g)).toBe(true);
+      expect(g).toBeGreaterThan(0);
+    }
+    // Expected payout rises with level (a level-60 champion spills far more than a level-1 one).
+    expect(championGoldPile(60, () => 0.5)).toBeGreaterThan(championGoldPile(1, () => 0.5) * 5);
+  });
+
+  it('both ends of the random spread grow with level, and the band widens', () => {
+    const band = (lvl: number) => championGoldPile(lvl, hi) - championGoldPile(lvl, lo);
+    expect(championGoldPile(60, lo)).toBeGreaterThan(championGoldPile(1, lo));
+    expect(championGoldPile(60, hi)).toBeGreaterThan(championGoldPile(1, hi));
+    expect(band(60)).toBeGreaterThan(band(1)); // higher levels have a bigger gold swing
+  });
+
+  it('sanitizes bad level inputs to level 1 (never NaN / negative)', () => {
+    const base = championGoldPile(1, lo);
+    expect(championGoldPile(0, lo)).toBe(base);
+    expect(championGoldPile(-5, lo)).toBe(base);
+    expect(championGoldPile(NaN, lo)).toBe(base);
+  });
+});
+
+describe('scaleGoldForLevel', () => {
+  it('leaves base gold untouched at the template level (tier 0)', () => {
+    expect(scaleGoldForLevel(100, 15, 15)).toBe(100);
+    expect(scaleGoldForLevel(50, 1, 1)).toBe(50);
+  });
+
+  it('scales up as the mob outlevels its template (rift tier)', () => {
+    // crypt_lord template L15 → at L25 (tier 5): 100 × 25/15 ≈ 167.
+    expect(scaleGoldForLevel(100, 25, 15)).toBe(Math.round(100 * (25 / 15)));
+    expect(scaleGoldForLevel(100, 30, 15)).toBeGreaterThan(scaleGoldForLevel(100, 20, 15));
+  });
+
+  it('caps the multiplier at 4× so deep rifts never run away', () => {
+    expect(scaleGoldForLevel(100, 999, 5)).toBe(400); // 100 × min(4, 199.8)
+  });
+
+  it('never drops below the base (factor floored at 1) and is always >= 1', () => {
+    expect(scaleGoldForLevel(100, 5, 60)).toBe(100); // mobLevel < templateLevel → factor 1
+    expect(scaleGoldForLevel(0, 30, 10)).toBe(1); // never zero gold
+  });
+
+  it('sanitizes bad inputs (NaN / non-positive levels)', () => {
+    expect(scaleGoldForLevel(80, NaN, NaN)).toBe(80); // both → level 1 → factor 1
+    expect(scaleGoldForLevel(80, -3, 0)).toBe(80);
+  });
+});
+
+describe('coopScale', () => {
+  const per = 0.12;
+  const cap = 1.6;
+
+  it('is 1× solo (or with no players)', () => {
+    expect(coopScale(0, per, cap)).toBe(1);
+    expect(coopScale(1, per, cap)).toBe(1);
+  });
+
+  it('adds perPlayer for each extra living player', () => {
+    expect(coopScale(2, per, cap)).toBeCloseTo(1.12, 10);
+    expect(coopScale(3, per, cap)).toBeCloseTo(1.24, 10);
+    expect(coopScale(4, per, cap)).toBeGreaterThan(coopScale(3, per, cap));
+  });
+
+  it('never exceeds the cap', () => {
+    expect(coopScale(100, per, cap)).toBe(cap);
+    for (let n = 1; n <= 20; n++) expect(coopScale(n, per, cap)).toBeLessThanOrEqual(cap);
+  });
+
+  it('resolves garbage head-counts to solo (×1)', () => {
+    expect(coopScale(NaN, per, cap)).toBe(1);
+    expect(coopScale(-3, per, cap)).toBe(1);
+  });
+});
+
+describe('tierGoldScale', () => {
+  it('is 1× in the normal world (tier 0) so nothing changes there', () => {
+    expect(tierGoldScale(0)).toBe(1);
+  });
+
+  it('rises with tier and is monotonic up to the cap', () => {
+    expect(tierGoldScale(1)).toBeCloseTo(1.35, 10);
+    expect(tierGoldScale(5)).toBeCloseTo(2.75, 10);
+    for (let t = 0; t < 8; t++)
+      expect(tierGoldScale(t + 1)).toBeGreaterThanOrEqual(tierGoldScale(t));
+  });
+
+  it('caps the multiplier at 4×', () => {
+    expect(tierGoldScale(100)).toBe(4);
+    for (let t = 0; t <= 50; t++) expect(tierGoldScale(t)).toBeLessThanOrEqual(4);
+  });
+
+  it('resolves a garbage/negative tier to ×1', () => {
+    expect(tierGoldScale(NaN)).toBe(1);
+    expect(tierGoldScale(-3)).toBe(1);
+  });
+});
+
+describe('scaleDamageForLevel', () => {
+  it('leaves tier-0 damage exactly unchanged (the normal world is untouched)', () => {
+    expect(scaleDamageForLevel(10, 15, 15)).toBe(10);
+    expect(scaleDamageForLevel(7.5, 1, 1)).toBe(7.5);
+    expect(scaleDamageForLevel(10, 5, 60)).toBe(10); // below template → factor 1
+  });
+
+  it('rises with the level overshoot (deeper rifts hit harder)', () => {
+    expect(scaleDamageForLevel(10, 30, 15)).toBeGreaterThan(scaleDamageForLevel(10, 20, 15));
+    expect(scaleDamageForLevel(10, 18, 12)).toBeCloseTo(10 * (18 / 12), 10);
+  });
+
+  it('caps at the (forgiving) lethality ceiling — far tighter than gold', () => {
+    expect(scaleDamageForLevel(10, 999, 5)).toBe(15); // 10 × min(1.5, 199.8)
+    for (let lvl = 1; lvl <= 80; lvl++)
+      expect(scaleDamageForLevel(10, lvl, 5)).toBeLessThanOrEqual(15 + 1e-9);
+  });
+
+  it('honors a custom cap', () => {
+    expect(scaleDamageForLevel(10, 999, 5, 2)).toBe(20);
+  });
+
+  it('resolves garbage input to the base damage and never goes negative', () => {
+    expect(scaleDamageForLevel(8, NaN, NaN)).toBe(8);
+    expect(scaleDamageForLevel(8, -3, 0)).toBe(8);
+    expect(scaleDamageForLevel(NaN, 30, 10)).toBe(0);
+    expect(scaleDamageForLevel(-5, 30, 10)).toBe(0);
+  });
+});
+
+describe('healthGlobeHeal', () => {
+  it('restores the configured fraction of max HP, rounded', () => {
+    expect(healthGlobeHeal(100, 0.35)).toBe(35);
+    expect(healthGlobeHeal(265, 0.2)).toBe(53); // round(53)
+  });
+
+  it('scales with max HP so high-level globes heal more in absolute terms', () => {
+    expect(healthGlobeHeal(400, 0.35)).toBeGreaterThan(healthGlobeHeal(100, 0.35));
+  });
+
+  it('is zero for a zero fraction and never negative', () => {
+    expect(healthGlobeHeal(100, 0)).toBe(0);
+    expect(healthGlobeHeal(-100, 0.35)).toBe(0);
+    expect(healthGlobeHeal(100, -0.5)).toBe(0);
+    expect(healthGlobeHeal(NaN, 0.35)).toBe(0);
+    expect(healthGlobeHeal(100, NaN)).toBe(0);
   });
 });

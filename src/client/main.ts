@@ -15,7 +15,8 @@ import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { drawHirePanel, type HireButton } from './hire-panel.js';
 import { drawRiftPanel, type RiftButton } from './rift-panel.js';
-import { loadItemIcons } from './item-icons.js';
+import { loadItemIcons, setItemInfoResolver } from './item-icons.js';
+import type { ItemSlot } from '../shared/equipment.js';
 import { HitRegions } from './hit-regions.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
 import { drawArtificerPanel, type ArtificerButton } from './artificer-panel.js';
@@ -68,13 +69,20 @@ await app.init({
   background: '#0e0f13',
   preference: 'webgl',
 });
-const name =
-  window.localStorage.getItem('bg.name') ??
-  (() => {
+// Pick (or mint) the player's display name. localStorage can throw (private mode / disabled
+// storage), and this runs at bootstrap — an unguarded throw here would blank the whole app — so
+// fall back to a fresh in-memory name when persistence is unavailable.
+const name = ((): string => {
+  try {
+    const saved = window.localStorage.getItem('bg.name');
+    if (saved) return saved;
     const n = `Hero${Math.floor(Math.random() * 1000)}`;
     window.localStorage.setItem('bg.name', n);
     return n;
-  })();
+  } catch {
+    return `Hero${Math.floor(Math.random() * 1000)}`;
+  }
+})();
 
 // Net is created first so the renderer can read game content from its store (filled by the
 // server's `content` packet — the client mirrors the SQLite DB).
@@ -106,6 +114,12 @@ window.addEventListener('error', (e) => {
 statusEl.textContent = 'loading assets…'; // ~90 curated textures; phones appreciate the heads-up
 await renderer.loadAssets();
 void loadItemIcons(); // HUD item icons (bag/stash/belt) — panels fall back until loaded
+// Icon resolution (gem detection + slot fallback) reads the DB-driven content packet, not a const.
+setItemInfoResolver((id) => {
+  const it = net.content.item(id);
+  if (!it) return undefined;
+  return it.slot ? { kind: it.kind, slot: it.slot as ItemSlot } : { kind: it.kind };
+});
 net.connect();
 
 const sound = new Sound();

@@ -33,19 +33,49 @@ lighting (`pixi-lights` is v7/@pixi/layers-only — does not work in v8).
 
 Cheap, build on code already present, need **no new art**.
 
-### 1.1 Skewed/offset blob shadows leaning away from the torch (Low, very high)
-Make the foot ellipse lean away from `PLAYER_LIGHT` (screen-center): farther from light ⇒ longer +
-thinner + more offset (`shadow.skew.x`, `shadow.scale.y`, `shadow.position`). No shader. Store the
-shadow ref on `ActorView`.
+### 1.1 Skewed/offset blob shadows leaning away from the light (Low, very high) — **done**
+Make the foot ellipse lean + lengthen away from the light (`shadow.skew.x`, `shadow.scale.y`,
+`shadow.position`). No shader. Store the shadow ref on `ActorView`.
 
-### 1.2 Soft baked AO shadow + darkened sprite base (Low, high)
+**Implemented** in two passes against a **fixed baked sun** rather than the screen-center torch — the
+project deliberately keeps every shadow leaning the same way (the consistent D2 baked-light look), so
+direction is constant and only the sun's *altitude* animates:
+- The skewed/offset blob + the sheared sprite-copy cast shadow (hero/elites) are the planted base
+  (`makeActor`, `SHADOW_OFFSET_*`/`SHADOW_SKEW`), with the shadow ref captured on
+  `ActorView.shadowPlanted`.
+- **Time-of-day rake** (`client/sun-shadow.ts`, pure + tested): `Atmosphere.sunShadow()` maps the
+  day/night `daylight` to length + alpha multipliers (identity at noon and indoors). The renderer
+  samples it once per frame and the single shadow updater (`liftShadow`) lengthens `scale.y` + the
+  offset reach (not width) and fades alpha, so shadows are short/dark at noon and long/faint at
+  dawn/dusk. Applied to blob, cast copy, loot, and projectile shadows; static decor keeps its baked
+  foot shadows (raking is scoped to per-frame entities). Torch-relative *direction* swing was
+  intentionally skipped to preserve the baked-sun consistency.
+
+### 1.2 Soft baked AO shadow + darkened sprite base (Low, high) — **done**
 Bake a radial-gradient soft ellipse texture once (canvas → `Texture`), use a `Sprite` for the shadow
 (soft edges). Bake a vertical bottom-darkening gradient and add it as a `blendMode:'multiply'` child
 so feet sink into the ground — the #1 "planted vs floating" cue.
 
-### 1.3 z-height channel (Low, high)
+**Implemented**: the soft baked ellipse texture (`softShadowTexture`) backs every directional shadow.
+For the "feet sink into the ground" cue we use a **contact-AO core** instead of a multiply gradient on
+the sprite (a multiply child would darken the framebuffer ground, not the transparent-background
+sprite, and per-sprite baked darkening is fragile across the LPC/rogues sheets): a small, tight, dark
+soft ellipse pinned at the feet (`CONTACT_AO_ALPHA`), drawn under the sprite and *not* subject to the
+height-lift or sun-rake, so it stays as the fixed ground-contact while the directional shadow moves.
+Desktop-only (fill-rate), skipped for flyers.
+
+### 1.3 z-height channel (Low, high) — **done (height-reactive shadows)**
 Generalize `PROJECTILE_HEIGHT` (sprite raised, shadow on plane) into a reusable `z`: sprite at `-z`,
 shadow `scale`↓ + `alpha`↓ as `z` grows. Drives leaps, knock-ups, loot-pop arc.
+
+**Implemented** as the `client/shadow-lift.ts` pure helper: `shadowLift(lift, falloff?)` maps an
+elevation in world px to `{scale, alpha}` multipliers for the planted ground shadow (identity at
+`lift === 0`). The renderer reads the lift it already computes — the bob/hover on actors
+(`view.sprite.y`), the loot-pop hop (`drop.y`), and the constant `PROJECTILE_HEIGHT` — and multiplies
+the captured planted shadow metrics (`ActorView.shadowPlanted`) each frame via `liftShadow(...)`. No
+shader, no new wire fields, quality-agnostic. A standalone reusable `z` per entity wasn't needed: the
+elevations are all already local to their render paths, so threading a new state field would have been
+bloat for no extra capability.
 
 ### 1.4 Faux-perspective scale + camera dolly offset (Low–Med, high)
 Subtle depth scale by screen-y (near ~1.1, far ~0.9, clamped). Bias `originY` so the player sits
@@ -58,6 +88,15 @@ actors near center toward warm `PLAYER_LIGHT.color` (proximity-scaled) for a dir
 ### 1.6 Bloom on FX layer only (Med, med — quality-gated)
 `pixi-filters@^6` (the v8 line). `AdvancedBloomFilter` on `fxLayer` + `lighting.layer` ONLY, never
 `this.world`; `resolution=0.5`, set `filterArea`. Gate behind a `quality` flag (off on phone).
+
+### 1.7 Drifting cloud shadows (Low, med-high — outdoor) — **done**
+World-anchored soft dark patches sailing across outdoor ground on the wind imply a sky + sun above
+the flat plane. **Implemented** as `client/clouds.ts` (+ pure `client/cloud-field.ts`:
+`cloudStrength` day-phase→strength, `wrapSpan` endless-field wrap, both tested): a small fixed pool
+of lumpy soft sprites, world coords synced to the camera each frame (like `Water`), wrapping around
+the view, alpha fading with `daylight` (gone at night). Drawn as a STAGE layer above ground/water,
+below the world — NOT inside `world` (its colour-grade filter isolates nested children from the
+ground). Outdoor-only, off on touch (fill rate), hidden by "reduce effects".
 
 **Skip:** normal-map deferred lighting (v7/@pixi/layers only, needs per-frame normal maps).
 

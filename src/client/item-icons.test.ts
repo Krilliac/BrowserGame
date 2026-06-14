@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { EQUIPMENT } from '../shared/equipment.js';
+import { EQUIPMENT } from '../server/db/seed-items.js';
 import { GEMS } from '../shared/gems.js';
 import { RUNES } from '../shared/runewords.js';
 import {
@@ -12,7 +12,16 @@ import {
   loadItemIcons,
   resolveIconCell,
   resolveIconKey,
+  setItemInfoResolver,
 } from './item-icons.js';
+
+// item-icons no longer imports item-data consts; kind/slot are injected. Wire the resolver from
+// EQUIPMENT (equip) + GEMS (gem) so the gem-family + slot-fallback paths still get exercised.
+setItemInfoResolver((id) => {
+  if (EQUIPMENT[id]) return { kind: 'equip', slot: EQUIPMENT[id]!.slot };
+  if (GEMS[id]) return { kind: 'gem' };
+  return undefined;
+});
 
 /** Non-equip item ids seeded into the content DB (materials, currency, belt potions). */
 const MATERIAL_IDS = [

@@ -1,5 +1,5 @@
 ﻿import { clamp } from '../shared/math.js';
-import { moveVector } from '../shared/movement.js';
+import { moveVector, stepToward } from '../shared/movement.js';
 import {
   MAX_NAME_LENGTH,
   PLAYER_SPEED,
@@ -37,6 +37,8 @@ import {
 } from './combat-formulas.js';
 import {
   gearSellValue,
+  hasItemFlag,
+  ItemFlags,
   rollAffixes,
   rollCorruptedAffixes,
   rollCorruptedInstance,
@@ -60,8 +62,6 @@ import {
   stepMob,
   isPackish,
   traitDamageMult,
-  MOB_SPELLS,
-  MOB_SUPPORT,
   type MobStepContext,
   type MobTemplate,
   type MobView,
@@ -76,6 +76,9 @@ import {
   type HirelingTemplate,
 } from './hirelings.js';
 import type { DungeonDef, Rect } from '../shared/areas.js';
+import { NpcFlags, hasNpcFlag } from '../shared/npc-flags.js';
+import { CreatureSpawnFlags, hasSpawnFlag } from '../shared/spawn-flags.js';
+import { QuestFlags, hasQuestFlag } from '../shared/quest-flags.js';
 import {
   blockersForDecor,
   pointInAnyBlocker,
@@ -92,7 +95,6 @@ import {
   stepBossScript,
   type BossScriptState,
 } from './boss-scripts.js';
-import { rollRandomUnique } from '../shared/uniques.js';
 import {
   type AttributeSet,
   attributeBonuses,
@@ -103,7 +105,19 @@ import {
 } from '../shared/attributes.js';
 import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
-import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
+import {
+  championGoldPile,
+  coopScale,
+  healthGlobeHeal,
+  levelForXp,
+  levelProgress,
+  maxHpForLevel,
+  scaleDamageForLevel,
+  scaleGoldForLevel,
+  tierGoldScale,
+  xpForLevel,
+  xpReward,
+} from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { SpatialGrid } from './spatial.js';
 import { getContent, type QuestDef } from './content.js';
@@ -132,7 +146,37 @@ function asBaseItem(def: {
 }
 
 const PICKUP_RADIUS = 30;
+/** Gold within this radius of a living player is vacuumed toward them (the ARPG gold-magnet feel). */
+const GOLD_MAGNET_RADIUS = 95;
+/** How fast vacuumed gold flies toward the player (world px/s). */
+const GOLD_MAGNET_SPEED = 460;
 let ITEM_TTL_MS = config.items.itemTtlMs;
+
+/**
+ * One gold-magnet step (pure): pull a gold drop toward the NEAREST living player that is within the
+ * magnet radius but still outside the pickup radius (inside pickup, the normal pickup collects it —
+ * we don't fight it). Returns the gold's new position; unchanged when no player qualifies. Exported
+ * so the vacuum behavior is unit-testable without a World.
+ */
+export function goldMagnetStep(
+  item: { x: number; y: number },
+  players: Iterable<{ x: number; y: number; dead: boolean }>,
+  dt: number,
+): { x: number; y: number } {
+  let bestDist = Infinity;
+  let target: { x: number; y: number } | undefined;
+  for (const p of players) {
+    if (p.dead) continue;
+    const d = Math.hypot(p.x - item.x, p.y - item.y);
+    if (d > GOLD_MAGNET_RADIUS || d <= PICKUP_RADIUS) continue; // out of band → leave it
+    if (d < bestDist) {
+      bestDist = d;
+      target = p;
+    }
+  }
+  if (!target) return { x: item.x, y: item.y };
+  return stepToward(item.x, item.y, target.x, target.y, GOLD_MAGNET_SPEED * dt);
+}
 
 /** Rift gold fee per tier â€” the endgame gold sink; the risk you choose is the fee you pay. */
 let RIFT_COST_PER_TIER = config.economy.riftCostPerTier;
@@ -175,6 +219,9 @@ let LEVEL_HP_SCALE = config.difficulty.levelHpScale;
 // this much (capped), so grouping up makes the area meaningfully harder — survival wants a team.
 let COOP_DAMAGE_PER_PLAYER = config.coop.damagePerPlayer;
 let COOP_DAMAGE_CAP = config.coop.damageCap;
+// ...and raises monster GOLD by this much (capped) — the reward side of grouping up.
+let COOP_GOLD_PER_PLAYER = config.coop.goldPerPlayer;
+let COOP_GOLD_CAP = config.coop.goldCap;
 // Crowd mob-density scaling (maintainDensity): each extra living player raises the target living-
 // mob count by this fraction of the base roster, capped, topped up gradually so a flooded zone
 // stays full of targets instead of being farmed to extinction.
@@ -226,6 +273,20 @@ let GEM_DROP_NORMAL = config.drops.gemNormal; // 2% per ordinary kill
 let GEM_DROP_ELITE = config.drops.gemElite; // 12% per champion
 let GEM_DROP_BOSS = config.drops.gemBoss; // 60% per area boss
 
+// Health-globe drops (D3): a slain monster may spill a globe that instant-heals on pickup.
+let HEALTH_GLOBE_NORMAL = config.drops.healthGlobeNormal; // 1.5% per ordinary kill
+let HEALTH_GLOBE_ELITE = config.drops.healthGlobeElite; // 10% per champion
+let HEALTH_GLOBE_BOSS = config.drops.healthGlobeBoss; // 50% per area boss
+let GLOBE_HEAL_FRAC = config.globes.healFrac; // fraction of the picker's max HP restored
+let GLOBE_ALLY_HEAL_FRAC = config.globes.allyHealFrac; // fraction nearby allies also get
+let GLOBE_ALLY_RADIUS = config.globes.allyRadius; // how close an ally must be to share the heal
+
+/** Reserved ground-item id for a health globe — handled specially on pickup (heals, never bagged). */
+const HEALTH_GLOBE_ITEM = 'healthglobe';
+
+/** Per-tier monster outgoing-damage cap (deeper rifts hit harder; tier 0 unchanged). */
+let DAMAGE_LEVEL_CAP = config.difficulty.damageLevelCap;
+
 // How often a support-caster monster may re-cast its self-buff/heal (War Cry / Sprint / Renew).
 const MOB_SUPPORT_COOLDOWN_MS = 7000;
 
@@ -262,6 +323,8 @@ export function applyRuntimeConfig(): void {
   LEVEL_HP_SCALE = config.difficulty.levelHpScale;
   COOP_DAMAGE_PER_PLAYER = config.coop.damagePerPlayer;
   COOP_DAMAGE_CAP = config.coop.damageCap;
+  COOP_GOLD_PER_PLAYER = config.coop.goldPerPlayer;
+  COOP_GOLD_CAP = config.coop.goldCap;
   DENSITY_PER_PLAYER = config.density.perPlayer;
   DENSITY_CAP = config.density.cap;
   DENSITY_TOPUP_PER_CALL = config.density.topupPerCall;
@@ -285,6 +348,13 @@ export function applyRuntimeConfig(): void {
   GEM_DROP_NORMAL = config.drops.gemNormal;
   GEM_DROP_ELITE = config.drops.gemElite;
   GEM_DROP_BOSS = config.drops.gemBoss;
+  HEALTH_GLOBE_NORMAL = config.drops.healthGlobeNormal;
+  HEALTH_GLOBE_ELITE = config.drops.healthGlobeElite;
+  HEALTH_GLOBE_BOSS = config.drops.healthGlobeBoss;
+  GLOBE_HEAL_FRAC = config.globes.healFrac;
+  GLOBE_ALLY_HEAL_FRAC = config.globes.allyHealFrac;
+  GLOBE_ALLY_RADIUS = config.globes.allyRadius;
+  DAMAGE_LEVEL_CAP = config.difficulty.damageLevelCap;
   VENDOR_PRICE_MULT = config.economy.vendorPriceMult;
   VENDOR_STOCK_CAP = config.economy.vendorStockCap;
   VENDOR_ROTATE_MS = config.economy.vendorRotateMs;
@@ -500,6 +570,8 @@ interface Npc {
   y: number;
   hue: number;
   kind: NpcKind;
+  /** Bitmask of {@link NpcFlags} — the services this NPC offers (drives E-key interaction). */
+  flags: number;
 }
 
 /** A live mercenary entity: follows its owner, fights monsters, dies (voiding the contract). */
@@ -648,6 +720,17 @@ export class World {
         this.createMob(template, this.randomMobX(), this.randomMobY());
       }
     }
+    // Explicit per-spawn placements (uid rows): fixed position + per-spawn flags (e.g. forced elite).
+    for (const spawn of content.creatureSpawns(areaId)) {
+      const template = content.mobTemplate(spawn.templateId);
+      if (!template) continue;
+      this.createMob(
+        template,
+        spawn.x,
+        spawn.y,
+        hasSpawnFlag(spawn.flags, CreatureSpawnFlags.ELITE),
+      );
+    }
   }
 
   /**
@@ -669,8 +752,9 @@ export class World {
     if (players <= 1) return; // solo instances ride the normal respawn loop untouched
     const base = roster.reduce((s, r) => s + r.n, 0);
     // Each extra player adds DENSITY_PER_PLAYER worth of mobs, capped so a mega-crowd doesn't
-    // carpet the map. The roster count is already world-scaled (×10) at content load.
-    const target = Math.round(base * Math.min(DENSITY_CAP, 1 + DENSITY_PER_PLAYER * (players - 1)));
+    // carpet the map (the same per-extra-player scaling shape as co-op damage/gold). The roster
+    // count is already world-scaled (×10) at content load.
+    const target = Math.round(base * coopScale(players, DENSITY_PER_PLAYER, DENSITY_CAP));
     let living = 0;
     for (const m of this.mobs.values()) if (!m.dead) living++;
     let toSpawn = Math.min(target - living, DENSITY_TOPUP_PER_CALL);
@@ -831,7 +915,15 @@ export class World {
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
       const kind = (KINDS as string[]).includes(npc.kind) ? (npc.kind as NpcKind) : 'vendor';
-      this.npcs.set(id, { id, name: npc.name, x: npc.x, y: npc.y, hue: npc.hue, kind });
+      this.npcs.set(id, {
+        id,
+        name: npc.name,
+        x: npc.x,
+        y: npc.y,
+        hue: npc.hue,
+        kind,
+        flags: npc.flags,
+      });
     }
   }
 
@@ -841,22 +933,22 @@ export class World {
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
     if (!npc) return;
-    if (npc.kind === 'vendor') {
+    if (hasNpcFlag(npc.flags, NpcFlags.VENDOR)) {
       // Open the shop; selling is now an explicit button, never a destructive side effect of E.
       this.shopOffers.push({
         playerId: player.id,
         vendor: npc.name,
         stock: this.vendorStockFor(npc.name),
       });
-    } else if (npc.kind === 'healer') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.HEALER)) {
       this.healAtNpc(player, npc.name);
-    } else if (npc.kind === 'gambler') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.GAMBLER)) {
       this.gambleOffers.push({ playerId: player.id, cost: gambleCost(player.level) });
-    } else if (npc.kind === 'artificer') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.ARTIFICER)) {
       this.artificerOffers.push({ playerId: player.id });
-    } else if (npc.kind === 'banker') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.BANKER)) {
       this.pushStash(player); // open the stash window with the current contents
-    } else if (npc.kind === 'recruiter') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.RECRUITER)) {
       const cost = hirelingCost(player.level);
       this.hireOffers.push({
         playerId: player.id,
@@ -866,7 +958,7 @@ export class World {
           cost,
         })),
       });
-    } else if (npc.kind === 'riftkeeper') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.RIFTKEEPER)) {
       this.riftOffers.push({
         playerId: player.id,
         maxTier: maxRiftTier(player.level),
@@ -914,6 +1006,48 @@ export class World {
   }
 
   /**
+   * Dev/QA loot showcase: drop a curated spread of ground loot around the player so the loot
+   * visuals (rarity glints, top-tier name labels) and the health-globe pickup/heal can be verified
+   * in one frame — a guaranteed unique and a corrupted piece (always labeled), several random gear
+   * rolls (a glint spread), and a health globe at the player's feet. The player is left lightly
+   * wounded so grabbing the globe fires the heal floater. Returns the number of items dropped.
+   */
+  devLootShowcase(id: number): number {
+    const player = this.players.get(id);
+    if (!player || player.dead) return 0;
+    let n = 0;
+    // A wide horizontal row south of the player. X spacing is generous (the tilted projection
+    // compresses Y, not X) so each drop's glint + label reads without overlapping its neighbor or
+    // the character.
+    const place = (k: number) => ({ x: player.x + (k - 2.5) * 96, y: player.y + 150 });
+
+    const unique = getContent().rollRandomUnique(this.allocId());
+    if (unique) {
+      this.dropGround(unique.baseId, 1, place(0).x, place(0).y).instance = unique;
+      n++;
+    }
+    const corruptBase = this.randomEquipBase();
+    if (corruptBase) {
+      const corrupt = rollCorruptedInstance(this.allocId(), corruptBase);
+      this.dropGround(corruptBase.id, 1, place(1).x, place(1).y).instance = corrupt;
+      n++;
+    }
+    for (let k = 2; k < 6; k++) {
+      const base = this.randomEquipBase();
+      if (!base) continue;
+      const inst = rollItemInstance(this.allocId(), base, this.rand, 1);
+      this.dropGround(base.id, 1, place(k).x, place(k).y).instance = inst;
+      n++;
+    }
+    // A health globe a little further south — far enough to sit on the ground (not auto-collected),
+    // so it's visible until the player walks onto it — and a wound so the pickup heals (floats a +N).
+    this.dropItemAt(HEALTH_GLOBE_ITEM, 1, player.x, player.y + 170);
+    n++;
+    player.hp = Math.max(1, Math.round(player.maxHp * 0.4));
+    return n;
+  }
+
+  /**
    * Gamble gold for a random item of an equip slot (the D3-Kadala gold sink). Re-validates the
    * gambler is in range, the slot is real, and the player can afford the per-level cost.
    */
@@ -921,11 +1055,12 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'gambler') return;
-    if (!isGambleSlot(slot)) return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.GAMBLER)) return;
+    const bases = this.equipBases();
+    if (!isGambleSlot(slot, bases)) return;
     const cost = gambleCost(player.level);
     if (player.gold < cost) return;
-    const inst = rollGamble(this.allocId(), slot);
+    const inst = rollGamble(this.allocId(), slot, bases);
     if (!inst) return;
     player.gold -= cost;
     this.addGear(player, inst);
@@ -1000,7 +1135,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return false;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'riftkeeper') return false;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.RIFTKEEPER)) return false;
     if (!Number.isInteger(tier) || tier < 1 || tier > maxRiftTier(player.level)) return false;
     const cost = tier * RIFT_COST_PER_TIER;
     if (player.gold < cost) {
@@ -1019,7 +1154,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'recruiter') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.RECRUITER)) return;
     const template = hirelingTemplate(type);
     if (!template) return;
     const cost = hirelingCost(player.level);
@@ -1078,7 +1213,7 @@ export class World {
   depositToStash(id: number, uid: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
-    if (this.nearbyNpc(player)?.kind !== 'banker') return;
+    if (!hasNpcFlag(this.nearbyNpc(player)?.flags ?? 0, NpcFlags.BANKER)) return;
     if (player.stash.length >= STASH_CAP) {
       this.notify(player.id, 'Your stash is full.');
       return;
@@ -1094,7 +1229,7 @@ export class World {
   withdrawFromStash(id: number, uid: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
-    if (this.nearbyNpc(player)?.kind !== 'banker') return;
+    if (!hasNpcFlag(this.nearbyNpc(player)?.flags ?? 0, NpcFlags.BANKER)) return;
     if (player.gear.length >= MAX_BAG_GEAR) {
       this.notify(player.id, 'Your bag is full.');
       return;
@@ -1115,7 +1250,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'artificer') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.ARTIFICER)) return;
     const inst = player.gear.find((g) => g.uid === uid);
     if (!inst || (inst.affixes?.length ?? 0) === 0) return;
     if (player.gold < ARTIFICER_REROLL_GOLD || (player.loot.get('rune_shard') ?? 0) < 1) return;
@@ -1133,7 +1268,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'artificer') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.ARTIFICER)) return;
     if (!(EQUIP_SLOTS as string[]).includes(slot)) return;
     const inst = player.equipment[slot as EquipSlot];
     const gemId = inst?.sockets?.[index];
@@ -1158,7 +1293,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'artificer') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.ARTIFICER)) return;
     for (const gemId of Object.keys(GEMS)) {
       const have = player.loot.get(gemId) ?? 0;
       const next = nextGemTier(gemId);
@@ -1183,7 +1318,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'vendor') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.VENDOR)) return;
     const content = getContent();
     let gold = 0;
     for (const [item, qty] of player.loot) {
@@ -1209,7 +1344,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'vendor') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.VENDOR)) return;
     // Validate against the SHOWN (rotated + repriced) stock, so you can only buy what's currently on
     // the shelf and at the displayed price.
     const entry = this.vendorStockFor(npc.name).find((s) => s.itemId === itemId);
@@ -1362,7 +1497,8 @@ export class World {
   /** Grant a quest's rewards, mark it done, and notify â€” shared by kill + collect completion. */
   private completeQuest(player: Player, quest: QuestDef): void {
     player.quests.delete(quest.id);
-    player.questsDone.add(quest.id);
+    // A repeatable quest is never marked permanently done, so it can be taken again.
+    if (!hasQuestFlag(quest.flags, QuestFlags.REPEATABLE)) player.questsDone.add(quest.id);
     player.gold += quest.rewardGold;
     player.xp += quest.rewardXp;
     player.level = levelForXp(player.xp);
@@ -1550,6 +1686,17 @@ export class World {
       p.loot.set(itemId, (p.loot.get(itemId) ?? 0) + n);
     }
     return true;
+  }
+
+  /**
+   * Spawn a ground-item stack at an exact world point (no scatter). The public seam over the private
+   * `dropGround` scatter-spawn: lets tests place a drop (e.g. a health globe) at a controlled
+   * distance from a player, and gives GM tooling a way to seed loot. Returns the new item's id.
+   */
+  dropItemAt(itemId: string, qty: number, x: number, y: number): number {
+    const id = this.allocId();
+    this.items.set(id, { id, itemId, qty, x, y, ttl: ITEM_TTL_MS });
+    return id;
   }
 
   setLevel(id: number, level: number): void {
@@ -1902,19 +2049,31 @@ export class World {
    * harder (×1 + COOP_DAMAGE_PER_PLAYER each, capped), so a crowded area is genuinely more
    * dangerous — you want allies at your back, not just sharing your XP. Solo play is unscaled.
    */
-  private coopDamageScale(): number {
+  /** Living players in this instance — the head-count both co-op scales key off. */
+  private livingPlayerCount(): number {
     let alive = 0;
     for (const p of this.players.values()) if (!p.dead) alive++;
-    return Math.min(COOP_DAMAGE_CAP, 1 + COOP_DAMAGE_PER_PLAYER * Math.max(0, alive - 1));
+    return alive;
+  }
+
+  private coopDamageScale(): number {
+    return coopScale(this.livingPlayerCount(), COOP_DAMAGE_PER_PLAYER, COOP_DAMAGE_CAP);
+  }
+
+  /** Co-op GOLD multiplier: a crowded instance drops richer gold (D3 "more players, more loot"). */
+  private coopGoldScale(): number {
+    return coopScale(this.livingPlayerCount(), COOP_GOLD_PER_PLAYER, COOP_GOLD_CAP);
   }
 
   private mobOutgoing(mob: Mob, template: MobTemplate): number {
     return (
-      template.damage *
+      // Deeper rifts hit harder: scale the base by how far the mob's level outpaces its template
+      // (tier 0 keeps it exactly), capped tight so "deeper = deadlier" never spikes into one-shots.
+      scaleDamageForLevel(template.damage, mob.level, template.level, DAMAGE_LEVEL_CAP) *
       MOB_DMG_TUNING *
       this.coopDamageScale() *
       // Enraged brutes (trait, below 35% HP) hit half again as hard â€” finish them or back off.
-      traitDamageMult(mob.templateId, mob.maxHp > 0 ? mob.hp / mob.maxHp : 1) *
+      traitDamageMult(template.traits, mob.maxHp > 0 ? mob.hp / mob.maxHp : 1) *
       mob.dmgMult *
       this.corruptionDmg() *
       mob.statuses.weakenFactor() *
@@ -2139,7 +2298,8 @@ export class World {
       if (Math.hypot(player.x - pot.x, player.y - pot.y) > POT_RADIUS) continue;
       pot.broken = true;
       this.events.push({ kind: 'pickup', x: pot.x, y: pot.y });
-      const gold = POT_GOLD_MIN + Math.floor(this.rand() * (POT_GOLD_MAX - POT_GOLD_MIN + 1));
+      const base = POT_GOLD_MIN + Math.floor(this.rand() * (POT_GOLD_MAX - POT_GOLD_MIN + 1));
+      const gold = Math.round(base * tierGoldScale(this.tier) * this.coopGoldScale());
       this.dropGround('gold', gold, pot.x, pot.y);
       if (this.rand() < 0.1) {
         player.potions.health = Math.min(POTION_CAP, player.potions.health + 1);
@@ -2153,7 +2313,8 @@ export class World {
       if (c.opened) continue;
       if (Math.hypot(player.x - c.x, player.y - c.y) > CHEST_RADIUS) continue;
       c.opened = true;
-      const gold = CHEST_GOLD_MIN + Math.floor(this.rand() * (CHEST_GOLD_MAX - CHEST_GOLD_MIN + 1));
+      const base = CHEST_GOLD_MIN + Math.floor(this.rand() * (CHEST_GOLD_MAX - CHEST_GOLD_MIN + 1));
+      const gold = Math.round(base * tierGoldScale(this.tier) * this.coopGoldScale());
       this.dropGround('gold', gold, c.x, c.y);
       const corrupt = this.corruption() * config.corruption.dropMax;
       this.dropBonusGear(c.x, c.y, 1, corrupt, CHEST_UNIQUE_CHANCE); // one good piece (rare unique)...
@@ -2207,7 +2368,7 @@ export class World {
       const template = getContent().mobTemplate(mob.templateId)!;
 
       // Support casters periodically buff/heal themselves while a player is in the fight.
-      const support = MOB_SUPPORT[mob.templateId];
+      const support = template.support;
       if (support && mob.supportCd <= 0 && this.anyLivingPlayerWithin(mob, template.aggroRange)) {
         this.castMobSpell(mob, template, support);
         mob.supportCd = MOB_SUPPORT_COOLDOWN_MS;
@@ -2544,7 +2705,7 @@ export class World {
   private executeMobAttack(mob: Mob, template: MobTemplate): void {
     // Spellcaster monsters cast a real ability in place of their basic ranged/melee attack (the
     // charger keeps its signature lunge). The spell's projectile/cone debuffs the player it hits.
-    const spell = MOB_SPELLS[mob.templateId];
+    const spell = template.spell;
     if (spell && template.behavior !== 'charger') {
       this.castMobSpell(mob, template, spell);
       return;
@@ -2787,7 +2948,7 @@ export class World {
     // A hurt monster is ALERTED (extended aggro reach â€” it hunts rather than idles), and a
     // pack hunter calls for help: same-template packmates in earshot join the alert.
     mob.alertUntil = this.now + 8000;
-    if (isPackish(mob.templateId)) {
+    if (isPackish(getContent().mobTemplate(mob.templateId)?.traits)) {
       for (const ally of this.mobs.values()) {
         if (ally.dead || ally.templateId !== mob.templateId || ally.id === mob.id) continue;
         if (Math.hypot(ally.x - mob.x, ally.y - mob.y) <= 360) {
@@ -2843,10 +3004,23 @@ export class World {
     const corruptedChance = this.corruptedDropChance(mob, isBoss);
     for (const stack of content.rollLoot(mob.templateId, this.rand)) {
       const id = this.allocId();
+      // Base drop-table gold is fixed per template; scale it by the mob's actual level (i.e. rift
+      // tier) so deeper monsters spill richer hoards (tier 0 keeps the table amount), then by the
+      // co-op multiplier so a crowded instance pays more. Solo at tier 0 = exactly the table amount.
+      const qty =
+        stack.item === 'gold'
+          ? Math.round(
+              scaleGoldForLevel(
+                stack.qty,
+                mob.level,
+                content.mobTemplate(mob.templateId)?.level ?? mob.level,
+              ) * this.coopGoldScale(),
+            )
+          : stack.qty;
       const item: GroundItem = {
         id,
         itemId: stack.item,
-        qty: stack.qty,
+        qty,
         x: mob.x + (this.rand() - 0.5) * 30,
         y: mob.y + (this.rand() - 0.5) * 30,
         ttl: ITEM_TTL_MS,
@@ -2855,9 +3029,11 @@ export class World {
       if (def && def.kind === 'equip') {
         // The loot chase: a slim chance (better from bosses) the gear is instead a named unique.
         const uniqueChance = isBoss ? UNIQUE_DROP_CHANCE * 4 : UNIQUE_DROP_CHANCE;
-        if (this.rand() < uniqueChance) {
-          item.instance = rollRandomUnique(this.allocId());
-          item.itemId = item.instance.baseId;
+        const unique =
+          this.rand() < uniqueChance ? content.rollRandomUnique(this.allocId()) : undefined;
+        if (unique) {
+          item.instance = unique;
+          item.itemId = unique.baseId;
         } else {
           // A gear drop rolls a *random* equippable (any slot) for full variety; the loot table just
           // controls how often gear drops. Relabel the ground item so the glint matches the piece.
@@ -2871,9 +3047,14 @@ export class World {
       this.items.set(id, item);
     }
 
-    // Champion bonus: a pile of gold + one guaranteed, rarity-bumped piece of gear.
+    // Champion bonus: a level-scaled pile of gold + one guaranteed, rarity-bumped piece of gear.
     if (mob.elite) {
-      this.dropGround('gold', 30 + Math.floor(this.rand() * 50), mob.x, mob.y);
+      this.dropGround(
+        'gold',
+        Math.round(championGoldPile(mob.level, this.rand) * this.coopGoldScale()),
+        mob.x,
+        mob.y,
+      );
       this.dropBonusGear(mob.x, mob.y, 2, corruptedChance);
     }
 
@@ -2889,6 +3070,15 @@ export class World {
     // chipped. A socketed gem is a small, stackable build bonus â€” the "loot = your build" layer.
     const gemChance = isBoss ? GEM_DROP_BOSS : mob.elite ? GEM_DROP_ELITE : GEM_DROP_NORMAL;
     if (this.rand() < gemChance) this.dropGround(rollGemDrop(), 1, mob.x, mob.y);
+
+    // Health globes (D3): an independent roll (champions/bosses far likelier) spills a globe that
+    // instant-heals whoever walks over it — the panic-button reward that keeps a fight flowing.
+    const globeChance = isBoss
+      ? HEALTH_GLOBE_BOSS
+      : mob.elite
+        ? HEALTH_GLOBE_ELITE
+        : HEALTH_GLOBE_NORMAL;
+    if (this.rand() < globeChance) this.dropGround(HEALTH_GLOBE_ITEM, 1, mob.x, mob.y);
 
     // Living loot meta: consume this monster type's accumulated hunting bounty. A long lull since the
     // last kill (or a never-farmed type) means a high chance of a bonus rarity-bumped drop; the kill
@@ -2912,12 +3102,22 @@ export class World {
   }
 
   /** A random equippable base item (any slot), or null if the content has none. */
-  private randomEquipBase(): BaseItem | null {
-    const equips = getContent()
+  /**
+   * All equippable BASE items from the content DB, as BaseItems (the pool for random gear / gamble
+   * rolls). Legendaries live in the items table too (LEGENDARY flag) but are excluded here — they
+   * drop only via the dedicated unique roll, never from a random/gamble pull.
+   */
+  private equipBases(): BaseItem[] {
+    return getContent()
       .items()
-      .filter((i) => i.kind === 'equip');
-    const def = equips[Math.floor(this.rand() * equips.length)];
-    return def ? asBaseItem(def) : null;
+      .filter((i) => i.kind === 'equip' && !hasItemFlag(i.flags, ItemFlags.LEGENDARY))
+      .map(asBaseItem)
+      .filter((b): b is BaseItem => b !== null);
+  }
+
+  private randomEquipBase(): BaseItem | null {
+    const bases = this.equipBases();
+    return bases[Math.floor(this.rand() * bases.length)] ?? null;
   }
 
   /** Drop one random equipment piece as a rolled, rarity-bumped instance (elite + bounty rewards). */
@@ -2930,9 +3130,11 @@ export class World {
   ): void {
     // The loot chase: a slim chance the piece is instead a named unique (its own base + fixed affixes).
     if (uniqueChance > 0 && this.rand() < uniqueChance) {
-      const inst = rollRandomUnique(this.allocId());
-      this.dropGround(inst.baseId, 1, x, y).instance = inst;
-      return;
+      const inst = getContent().rollRandomUnique(this.allocId());
+      if (inst) {
+        this.dropGround(inst.baseId, 1, x, y).instance = inst;
+        return;
+      }
     }
     const base = this.randomEquipBase();
     if (!base) return;
@@ -3093,10 +3295,21 @@ export class World {
         this.items.delete(item.id);
         continue;
       }
+      // Gold-vacuum: pull a gold drop toward the nearest living player in magnet range (ARPG feel).
+      if (item.itemId === 'gold') {
+        const moved = goldMagnetStep(item, this.players.values(), dt);
+        item.x = moved.x;
+        item.y = moved.y;
+      }
       for (const player of this.players.values()) {
         if (player.dead) continue;
         if (Math.hypot(player.x - item.x, player.y - item.y) <= PICKUP_RADIUS) {
-          if (item.itemId === 'gold') {
+          // Health globe: only a wounded player collects it — a full-HP player walks over it and
+          // leaves it on the ground for an ally who needs it (D3 globes persist until used).
+          if (item.itemId === HEALTH_GLOBE_ITEM) {
+            if (player.hp >= player.maxHp) continue;
+            this.collectHealthGlobe(player);
+          } else if (item.itemId === 'gold') {
             player.gold += item.qty;
             this.events.push({ kind: 'coin', x: item.x, y: item.y, value: item.qty });
           } else if (item.instance) {
@@ -3116,6 +3329,29 @@ export class World {
         }
       }
     }
+  }
+
+  /**
+   * Apply a health globe a `picker` walked over: instant-heal the picker, and every living ally
+   * within {@link GLOBE_ALLY_RADIUS} a smaller share (D3 globes heal the whole group). Each heal is
+   * clamped to that character's missing-HP headroom and emits a 'heal' floater for the client.
+   */
+  private collectHealthGlobe(picker: Player): void {
+    this.healByGlobe(picker, GLOBE_HEAL_FRAC);
+    for (const ally of this.players.values()) {
+      if (ally === picker || ally.dead) continue;
+      if (Math.hypot(ally.x - picker.x, ally.y - picker.y) <= GLOBE_ALLY_RADIUS) {
+        this.healByGlobe(ally, GLOBE_ALLY_HEAL_FRAC);
+      }
+    }
+  }
+
+  /** Heal one player by a fraction of their max HP (clamped to the missing headroom) + a floater. */
+  private healByGlobe(player: Player, frac: number): void {
+    const healed = Math.min(player.maxHp - player.hp, healthGlobeHeal(player.maxHp, frac));
+    if (healed <= 0) return;
+    player.hp += healed;
+    this.events.push({ kind: 'heal', x: player.x, y: player.y, value: Math.round(healed) });
   }
 
   private damagePlayer(player: Player, amount: number, silent = false): void {

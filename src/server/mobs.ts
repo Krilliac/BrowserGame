@@ -39,6 +39,12 @@ export interface MobTemplate {
   slamRadius?: number;
   /** Charger only: dash speed (px/s) of the lunge after the wind-up. */
   dashSpeed?: number;
+  /** Caster: ability id this mob casts in place of its basic attack (loaded from the DB). */
+  spell?: AbilityId;
+  /** Support caster: a self buff/heal ability cast periodically while fighting (loaded from the DB). */
+  support?: AbilityId;
+  /** Personality traits that vary how it fights (loaded from the DB; see {@link MobTrait}). */
+  traits?: MobTrait[];
 }
 
 /**
@@ -1399,6 +1405,237 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     telegraphMs: 880,
     slamRadius: 160,
   },
+
+  // ===================================================================================
+  // Wilds bestiary — wildlife and vermin that fill the ecological gaps across the world,
+  // each drawn from a so-far-unused 32rogues sprite (spider, satyr, rat, snake, ant,
+  // cockatrice, earthworm). Spread early→mid-late so every act gains a roaming species.
+  // Seeded into areas + loot via src/server/db/seed-wilds.ts.
+  // ===================================================================================
+
+  // --- Gloomwood Wilderness (L2-5): a venom-fanged ambusher and a goat-legged charger. ---
+  gloomweb_spider: {
+    id: 'gloomweb_spider',
+    name: 'Gloomweb Spider',
+    hp: 28,
+    level: 3,
+    hue: 280,
+    speed: 150, // a fast, flanking skitter
+    aggroRange: 300,
+    attackRange: 40,
+    damage: 6,
+    attackCooldownMs: 800,
+    behavior: 'melee',
+    telegraphMs: 150,
+  },
+  bramble_satyr: {
+    id: 'bramble_satyr',
+    name: 'Bramble Satyr',
+    hp: 64,
+    level: 5,
+    hue: 110,
+    speed: 100,
+    aggroRange: 360,
+    attackRange: 190, // charge-trigger distance
+    damage: 12,
+    attackCooldownMs: 1900,
+    behavior: 'charger',
+    telegraphMs: 480,
+    dashSpeed: 500,
+  },
+
+  // --- Shadow Crypt (L5-7): skittering tomb vermin that swarm and flee when alone. ---
+  tomb_rat: {
+    id: 'tomb_rat',
+    name: 'Tomb Rat',
+    hp: 22,
+    level: 5,
+    hue: 30,
+    speed: 155,
+    aggroRange: 260,
+    attackRange: 36,
+    damage: 6,
+    attackCooldownMs: 700,
+    behavior: 'melee',
+    telegraphMs: 130,
+  },
+
+  // --- Rotfen Marsh (L8-12): a venom-spitting serpent that kites from the reeds. ---
+  mire_serpent: {
+    id: 'mire_serpent',
+    name: 'Mire Serpent',
+    hp: 70,
+    level: 9,
+    hue: 140,
+    speed: 105,
+    aggroRange: 470,
+    attackRange: 350,
+    damage: 13,
+    attackCooldownMs: 1600,
+    behavior: 'ranged',
+    telegraphMs: 600,
+    projectileSpeed: 300,
+    kiteRange: 210,
+  },
+
+  // --- Emberdeep Mines (L12-16): a chitinous swarm-ant from the deep galleries. ---
+  cinder_ant: {
+    id: 'cinder_ant',
+    name: 'Cinder Ant',
+    hp: 110,
+    level: 14,
+    hue: 18,
+    speed: 120,
+    aggroRange: 320,
+    attackRange: 46,
+    damage: 18,
+    attackCooldownMs: 1000,
+    behavior: 'melee',
+    telegraphMs: 220,
+  },
+
+  // --- Frostpeak Pass (L15-20): a petrifying cockatrice whose gaze-bolt slows on hit. ---
+  wyrmcrag_cockatrice: {
+    id: 'wyrmcrag_cockatrice',
+    name: 'Wyrmcrag Cockatrice',
+    hp: 150,
+    level: 18,
+    hue: 200,
+    speed: 110,
+    aggroRange: 500,
+    attackRange: 360,
+    damage: 22,
+    attackCooldownMs: 1700,
+    behavior: 'ranged',
+    telegraphMs: 680,
+    projectileSpeed: 320,
+    kiteRange: 230,
+  },
+
+  // --- The Sundered Wastes (L20-26): a void-bloated burrower that heaves up to slam. ---
+  sundered_worm: {
+    id: 'sundered_worm',
+    name: 'Sundered Worm',
+    hp: 190,
+    level: 24,
+    hue: 300,
+    speed: 78,
+    aggroRange: 340,
+    attackRange: 60,
+    damage: 30,
+    attackCooldownMs: 1500,
+    behavior: 'melee',
+    telegraphMs: 560,
+    slamRadius: 120,
+  },
+
+  // --- Act 2 road wilds (L22-28): a barrow swarm, a pine ambusher, a drowned caster. ---
+  barrow_vermin: {
+    id: 'barrow_vermin',
+    name: 'Barrow Vermin',
+    hp: 95,
+    level: 22,
+    hue: 210,
+    speed: 160, // a fast grave-rat swarm amid the slow barrow dead
+    aggroRange: 280,
+    attackRange: 40,
+    damage: 16,
+    attackCooldownMs: 720,
+    behavior: 'melee',
+    telegraphMs: 140,
+  },
+  pineweb_spider: {
+    id: 'pineweb_spider',
+    name: 'Pineweb Spider',
+    hp: 130,
+    level: 24,
+    hue: 90,
+    speed: 150,
+    aggroRange: 320,
+    attackRange: 44,
+    damage: 22,
+    attackCooldownMs: 900,
+    behavior: 'melee',
+    telegraphMs: 170,
+  },
+  drowned_serpent: {
+    id: 'drowned_serpent',
+    name: 'Tidefang Serpent',
+    hp: 160,
+    level: 28,
+    hue: 150,
+    speed: 110,
+    aggroRange: 480,
+    attackRange: 360,
+    damage: 28,
+    attackCooldownMs: 1600,
+    behavior: 'ranged',
+    telegraphMs: 640,
+    projectileSpeed: 320,
+    kiteRange: 230,
+  },
+
+  // --- Act 3 dead-lands wilds (L29-49): a citadel spider, a desert serpent, a chasm
+  // burrower, and a void swarm — wildlife persisting where the world is coming apart. ---
+  blightweb_spider: {
+    id: 'blightweb_spider',
+    name: 'Blightweb Spider',
+    hp: 185, // floor mobs stay under 200 (so traits apply); threat scales via damage/level
+    level: 29,
+    hue: 90,
+    speed: 150,
+    aggroRange: 330,
+    attackRange: 46,
+    damage: 36,
+    attackCooldownMs: 900,
+    behavior: 'melee',
+    telegraphMs: 180,
+  },
+  dune_serpent: {
+    id: 'dune_serpent',
+    name: 'Dune Serpent',
+    hp: 180,
+    level: 41,
+    hue: 40,
+    speed: 112,
+    aggroRange: 500,
+    attackRange: 370,
+    damage: 52,
+    attackCooldownMs: 1600,
+    behavior: 'ranged',
+    telegraphMs: 660,
+    projectileSpeed: 330,
+    kiteRange: 240,
+  },
+  chasm_worm: {
+    id: 'chasm_worm',
+    name: 'Chasm Worm',
+    hp: 195,
+    level: 45,
+    hue: 280,
+    speed: 80,
+    aggroRange: 350,
+    attackRange: 64,
+    damage: 70,
+    attackCooldownMs: 1500,
+    behavior: 'melee',
+    telegraphMs: 580,
+    slamRadius: 130,
+  },
+  void_vermin: {
+    id: 'void_vermin',
+    name: 'Void Vermin',
+    hp: 150, // a squishy but fast swarm pouring through the fraying world
+    level: 49,
+    hue: 285,
+    speed: 165,
+    aggroRange: 300,
+    attackRange: 42,
+    damage: 44,
+    attackCooldownMs: 720,
+    behavior: 'melee',
+    telegraphMs: 150,
+  },
 };
 
 export interface AreaMobSpawn {
@@ -1534,6 +1771,11 @@ export const MOB_SPELLS: Record<string, AbilityId> = {
   ashveil_gorgon: 'frostlance', // the petrifying gaze — slows on hit
   vessirah: 'arcane_orb',
   court_oracle: 'thunderlance',
+  // Wilds bestiary casters.
+  mire_serpent: 'poison_spit', // a venom bolt from the reeds
+  wyrmcrag_cockatrice: 'frostlance', // the petrifying gaze — slows on hit
+  drowned_serpent: 'venom', // a heavier venom bolt down the drowned road
+  dune_serpent: 'venom', // the desert viper's spit
 };
 
 /**
@@ -1632,20 +1874,37 @@ export const MOB_TRAITS: Record<string, MobTrait[]> = {
   causeway_golem: ['enrage'],
   voidtouched_centaur: ['flanker'],
   null_revenant: ['enrage', 'flanker'],
+  // Wilds bestiary — vermin swarm, the cockatrice/worm enrage, beasts flank.
+  tomb_rat: ['pack', 'craven'],
+  cinder_ant: ['pack'],
+  gloomweb_spider: ['pack', 'flanker'],
+  bramble_satyr: ['flanker'],
+  mire_serpent: ['craven'],
+  wyrmcrag_cockatrice: ['enrage'],
+  sundered_worm: ['enrage'],
+  // Act 2 road wilds.
+  barrow_vermin: ['pack', 'craven'],
+  pineweb_spider: ['pack', 'flanker'],
+  drowned_serpent: ['craven'],
+  // Act 3 dead-lands wilds.
+  blightweb_spider: ['pack', 'flanker'],
+  dune_serpent: ['craven'],
+  chasm_worm: ['enrage'],
+  void_vermin: ['pack', 'craven'],
 };
 
 /**
  * Damage multiplier the orchestrator applies to an attacking mob's outgoing damage:
  * enraged templates hit 1.5x harder while below the enrage threshold.
  */
-export function traitDamageMult(templateId: string, hpFrac: number): number {
-  const enraged = MOB_TRAITS[templateId]?.includes('enrage') && hpFrac < ENRAGE_HP_FRAC;
+export function traitDamageMult(traits: MobTrait[] | undefined, hpFrac: number): number {
+  const enraged = traits?.includes('enrage') && hpFrac < ENRAGE_HP_FRAC;
   return enraged ? 1.5 : 1;
 }
 
 /** Whether a template runs in packs — the orchestrator uses this for help-calls (alerting packmates). */
-export function isPackish(templateId: string): boolean {
-  return MOB_TRAITS[templateId]?.includes('pack') ?? false;
+export function isPackish(traits: MobTrait[] | undefined): boolean {
+  return traits?.includes('pack') ?? false;
 }
 
 export interface MobView {
@@ -1710,7 +1969,7 @@ export function stepMob(
   aggroScale = 1,
   ctx?: MobStepContext,
 ): MobIntent {
-  const traits = ctx ? (MOB_TRAITS[mob.template.id] ?? []) : [];
+  const traits = ctx ? (mob.template.traits ?? []) : [];
 
   let aggroMult = 1;
   let speedMult = 1;

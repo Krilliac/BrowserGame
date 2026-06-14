@@ -15,6 +15,7 @@ import {
 } from 'pixi.js';
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import { RARITY, type Rarity } from '../shared/items.js';
+import { lootGlint } from './loot-glint.js';
 import type { EntityState } from '../shared/protocol.js';
 import type { DecorProp } from '../shared/areas.js';
 import { BOULDER_BASE_RADIUS } from '../shared/collision.js';
@@ -22,6 +23,7 @@ import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
 import { Weather } from './weather.js';
+import { CloudShadows } from './clouds.js';
 import { Lighting, type LightSource } from './lighting.js';
 import { PostFx, type Quality } from './post-fx.js';
 import { Decals } from './decals.js';
@@ -59,11 +61,15 @@ import {
   groundTilesetFor,
   patchCoverage,
   patchTileFor,
+  pathCoverage,
+  pathTileFor,
   pickTile,
+  PATTERN_TILES,
 } from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
 import { combineTints } from './tint.js';
 import { backOut, cubicOut } from './easing.js';
+import { shadowLift } from './shadow-lift.js';
 
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
@@ -190,6 +196,7 @@ const ITEM_COLORS: Record<string, string> = {
   bone: '#e8e2d0',
   bat_wing: '#7a5a8a',
   rune_shard: '#5fb0e0',
+  healthglobe: '#ff3b4e', // a glowing red life orb (drawn as a pulsing orb, no sheet icon)
 };
 
 interface Sheet {
@@ -456,6 +463,18 @@ interface ActorView {
   dyn?: Graphics;
   /** Soft, directional ground shadow (leans away from a fixed sun — the D2 "planted" cue). */
   shadow?: Sprite;
+  /** Planted (grounded) metrics of the ground shadow — its base scale, offset + alpha captured at
+   *  build time. The per-frame cues (`liftShadow`) multiply from this baseline: the height-reactive
+   *  shrink/fade as the caster rises off the ground, and the time-of-day sun stretch/fade. `ox`/`oy`
+   *  is the shadow's planted offset from the feet, lengthened with the shadow toward dusk. */
+  shadowPlanted?: {
+    node: Container;
+    sx: number;
+    sy: number;
+    ox: number;
+    oy: number;
+    alpha: number;
+  };
   /** Important actors (hero/elite): a sheared, darkened sprite-copy cast shadow (RENDER-07). It
    *  shares the body's current frame texture, so it always matches the pose (updated on frame change). */
   castShadow?: Sprite;
@@ -499,6 +518,8 @@ const SHADOW_OFFSET_X = 0.42; // shadow slides toward lower-right (away from the
 const SHADOW_OFFSET_Y = 0.18;
 const SHADOW_SKEW = -0.55; // slants the ellipse so it reads as cast across the ground
 const SHADOW_ALPHA = 0.42;
+const CAST_SHADOW_ALPHA = 0.4; // sheared sprite-copy cast shadow (hero/elites), at the noon sun
+const CONTACT_AO_ALPHA = 0.3; // tight planted ambient-occlusion core directly under the feet
 
 export class PixiRenderer {
   private readonly ground: TilingSprite;
@@ -517,6 +538,8 @@ export class PixiRenderer {
   private readonly quality: Quality = navigator.maxTouchPoints > 0 ? 'low' : 'high';
   // Bloom on the additive light overlay (torch, portals, spell glow). Quality-gated for phones.
   private readonly postFx = new PostFx(this.quality);
+  // Drifting cloud shadows over the ground (outdoor + daylight only; off on touch). World-anchored.
+  private readonly clouds = new CloudShadows(this.quality, PITCH);
   // Ground decals (blood/scorch/corpse stains) — world-space, above ground, below props/actors.
   private readonly decals = new Decals(this.quality);
   // Water ponds (RENDER-11): a stage-level, world-anchored layer above the ground, below the world.
@@ -568,6 +591,9 @@ export class PixiRenderer {
   // Local player's equipped "look" (which paper-doll layers to show), set from net.you.equipment.
   private playerLook: Record<string, boolean> = { armor: false, weapon: false, helm: false };
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
+  // Time-of-day sun shadow multipliers (length + alpha), refreshed once per frame from the
+  // atmosphere's day/night clock and applied to every actor/loot/projectile shadow.
+  private frameSun = { stretch: 1, alpha: 1 };
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
   private lastDecalT0 = 0; // newest FX timestamp already turned into decals/particles
@@ -616,6 +642,7 @@ export class PixiRenderer {
       this.ground,
       this.terrain.layer, // heightmapped ground mesh for wild areas, replacing the flat ground (RENDER-08)
       this.water.layer, // world-anchored ponds: above the ground, below the world (RENDER-11)
+      this.clouds.layer, // world-anchored drifting cloud shadows: above ground/water, below the world
       this.world,
       this.litSprite,
       this.atmosphere.particleLayer,
@@ -787,6 +814,7 @@ export class PixiRenderer {
     this.currentTheme = theme;
     this.atmosphere.setArea(theme);
     this.weather.setWeather(theme.weather, theme.weatherIntensity, theme.fogColor);
+    this.clouds.setArea(theme.outdoor); // drifting ground cloud-shadows, outdoor only
     this.screenFx.setArea(areaId, theme.outdoor); // godrays + LUT/heat config (RENDER-10/12/13)
     this.applyGrade(theme);
     this.fadeAlpha = 1; // brief fade-from-black as the new area pops in
@@ -1807,6 +1835,7 @@ export class PixiRenderer {
     this.world.position.set(originX, originY);
     this.world.scale.set(z);
     this.water.syncTransform(originX, originY, z); // keep ponds world-anchored (RENDER-11)
+    this.clouds.syncTransform(originX, originY, z); // keep cloud shadows world-anchored
     this.terrain.syncTransform(originX, originY, z); // keep the terrain mesh world-anchored (RENDER-08)
     this.ground.width = sw;
     this.ground.height = sh;
@@ -1821,6 +1850,18 @@ export class PixiRenderer {
     this.atmosphere.particleLayer.visible = this.effectsEnabled;
     this.decals.setVisible(this.effectsEnabled);
     this.particles.setVisible(this.effectsEnabled);
+
+    // Drifting cloud shadows: world-anchored patches that slide over the ground with the wind and
+    // fade with the sun (outdoor + daylight only). Visible world half-extents come straight from the
+    // projection; hidden with "reduce effects" alongside the weather + motes.
+    if (this.effectsEnabled) {
+      const cloudHalfW = sw / 2 / z;
+      const cloudHalfH = sh / (2 * PITCH * z);
+      const daylight = 1 - this.atmosphere.nightFactor();
+      this.clouds.update(now, this.camX, this.camY, cloudHalfW, cloudHalfH, daylight);
+    } else {
+      this.clouds.layer.visible = false;
+    }
 
     // Dynamic lights (additive): the local player carries a torch at screen center; portals glow.
     // Strength scales with night + the area's ambient-light theme, so they matter after dark.
@@ -1888,6 +1929,9 @@ export class PixiRenderer {
     // on the actor's view the same tick the entity drops out of the snapshot.
     const nowMs = performance.now();
     this.triggerAnimEvents(state.fx, nowMs);
+
+    // Refresh the time-of-day sun once for the whole frame so every shadow rakes consistently.
+    this.frameSun = this.atmosphere.sunShadow();
 
     for (const view of this.views.values()) view.seen = false;
     for (const e of state.entities) {
@@ -2165,6 +2209,25 @@ export class PixiRenderer {
     return best;
   }
 
+  /**
+   * Drive a planted ground shadow from two cues, both multiplying its captured baseline (no-op until
+   * a `shadowPlanted` was captured):
+   *   - height-reactive: shrink + fade as the caster rises off the plane (`lift`, world px), the
+   *     readable "how high is this" contact cue, snapping tight on landing;
+   *   - time-of-day sun: lengthen + fade toward dawn/dusk, short + dark at noon (`this.frameSun`).
+   * The sun stretches *length* (scale.y) + reach (offset), not width, so the shadow rakes away from
+   * the feet rather than ballooning.
+   */
+  private liftShadow(view: ActorView, lift: number, falloff?: number): void {
+    const p = view.shadowPlanted;
+    if (!p) return;
+    const m = shadowLift(lift, falloff);
+    const sun = this.frameSun;
+    p.node.scale.set(p.sx * m.scale, p.sy * m.scale * sun.stretch);
+    p.node.position.set(p.ox * sun.stretch, p.oy * sun.stretch);
+    p.node.alpha = p.alpha * m.alpha * sun.alpha;
+  }
+
   private updateActor(e: EntityState, isSelf: boolean): void {
     let view = this.views.get(e.id);
     if (!view) {
@@ -2190,7 +2253,18 @@ export class PixiRenderer {
       const sheet = view.sheet;
       const { row, col } = resolveAnim(anim, sheet.clips, e.facing, moving, now);
       view.sprite.texture = this.frame(sheetKey(e)!, sheet.fw, sheet.fh, col, row);
-      if (view.castShadow) view.castShadow.texture = view.sprite.texture; // keep the cast pose in sync
+      if (view.castShadow) {
+        const cs = view.castShadow;
+        cs.texture = view.sprite.texture; // keep the cast pose in sync
+        // Rake the sheared cast shadow with the same time-of-day sun as the blob shadows: longer +
+        // fainter toward dusk, short + dark at noon. Recomputed from the planted constants each
+        // frame (no drift), scaling length (scale.y) + reach (offset), not width.
+        const sun = this.frameSun;
+        const csR = e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS;
+        cs.scale.set(sheet.scale, sheet.scale * PITCH * sun.stretch);
+        cs.position.set(csR * SHADOW_OFFSET_X * sun.stretch, csR * SHADOW_OFFSET_Y * sun.stretch);
+        cs.alpha = CAST_SHADOW_ALPHA * sun.alpha;
+      }
 
       // A small vertical bob — a quick footstep lift while moving, a slow breath while idle —
       // staggered per entity so a crowd doesn't pulse in lockstep. Sells the billboards as alive.
@@ -2241,6 +2315,11 @@ export class PixiRenderer {
           ? -Math.abs(Math.sin(now / 110 + phase)) * 2.5
           : Math.sin(now / 420 + phase) * 1.2;
     }
+    // Drive the blob shadow each frame: the height-reactive shrink/fade as the billboard rises off
+    // the ground (walk bob, idle breath, flyer hover; sprite.y is the negative lift) plus the
+    // time-of-day sun rake. Procedural orbs don't bob (lift 0) but still want the sun; cast-shadow
+    // actors have no shadowPlanted, so liftShadow no-ops for them (their cast copy rakes instead).
+    this.liftShadow(view, view.sprite ? Math.max(0, -view.sprite.y) : 0);
     view.lastX = e.x;
     view.lastY = e.y;
     if (view.sprite) {
@@ -2314,6 +2393,19 @@ export class PixiRenderer {
     shadow.position.set(radius * SHADOW_OFFSET_X, radius * SHADOW_OFFSET_Y);
     shadow.skew.x = SHADOW_SKEW;
     container.addChild(shadow);
+    // Contact-AO core (desktop only): a small, tight, dark soft ellipse pinned at the feet that —
+    // unlike the directional shadow above — never lifts or rakes. It's the ambient occlusion where
+    // body meets ground, the "#1 planted-vs-floating" cue: as the directional shadow shrinks/slides
+    // off with height or a low sun, this core stays put, so the figure reads as truly grounded (and
+    // a rising one visibly parts from its contact point). Flyers never touch the ground, so skip it.
+    if (this.quality === 'high' && flyHeight(e) === 0) {
+      const contact = new Sprite(this.softShadowTexture());
+      contact.anchor.set(0.5, 0.5);
+      contact.width = radius * 1.5;
+      contact.height = radius * 0.7;
+      contact.alpha = CONTACT_AO_ALPHA;
+      container.addChild(contact);
+    }
     // The local player keeps a thin gold ground-ring so you can always pick yourself out.
     if (isSelf) {
       const ring = new Graphics();
@@ -2366,7 +2458,7 @@ export class PixiRenderer {
         cast.scale.set(sheet.scale, sheet.scale * PITCH); // flatten onto the tilted ground
         cast.skew.x = SHADOW_SKEW;
         cast.tint = 0x000000;
-        cast.alpha = 0.4;
+        cast.alpha = CAST_SHADOW_ALPHA;
         cast.position.set(radius * SHADOW_OFFSET_X, radius * SHADOW_OFFSET_Y);
         container.addChildAt(cast, 0); // behind the body and the blob
         view.castShadow = cast;
@@ -2420,6 +2512,20 @@ export class PixiRenderer {
       mark.anchor.set(0.5, 1);
       mark.position.set(0, view.topY - 22);
       container.addChild(mark);
+    }
+    // Capture the blob shadow's planted scale/alpha so the per-frame height cue (liftShadow) can
+    // shrink + fade it from this baseline as the actor bobs/hovers. Skipped when the blob is hidden
+    // behind a sheared cast shadow (important actors): their bob is small and the cast copy already
+    // sells the contact.
+    if (shadow.visible) {
+      view.shadowPlanted = {
+        node: shadow,
+        sx: shadow.scale.x,
+        sy: shadow.scale.y,
+        ox: shadow.position.x,
+        oy: shadow.position.y,
+        alpha: shadow.alpha,
+      };
     }
     return view;
   }
@@ -2478,10 +2584,14 @@ export class PixiRenderer {
     if (!view) {
       const container = new Container();
       view = { container, topY: 0, lastX: e.x, lastY: e.y, lastHp: 0, flashUntil: 0, seen: true };
-      // Ground shadow on the plane; the projectile itself rides above it (a 2.5D height cue).
+      // Ground shadow on the plane; the projectile itself rides above it (a 2.5D height cue). The
+      // shadow is shrunk + faded once to match the constant flight elevation, so it reads as a
+      // contact shadow cast from the air rather than a blob welded to the missile.
       const shadow = new Graphics();
       shadow.ellipse(0, 0, radius * 1.3, radius * 0.6).fill({ color: '#000000', alpha: 0.28 });
       container.addChild(shadow);
+      view.shadowPlanted = { node: shadow, sx: 1, sy: 1, ox: 0, oy: 0, alpha: 1 };
+      this.liftShadow(view, PROJECTILE_HEIGHT);
       if (strip && hasStrip) {
         const s = new Sprite(this.frame(strip.alias, 16, 16, 0, 0));
         s.anchor.set(0.5);
@@ -2545,6 +2655,32 @@ export class PixiRenderer {
       const shadow = new Graphics();
       shadow.ellipse(0, 0, 8, 4).fill({ color: '#000000', alpha: 0.3 });
       container.addChild(shadow);
+      // Rarity glint: a static additive halo under the drop in its rarity color (brighter the rarer),
+      // so a good drop reads from across the screen — the ARPG loot-pop. Drawn once (no per-frame
+      // cost); the glow is hidden when effects are reduced, the top-tier name label always shows.
+      const glint = lootGlint(e.rarity);
+      if (this.effectsEnabled && glint.intensity > 0) {
+        const glow = new Graphics();
+        const r = 9 + glint.intensity * 8;
+        glow.circle(0, -8, r).fill({ color: glint.color, alpha: 0.1 + glint.intensity * 0.16 });
+        glow
+          .circle(0, -8, r * 0.55)
+          .fill({ color: glint.color, alpha: 0.12 + glint.intensity * 0.18 });
+        glow.blendMode = 'add';
+        container.addChild(glow);
+      }
+      // D2-style drop label for the genuinely exciting tiers (epic+ / unique / corrupted): the item's
+      // name floats over the drop in its rarity color so you know it's worth the trip.
+      if (glint.label) {
+        const name = this.content.item(e.itemId ?? '')?.name ?? e.itemId ?? 'Item';
+        const label = new Text({
+          text: name,
+          style: { fontFamily: 'system-ui', fontWeight: 'bold', fontSize: 11, fill: glint.color },
+        });
+        label.anchor.set(0.5, 1);
+        label.position.set(0, -20);
+        container.addChild(label);
+      }
       view = {
         container,
         topY: 0,
@@ -2554,6 +2690,9 @@ export class PixiRenderer {
         flashUntil: 0,
         seen: true,
         spawnT: performance.now(),
+        // The flat ellipse drops at node scale/alpha 1 (its fill carries the 0.3 visible alpha), so
+        // the height cue multiplies cleanly from this baseline as the drop pops + settles.
+        shadowPlanted: { node: shadow, sx: 1, sy: 1, ox: 0, oy: 0, alpha: 1 },
       };
       if (alias && this.tex.has(alias)) {
         const s = new Sprite(this.tex.get(alias)!);
@@ -2574,13 +2713,16 @@ export class PixiRenderer {
     view.seen = true;
     view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
-    // Loot pop: the drop hops up and settles with a back-out overshoot when it first appears
-    // (shadow stays planted) — the easing gives it that satisfied little bounce on landing.
+    // Loot pop: the drop hops up and settles with a back-out overshoot when it first appears — the
+    // easing gives it that satisfied little bounce on landing. The ground shadow shrinks + fades on
+    // the way up and snaps tight as the icon lands, so the hop reads as real height (a shorter
+    // falloff than actors since the pop arc is brief and sharp).
     const drop = view.sprite ?? view.orb;
     if (drop) {
       const age = performance.now() - (view.spawnT ?? 0);
       const t = age / LOOT_POP_MS;
       drop.y = t < 1 ? -Math.sin(t * Math.PI) * LOOT_POP_HEIGHT * (2 - backOut(t)) : 0;
+      this.liftShadow(view, Math.max(0, -drop.y), LOOT_POP_HEIGHT * 1.7);
     }
   }
 
@@ -2808,6 +2950,20 @@ export class PixiRenderer {
         t.style.fill = '#f2c14e';
         t.alpha = alpha;
         t.position.set(x, y - 40 - age * 24);
+      } else if (ev.kind === 'heal' && ev.value !== undefined) {
+        // HP restored (a health globe): a rising "+N" in life-red, with a soft expanding ring.
+        g.circle(x, y - 16, 6 + age * 22).stroke({
+          width: 2,
+          color: '#ff5d6c',
+          alpha: alpha * 0.7,
+        });
+        const t = this.fxText(ti++);
+        t.visible = true;
+        t.text = `+${ev.value}`;
+        t.style.fontSize = 16;
+        t.style.fill = '#ff6b78';
+        t.alpha = alpha;
+        t.position.set(x, y - 44 - age * 26);
       } else if (ev.kind === 'levelup') {
         // A gold burst ring + a "Level N!" callout rising over the player.
         g.circle(x, y - 16, 14 + age * 46).stroke({ width: 3, color: '#ffe08a', alpha });
@@ -3061,13 +3217,16 @@ export class PixiRenderer {
     // their tile/blend lists, so keying on src alone collided and the second area reused the first bake.
     const key = `tiles:${ts.src}:${ts.tiles.map((t) => `${t.col},${t.row},${t.weight}`).join('|')}:${
       ts.blend
-        ? `b${ts.blend.patch.map((p) => `${p.col},${p.row}`).join('.')}@${ts.blend.threshold}`
+        ? `b${ts.blend.patch.map((p) => `${p.col},${p.row}`).join('.')}@${ts.blend.threshold}` +
+          (ts.blend.path
+            ? `p${ts.blend.path.tiles.map((p) => `${p.col},${p.row}`).join('.')}@${ts.blend.path.threshold}`
+            : '')
         : ''
     }`;
     const cached = this.groundTextures.get(key);
     if (cached) return cached;
     const TILE_WORLD = 32; // world px per tile (16px art shown 2×, 32px art native)
-    const N = 16; // pattern tiles per side — big enough that the repeat reads as natural ground
+    const N = PATTERN_TILES; // pattern tiles per side — the dirt-path layer is periodic over this
     const cv = document.createElement('canvas');
     cv.width = N * TILE_WORLD;
     cv.height = N * TILE_WORLD;
@@ -3091,8 +3250,19 @@ export class PixiRenderer {
         // Base floor first (un-annotated tilesets stop here → byte-identical to before).
         const base = pickTile(ts, gx, gy);
         drawCell(base.col, base.row, gx, gy);
-        // Then fade a clustered detail patch over it where the biome-noise says so (RENDER-04).
         if (ts.blend) {
+          // Worn dirt trails next, faded in at their edges — under the detail patches so a wildflower
+          // can still sit at a trail's grassy verge (seamless across the repeat — see pathCoverage).
+          const pathCov = pathCoverage(ts, gx, gy);
+          if (pathCov > 0.02) {
+            const dirt = pathTileFor(ts, gx, gy);
+            if (dirt) {
+              ctx.globalAlpha = pathCov;
+              drawCell(dirt.col, dirt.row, gx, gy);
+              ctx.globalAlpha = 1;
+            }
+          }
+          // Then fade a clustered detail patch over it where the biome-noise says so (RENDER-04).
           const cov = patchCoverage(ts, gx, gy);
           if (cov > 0.02) {
             const pt = patchTileFor(ts, gx, gy);

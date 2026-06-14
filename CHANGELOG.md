@@ -6,8 +6,171 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Exception handling + null guards at the runtime boundaries (resilience).** Hardened the spots
+  where an unguarded throw or disabled-storage failure could take down more than the one operation
+  that caused it — building on the existing `runGuarded` / `decodeClient`-null-return / per-socket
+  error-handler discipline rather than blanket-wrapping pure sim code:
+  - **Server last-resort net:** `process.on('uncaughtException' | 'unhandledRejection')` now log the
+    error, count it for the `/health` readout, and keep the world running — a stray throw from a
+    timer callback, a library emit, or an async gap no longer crashes the process and disconnects
+    every player.
+  - **Startup fails loudly, not cryptically:** opening the game DB is wrapped so a corrupt/locked
+    file or bad permissions prints a clear `FATAL` line and exits cleanly instead of dumping a raw
+    stack; the HTTP server's `error` event (e.g. `EADDRINUSE`) does the same, and the
+    `WebSocketServer`'s server-level `error` is now handled (previously unhandled → process death).
+  - **The remaining periodic loops are guarded** (autosave, social liveness, invasion, corruption
+    announcements) with `runGuarded`, matching the tick/density loops — a single failed save (db
+    momentarily locked) can no longer throw out of the timer and silently kill all future runs of it.
+  - **Client tolerates disabled/over-quota `localStorage`** (private-browsing mode) when reading the
+    saved character token and minting the player name at bootstrap, matching how `settings.ts` /
+    `inspector.ts` already degrade — storage failures no longer blank the whole app on load.
+  - **Client message pump is contained:** a well-formed-but-unexpected server frame hitting a handler
+    is caught per-message so it can't throw out of the socket listener and stop later frames.
+
 ### Added
 
+- **Individual creature spawns — the template-vs-spawn split (UID/guid placements).** A new
+  `creature_spawns` table places one monster per row (its own `uid`) referencing a `mob_templates`
+  entry, at a fixed position, with a per-spawn `flags` bitmask (`CreatureSpawnFlags`, e.g. forced
+  `ELITE`). `content.ts` exposes `creatureSpawns(areaId)` and `world.ts` places them alongside the
+  count-based `area_mobs` random scatter. Empty by default (no gameplay change); add rows via SQL to
+  pin a named guardian or a forced champion at an exact spot. This makes monster spawns individually
+  addressable + overridable, the way NPC and decor rows already are.
+
+### Changed
+
+- **NPCs carry a service `npc_flags` bitmask (TrinityCore-style npcflag).** Each `npcs` row gains an
+  `npc_flags` integer (a bitmask of `NpcFlags`: VENDOR / QUESTGIVER / HEALER / GAMBLER / ARTIFICER /
+  BANKER / RECRUITER / RIFTKEEPER), populated from the NPC's `kind` and override-preserving. The
+  E-key interaction dispatcher and every service guard in `world.ts` now check the flag instead of a
+  single `kind` string — so one NPC can offer several services at once (e.g. a vendor that is also a
+  quest-giver) by setting more bits via SQL. `kind` stays as the primary role + sprite.
+- **Legendaries merged into the items table + an item `flags` bitmask.** The separate `uniques` table
+  is gone; a legendary is now an `items` row carrying the `LEGENDARY` flag, its `base_id`, and fixed
+  `affixes` (slot/power/hp/color copied from the base). `content.ts` derives the unique catalogue
+  from flagged item rows, and the random gear/gamble pool excludes `LEGENDARY` items so they drop
+  only via the dedicated unique roll. New `ItemFlags`/`hasItemFlag` (and `NpcFlags`/`hasNpcFlag`).
+- **Procedural dungeon population is now database-driven (content-engine phase 4).** A new `dungeons`
+  table holds each dungeon's pack pool (JSON), boss, mini-boss + chances, elite chance, and mob
+  counts, seeded from the `DUNGEONS` const; `content.ts` exposes `content.dungeon(areaId)` and
+  `world.ts` rolls dungeon population from the DB. The `DUNGEONS` const remains only as the
+  structural client `isDungeon` check and the seed default — so a dungeon's roster can be retuned
+  with SQL.
+- **Monster traits / spells / support are now database-driven (content-engine phase 3).** The runtime
+  no longer reads the `MOB_SPELLS`/`MOB_SUPPORT`/`MOB_TRAITS` consts: `mob_templates` gained `spell`,
+  `support`, and `traits` (JSON) columns, seeded from the authoring maps and loaded onto the
+  `MobTemplate` by `content.ts`. The `world.ts` caster/support logic reads `template.spell` /
+  `template.support`, and the `stepMob` AI plus the `traitDamageMult`/`isPackish` helpers now take
+  the template's `traits` array — so a monster's casting and personality come straight from the DB.
+  The consts remain only as authored seed data.
+- **Items are now fully database-driven (content-engine phase 2).** The DB `items` table is the
+  single runtime source of truth and nothing reads a hardcoded item const during the game:
+  - `gamble.ts` no longer imports `EQUIPMENT` — `rollGamble`/`isGambleSlot` take the equip-base pool
+    as a parameter, which `world.ts` builds from the content DB (a new `equipBases()` helper).
+  - The client `item-icons.ts` resolves an item's slot from the content packet via an injected
+    resolver (`setItemSlotResolver`, wired in `main.ts` to `net.content`) instead of importing the
+    data const — removing the last client-side read of `EQUIPMENT`.
+  - The `EQUIPMENT` base catalogue and `MATERIALS` moved out of `src/shared/equipment.ts` into a new
+    `src/server/db/seed-items.ts` (the items "world-DB content"); `src/shared/equipment.ts` now holds
+    only slot **types/labels** and the doll-slot mapping. New `seed-items.test.ts` validates the
+    catalogue and that every base/material seeds into the `items` table.
+- **Legendaries are now database-driven (content-engine phase 1).** The hand-authored `UNIQUES`
+  catalogue, previously a hardcoded array in `src/shared/uniques.ts`, now lives in a new `uniques`
+  SQLite table seeded from `src/server/db/seed-uniques.ts` and loaded by `content.ts` — the same
+  DB-as-source-of-truth pattern the rest of the content uses. `content.ts` owns the catalogue,
+  `uniquesForSlot`, and `rollRandomUnique` (resolving each base's power/hp from the `items` table);
+  `world.ts` mints legendaries through the `Content` API. `shared/uniques.ts` is reduced to a pure,
+  data-free roller (`rollUnique` + `pickUnique`) shared by the seed layer, the loader, and the
+  tests. You can now add or rebalance a legendary with SQL — no code change. This is the first step
+  of a phased move of all content (items, spells, monsters, quests, terrain, objects) to a
+  TrinityCore/MaNGOS-style DB content engine; see `wiki/architecture/Content-Engine.md`.
+
+### Added
+
+- **Eight new original legendaries — the unique loot chase now covers every slot.** Expanded the
+  curated `UNIQUES` pool (`src/shared/uniques.ts`) from 12 to 20 hand-authored items, filling the
+  previously-empty **shoulders / waist / legs** slots and deepening the off-hand / neck / ring /
+  trinket chase, all themed to the later acts: *Mantle of the Pale King*, *Cinch of the Unmade*,
+  *Tread of the Last Watch*, *Bond of the Hunt*, *Emberglass Heart*, *Choker of the Sleepless*,
+  *Ashen Effigy*, and *Moonsilver Edge*. Each is built on a real equipment base with fixed,
+  build-defining affixes kept inside the agreed magnitude bands. Original content (our own names,
+  flavor, and stats) inspired by the ARPG loot-chase pattern — no third-party data. They drop
+  world-wide through the existing `rollRandomUnique` path; a new test asserts the pool now covers
+  every equipment slot so slot-targeted drops can always find a unique.
+- **Wilds bestiary — wildlife & vermin across every overworld combat zone.** Fourteen new roaming
+  species fill the ecological gaps from Gloomwood to the Voidmarch, adding swarm / ambusher / caster
+  archetypes to zones that lacked them so **every** overworld combat zone in the game now carries a
+  wilds species. **Act 1 + Wastes:** the **Gloomweb Spider** and goat-legged **Bramble Satyr**
+  (Gloomwood), skittering **Tomb Rats** (Shadow Crypt), the venom-spitting **Mire Serpent** (Rotfen
+  Marsh), chitinous **Cinder Ants** (Emberdeep Mines), the petrifying **Wyrmcrag Cockatrice**
+  (Frostpeak Pass), and the void-bloated **Sundered Worm** (the Sundered Wastes). **Act 2 road:**
+  **Barrow Vermin** (the Grimfrost Barrows), the **Pineweb Spider** (the Howling Barrens), and the
+  **Tidefang Serpent** (the Sunken Pass). **Act 3 dead-lands:** the **Blightweb Spider** (the
+  Blighted Spire), the **Dune Serpent** (the Ashveil Desert), the **Chasm Worm** (the Shattered
+  Causeway), and the **Void Vermin** swarm (the Voidmarch). The new creatures also seed into
+  thematically- and level-matched **dungeon pools** — caves & catacombs get tomb-rats and a cave
+  spider, the Writhing Hive a serpent, the Abyssal Throne a blight spider, the Unmade Court the void
+  swarm + chasm worm, and the endgame Rift four scaled picks. Pure data through the established
+  idempotent seed paths: templates in `src/server/mobs.ts` (with pack / flanker / enrage traits and
+  four gaze/venom casters), spawns + zone-matched loot in the new `src/server/db/seed-wilds.ts`
+  (wired via `ensureWildsContent`, which also seeds a per-mob `sprite_tints` cast so sprite-sharing
+  pairs read as distinct creatures), dungeon-pool entries in `src/shared/areas.ts`, and five new
+  `rogues-sprites.ts` mapping rules (satyr / serpent / ant / cockatrice / vermin). Covered by
+  `seed-wilds.test.ts`, the content-integrity suite, the dungeon-population tests, and the
+  sprite-resolution test.
+- **Drifting cloud shadows over outdoor ground (world-anchored depth cue).** Soft dark patches now
+  sail slowly across the terrain on the wind, implying a sky and sun *above* the otherwise-flat
+  plane. They're **world-anchored** — cloud positions are world coordinates and the layer's transform
+  is synced to the camera's each frame (like the water layer), so the shadows slide past the player
+  as they walk rather than sticking to the screen. A small fixed pool of lumpy soft sprites wraps
+  endlessly around the camera, and the whole effect **fades with the sun** (gone at night, strongest
+  near midday) on the same day/night clock the shadows use:
+  - New pure helper `client/cloud-field.ts` (`cloudStrength` day-phase → strength, `wrapSpan`
+    endless-field wrap), unit-tested; the renderer-facing `client/clouds.ts` owns the sprite pool.
+  - Drawn as a **stage layer above the ground/water but below props/actors** (not inside `world`,
+    whose per-area colour-grade filter renders to an isolated buffer that a ground shadow nested
+    inside could never darken). Outdoor-only, and disabled wholesale on the low-quality (touch) path
+    since big soft sprites are fill-rate heavy on phones; hidden with "reduce effects". Verified with
+    the screenshot harness.
+- **Contact-AO grounding under actors (2.5D "planted" cue).** Beneath the directional shadow sits a
+  small, tight, dark soft-ellipse **ambient-occlusion core pinned at the feet** that — unlike the
+  cast shadow above it — never lifts with height or rakes with the sun. It's the dark contact where
+  body meets ground (the "#1 planted-vs-floating" cue from the renderer research): as the directional
+  shadow shrinks off with a hop or slides long under a low sun, this core stays put, so a standing
+  figure reads as truly grounded and a rising one visibly parts from its contact point. Desktop-only
+  (skipped on touch to save fill rate) and skipped for flyers (which never touch the ground); reuses
+  the shared soft-shadow texture, so no new asset or per-frame cost. Verified with the screenshot
+  harness (`scripts/screenshot.mjs`).
+- **Time-of-day sun shadows (2.5D depth + atmosphere cue).** Actor/loot/projectile ground shadows
+  are now coupled to the same sun that drives the day/night cycle: a high **noon sun throws short,
+  dark, crisp shadows**, and a low **dawn/dusk (or moonlit-night) sun rakes them long and faint**
+  across the ground — watching shadows stretch out toward evening is a strong "real lit surface"
+  signal a flat top-down scene can fake. Built on the existing day/night clock and the
+  height-reactive shadow plumbing below:
+  - A new pure, stateless helper (`client/sun-shadow.ts`) maps the sun's altitude (the atmosphere's
+    `daylight`) to `stretch`/`alpha` multipliers; an overhead/noon sun (and indoor areas, which have
+    no cycle) returns the exact `{1, 1}` identity, so those scenes keep today's look. Unit-tested.
+  - `Atmosphere.sunShadow()` exposes the factor (outdoor → time-of-day, indoor → identity); the
+    renderer samples it **once per frame** and folds it into the single shadow updater, lengthening
+    each shadow's *length* + *reach* (not its width) so it rakes away from the feet. Applied uniformly
+    to the soft blob, the sheared hero/elite cast-shadow copy, loot drops, and projectiles. Direction
+    stays the fixed baked-sun lean (the deliberate D2 look) — only how high the sun has climbed
+    animates. Static decor keeps its baked foot shadows (per-frame raking is scoped to live entities).
+- **Height-reactive contact shadows (2.5D depth cue).** Billboards (actors, loot, projectiles) ride
+  above a flat ground shadow, but that shadow used to stay a fixed size + opacity however high the
+  caster floated — a dead giveaway that the world is flat. The ground shadow now **shrinks and fades
+  as its caster rises off the plane and tightens + darkens on contact**, the readable "how high is
+  this" signal of the classic platformer shadow:
+  - A new pure, stateless helper (`client/shadow-lift.ts`, in the same family as `easing.ts`) maps an
+    elevation in world px to `scale`/`alpha` multipliers; grounded callers get an exact `{1, 1}`
+    identity, so nothing changes until a billboard actually leaves the ground. Unit-tested.
+  - Wired into the renderer everywhere something lifts off the ground: a flyer's hover and the
+    walk/idle bob (per frame), the loot-pop hop as a drop appears + settles (a shorter falloff for the
+    brief, sharp arc), and a projectile's constant flight height (applied once so it reads as a shadow
+    cast from the air, not a blob welded to the missile). Cast-shadow actors (hero/elites) keep their
+    sheared sprite-copy shadow unchanged.
 - **Real terrain collision + walkable mountain passes (RENDER-08, true elevation).** Mountains,
   cliffs, and boulders are now SOLID and authoritative — you walk *around* them and *through* the gaps
   (paths), not over them. It's built on the shared collision module so the server simulation and the

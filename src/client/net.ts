@@ -177,7 +177,13 @@ export class Net {
       this.connected = true;
       // Present our saved character token (if any) so the server reloads our progress, and our
       // protocol version so a stale cached bundle gets a clean "refresh" instead of garbage.
-      const token = window.localStorage.getItem('bg.token') ?? undefined;
+      // localStorage can throw (private mode / disabled storage) — degrade to a fresh guest token.
+      let token: string | undefined;
+      try {
+        token = window.localStorage.getItem('bg.token') ?? undefined;
+      } catch {
+        token = undefined;
+      }
       ws.send(
         encode(
           token
@@ -189,7 +195,14 @@ export class Net {
 
     ws.addEventListener('message', (ev) => {
       const msg = decodeServer(String(ev.data));
-      if (msg) this.handle(msg);
+      if (!msg) return;
+      // A well-formed-but-unexpected frame hitting a handler must not throw out of the socket's
+      // message pump (which would stop processing all later frames). Contain it per-message.
+      try {
+        this.handle(msg);
+      } catch (err) {
+        console.error('[net] message handler failed:', err);
+      }
     });
 
     ws.addEventListener('close', () => {
@@ -361,8 +374,13 @@ export class Net {
         this.tickRate = msg.tickRate;
         this.areaId = msg.areaId;
         this.instanceId = msg.instanceId;
-        // Persist our character token so a reload/reconnect restores this character.
-        window.localStorage.setItem('bg.token', msg.token);
+        // Persist our character token so a reload/reconnect restores this character. Tolerate
+        // storage failures (private mode / quota) — we keep the token in memory for this session.
+        try {
+          window.localStorage.setItem('bg.token', msg.token);
+        } catch {
+          // No persistence this session; reconnects within the session still reuse the live socket.
+        }
         break;
       case 'snapshot': {
         const now = performance.now();

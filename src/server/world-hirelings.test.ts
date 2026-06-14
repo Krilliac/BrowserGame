@@ -83,7 +83,11 @@ describe('hiring at the recruiter', () => {
 
 describe('hireling combat', () => {
   it('fights nearby monsters and the kill credits the OWNER with XP', () => {
-    const w = new World();
+    // Pin the instance seed: the guard (speed 190) always runs the wolf (110) down, but the World's
+    // default Date.now seed occasionally rolled a worst-case chase that outlasted the 600-tick budget
+    // (flaky in the full suite). With a fixed seed the chase is deterministic — this seed kills in
+    // ~136 ticks, a >4× margin. (Removes the flake without weakening the assertion.)
+    const w = new World(undefined, undefined, undefined, undefined, undefined, undefined, 0, 7);
     w.importPlayer(1, { ...BASE_SAVE, god: true, hireling: { type: 'guard' } }, 400, 400);
     expect(hirelingsOf(w)).toHaveLength(1);
     w.spawnMobAt(1, 'wolf');

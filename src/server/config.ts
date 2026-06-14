@@ -88,6 +88,11 @@ export const config = {
     levelHpScale: 0.05,
     /** Chance a spawn is upgraded to an elite ("champion") variant. */
     eliteChance: 0.09,
+    /** Per-tier monster-damage growth cap: a mob whose level outpaces its template (deeper rifts)
+     *  hits harder, scaled by level/templateLevel and capped at this multiplier. Tier 0 (the normal
+     *  world) is ×1 — unchanged. Deliberately forgiving (gold scales to 4×, lethality only to this)
+     *  so "deeper = deadlier" never spikes into one-shots. */
+    damageLevelCap: 1.5,
   },
 
   /** Co-op scaling: grouping up makes an area meaningfully harder (and is rewarded by density). */
@@ -96,6 +101,11 @@ export const config = {
     damagePerPlayer: 0.15,
     /** Cap on the co-op damage multiplier. */
     damageCap: 2.2,
+    /** Extra monster GOLD per additional living player (D3 "more players, more loot" — the reward
+     *  side of grouping up, since drops are contested and the zone is harder). */
+    goldPerPlayer: 0.12,
+    /** Cap on the co-op gold multiplier. */
+    goldCap: 1.6,
   },
 
   /** Crowd mob-density scaling (maintainDensity): keep a flooded zone full of targets. */
@@ -126,6 +136,12 @@ export const config = {
     gemNormal: 0.02,
     gemElite: 0.12,
     gemBoss: 0.6,
+    /** Health-globe drop chances (D3): a slain monster may spill a globe that instant-heals on
+     *  pickup — the panic-button reward that keeps a fight flowing without a potion. Rare from
+     *  trash, common from champions, near-guaranteed from bosses. */
+    healthGlobeNormal: 0.015,
+    healthGlobeElite: 0.1,
+    healthGlobeBoss: 0.5,
   },
 
   /** Economy: gold sinks, vendor behavior, and reward payouts. */
@@ -204,6 +220,16 @@ export const config = {
     mana: 60,
     /** Shared use-cooldown. */
     cooldownMs: 2500,
+  },
+
+  /** Health globes (D3): the instant-heal pickup a slain monster may spill. */
+  globes: {
+    /** Fraction of the picker's MAX HP restored when they walk over a globe. */
+    healFrac: 0.35,
+    /** Fraction of MAX HP each nearby ally also gets (D3 globes heal the whole group). */
+    allyHealFrac: 0.2,
+    /** How close an ally must be (world px) to share in a globe's heal. */
+    allyRadius: 220,
   },
 
   /** AI bots. */

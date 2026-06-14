@@ -5,6 +5,9 @@ import {
   groundTilesetFor,
   patchCoverage,
   patchTileFor,
+  pathCoverage,
+  pathTileFor,
+  PATTERN_TILES,
   pickTile,
   valueNoise,
   type GroundTileset,
@@ -155,7 +158,7 @@ describe('patchCoverage / patchTileFor (RENDER-04)', () => {
     let covered = 0;
     let edgeRuns = 0; // transitions base↔patch along rows — fewer means bigger, coherent blobs
     const N = 32;
-    let prev = false;
+    let prev: boolean;
     for (let gy = 0; gy < N; gy++) {
       prev = false;
       for (let gx = 0; gx < N; gx++) {
@@ -186,6 +189,65 @@ describe('patchCoverage / patchTileFor (RENDER-04)', () => {
           const pt = patchTileFor(ts, gx, gy);
           expect(pt, k).toBeDefined();
           expect(allowed.has(`${pt!.col},${pt!.row}`), k).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+describe('pathCoverage / pathTileFor (worn dirt trails)', () => {
+  it('returns 0 and no tile for tilesets without a path layer (regression guard)', () => {
+    const mine = GROUND_TILESETS['mine']!;
+    expect(mine.blend?.path).toBeUndefined();
+    const town = GROUND_TILESETS['town']!;
+    expect(town.blend?.path).toBeDefined(); // town opted in
+    for (let gx = 0; gx < 16; gx++) {
+      for (let gy = 0; gy < 16; gy++) {
+        expect(pathCoverage(mine, gx, gy)).toBe(0);
+        expect(pathTileFor(mine, gx, gy)).toBeUndefined();
+      }
+    }
+  });
+
+  it('coverage stays in [0,1], is deterministic, and a trail actually appears (but not everywhere)', () => {
+    const town = GROUND_TILESETS['town']!;
+    let covered = 0;
+    const N = PATTERN_TILES;
+    for (let gy = 0; gy < N; gy++) {
+      for (let gx = 0; gx < N; gx++) {
+        const c = pathCoverage(town, gx, gy);
+        expect(c).toBe(pathCoverage(town, gx, gy)); // deterministic
+        expect(c).toBeGreaterThanOrEqual(0);
+        expect(c).toBeLessThanOrEqual(1);
+        if (c > 0.5) covered++;
+      }
+    }
+    const share = covered / (N * N);
+    expect(share).toBeGreaterThan(0.02); // trails are present
+    expect(share).toBeLessThan(0.5); // but they're trails, not a dirt field
+  });
+
+  it('tiles seamlessly: coverage is periodic over PATTERN_TILES on each axis (no repeat seam)', () => {
+    const town = GROUND_TILESETS['town']!;
+    const N = PATTERN_TILES;
+    for (let gy = 0; gy < N; gy++) {
+      for (let gx = 0; gx < N; gx++) {
+        expect(pathCoverage(town, gx + N, gy)).toBeCloseTo(pathCoverage(town, gx, gy), 9);
+        expect(pathCoverage(town, gx, gy + N)).toBeCloseTo(pathCoverage(town, gx, gy), 9);
+      }
+    }
+  });
+
+  it('always picks a valid dirt tile from the path set when a tileset opts in', () => {
+    for (const [k, ts] of Object.entries(GROUND_TILESETS)) {
+      const path = ts.blend?.path;
+      if (!path) continue;
+      const allowed = new Set(path.tiles.map((p) => `${p.col},${p.row}`));
+      for (let gx = 0; gx < 12; gx++) {
+        for (let gy = 0; gy < 12; gy++) {
+          const dirt = pathTileFor(ts, gx, gy);
+          expect(dirt, k).toBeDefined();
+          expect(allowed.has(`${dirt!.col},${dirt!.row}`), k).toBe(true);
         }
       }
     }

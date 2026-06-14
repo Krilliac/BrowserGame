@@ -8,8 +8,20 @@
  * sheet loads (or if it 404s) and the panels keep their procedural fallback.
  */
 
-import { equipDef, type ItemSlot } from '../shared/equipment.js';
-import { GEMS } from '../shared/gems.js';
+import type { ItemSlot } from '../shared/equipment.js';
+
+/**
+ * Item info lookup, injected from the DB-driven content store (main.ts wires it to the content
+ * packet) so this module never imports item-data consts. Returns the item's kind (e.g. 'gem') and
+ * equip slot. Defaults to "unknown" until wired, which simply falls the resolver through to the
+ * keyword rules / generic icon.
+ */
+let resolveInfo: (id: string) => { kind: string; slot?: ItemSlot } | undefined = () => undefined;
+export function setItemInfoResolver(
+  fn: (id: string) => { kind: string; slot?: ItemSlot } | undefined,
+): void {
+  resolveInfo = fn;
+}
 
 export interface IconCell {
   col: number;
@@ -132,15 +144,15 @@ const SLOT_KEY: Record<ItemSlot, IconKey> = {
 
 /** Resolve an item id to an icon KEY: gem family → rune → material → keyword → slot → generic. */
 export function resolveIconKey(itemId: string): IconKey {
-  if (GEMS[itemId]) {
+  const info = resolveInfo(itemId);
+  if (info?.kind === 'gem' && !itemId.startsWith('rune_')) {
     const fam = itemId.slice(0, itemId.lastIndexOf('_t'));
     return (GEM_FAMILIES.has(fam) ? `gem_${fam}` : 'material') as IconKey;
   }
   if (itemId.startsWith('rune_')) return 'rune';
   if (MATERIAL_IDS.has(itemId)) return 'material';
   for (const [re, key] of KEYWORD_RULES) if (re.test(itemId)) return key;
-  const equip = equipDef(itemId);
-  if (equip) return SLOT_KEY[equip.slot];
+  if (info?.slot) return SLOT_KEY[info.slot];
   return 'generic';
 }
 
