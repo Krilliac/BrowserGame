@@ -1,5 +1,6 @@
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
+import { sunShadow } from './sun-shadow.js';
 
 /**
  * Screen-space ambiance that reinforces the 2.5D mood: a slow day/night cycle (outdoor areas
@@ -80,6 +81,16 @@ export class Atmosphere {
   /** Time-of-day darkness in [0,1] (1 = full night) — drives the lighting module's glow strength. */
   nightFactor(): number {
     return this.theme.outdoor ? 1 - this.daylight() : INDOOR_NIGHT;
+  }
+
+  /**
+   * Sun-driven shadow multipliers (length + alpha) for the current time of day, so the renderer can
+   * rake actor/loot shadows long + faint at dawn/dusk and pull them short + dark at noon. Indoor
+   * areas have no day/night cycle, so they report an overhead-sun identity and keep their fixed
+   * shadows. Cheap (one `sin`); safe to call per frame.
+   */
+  sunShadow(): { stretch: number; alpha: number } {
+    return sunShadow(this.theme.outdoor ? this.daylight() : 1);
   }
 
   private reseed(count: number): void {

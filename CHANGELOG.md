@@ -31,6 +31,57 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Drifting cloud shadows over outdoor ground (world-anchored depth cue).** Soft dark patches now
+  sail slowly across the terrain on the wind, implying a sky and sun *above* the otherwise-flat
+  plane. They're **world-anchored** — cloud positions are world coordinates and the layer's transform
+  is synced to the camera's each frame (like the water layer), so the shadows slide past the player
+  as they walk rather than sticking to the screen. A small fixed pool of lumpy soft sprites wraps
+  endlessly around the camera, and the whole effect **fades with the sun** (gone at night, strongest
+  near midday) on the same day/night clock the shadows use:
+  - New pure helper `client/cloud-field.ts` (`cloudStrength` day-phase → strength, `wrapSpan`
+    endless-field wrap), unit-tested; the renderer-facing `client/clouds.ts` owns the sprite pool.
+  - Drawn as a **stage layer above the ground/water but below props/actors** (not inside `world`,
+    whose per-area colour-grade filter renders to an isolated buffer that a ground shadow nested
+    inside could never darken). Outdoor-only, and disabled wholesale on the low-quality (touch) path
+    since big soft sprites are fill-rate heavy on phones; hidden with "reduce effects". Verified with
+    the screenshot harness.
+- **Contact-AO grounding under actors (2.5D "planted" cue).** Beneath the directional shadow sits a
+  small, tight, dark soft-ellipse **ambient-occlusion core pinned at the feet** that — unlike the
+  cast shadow above it — never lifts with height or rakes with the sun. It's the dark contact where
+  body meets ground (the "#1 planted-vs-floating" cue from the renderer research): as the directional
+  shadow shrinks off with a hop or slides long under a low sun, this core stays put, so a standing
+  figure reads as truly grounded and a rising one visibly parts from its contact point. Desktop-only
+  (skipped on touch to save fill rate) and skipped for flyers (which never touch the ground); reuses
+  the shared soft-shadow texture, so no new asset or per-frame cost. Verified with the screenshot
+  harness (`scripts/screenshot.mjs`).
+- **Time-of-day sun shadows (2.5D depth + atmosphere cue).** Actor/loot/projectile ground shadows
+  are now coupled to the same sun that drives the day/night cycle: a high **noon sun throws short,
+  dark, crisp shadows**, and a low **dawn/dusk (or moonlit-night) sun rakes them long and faint**
+  across the ground — watching shadows stretch out toward evening is a strong "real lit surface"
+  signal a flat top-down scene can fake. Built on the existing day/night clock and the
+  height-reactive shadow plumbing below:
+  - A new pure, stateless helper (`client/sun-shadow.ts`) maps the sun's altitude (the atmosphere's
+    `daylight`) to `stretch`/`alpha` multipliers; an overhead/noon sun (and indoor areas, which have
+    no cycle) returns the exact `{1, 1}` identity, so those scenes keep today's look. Unit-tested.
+  - `Atmosphere.sunShadow()` exposes the factor (outdoor → time-of-day, indoor → identity); the
+    renderer samples it **once per frame** and folds it into the single shadow updater, lengthening
+    each shadow's *length* + *reach* (not its width) so it rakes away from the feet. Applied uniformly
+    to the soft blob, the sheared hero/elite cast-shadow copy, loot drops, and projectiles. Direction
+    stays the fixed baked-sun lean (the deliberate D2 look) — only how high the sun has climbed
+    animates. Static decor keeps its baked foot shadows (per-frame raking is scoped to live entities).
+- **Height-reactive contact shadows (2.5D depth cue).** Billboards (actors, loot, projectiles) ride
+  above a flat ground shadow, but that shadow used to stay a fixed size + opacity however high the
+  caster floated — a dead giveaway that the world is flat. The ground shadow now **shrinks and fades
+  as its caster rises off the plane and tightens + darkens on contact**, the readable "how high is
+  this" signal of the classic platformer shadow:
+  - A new pure, stateless helper (`client/shadow-lift.ts`, in the same family as `easing.ts`) maps an
+    elevation in world px to `scale`/`alpha` multipliers; grounded callers get an exact `{1, 1}`
+    identity, so nothing changes until a billboard actually leaves the ground. Unit-tested.
+  - Wired into the renderer everywhere something lifts off the ground: a flyer's hover and the
+    walk/idle bob (per frame), the loot-pop hop as a drop appears + settles (a shorter falloff for the
+    brief, sharp arc), and a projectile's constant flight height (applied once so it reads as a shadow
+    cast from the air, not a blob welded to the missile). Cast-shadow actors (hero/elites) keep their
+    sheared sprite-copy shadow unchanged.
 - **Real terrain collision + walkable mountain passes (RENDER-08, true elevation).** Mountains,
   cliffs, and boulders are now SOLID and authoritative — you walk *around* them and *through* the gaps
   (paths), not over them. It's built on the shared collision module so the server simulation and the
