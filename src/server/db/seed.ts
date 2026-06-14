@@ -4,7 +4,9 @@ import { AREAS, AREA_THEMES, type DecorProp } from '../../shared/areas.js';
 import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
 import { EQUIPMENT } from '../../shared/equipment.js';
-import { MOB_TEMPLATES, AREA_MOBS } from '../mobs.js';
+import { MOB_TEMPLATES, AREA_MOBS, DEFAULT_ELITE_MODIFIERS } from '../mobs.js';
+import { weatherModifiers } from '../weather-effects.js';
+import { WEATHER_KINDS } from '../../shared/theme.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
 import { GEMS } from '../../shared/gems.js';
@@ -310,7 +312,34 @@ export function seed(db: Database): void {
   ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
   ensureActsContent(db); // the Act 2 road + all of Act 3 (Vhalreth, its zones, the Unmade Court)
   ensureDenContent(db); // the generic cellar/den interior (procedural mini-dungeon shell)
+  ensureWeatherModifiers(db); // per-WeatherKind gameplay multipliers (seeded from code defaults)
+  ensureEliteModifiers(db); // champion stat-modifier roster (seeded from code defaults)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
+}
+
+/**
+ * Seed the per-WeatherKind gameplay multipliers from the code defaults (weather-effects.ts).
+ * Idempotent: INSERT OR IGNORE keyed on the weather kind, so an existing row's tuning is preserved.
+ */
+function ensureWeatherModifiers(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO weather_modifiers (weather,move_scale,aggro_scale) VALUES (?,?,?)',
+  );
+  for (const kind of WEATHER_KINDS) {
+    const m = weatherModifiers(kind);
+    ins.run(kind, m.moveScale, m.aggroScale);
+  }
+}
+
+/**
+ * Seed the elite ("champion") modifier roster from the code defaults (mobs.ts). Idempotent:
+ * INSERT OR IGNORE keyed on id, so a designer's edited multipliers survive a restart.
+ */
+function ensureEliteModifiers(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO elite_modifiers (id,name,hp_mult,damage_mult,speed_mult,sort_order) VALUES (?,?,?,?,?,?)',
+  );
+  DEFAULT_ELITE_MODIFIERS.forEach((m, i) => ins.run(m.id, m.name, m.hp, m.dmg, m.spd, i));
 }
 
 /**

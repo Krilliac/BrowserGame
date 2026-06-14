@@ -20,15 +20,20 @@ export type PropKind =
   | 'crystal'
   | 'pillar'
   | 'none';
-export type WeatherKind =
-  | 'none'
-  | 'rain'
-  | 'snow'
-  | 'fog'
-  | 'ash'
-  | 'sand'
-  | 'leaves'
-  | 'lightning';
+/** Canonical list of weather kinds — the single source for the {@link WeatherKind} union and for
+ *  seeding the `weather_modifiers` content table over every kind. */
+export const WEATHER_KINDS = [
+  'none',
+  'rain',
+  'snow',
+  'fog',
+  'ash',
+  'sand',
+  'leaves',
+  'lightning',
+] as const;
+
+export type WeatherKind = (typeof WEATHER_KINDS)[number];
 
 export interface AreaTheme {
   /** Ground fill + speckle colors (the tiled terrain texture). */

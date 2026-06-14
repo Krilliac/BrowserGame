@@ -107,7 +107,6 @@ import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from '
 import { StatusSet } from './status-effects.js';
 import { SpatialGrid } from './spatial.js';
 import { getContent, type QuestDef } from './content.js';
-import { weatherModifiers } from './weather-effects.js';
 import type { WeatherKind } from '../shared/theme.js';
 
 type Equipment = Record<EquipSlot, ItemInstance | null>;
@@ -238,12 +237,9 @@ let VENDOR_STOCK_CAP = config.economy.vendorStockCap;
 let VENDOR_ROTATE_MS = config.economy.vendorRotateMs; // ~4 minutes per rotation
 
 // Elite ("champion") monsters: a small chance to spawn a beefed-up variant with a flavor modifier.
+// The modifier roster itself is data-driven (the `elite_modifiers` content table); createMob reads
+// it via getContent().eliteModifiers(). Only the spawn CHANCE is bound here from config.
 let ELITE_CHANCE = config.difficulty.eliteChance;
-const ELITE_MODIFIERS: { name: string; hp: number; dmg: number; spd: number }[] = [
-  { name: 'Swift', hp: 2.0, dmg: 1.3, spd: 1.6 }, // fast and harassing
-  { name: 'Brutal', hp: 2.4, dmg: 1.9, spd: 1.0 }, // hits like a truck
-  { name: 'Vigorous', hp: 3.4, dmg: 1.4, spd: 1.0 }, // a damage sponge
-];
 
 /**
  * Re-read the runtime-tunable knobs from the live `config` object. The values above are bound
@@ -630,7 +626,7 @@ export class World {
    * instance manager on creation and re-applied when a live theme edit changes the weather.
    */
   applyWeather(weather: WeatherKind): void {
-    const mods = weatherModifiers(weather);
+    const mods = getContent().weatherMods(weather);
     this.moveScale = mods.moveScale;
     this.aggroScale = mods.aggroScale;
   }
@@ -771,9 +767,8 @@ export class World {
     // an elevated eliteChance, so tougher champions show up far more often inside them.
     const isBoss = template.hp >= 200;
     const elite = !isBoss && (forceElite || this.rand() < eliteChance);
-    const mod = elite
-      ? (ELITE_MODIFIERS[Math.floor(this.rand() * ELITE_MODIFIERS.length)] ?? null)
-      : null;
+    const eliteMods = getContent().eliteModifiers();
+    const mod = elite ? (eliteMods[Math.floor(this.rand() * eliteMods.length)] ?? null) : null;
     // Rift tier scaling: every spawn levels up (more XP per kill) and hits/lives harder.
     const tierHp = 1 + 0.35 * this.tier;
     const tierDmg = 1 + 0.18 * this.tier;

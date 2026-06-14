@@ -2,9 +2,10 @@ import { config } from './config.js';
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
 import type { AreaDef, DecorProp } from '../shared/areas.js';
-import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
+import { DEFAULT_THEME, type AreaTheme, type WeatherKind } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
-import type { MobTemplate } from './mobs.js';
+import { type MobTemplate, type EliteModifier, DEFAULT_ELITE_MODIFIERS } from './mobs.js';
+import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
 
 /**
  * Runtime game content, loaded from the SQLite database (the source of truth) via parametrized
@@ -76,6 +77,10 @@ export interface Content {
   spriteTint(target: string): string | undefined;
   /** All sprite color overrides (shipped to the client in the content packet). */
   spriteTints(): Record<string, string>;
+  /** Gameplay multipliers for a weather kind (DB-driven; falls back to the code default). */
+  weatherMods(weather: WeatherKind): WeatherModifiers;
+  /** Elite ("champion") stat modifiers a spawn can roll, in deterministic pick order. */
+  eliteModifiers(): EliteModifier[];
 }
 
 interface LootGroup {
@@ -330,6 +335,19 @@ export function loadContent(db: GameDatabase): Content {
     tints.set(r.target, r.tint);
   }
 
+  // Weather gameplay multipliers (DB is the runtime authority; the pure weatherModifiers() function
+  // is the seed source and the per-kind fallback if a row is ever missing).
+  const weatherMods = new Map<string, WeatherModifiers>();
+  for (const r of db.prepare('SELECT * FROM weather_modifiers').all() as WeatherModRow[]) {
+    weatherMods.set(r.weather, { moveScale: r.move_scale, aggroScale: r.aggro_scale });
+  }
+
+  // Elite ("champion") modifier roster, ordered so the spawn-time pick stays deterministic. Empty
+  // table falls back to the code defaults.
+  const eliteMods = (
+    db.prepare('SELECT * FROM elite_modifiers ORDER BY sort_order').all() as EliteModRow[]
+  ).map((r) => ({ id: r.id, name: r.name, hp: r.hp_mult, dmg: r.damage_mult, spd: r.speed_mult }));
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -360,6 +378,8 @@ export function loadContent(db: GameDatabase): Content {
     },
     spriteTint: (target) => tints.get(target),
     spriteTints: () => Object.fromEntries(tints),
+    weatherMods: (weather) => weatherMods.get(weather) ?? weatherModifiers(weather),
+    eliteModifiers: () => (eliteMods.length ? eliteMods : DEFAULT_ELITE_MODIFIERS),
   };
 }
 
@@ -557,4 +577,17 @@ interface LootRow {
   max_qty: number;
   is_nothing: number;
   chance: number;
+}
+interface WeatherModRow {
+  weather: WeatherKind;
+  move_scale: number;
+  aggro_scale: number;
+}
+interface EliteModRow {
+  id: string;
+  name: string;
+  hp_mult: number;
+  damage_mult: number;
+  speed_mult: number;
+  sort_order: number;
 }

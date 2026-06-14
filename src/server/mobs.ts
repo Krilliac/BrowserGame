@@ -41,6 +41,30 @@ export interface MobTemplate {
   dashSpeed?: number;
 }
 
+/**
+ * An elite ("champion") modifier: a flavor prefix and the stat multipliers a normal spawn gets when
+ * it rolls elite. These are the CODE DEFAULTS that seed the `elite_modifiers` content table; at
+ * runtime the simulation reads the (live-editable) table via `Content.eliteModifiers()`.
+ */
+export interface EliteModifier {
+  id: string;
+  /** Name prefix shown on the champion (e.g. "Swift Gloom Wolf"). */
+  name: string;
+  /** Max-HP multiplier. */
+  hp: number;
+  /** Outgoing-damage multiplier. */
+  dmg: number;
+  /** Movement-speed multiplier. */
+  spd: number;
+}
+
+/** Default champion variants: fast harasser, hard hitter, damage sponge. Seeds `elite_modifiers`. */
+export const DEFAULT_ELITE_MODIFIERS: EliteModifier[] = [
+  { id: 'swift', name: 'Swift', hp: 2.0, dmg: 1.3, spd: 1.6 },
+  { id: 'brutal', name: 'Brutal', hp: 2.4, dmg: 1.9, spd: 1.0 },
+  { id: 'vigorous', name: 'Vigorous', hp: 3.4, dmg: 1.4, spd: 1.0 },
+];
+
 export const MOB_TEMPLATES: Record<string, MobTemplate> = {
   wolf: {
     id: 'wolf',

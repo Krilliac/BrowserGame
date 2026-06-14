@@ -175,6 +175,28 @@ CREATE TABLE IF NOT EXISTS sprite_tints (
   tint    TEXT NOT NULL
 );
 
+-- Weather gameplay modifiers: how each WeatherKind affects the simulation (server-authoritative).
+-- move_scale multiplies player movement speed; aggro_scale multiplies monster aggro range
+-- (both 1 = no effect). Seeded from the code defaults in weather-effects.ts; edit a row to retune
+-- how a weather state PLAYS (e.g. make a sandstorm slower) without a recompile.
+CREATE TABLE IF NOT EXISTS weather_modifiers (
+  weather     TEXT PRIMARY KEY,        -- a WeatherKind ('none'|'rain'|'snow'|'fog'|'ash'|'sand'|'leaves'|'lightning')
+  move_scale  REAL NOT NULL DEFAULT 1, -- player move-speed multiplier
+  aggro_scale REAL NOT NULL DEFAULT 1  -- monster aggro-range multiplier
+);
+
+-- Elite ("champion") modifiers: the beefed-up variants a normal spawn can roll into. Each row is a
+-- flavor prefix + stat multipliers. Seeded from DEFAULT_ELITE_MODIFIERS (mobs.ts); add/edit rows to
+-- change the champion roster and its power. sort_order fixes the pick order (kept deterministic).
+CREATE TABLE IF NOT EXISTS elite_modifiers (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,           -- name prefix (e.g. 'Swift')
+  hp_mult     REAL NOT NULL,           -- max-HP multiplier
+  damage_mult REAL NOT NULL,           -- outgoing-damage multiplier
+  speed_mult  REAL NOT NULL,           -- movement-speed multiplier
+  sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
 -- A quest is either a KILL quest (target_mob + target_count, auto-progresses on kills) or a
 -- COLLECT quest (turn_in_item + turn_in_count, completed by turning items in to a quest-giver).
 CREATE TABLE IF NOT EXISTS quests (

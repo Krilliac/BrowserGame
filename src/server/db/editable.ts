@@ -252,6 +252,29 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     note: 'edit via /settheme for ergonomics',
     columns: buildThemeColumns(),
   },
+
+  weather_modifiers: {
+    pk: 'weather',
+    label: 'weather rule',
+    note: 'gameplay effect of a weather kind; reload to apply',
+    columns: {
+      move_scale: { type: 'real', min: 0, max: 4 },
+      aggro_scale: { type: 'real', min: 0, max: 4 },
+    },
+  },
+
+  elite_modifiers: {
+    pk: 'id',
+    label: 'champion modifier',
+    note: 'applies to newly spawned elites',
+    columns: {
+      name: { type: 'text' },
+      hp_mult: { type: 'real', min: 0, max: 100 },
+      damage_mult: { type: 'real', min: 0, max: 100 },
+      speed_mult: { type: 'real', min: 0, max: 10 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

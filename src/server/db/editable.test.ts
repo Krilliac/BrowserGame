@@ -308,6 +308,23 @@ describe('area_theme derived columns', () => {
 // TableSpec invariants: pk is non-empty and not listed in columns
 // ---------------------------------------------------------------------------
 
+describe('tuning tables are live-editable via /set', () => {
+  it('elite_modifiers.hp_mult coerces a real', () => {
+    expect(coerceColumn('elite_modifiers', 'hp_mult', '2.5')).toEqual({ ok: true, value: 2.5 });
+  });
+
+  it('elite_modifiers.hp_mult clamps above the column max', () => {
+    expect(coerceColumn('elite_modifiers', 'hp_mult', '9999')).toEqual({ ok: true, value: 100 });
+  });
+
+  it('weather_modifiers.move_scale coerces a real', () => {
+    expect(coerceColumn('weather_modifiers', 'move_scale', '0.8')).toEqual({
+      ok: true,
+      value: 0.8,
+    });
+  });
+});
+
 describe('EDITABLE_TABLES invariants', () => {
   for (const [tableName, tableSpec] of Object.entries(EDITABLE_TABLES)) {
     it(`${tableName}: pk is a non-empty string`, () => {

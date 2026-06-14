@@ -20,6 +20,8 @@ queries) into in-memory structures the simulation reads. Tables (`src/server/db/
 | `npcs` | Static NPCs (the town vendor) per area |
 | `decor` | Static set-dressing **props** per area (the town's tents, palisade, bonfire, torches…) |
 | `sprite_tints` | **Sprite color overrides** — multiply a #rrggbb over any source so one image spawns many (dark/gritty) variations. Targets: `mob:<template_id>`, `npc:<kind>`, `hireling:<type>`, `decor:<kind>` |
+| `weather_modifiers` | Per-`WeatherKind` **gameplay** multipliers (`move_scale`, `aggro_scale`) — how a weather state *plays*, not just looks (seeded from `weather-effects.ts`) |
+| `elite_modifiers` | The elite ("champion") variant roster — flavor prefix + hp/damage/speed multipliers a normal spawn can roll (seeded from `mobs.ts`) |
 | `quests` | Quest definitions (schema seeded with a sample) |
 
 ## How it works
