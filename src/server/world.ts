@@ -37,6 +37,8 @@ import {
 } from './combat-formulas.js';
 import {
   gearSellValue,
+  hasItemFlag,
+  ItemFlags,
   rollAffixes,
   rollCorruptedAffixes,
   rollCorruptedInstance,
@@ -3078,11 +3080,15 @@ export class World {
   }
 
   /** A random equippable base item (any slot), or null if the content has none. */
-  /** All equippable bases from the content DB, as BaseItems (the pool for gear/gamble rolls). */
+  /**
+   * All equippable BASE items from the content DB, as BaseItems (the pool for random gear / gamble
+   * rolls). Legendaries live in the items table too (LEGENDARY flag) but are excluded here — they
+   * drop only via the dedicated unique roll, never from a random/gamble pull.
+   */
   private equipBases(): BaseItem[] {
     return getContent()
       .items()
-      .filter((i) => i.kind === 'equip')
+      .filter((i) => i.kind === 'equip' && !hasItemFlag(i.flags, ItemFlags.LEGENDARY))
       .map(asBaseItem)
       .filter((b): b is BaseItem => b !== null);
   }

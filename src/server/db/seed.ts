@@ -17,6 +17,7 @@ import { FRONTIER_NPCS, FRONTIER_DECOR, FRONTIER_LOOT, FRONTIER_QUESTS } from '.
 import { ACTS_NPCS, ACTS_DECOR, ACTS_LOOT, ACTS_QUESTS, ACTS_VENDOR_STOCK } from './seed-acts.js';
 import { WILDS_AREA_MOBS, WILDS_LOOT } from './seed-wilds.js';
 import { UNIQUES } from './seed-uniques.js';
+import { ItemFlags } from '../../shared/items.js';
 
 /**
  * Spellbooks: one tome per ability. Reading one learns the spell (or ranks it up — the Diablo 1
@@ -297,7 +298,7 @@ export function seed(db: Database): void {
   ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
   ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
   ensureExpansionContent(db); // hand-placed decor, new-monster rosters/loot, sprite tints
-  ensureUniquesContent(db); // the legendary (unique) catalogue → the `uniques` table
+  ensureLegendaryItems(db); // the legendary catalogue → rows in the `items` table (LEGENDARY flag)
   ensureDungeonsContent(db); // procedural dungeon population → the `dungeons` table
   ensureWildsContent(db); // wildlife/vermin rosters + loot spread across the existing zones
   ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
@@ -702,18 +703,37 @@ function ensureWildsContent(db: Database): void {
 }
 
 /**
- * Upsert the legendary (unique) catalogue (src/server/db/seed-uniques.ts) into the `uniques` table.
- * Idempotent: INSERT OR IGNORE on the unique id. Affixes are stored as a JSON array; content.ts
- * parses them back and owns the random pick + base resolution. Runs after items exist (the rows
- * reference an items.id base), so it lives in the always-run ensure section.
+ * Upsert the legendary (unique) catalogue (src/server/db/seed-uniques.ts) into the `items` table —
+ * legendaries are merged into items, each a row carrying the LEGENDARY flag, its `base_id` (the base
+ * it is built on), and its fixed `affixes` (JSON). Slot/power/hp/color are copied from the base so
+ * the row is a self-contained equip item. Idempotent: INSERT OR IGNORE on the item id. Runs after the
+ * base items exist (in the always-run ensure section).
  */
-function ensureUniquesContent(db: Database): void {
+function ensureLegendaryItems(db: Database): void {
   const ins = db.prepare(
-    'INSERT OR IGNORE INTO uniques (id,name,base_id,affixes,flavor,sort_order) VALUES (?,?,?,?,?,?)',
+    `INSERT OR IGNORE INTO items
+       (id,name,kind,slot,power,hp,color,sell_value,teaches,flags,base_id,affixes,flavor)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
-  UNIQUES.forEach((u, i) =>
-    ins.run(u.id, u.name, u.baseId, JSON.stringify(u.affixes), u.flavor ?? null, i),
-  );
+  for (const u of UNIQUES) {
+    const base = EQUIPMENT[u.baseId];
+    if (!base) continue; // a legendary on an unknown base is skipped (asserted in tests)
+    ins.run(
+      u.id,
+      u.name,
+      'equip',
+      base.slot,
+      base.power ?? null,
+      base.hp ?? null,
+      base.color,
+      0,
+      null,
+      ItemFlags.LEGENDARY,
+      u.baseId,
+      JSON.stringify(u.affixes),
+      u.flavor ?? null,
+    );
+  }
 }
 
 /**

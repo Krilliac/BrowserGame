@@ -83,7 +83,11 @@ CREATE TABLE IF NOT EXISTS items (
   hp          REAL,
   color       TEXT,
   sell_value  INTEGER NOT NULL DEFAULT 0,
-  teaches     TEXT                             -- spellbook only: the ability id it teaches
+  teaches     TEXT,                            -- spellbook only: the ability id it teaches
+  flags       INTEGER NOT NULL DEFAULT 0,      -- bitmask (ItemFlags): LEGENDARY, …
+  base_id     TEXT,                            -- legendaries: the base item they are built on
+  affixes     TEXT,                            -- legendaries: JSON array of { stat, value }
+  flavor      TEXT                             -- legendaries: tooltip flavor line
 );
 
 -- Procedural dungeon population: the random pack pool + boss + elite/mini-boss chances for each
@@ -98,18 +102,6 @@ CREATE TABLE IF NOT EXISTS dungeons (
   elite_chance     REAL NOT NULL DEFAULT 0,
   min_mobs         INTEGER NOT NULL,
   max_mobs         INTEGER NOT NULL
-);
-
--- UNIQUE (named legendary) items: the hand-authored loot chase. Each builds on a real items.id
--- base (for slot + base power/hp) and carries fixed, build-defining affixes (JSON array of
--- {stat,value}). DB-driven like the rest of content: edit/add rows to change the legendaries.
-CREATE TABLE IF NOT EXISTS uniques (
-  id        TEXT PRIMARY KEY,
-  name      TEXT NOT NULL,
-  base_id   TEXT NOT NULL REFERENCES items(id),
-  affixes   TEXT NOT NULL,                      -- JSON array of { stat, value }
-  flavor    TEXT,
-  sort_order INTEGER NOT NULL DEFAULT 0
 );
 
 -- What a vendor NPC sells, keyed by area + NPC name (NPC row ids are autoincrement, names are

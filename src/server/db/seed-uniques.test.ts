@@ -57,17 +57,29 @@ describe('UNIQUES seed catalogue', () => {
   });
 });
 
-describe('uniques are DB-driven (loaded from the seeded `uniques` table)', () => {
+describe('legendaries are merged into the items table (DB-driven, LEGENDARY flag)', () => {
   initGameDb(':memory:');
   const c = getContent();
 
-  it('loads the whole catalogue from the DB', () => {
+  it('loads the whole catalogue from the items table (flagged LEGENDARY)', () => {
     expect(c.uniques().length).toBe(UNIQUES.length);
     for (const def of UNIQUES) {
       const loaded = c.unique(def.id);
       expect(loaded, def.id).toBeDefined();
       expect(loaded!.affixes).toEqual(def.affixes);
+      // The same id is now an item row carrying the LEGENDARY flag + the base it is built on.
+      const item = c.item(def.id);
+      expect(item, def.id).toBeDefined();
+      expect(item!.kind).toBe('equip');
+      expect((item!.flags & 1) !== 0, `${def.id} LEGENDARY flag`).toBe(true);
+      expect(item!.baseId).toBe(def.baseId);
     }
+  });
+
+  it('excludes legendaries from the base item set but keeps the bases', () => {
+    // A base (e.g. doomspike_partisan) stays a normal equip; its legendary is a separate flagged row.
+    const base = c.item('doomspike_partisan');
+    expect(base?.flags).toBe(0);
   });
 
   it('resolves uniquesForSlot via the items table', () => {

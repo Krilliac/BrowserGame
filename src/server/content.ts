@@ -4,7 +4,7 @@ import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
 import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
-import type { ItemInstance } from '../shared/items.js';
+import { hasItemFlag, ItemFlags, type Affix, type ItemInstance } from '../shared/items.js';
 import { pickUnique, rollUnique, type UniqueDef } from '../shared/uniques.js';
 import type { MobTemplate, MobTrait } from './mobs.js';
 
@@ -25,6 +25,14 @@ export interface ItemDef {
   sellValue: number;
   /** Spellbooks only: the ability id this book teaches. */
   teaches: string | null;
+  /** Bitmask of {@link ItemFlags} (e.g. LEGENDARY). */
+  flags: number;
+  /** Legendaries only: the base item id this unique is built on (for its rolled stats + look). */
+  baseId: string | null;
+  /** Legendaries only: the fixed, build-defining affixes. */
+  affixes: Affix[] | null;
+  /** Optional flavor line (legendaries). */
+  flavor: string | null;
 }
 
 export interface NpcDef {
@@ -237,19 +245,27 @@ export function loadContent(db: GameDatabase): Content {
       color: r.color,
       sellValue: r.sell_value,
       teaches: r.teaches,
+      flags: r.flags,
+      baseId: r.base_id,
+      affixes: r.affixes !== null ? (JSON.parse(r.affixes) as Affix[]) : null,
+      flavor: r.flavor,
     });
   }
 
-  // UNIQUE (legendary) catalogue — DB-driven; affixes stored as a JSON array.
+  // UNIQUE (legendary) catalogue — now merged into the `items` table: a legendary is any item row
+  // with the LEGENDARY flag, carrying its `baseId` (the base it is built on) + fixed `affixes`.
   const uniqueDefs: UniqueDef[] = [];
   const uniquesById = new Map<string, UniqueDef>();
-  for (const r of db.prepare('SELECT * FROM uniques ORDER BY sort_order').all() as UniqueRow[]) {
+  for (const it of items.values()) {
+    if (!hasItemFlag(it.flags, ItemFlags.LEGENDARY) || it.baseId === null || it.affixes === null) {
+      continue;
+    }
     const def: UniqueDef = {
-      id: r.id,
-      name: r.name,
-      baseId: r.base_id,
-      affixes: JSON.parse(r.affixes) as UniqueDef['affixes'],
-      ...(r.flavor !== null ? { flavor: r.flavor } : {}),
+      id: it.id,
+      name: it.name,
+      baseId: it.baseId,
+      affixes: it.affixes,
+      ...(it.flavor !== null ? { flavor: it.flavor } : {}),
     };
     uniqueDefs.push(def);
     uniquesById.set(def.id, def);
@@ -552,14 +568,10 @@ interface ItemRow {
   color: string | null;
   sell_value: number;
   teaches: string | null;
-}
-interface UniqueRow {
-  id: string;
-  name: string;
-  base_id: string;
-  affixes: string;
+  flags: number;
+  base_id: string | null;
+  affixes: string | null;
   flavor: string | null;
-  sort_order: number;
 }
 interface DungeonRow {
   area_id: string;
