@@ -24,6 +24,7 @@ import {
 import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
 import { DEFAULT_UNIQUES } from '../../shared/uniques.js';
 import { DEFAULT_SKILL_TREE, type SkillEffects } from '../../shared/skilltree.js';
+import { DEFAULT_HIRELING_TEMPLATES } from '../hirelings.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 import { EXPANSION_AREA_MOBS, EXPANSION_LOOT } from './seed-expansion.js';
 import { EXPANSION_DECOR } from './seed-decor.js';
@@ -338,6 +339,7 @@ export function seed(db: Database): void {
   ensureUniques(db); // unique (named legendary) pool (seeded from uniques.ts DEFAULT_UNIQUES)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
+  ensureHirelings(db); // mercenary roster (seeded from hirelings.ts DEFAULT_HIRELING_TEMPLATES)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -550,6 +552,27 @@ function ensureSkillTree(db: Database): void {
     for (const [effect, value] of Object.entries(n.effects) as [keyof SkillEffects, number][]) {
       insEff.run(n.id, effect, value);
     }
+  }
+}
+
+/**
+ * Seed the hireling roster from the code defaults (hirelings.ts). Idempotent: INSERT OR IGNORE keyed
+ * on type, so designer-added/retuned mercenaries survive a restart.
+ */
+function ensureHirelings(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO hireling_templates (type,name,behavior,speed,attack_range,kite_range,attack_cooldown_ms) VALUES (?,?,?,?,?,?,?)',
+  );
+  for (const t of Object.values(DEFAULT_HIRELING_TEMPLATES)) {
+    ins.run(
+      t.type,
+      t.name,
+      t.behavior,
+      t.speed,
+      t.attackRange,
+      t.kiteRange ?? null,
+      t.attackCooldownMs,
+    );
   }
 }
 

@@ -5,6 +5,7 @@ import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme, type WeatherKind } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
 import { type MobTemplate, type EliteModifier, DEFAULT_ELITE_MODIFIERS } from './mobs.js';
+import { applyHirelingOverrides, type HirelingTemplate } from './hirelings.js';
 import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
 import type { StatusEffectKind } from './ability-effects.js';
 import {
@@ -130,6 +131,8 @@ export interface Content {
   affixNames(): Record<string, AffixName>;
   /** The passive skill-tree nodes (overlaid onto the shared SKILL_TREE; shipped to client). */
   skillTree(): SkillNode[];
+  /** The hireling (mercenary) roster (overlaid onto the shared HIRELING_TEMPLATES; server-only). */
+  hirelingTemplates(): HirelingTemplate[];
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -553,6 +556,22 @@ export function loadContent(db: GameDatabase): Content {
     return { id: r.id, name: r.name, desc: r.desc, tier: r.tier, requires, effects };
   });
 
+  // Hireling (mercenary) roster. Overlaid onto the shared HIRELING_TEMPLATES (server-only AI).
+  const hirelingTemplates = (
+    db.prepare('SELECT * FROM hireling_templates').all() as HirelingRow[]
+  ).map((r) => {
+    const t: HirelingTemplate = {
+      type: r.type,
+      name: r.name,
+      behavior: r.behavior === 'ranged' ? 'ranged' : 'melee',
+      speed: r.speed,
+      attackRange: r.attack_range,
+      attackCooldownMs: r.attack_cooldown_ms,
+    };
+    if (r.kite_range !== null) t.kiteRange = r.kite_range;
+    return t;
+  });
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -599,6 +618,7 @@ export function loadContent(db: GameDatabase): Content {
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
     skillTree: () => skillTree,
+    hirelingTemplates: () => hirelingTemplates,
   };
 }
 
@@ -619,6 +639,7 @@ export function initGameDb(file?: string): Content {
   applyAffixRangeOverrides(activeContent.affixRanges()); // overlay affix roll ranges
   applyAffixNameOverrides(activeContent.affixNames()); // overlay affix flavor names
   applySkillTreeOverrides(activeContent.skillTree()); // overlay the passive skill tree
+  applyHirelingOverrides(activeContent.hirelingTemplates()); // overlay the hireling roster
   return activeContent;
 }
 
@@ -643,6 +664,7 @@ export function reloadContent(): Content {
   applyAffixRangeOverrides(activeContent.affixRanges()); // re-overlay affix roll ranges on reload
   applyAffixNameOverrides(activeContent.affixNames()); // re-overlay affix flavor names on reload
   applySkillTreeOverrides(activeContent.skillTree()); // re-overlay the passive skill tree on reload
+  applyHirelingOverrides(activeContent.hirelingTemplates()); // re-overlay the hireling roster on reload
   return activeContent;
 }
 
@@ -904,4 +926,13 @@ interface SkillNodeRow {
   name: string;
   desc: string;
   tier: number;
+}
+interface HirelingRow {
+  type: string;
+  name: string;
+  behavior: string;
+  speed: number;
+  attack_range: number;
+  kite_range: number | null;
+  attack_cooldown_ms: number;
 }

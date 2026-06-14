@@ -188,6 +188,19 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Hireling templates: the mercenary roster a player hires from the Recruiter. Seeded from
+-- DEFAULT_HIRELING_TEMPLATES (hirelings.ts); server-only (the AI reads these). Add a row for a new
+-- mercenary type. kite_range is ranged-only (NULL for melee).
+CREATE TABLE IF NOT EXISTS hireling_templates (
+  type               TEXT PRIMARY KEY,
+  name               TEXT NOT NULL,
+  behavior           TEXT NOT NULL,     -- 'melee' | 'ranged'
+  speed              REAL NOT NULL,
+  attack_range       REAL NOT NULL,
+  kite_range         REAL,              -- ranged only (NULL = none)
+  attack_cooldown_ms INTEGER NOT NULL
+);
+
 -- Passive skill-tree nodes: a talent the player allocates a point into. Seeded from
 -- DEFAULT_SKILL_TREE (skilltree.ts); the server folds allocated nodes' effects into stats and the
 -- client renders the tree from the content packet. Prereqs + effects are separate child tables.

@@ -544,6 +544,20 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       value: { type: 'real', min: -100000, max: 100000 },
     },
   },
+
+  hireling_templates: {
+    pk: 'type',
+    label: 'hireling',
+    note: 'mercenary template; applies to newly hired mercs',
+    columns: {
+      name: { type: 'text' },
+      behavior: { type: 'enum', values: ['melee', 'ranged'] },
+      speed: { type: 'real', min: 0, max: 2000 },
+      attack_range: { type: 'real', min: 0, max: 2000 },
+      kite_range: { type: 'real', min: 0, max: 2000, nullable: true },
+      attack_cooldown_ms: { type: 'int', min: 0, max: 60000 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

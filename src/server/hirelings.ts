@@ -19,7 +19,11 @@ export interface HirelingTemplate {
   attackCooldownMs: number;
 }
 
-export const HIRELING_TEMPLATES: Record<string, HirelingTemplate> = {
+/**
+ * Code DEFAULTS for the hireling roster — the seed source for the `hireling_templates` content table
+ * and the fallback the live {@link HIRELING_TEMPLATES} resets to. Treat as immutable; edit via the DB.
+ */
+export const DEFAULT_HIRELING_TEMPLATES: Record<string, HirelingTemplate> = {
   guard: {
     type: 'guard',
     name: 'Guard',
@@ -38,6 +42,21 @@ export const HIRELING_TEMPLATES: Record<string, HirelingTemplate> = {
     attackCooldownMs: 1500,
   },
 };
+
+/**
+ * The LIVE hireling roster (overlaid from the `hireling_templates` DB table at load). Cleared and
+ * repopulated in place by {@link applyHirelingOverrides} so a hireling added via SQL appears.
+ */
+export const HIRELING_TEMPLATES: Record<string, HirelingTemplate> = {
+  ...DEFAULT_HIRELING_TEMPLATES,
+};
+
+/** Replace the live roster; an empty list RESETS to {@link DEFAULT_HIRELING_TEMPLATES}. In place. */
+export function applyHirelingOverrides(list: HirelingTemplate[]): void {
+  for (const type of Object.keys(HIRELING_TEMPLATES)) delete HIRELING_TEMPLATES[type];
+  const src = list.length ? list : Object.values(DEFAULT_HIRELING_TEMPLATES);
+  for (const t of src) HIRELING_TEMPLATES[t.type] = t;
+}
 
 export function hirelingTemplate(type: string): HirelingTemplate | undefined {
   return HIRELING_TEMPLATES[type];

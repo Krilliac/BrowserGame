@@ -32,6 +32,7 @@ queries) into in-memory structures the simulation reads. Tables (`src/server/db/
 | `affix_ranges` | **Affix roll ranges** — per-stat min/max (server-only, drives `rollAffixes`) |
 | `affix_names`, `affix_name_tiers` | **Affix flavor names** — prefix/suffix placement + tiered words (`up_to` NULL = top tier). Shipped to the client so item titles compose from DB data |
 | `skill_nodes`, `skill_node_requires`, `skill_node_effects` | **Passive skill tree** — nodes (tier), prerequisites, and the stats each grants. Server folds effects into stats; client renders the tree from the content packet |
+| `hireling_templates` | **Mercenary roster** — the hireling types (behavior/speed/range/cooldown) the Recruiter offers. Server-only AI; add a row for a new merc type |
 | `weather_modifiers` | Per-`WeatherKind` **gameplay** multipliers (`move_scale`, `aggro_scale`) — how a weather state *plays*, not just looks (seeded from `weather-effects.ts`) |
 | `elite_modifiers` | The elite ("champion") variant roster — flavor prefix + hp/damage/speed multipliers a normal spawn can roll (seeded from `mobs.ts`) |
 | `quests` | Quest definitions (schema seeded with a sample) |
