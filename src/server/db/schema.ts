@@ -188,6 +188,33 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Passive skill-tree nodes: a talent the player allocates a point into. Seeded from
+-- DEFAULT_SKILL_TREE (skilltree.ts); the server folds allocated nodes' effects into stats and the
+-- client renders the tree from the content packet. Prereqs + effects are separate child tables.
+CREATE TABLE IF NOT EXISTS skill_nodes (
+  id   TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  desc TEXT NOT NULL,
+  tier INTEGER NOT NULL                 -- 0 = always available; deeper tiers gate on requires
+);
+
+-- A skill node's prerequisites: every requires_id must be allocated before the node unlocks.
+CREATE TABLE IF NOT EXISTS skill_node_requires (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  node_id     TEXT NOT NULL,
+  requires_id TEXT NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
+-- A skill node's granted effects: one row per (node, effect-key). Keys are SkillEffects fields
+-- (power, critPct, maxHpPct, lifestealPct, swiftPct, movePct, armorPct, vigor, manaRegen, multishot).
+CREATE TABLE IF NOT EXISTS skill_node_effects (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  node_id TEXT NOT NULL,
+  effect  TEXT NOT NULL,
+  value   REAL NOT NULL
+);
+
 -- Affix roll ranges: the pre-rarity-scaling base value range per scalar affix stat. Server-only
 -- (rollAffixes reads them). Seeded from DEFAULT_AFFIX_RANGES (items.ts).
 CREATE TABLE IF NOT EXISTS affix_ranges (

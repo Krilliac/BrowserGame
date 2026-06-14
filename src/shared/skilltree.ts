@@ -55,7 +55,7 @@ export interface SkillNode {
  * The talent tree. Three branches × tiers 0..3. Deeper nodes require a shallower node in the same
  * branch, so prerequisites always reference a strictly lower tier (the DAG has no cycles).
  */
-export const SKILL_TREE: SkillNode[] = [
+export const DEFAULT_SKILL_TREE: SkillNode[] = [
   // ---- Offense: power / crit / multishot ----
   {
     id: 'off-might',
@@ -191,10 +191,25 @@ export const SKILL_TREE: SkillNode[] = [
   },
 ];
 
-/** Index for O(1) lookup by id. Built once from {@link SKILL_TREE}. */
-const SKILL_INDEX: ReadonlyMap<string, SkillNode> = new Map(
-  SKILL_TREE.map((node) => [node.id, node]),
-);
+/**
+ * The LIVE talent tree (overlaid from the `skill_node*` DB tables on load). Replaced in place by
+ * {@link applySkillTreeOverrides} so the panel + stat aggregation see DB edits without a re-import.
+ */
+export const SKILL_TREE: SkillNode[] = DEFAULT_SKILL_TREE.map((n) => ({ ...n }));
+
+/** Index for O(1) lookup by id. Rebuilt from {@link SKILL_TREE} whenever the tree is overlaid. */
+const SKILL_INDEX = new Map<string, SkillNode>(SKILL_TREE.map((node) => [node.id, node]));
+
+/**
+ * Replace the live {@link SKILL_TREE} (and rebuild the lookup index); an empty list RESETS to
+ * {@link DEFAULT_SKILL_TREE}. Mutates in place so all importers keep their binding.
+ */
+export function applySkillTreeOverrides(nodes: SkillNode[]): void {
+  SKILL_TREE.length = 0;
+  SKILL_TREE.push(...(nodes.length ? nodes : DEFAULT_SKILL_TREE));
+  SKILL_INDEX.clear();
+  for (const node of SKILL_TREE) SKILL_INDEX.set(node.id, node);
+}
 
 /** The node with the given id, or `undefined` if no such node exists. */
 export function skillNode(id: string): SkillNode | undefined {

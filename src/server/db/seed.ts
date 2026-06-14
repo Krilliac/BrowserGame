@@ -23,6 +23,7 @@ import {
 } from '../../shared/items.js';
 import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
 import { DEFAULT_UNIQUES } from '../../shared/uniques.js';
+import { DEFAULT_SKILL_TREE, type SkillEffects } from '../../shared/skilltree.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 import { EXPANSION_AREA_MOBS, EXPANSION_LOOT } from './seed-expansion.js';
 import { EXPANSION_DECOR } from './seed-decor.js';
@@ -336,6 +337,7 @@ export function seed(db: Database): void {
   ensureRunewords(db); // rune pool + runeword recipes (seeded from runewords.ts defaults)
   ensureUniques(db); // unique (named legendary) pool (seeded from uniques.ts DEFAULT_UNIQUES)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
+  ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -527,6 +529,27 @@ function ensureAffixes(db: Database): void {
     def.tiers.forEach((t, i) =>
       insTier.run(stat, Number.isFinite(t.upTo) ? t.upTo : null, t.word, i),
     );
+  }
+}
+
+/**
+ * Seed the passive skill-tree nodes + prereqs + effects from the code defaults (skilltree.ts).
+ * Idempotent: skips a node whose row already exists, so designer edits survive a restart.
+ */
+function ensureSkillTree(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM skill_nodes WHERE id = ?');
+  const insNode = db.prepare('INSERT INTO skill_nodes (id,name,desc,tier) VALUES (?,?,?,?)');
+  const insReq = db.prepare(
+    'INSERT INTO skill_node_requires (node_id,requires_id,sort_order) VALUES (?,?,?)',
+  );
+  const insEff = db.prepare('INSERT INTO skill_node_effects (node_id,effect,value) VALUES (?,?,?)');
+  for (const n of DEFAULT_SKILL_TREE) {
+    if (has.get(n.id)) continue;
+    insNode.run(n.id, n.name, n.desc, n.tier);
+    n.requires.forEach((req, i) => insReq.run(n.id, req, i));
+    for (const [effect, value] of Object.entries(n.effects) as [keyof SkillEffects, number][]) {
+      insEff.run(n.id, effect, value);
+    }
   }
 }
 

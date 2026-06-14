@@ -32,6 +32,7 @@ import {
   type RarityDef,
 } from '../shared/items.js';
 import { applyGemOverrides } from '../shared/gems.js';
+import { applySkillTreeOverrides } from '../shared/skilltree.js';
 import { type AttributeSet, emptyAttributes } from '../shared/attributes.js';
 
 export interface ChatLine {
@@ -351,6 +352,8 @@ export class Net {
         if (msg.gems) applyGemOverrides(msg.gems);
         // Mirror affix flavor names so item titles compose from DB data.
         applyAffixNameOverrides((msg.affixNames ?? {}) as Partial<Record<AffixStat, AffixName>>);
+        // Mirror the passive skill tree so the panel renders nodes/prereqs from DB data.
+        if (msg.skillTree) applySkillTreeOverrides(msg.skillTree);
         this.contentRev++;
         break;
       case 'welcome':

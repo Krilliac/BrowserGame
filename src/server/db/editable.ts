@@ -497,6 +497,53 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       sort_order: { type: 'int', min: 0, max: 9999 },
     },
   },
+
+  skill_nodes: {
+    pk: 'id',
+    label: 'skill node',
+    note: 'passive talent; /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      desc: { type: 'text' },
+      tier: { type: 'int', min: 0, max: 99 },
+    },
+  },
+
+  skill_node_requires: {
+    pk: 'id',
+    label: 'skill prereq',
+    note: 'a node prerequisite; /reloadcontent to apply',
+    columns: {
+      node_id: { type: 'text' },
+      requires_id: { type: 'text' },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
+  skill_node_effects: {
+    pk: 'id',
+    label: 'skill effect',
+    note: 'a stat a node grants; /reloadcontent to apply',
+    columns: {
+      node_id: { type: 'text' },
+      effect: {
+        type: 'enum',
+        values: [
+          'power',
+          'critPct',
+          'maxHpPct',
+          'lifestealPct',
+          'swiftPct',
+          'movePct',
+          'armorPct',
+          'vigor',
+          'manaRegen',
+          'multishot',
+        ],
+      },
+      value: { type: 'real', min: -100000, max: 100000 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

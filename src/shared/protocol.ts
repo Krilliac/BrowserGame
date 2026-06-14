@@ -12,6 +12,7 @@ import type { AbilityId, Ability, EntityKind, FxEvent } from './combat.js';
 import type { AreaDef } from './areas.js';
 import type { ItemInstance, RarityDef, AffixName } from './items.js';
 import type { GemDef } from './gems.js';
+import type { SkillNode } from './skilltree.js';
 import type { AttributeSet } from './attributes.js';
 
 /** One quest's state for the client quest log. */
@@ -312,6 +313,8 @@ export type ServerMessage =
       gems?: GemDef[];
       /** Affix flavor names/tiers, so client item titles compose from DB data. */
       affixNames?: Partial<Record<string, AffixName>>;
+      /** The passive skill tree, so the client renders nodes/prereqs from DB data. */
+      skillTree?: SkillNode[];
     }
   | {
       t: 'welcome';

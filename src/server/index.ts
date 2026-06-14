@@ -79,6 +79,7 @@ function encodeContent(): string {
     rarities: c.rarityTiers(),
     gems: c.gems(),
     affixNames: c.affixNames(),
+    skillTree: c.skillTree(),
   });
 }
 

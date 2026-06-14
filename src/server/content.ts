@@ -25,6 +25,7 @@ import {
   type RunewordDef,
 } from '../shared/runewords.js';
 import { applyUniqueOverrides, type UniqueDef } from '../shared/uniques.js';
+import { applySkillTreeOverrides, type SkillNode, type SkillEffects } from '../shared/skilltree.js';
 import type { StatusId } from './status-effects.js';
 
 /**
@@ -127,6 +128,8 @@ export interface Content {
   affixRanges(): Record<string, AffixRange>;
   /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
   affixNames(): Record<string, AffixName>;
+  /** The passive skill-tree nodes (overlaid onto the shared SKILL_TREE; shipped to client). */
+  skillTree(): SkillNode[];
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -536,6 +539,20 @@ export function loadContent(db: GameDatabase): Content {
     affixNames[r.stat] = { kind: r.kind === 'suffix' ? 'suffix' : 'prefix', tiers };
   }
 
+  // Passive skill tree: nodes + ordered prereqs + per-key effects, rebuilt into SkillNode shape.
+  const reqStmt = db.prepare(
+    'SELECT requires_id FROM skill_node_requires WHERE node_id = ? ORDER BY sort_order',
+  );
+  const effStmt = db.prepare('SELECT effect, value FROM skill_node_effects WHERE node_id = ?');
+  const skillTree = (db.prepare('SELECT * FROM skill_nodes').all() as SkillNodeRow[]).map((r) => {
+    const requires = (reqStmt.all(r.id) as { requires_id: string }[]).map((x) => x.requires_id);
+    const effects: Partial<SkillEffects> = {};
+    for (const e of effStmt.all(r.id) as { effect: string; value: number }[]) {
+      effects[e.effect as keyof SkillEffects] = e.value;
+    }
+    return { id: r.id, name: r.name, desc: r.desc, tier: r.tier, requires, effects };
+  });
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -581,6 +598,7 @@ export function loadContent(db: GameDatabase): Content {
     uniques: () => uniques,
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
+    skillTree: () => skillTree,
   };
 }
 
@@ -600,6 +618,7 @@ export function initGameDb(file?: string): Content {
   applyUniqueOverrides(activeContent.uniques()); // overlay unique pool onto shared UNIQUES
   applyAffixRangeOverrides(activeContent.affixRanges()); // overlay affix roll ranges
   applyAffixNameOverrides(activeContent.affixNames()); // overlay affix flavor names
+  applySkillTreeOverrides(activeContent.skillTree()); // overlay the passive skill tree
   return activeContent;
 }
 
@@ -623,6 +642,7 @@ export function reloadContent(): Content {
   applyUniqueOverrides(activeContent.uniques()); // re-overlay unique pool on reload
   applyAffixRangeOverrides(activeContent.affixRanges()); // re-overlay affix roll ranges on reload
   applyAffixNameOverrides(activeContent.affixNames()); // re-overlay affix flavor names on reload
+  applySkillTreeOverrides(activeContent.skillTree()); // re-overlay the passive skill tree on reload
   return activeContent;
 }
 
@@ -878,4 +898,10 @@ interface AffixRangeRow {
 interface AffixNameRow {
   stat: string;
   kind: string;
+}
+interface SkillNodeRow {
+  id: string;
+  name: string;
+  desc: string;
+  tier: number;
 }
