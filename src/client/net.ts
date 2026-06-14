@@ -22,7 +22,12 @@ export interface EngineReply {
   data?: EngineResData;
 }
 import type { AbilityId } from '../shared/combat.js';
-import type { ItemInstance } from '../shared/items.js';
+import {
+  applyRarityOverrides,
+  type ItemInstance,
+  type Rarity,
+  type RarityDef,
+} from '../shared/items.js';
 import { type AttributeSet, emptyAttributes } from '../shared/attributes.js';
 
 export interface ChatLine {
@@ -336,6 +341,8 @@ export class Net {
     switch (msg.t) {
       case 'content':
         this.content.load(msg.areas, msg.abilities, msg.items, msg.tints, msg.dungeons);
+        // Mirror the server's rarity tuning (weights are server-only, but colors/names drive the UI).
+        applyRarityOverrides((msg.rarities ?? {}) as Partial<Record<Rarity, RarityDef>>);
         this.contentRev++;
         break;
       case 'welcome':

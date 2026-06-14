@@ -35,7 +35,11 @@ export interface RarityDef {
   color: string;
 }
 
-export const RARITY: Record<Rarity, RarityDef> = {
+/**
+ * Code DEFAULTS for the rarity tiers — the seed source for the `rarity_tiers` content table and the
+ * fallback the live {@link RARITY} table is reset to. Treat as immutable; edit tuning via the DB.
+ */
+export const DEFAULT_RARITY: Record<Rarity, RarityDef> = {
   // Weights tuned so a clear majority of gear rolls magic-or-better (an affix-bearing item) — the
   // "loot = your build" identity wants modifiers to feel common, not rare.
   common: { name: 'Common', weight: 560, statMult: 1.0, variance: 0.1, color: '#c9c9c9' },
@@ -49,6 +53,28 @@ export const RARITY: Record<Rarity, RarityDef> = {
   // the loot chase. Top-tier base stats; its signature powers come from its hand-authored affixes.
   unique: { name: 'Unique', weight: 0, statMult: 3.6, variance: 0.18, color: '#bfa05a' },
 };
+
+/**
+ * The LIVE rarity table the roll/display code reads. Initialized from {@link DEFAULT_RARITY}; the
+ * server overlays the `rarity_tiers` DB rows onto it at load, and the client overlays the values
+ * shipped in the content packet — so tuning weights/colors is data, not code. The object reference
+ * is stable (fields are mutated in place) so all `RARITY[r]` readers see updates without re-import.
+ */
+export const RARITY: Record<Rarity, RarityDef> = Object.fromEntries(
+  (Object.entries(DEFAULT_RARITY) as [Rarity, RarityDef][]).map(([r, d]) => [r, { ...d }]),
+) as Record<Rarity, RarityDef>;
+
+/**
+ * Overlay rarity-tier definitions onto the live {@link RARITY} table (mutating fields in place). Any
+ * tier absent from `defs` is RESET to its {@link DEFAULT_RARITY} value, so this is idempotent and
+ * `applyRarityOverrides({})` restores the code defaults. Called server-side from the content load and
+ * client-side from the content packet.
+ */
+export function applyRarityOverrides(defs: Partial<Record<Rarity, RarityDef>>): void {
+  for (const r of Object.keys(RARITY) as Rarity[]) {
+    Object.assign(RARITY[r], DEFAULT_RARITY[r], defs[r] ?? {});
+  }
+}
 
 /** Roll a rarity tier by weight. Deterministic given `rng`. */
 export function rollRarity(rng: () => number = Math.random): Rarity {

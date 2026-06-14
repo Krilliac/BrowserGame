@@ -10,7 +10,7 @@
 
 import type { AbilityId, Ability, EntityKind, FxEvent } from './combat.js';
 import type { AreaDef } from './areas.js';
-import type { ItemInstance } from './items.js';
+import type { ItemInstance, RarityDef } from './items.js';
 import type { AttributeSet } from './attributes.js';
 
 /** One quest's state for the client quest log. */
@@ -305,6 +305,8 @@ export type ServerMessage =
       tints?: Record<string, string>;
       /** Area ids that are procedural dungeons — lets the client mark dungeon-bound portals. */
       dungeons?: string[];
+      /** Rarity-tier overrides (weights/colors) so the client mirrors the DB's loot tuning. */
+      rarities?: Partial<Record<string, RarityDef>>;
     }
   | {
       t: 'welcome';

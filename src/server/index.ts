@@ -76,6 +76,7 @@ function encodeContent(): string {
     items: c.items(),
     tints: c.spriteTints(),
     dungeons: c.dungeonAreaIds(),
+    rarities: c.rarityTiers(),
   });
 }
 

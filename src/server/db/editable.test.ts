@@ -353,6 +353,17 @@ describe('tuning tables are live-editable via /set', () => {
   it('game_config.value coerces a real', () => {
     expect(coerceColumn('game_config', 'value', '1.6')).toEqual({ ok: true, value: 1.6 });
   });
+
+  it('rarity_tiers.color coerces a hex color', () => {
+    expect(coerceColumn('rarity_tiers', 'color', '#ff7a1a')).toEqual({
+      ok: true,
+      value: '#ff7a1a',
+    });
+  });
+
+  it('rarity_tiers.weight coerces a real', () => {
+    expect(coerceColumn('rarity_tiers', 'weight', '480')).toEqual({ ok: true, value: 480 });
+  });
 });
 
 describe('EDITABLE_TABLES invariants', () => {

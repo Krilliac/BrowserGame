@@ -345,6 +345,20 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       sort_order: { type: 'int', min: 0, max: 9999 },
     },
   },
+
+  rarity_tiers: {
+    pk: 'rarity',
+    label: 'rarity tier',
+    note: 'loot rarity weight/scaling/color; /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      weight: { type: 'real', min: 0, max: 100000 },
+      stat_mult: { type: 'real', min: 0, max: 100 },
+      variance: { type: 'real', min: 0, max: 1 },
+      color: { type: 'color' },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -188,6 +188,20 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Item rarity tiers: drop weight, stat multiplier, roll variance, and display color per rarity.
+-- Seeded from DEFAULT_RARITY (items.ts); the server overlays these onto the shared RARITY table at
+-- load and ships them to the client in the content packet. weight 0 = never weighted-rolled
+-- (corrupted/unique are minted by their own systems). Edit to retune loot rarity without a recompile.
+CREATE TABLE IF NOT EXISTS rarity_tiers (
+  rarity     TEXT PRIMARY KEY,           -- 'common'|'magic'|'rare'|'epic'|'legendary'|'corrupted'|'unique'
+  name       TEXT NOT NULL,
+  weight     REAL NOT NULL,
+  stat_mult  REAL NOT NULL,
+  variance   REAL NOT NULL,
+  color      TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 -- Procedural dungeon definitions: an area present here is a DUNGEON — populated by a random pack
 -- from its pool (dungeon_pool) plus a boss and an optional mini-boss, rather than a fixed area_mobs
 -- roster. Seeded from areas.ts DUNGEONS; the server reads pools/bosses to populate instances, and the

@@ -15,6 +15,7 @@ import { WEATHER_KINDS } from '../../shared/theme.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
 import { GEMS } from '../../shared/gems.js';
+import { DEFAULT_RARITY, type Rarity } from '../../shared/items.js';
 import { RUNES } from '../../shared/runewords.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 import { EXPANSION_AREA_MOBS, EXPANSION_LOOT } from './seed-expansion.js';
@@ -324,6 +325,7 @@ export function seed(db: Database): void {
   ensureShrineBuffs(db); // shrine blessing pool (seeded from code defaults)
   ensureGameConfig(db); // global game-tuning overlay (seeded from the config.ts defaults)
   ensureDungeons(db); // procedural dungeon pools/bosses (seeded from areas.ts DUNGEONS)
+  ensureRarityTiers(db); // item rarity tiers (seeded from items.ts DEFAULT_RARITY)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -428,6 +430,19 @@ function ensureDungeons(db: Database): void {
     );
     d.pool.forEach((t, i) => insP.run(areaId, t, i));
   }
+}
+
+/**
+ * Seed the item rarity tiers from the code defaults (items.ts DEFAULT_RARITY). Idempotent:
+ * INSERT OR IGNORE keyed on the rarity id, so a designer's retuned weights/colors survive a restart.
+ */
+function ensureRarityTiers(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO rarity_tiers (rarity,name,weight,stat_mult,variance,color,sort_order) VALUES (?,?,?,?,?,?,?)',
+  );
+  (Object.entries(DEFAULT_RARITY) as [Rarity, (typeof DEFAULT_RARITY)[Rarity]][]).forEach(
+    ([rarity, d], i) => ins.run(rarity, d.name, d.weight, d.statMult, d.variance, d.color, i),
+  );
 }
 
 /**

@@ -7,6 +7,7 @@ import type { Ability, AbilityId } from '../shared/combat.js';
 import { type MobTemplate, type EliteModifier, DEFAULT_ELITE_MODIFIERS } from './mobs.js';
 import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
 import type { StatusEffectKind } from './ability-effects.js';
+import { applyRarityOverrides, type Rarity, type RarityDef } from '../shared/items.js';
 import type { StatusId } from './status-effects.js';
 
 /**
@@ -95,6 +96,8 @@ export interface Content {
   isDungeon(areaId: string): boolean;
   /** Every dungeon area id (shipped to the client so it knows which portals lead to a dungeon). */
   dungeonAreaIds(): string[];
+  /** Item rarity-tier definitions keyed by rarity (drop weight, stat mult, variance, color). */
+  rarityTiers(): Partial<Record<Rarity, RarityDef>>;
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -425,6 +428,20 @@ export function loadContent(db: GameDatabase): Content {
     dungeons.set(r.area_id, def);
   }
 
+  // Item rarity tiers (drop weight, stat scaling, color). Overlaid onto the shared RARITY table.
+  const rarityTiers: Partial<Record<Rarity, RarityDef>> = {};
+  for (const r of db
+    .prepare('SELECT * FROM rarity_tiers ORDER BY sort_order')
+    .all() as RarityRow[]) {
+    rarityTiers[r.rarity] = {
+      name: r.name,
+      weight: r.weight,
+      statMult: r.stat_mult,
+      variance: r.variance,
+      color: r.color,
+    };
+  }
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -463,6 +480,7 @@ export function loadContent(db: GameDatabase): Content {
     dungeon: (areaId) => dungeons.get(areaId),
     isDungeon: (areaId) => dungeons.has(areaId),
     dungeonAreaIds: () => [...dungeons.keys()],
+    rarityTiers: () => rarityTiers,
   };
 }
 
@@ -475,6 +493,7 @@ export function initGameDb(file?: string): Content {
   activeDb = openDatabase(file ?? ':memory:');
   applyConfigOverrides(activeDb); // overlay the game_config tuning rows onto the code defaults
   activeContent = loadContent(activeDb);
+  applyRarityOverrides(activeContent.rarityTiers()); // overlay DB rarity tuning onto shared RARITY
   return activeContent;
 }
 
@@ -491,6 +510,7 @@ export function reloadContent(): Content {
   if (!activeDb) return getContent();
   applyConfigOverrides(activeDb); // re-overlay tuning so a direct game_config SQL edit takes effect
   activeContent = loadContent(activeDb);
+  applyRarityOverrides(activeContent.rarityTiers()); // re-overlay rarity tuning on reload
   return activeContent;
 }
 
@@ -704,4 +724,13 @@ interface DungeonRow {
   elite_chance: number;
   min_mobs: number;
   max_mobs: number;
+}
+interface RarityRow {
+  rarity: Rarity;
+  name: string;
+  weight: number;
+  stat_mult: number;
+  variance: number;
+  color: string;
+  sort_order: number;
 }
