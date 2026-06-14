@@ -277,6 +277,8 @@ const shopRects: { itemId: string; x: number; y: number; w: number; h: number }[
 let shopSellRect: { x: number; y: number; w: number; h: number } | null = null;
 let shopCloseRect: { x: number; y: number; w: number; h: number } | null = null;
 let shopPanelRect: { x: number; y: number; w: number; h: number } | null = null;
+// Help / keybind overlay: open with H — lists keys, mouse interactions, and chat commands.
+let helpOpen = false;
 // Character panel (paper doll): open with C; each slot box is a click target to unequip.
 let charOpen = false;
 const charSlotRects: { slot: string; x: number; y: number; w: number; h: number }[] = [];
@@ -372,6 +374,10 @@ window.addEventListener('keydown', (e) => {
     questOpen = false;
     return;
   }
+  if (e.key === 'Escape' && helpOpen) {
+    helpOpen = false;
+    return;
+  }
   if (e.key === 'Escape' && (partyOpen || socialOpen || waypointOpen || inventoryOpen)) {
     partyOpen = false;
     socialOpen = false;
@@ -400,6 +406,8 @@ window.addEventListener('keydown', (e) => {
     waypointOpen = !waypointOpen; // toggle the waypoint / fast-travel map
   } else if (e.key.toLowerCase() === 'i') {
     inventoryOpen = !inventoryOpen; // toggle the full inventory
+  } else if (e.key.toLowerCase() === 'h') {
+    helpOpen = !helpOpen; // toggle the help / keybind overlay
   } else if (e.key.toLowerCase() === 'k') {
     skillOpen = !skillOpen; // toggle the passive skill tree
   } else if (e.key === '=' || e.key === '+') {
@@ -1160,6 +1168,7 @@ function frame(): void {
   hudDirty = false;
   lastHudDrawAt = now;
   drawHud();
+  if (helpOpen) drawHelpPanel();
   if (charOpen) drawCharacterPanel();
   if (questOpen) drawQuestPanel();
   else {
@@ -1728,6 +1737,65 @@ function drawErrorBadge(): void {
  * MMO-style portrait up top — name, level, and a live health bar — so the selection is visible.
  * `targetMob()` self-clears when the target dies or leaves, so the frame disappears with it.
  */
+/** Help / keybind overlay (toggle H): keys, mouse interactions, and chat commands in one place. */
+function drawHelpPanel(): void {
+  const lines: { head?: string; text?: string }[] = [
+    { head: 'Move & fight' },
+    { text: 'Left-click ground — walk there' },
+    { text: 'Left-click an enemy — target it (auto-walk + auto-attack)' },
+    { text: '1–6 — cast hotbar spell · scroll the bar to rotate spells' },
+    { text: 'Q — health potion · R — mana potion' },
+    { head: 'Panels' },
+    { text: 'C Character · I Inventory · L Quests · K Skills' },
+    { text: 'P Party · F Friends · M Map/Waypoints · E Interact' },
+    { text: '+ / − Zoom · H this help · Esc close' },
+    { head: 'Loot & crafting' },
+    { text: 'Bag: click = equip · Shift-click = salvage into materials' },
+    { text: 'Set pieces show a green ◆ tag; set progress is in Character (C)' },
+    { head: 'Chat commands (press Enter, then type)' },
+    { text: '/ladder [level|gold|kills] · /achievements · /recipes · /craft <id>' },
+    { text: '/who · /friend <name> · /w <name> <msg> · /help' },
+  ];
+  const pw = 470;
+  const lh = 17;
+  const headPad = 9;
+  let ph = 56;
+  for (const l of lines) ph += l.head ? lh + headPad : lh;
+  const px = Math.round(hudCanvas.width / 2 - pw / 2);
+  const py = Math.round(hudCanvas.height / 2 - ph / 2);
+
+  hud.fillStyle = 'rgba(8,9,13,0.95)';
+  hud.fillRect(px, py, pw, ph);
+  hud.strokeStyle = '#c9a24b';
+  hud.lineWidth = 2;
+  hud.strokeRect(px, py, pw, ph);
+
+  hud.textAlign = 'left';
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 15px system-ui, sans-serif';
+  hud.fillText('Help & Controls', px + 16, py + 26);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#8a8f99';
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillText('H or Esc to close', px + pw - 16, py + 26);
+
+  let y = py + 50;
+  hud.textAlign = 'left';
+  for (const l of lines) {
+    if (l.head) {
+      y += headPad;
+      hud.font = 'bold 12px system-ui, sans-serif';
+      hud.fillStyle = '#c9a24b';
+      hud.fillText(l.head, px + 16, y);
+    } else {
+      hud.font = '12px system-ui, sans-serif';
+      hud.fillStyle = '#cfd3da';
+      hud.fillText(l.text ?? '', px + 22, y);
+    }
+    y += lh;
+  }
+}
+
 function drawTargetFrame(): void {
   const t = targetMob();
   if (!t) return;
@@ -1799,6 +1867,11 @@ function drawHud(): void {
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
   drawTargetFrame();
+  // Always-visible discoverability hint for the help overlay.
+  hud.font = '10px system-ui, sans-serif';
+  hud.fillStyle = 'rgba(180,170,140,0.5)';
+  hud.textAlign = 'left';
+  hud.fillText('H Help', 10, h - 10);
 
   const slot = 52;
   const gap = 10;
