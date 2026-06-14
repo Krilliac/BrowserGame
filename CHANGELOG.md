@@ -6,6 +6,29 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Exception handling + null guards at the runtime boundaries (resilience).** Hardened the spots
+  where an unguarded throw or disabled-storage failure could take down more than the one operation
+  that caused it — building on the existing `runGuarded` / `decodeClient`-null-return / per-socket
+  error-handler discipline rather than blanket-wrapping pure sim code:
+  - **Server last-resort net:** `process.on('uncaughtException' | 'unhandledRejection')` now log the
+    error, count it for the `/health` readout, and keep the world running — a stray throw from a
+    timer callback, a library emit, or an async gap no longer crashes the process and disconnects
+    every player.
+  - **Startup fails loudly, not cryptically:** opening the game DB is wrapped so a corrupt/locked
+    file or bad permissions prints a clear `FATAL` line and exits cleanly instead of dumping a raw
+    stack; the HTTP server's `error` event (e.g. `EADDRINUSE`) does the same, and the
+    `WebSocketServer`'s server-level `error` is now handled (previously unhandled → process death).
+  - **The remaining periodic loops are guarded** (autosave, social liveness, invasion, corruption
+    announcements) with `runGuarded`, matching the tick/density loops — a single failed save (db
+    momentarily locked) can no longer throw out of the timer and silently kill all future runs of it.
+  - **Client tolerates disabled/over-quota `localStorage`** (private-browsing mode) when reading the
+    saved character token and minting the player name at bootstrap, matching how `settings.ts` /
+    `inspector.ts` already degrade — storage failures no longer blank the whole app on load.
+  - **Client message pump is contained:** a well-formed-but-unexpected server frame hitting a handler
+    is caught per-message so it can't throw out of the socket listener and stop later frames.
+
 ### Added
 
 - **Real terrain collision + walkable mountain passes (RENDER-08, true elevation).** Mountains,
