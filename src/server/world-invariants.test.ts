@@ -308,7 +308,9 @@ function runSoak(cfg: SoakConfig): void {
     try {
       w.tick(DT);
     } catch (err) {
-      throw new Error(`${ctx} tick() threw: ${err instanceof Error ? err.stack : String(err)}`);
+      throw new Error(`${ctx} tick() threw: ${err instanceof Error ? err.stack : String(err)}`, {
+        cause: err,
+      });
     }
 
     // 6: every transient effect carries finite coordinates.

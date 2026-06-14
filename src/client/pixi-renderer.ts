@@ -15,6 +15,7 @@ import {
 } from 'pixi.js';
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import { RARITY, type Rarity } from '../shared/items.js';
+import { lootGlint } from './loot-glint.js';
 import type { EntityState } from '../shared/protocol.js';
 import { isDungeon, type DecorProp } from '../shared/areas.js';
 import { BOULDER_BASE_RADIUS } from '../shared/collision.js';
@@ -190,6 +191,7 @@ const ITEM_COLORS: Record<string, string> = {
   bone: '#e8e2d0',
   bat_wing: '#7a5a8a',
   rune_shard: '#5fb0e0',
+  healthglobe: '#ff3b4e', // a glowing red life orb (drawn as a pulsing orb, no sheet icon)
 };
 
 interface Sheet {
@@ -2545,6 +2547,32 @@ export class PixiRenderer {
       const shadow = new Graphics();
       shadow.ellipse(0, 0, 8, 4).fill({ color: '#000000', alpha: 0.3 });
       container.addChild(shadow);
+      // Rarity glint: a static additive halo under the drop in its rarity color (brighter the rarer),
+      // so a good drop reads from across the screen — the ARPG loot-pop. Drawn once (no per-frame
+      // cost); the glow is hidden when effects are reduced, the top-tier name label always shows.
+      const glint = lootGlint(e.rarity);
+      if (this.effectsEnabled && glint.intensity > 0) {
+        const glow = new Graphics();
+        const r = 9 + glint.intensity * 8;
+        glow.circle(0, -8, r).fill({ color: glint.color, alpha: 0.1 + glint.intensity * 0.16 });
+        glow
+          .circle(0, -8, r * 0.55)
+          .fill({ color: glint.color, alpha: 0.12 + glint.intensity * 0.18 });
+        glow.blendMode = 'add';
+        container.addChild(glow);
+      }
+      // D2-style drop label for the genuinely exciting tiers (epic+ / unique / corrupted): the item's
+      // name floats over the drop in its rarity color so you know it's worth the trip.
+      if (glint.label) {
+        const name = this.content.item(e.itemId ?? '')?.name ?? e.itemId ?? 'Item';
+        const label = new Text({
+          text: name,
+          style: { fontFamily: 'system-ui', fontWeight: 'bold', fontSize: 11, fill: glint.color },
+        });
+        label.anchor.set(0.5, 1);
+        label.position.set(0, -20);
+        container.addChild(label);
+      }
       view = {
         container,
         topY: 0,
@@ -2808,6 +2836,20 @@ export class PixiRenderer {
         t.style.fill = '#f2c14e';
         t.alpha = alpha;
         t.position.set(x, y - 40 - age * 24);
+      } else if (ev.kind === 'heal' && ev.value !== undefined) {
+        // HP restored (a health globe): a rising "+N" in life-red, with a soft expanding ring.
+        g.circle(x, y - 16, 6 + age * 22).stroke({
+          width: 2,
+          color: '#ff5d6c',
+          alpha: alpha * 0.7,
+        });
+        const t = this.fxText(ti++);
+        t.visible = true;
+        t.text = `+${ev.value}`;
+        t.style.fontSize = 16;
+        t.style.fill = '#ff6b78';
+        t.alpha = alpha;
+        t.position.set(x, y - 44 - age * 26);
       } else if (ev.kind === 'levelup') {
         // A gold burst ring + a "Level N!" callout rising over the player.
         g.circle(x, y - 16, 14 + age * 46).stroke({ width: 3, color: '#ffe08a', alpha });

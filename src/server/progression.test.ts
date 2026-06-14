@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   championGoldPile,
   coopScale,
+  healthGlobeHeal,
   levelForXp,
   levelProgress,
   maxHpForLevel,
+  scaleDamageForLevel,
   scaleGoldForLevel,
   tierGoldScale,
   xpForLevel,
@@ -226,5 +228,54 @@ describe('tierGoldScale', () => {
   it('resolves a garbage/negative tier to ×1', () => {
     expect(tierGoldScale(NaN)).toBe(1);
     expect(tierGoldScale(-3)).toBe(1);
+  });
+});
+
+describe('scaleDamageForLevel', () => {
+  it('leaves tier-0 damage exactly unchanged (the normal world is untouched)', () => {
+    expect(scaleDamageForLevel(10, 15, 15)).toBe(10);
+    expect(scaleDamageForLevel(7.5, 1, 1)).toBe(7.5);
+    expect(scaleDamageForLevel(10, 5, 60)).toBe(10); // below template → factor 1
+  });
+
+  it('rises with the level overshoot (deeper rifts hit harder)', () => {
+    expect(scaleDamageForLevel(10, 30, 15)).toBeGreaterThan(scaleDamageForLevel(10, 20, 15));
+    expect(scaleDamageForLevel(10, 18, 12)).toBeCloseTo(10 * (18 / 12), 10);
+  });
+
+  it('caps at the (forgiving) lethality ceiling — far tighter than gold', () => {
+    expect(scaleDamageForLevel(10, 999, 5)).toBe(15); // 10 × min(1.5, 199.8)
+    for (let lvl = 1; lvl <= 80; lvl++)
+      expect(scaleDamageForLevel(10, lvl, 5)).toBeLessThanOrEqual(15 + 1e-9);
+  });
+
+  it('honors a custom cap', () => {
+    expect(scaleDamageForLevel(10, 999, 5, 2)).toBe(20);
+  });
+
+  it('resolves garbage input to the base damage and never goes negative', () => {
+    expect(scaleDamageForLevel(8, NaN, NaN)).toBe(8);
+    expect(scaleDamageForLevel(8, -3, 0)).toBe(8);
+    expect(scaleDamageForLevel(NaN, 30, 10)).toBe(0);
+    expect(scaleDamageForLevel(-5, 30, 10)).toBe(0);
+  });
+});
+
+describe('healthGlobeHeal', () => {
+  it('restores the configured fraction of max HP, rounded', () => {
+    expect(healthGlobeHeal(100, 0.35)).toBe(35);
+    expect(healthGlobeHeal(265, 0.2)).toBe(53); // round(53)
+  });
+
+  it('scales with max HP so high-level globes heal more in absolute terms', () => {
+    expect(healthGlobeHeal(400, 0.35)).toBeGreaterThan(healthGlobeHeal(100, 0.35));
+  });
+
+  it('is zero for a zero fraction and never negative', () => {
+    expect(healthGlobeHeal(100, 0)).toBe(0);
+    expect(healthGlobeHeal(-100, 0.35)).toBe(0);
+    expect(healthGlobeHeal(100, -0.5)).toBe(0);
+    expect(healthGlobeHeal(NaN, 0.35)).toBe(0);
+    expect(healthGlobeHeal(100, NaN)).toBe(0);
   });
 });

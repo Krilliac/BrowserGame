@@ -175,7 +175,6 @@ export function drawArtificerPanel(
 
   if (gemRows.length === 0) {
     drawEmpty(hud, px, y, rowH, 'No socketed gems');
-    y += rowH;
   } else {
     for (let i = 0; i < shownGems; i++) {
       const row = gemRows[i]!;
@@ -212,7 +211,6 @@ export function drawArtificerPanel(
     }
     if (shownGems < gemRows.length) {
       drawEmpty(hud, px, y, rowH, `+${gemRows.length - shownGems} more not shown`);
-      y += rowH;
     }
   }
 

@@ -155,7 +155,7 @@ describe('patchCoverage / patchTileFor (RENDER-04)', () => {
     let covered = 0;
     let edgeRuns = 0; // transitions base↔patch along rows — fewer means bigger, coherent blobs
     const N = 32;
-    let prev = false;
+    let prev: boolean;
     for (let gy = 0; gy < N; gy++) {
       prev = false;
       for (let gx = 0; gx < N; gx++) {
