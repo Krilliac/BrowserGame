@@ -68,6 +68,7 @@ import {
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
 import { combineTints } from './tint.js';
 import { backOut, cubicOut } from './easing.js';
+import { shadowLift } from './shadow-lift.js';
 
 /**
  * PixiJS renderer: a tilted top-down (RuneScape-pitch) 2.5D look. World coordinates are a flat
@@ -461,6 +462,10 @@ interface ActorView {
   dyn?: Graphics;
   /** Soft, directional ground shadow (leans away from a fixed sun — the D2 "planted" cue). */
   shadow?: Sprite;
+  /** Planted (grounded) metrics of the ground shadow — its base scale + alpha captured at build
+   *  time. The per-frame height-reactive cue (`liftShadow`) shrinks + fades from this baseline as
+   *  the caster rises off the ground, so a bob/hover/pop reads as real elevation. */
+  shadowPlanted?: { node: Container; sx: number; sy: number; alpha: number };
   /** Important actors (hero/elite): a sheared, darkened sprite-copy cast shadow (RENDER-07). It
    *  shares the body's current frame texture, so it always matches the pose (updated on frame change). */
   castShadow?: Sprite;
@@ -2170,6 +2175,20 @@ export class PixiRenderer {
     return best;
   }
 
+  /**
+   * Height-reactive contact shadow: shrink + fade an actor/loot/projectile's planted ground shadow
+   * by the caster's current elevation (`lift`, world px above the ground plane). No-op until a
+   * `shadowPlanted` baseline was captured. The shrink-and-fade as something rises (and the snap
+   * back tight on landing) is the readable 2.5D "how high is this" cue.
+   */
+  private liftShadow(view: ActorView, lift: number, falloff?: number): void {
+    const p = view.shadowPlanted;
+    if (!p) return;
+    const m = shadowLift(lift, falloff);
+    p.node.scale.set(p.sx * m.scale, p.sy * m.scale);
+    p.node.alpha = p.alpha * m.alpha;
+  }
+
   private updateActor(e: EntityState, isSelf: boolean): void {
     let view = this.views.get(e.id);
     if (!view) {
@@ -2246,6 +2265,10 @@ export class PixiRenderer {
           ? -Math.abs(Math.sin(now / 110 + phase)) * 2.5
           : Math.sin(now / 420 + phase) * 1.2;
     }
+    // Height-reactive contact shadow: the blob shrinks + fades as the billboard rises off the
+    // ground (walk bob, idle breath, flyer hover) and tightens back on contact (sprite.y is the
+    // negative lift). A no-op for cast-shadow actors and procedural orbs (no shadowPlanted).
+    if (view.sprite) this.liftShadow(view, Math.max(0, -view.sprite.y));
     view.lastX = e.x;
     view.lastY = e.y;
     if (view.sprite) {
@@ -2426,6 +2449,18 @@ export class PixiRenderer {
       mark.position.set(0, view.topY - 22);
       container.addChild(mark);
     }
+    // Capture the blob shadow's planted scale/alpha so the per-frame height cue (liftShadow) can
+    // shrink + fade it from this baseline as the actor bobs/hovers. Skipped when the blob is hidden
+    // behind a sheared cast shadow (important actors): their bob is small and the cast copy already
+    // sells the contact.
+    if (shadow.visible) {
+      view.shadowPlanted = {
+        node: shadow,
+        sx: shadow.scale.x,
+        sy: shadow.scale.y,
+        alpha: shadow.alpha,
+      };
+    }
     return view;
   }
 
@@ -2483,10 +2518,14 @@ export class PixiRenderer {
     if (!view) {
       const container = new Container();
       view = { container, topY: 0, lastX: e.x, lastY: e.y, lastHp: 0, flashUntil: 0, seen: true };
-      // Ground shadow on the plane; the projectile itself rides above it (a 2.5D height cue).
+      // Ground shadow on the plane; the projectile itself rides above it (a 2.5D height cue). The
+      // shadow is shrunk + faded once to match the constant flight elevation, so it reads as a
+      // contact shadow cast from the air rather than a blob welded to the missile.
       const shadow = new Graphics();
       shadow.ellipse(0, 0, radius * 1.3, radius * 0.6).fill({ color: '#000000', alpha: 0.28 });
       container.addChild(shadow);
+      view.shadowPlanted = { node: shadow, sx: 1, sy: 1, alpha: 1 };
+      this.liftShadow(view, PROJECTILE_HEIGHT);
       if (strip && hasStrip) {
         const s = new Sprite(this.frame(strip.alias, 16, 16, 0, 0));
         s.anchor.set(0.5);
@@ -2585,6 +2624,9 @@ export class PixiRenderer {
         flashUntil: 0,
         seen: true,
         spawnT: performance.now(),
+        // The flat ellipse drops at node scale/alpha 1 (its fill carries the 0.3 visible alpha), so
+        // the height cue multiplies cleanly from this baseline as the drop pops + settles.
+        shadowPlanted: { node: shadow, sx: 1, sy: 1, alpha: 1 },
       };
       if (alias && this.tex.has(alias)) {
         const s = new Sprite(this.tex.get(alias)!);
@@ -2605,13 +2647,16 @@ export class PixiRenderer {
     view.seen = true;
     view.container.position.set(e.x, e.y * PITCH - this.groundLift(e.x, e.y));
     view.container.zIndex = e.y;
-    // Loot pop: the drop hops up and settles with a back-out overshoot when it first appears
-    // (shadow stays planted) — the easing gives it that satisfied little bounce on landing.
+    // Loot pop: the drop hops up and settles with a back-out overshoot when it first appears — the
+    // easing gives it that satisfied little bounce on landing. The ground shadow shrinks + fades on
+    // the way up and snaps tight as the icon lands, so the hop reads as real height (a shorter
+    // falloff than actors since the pop arc is brief and sharp).
     const drop = view.sprite ?? view.orb;
     if (drop) {
       const age = performance.now() - (view.spawnT ?? 0);
       const t = age / LOOT_POP_MS;
       drop.y = t < 1 ? -Math.sin(t * Math.PI) * LOOT_POP_HEIGHT * (2 - backOut(t)) : 0;
+      this.liftShadow(view, Math.max(0, -drop.y), LOOT_POP_HEIGHT * 1.7);
     }
   }
 

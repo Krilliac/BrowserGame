@@ -31,6 +31,19 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Height-reactive contact shadows (2.5D depth cue).** Billboards (actors, loot, projectiles) ride
+  above a flat ground shadow, but that shadow used to stay a fixed size + opacity however high the
+  caster floated — a dead giveaway that the world is flat. The ground shadow now **shrinks and fades
+  as its caster rises off the plane and tightens + darkens on contact**, the readable "how high is
+  this" signal of the classic platformer shadow:
+  - A new pure, stateless helper (`client/shadow-lift.ts`, in the same family as `easing.ts`) maps an
+    elevation in world px to `scale`/`alpha` multipliers; grounded callers get an exact `{1, 1}`
+    identity, so nothing changes until a billboard actually leaves the ground. Unit-tested.
+  - Wired into the renderer everywhere something lifts off the ground: a flyer's hover and the
+    walk/idle bob (per frame), the loot-pop hop as a drop appears + settles (a shorter falloff for the
+    brief, sharp arc), and a projectile's constant flight height (applied once so it reads as a shadow
+    cast from the air, not a blob welded to the missile). Cast-shadow actors (hero/elites) keep their
+    sheared sprite-copy shadow unchanged.
 - **Real terrain collision + walkable mountain passes (RENDER-08, true elevation).** Mountains,
   cliffs, and boulders are now SOLID and authoritative — you walk *around* them and *through* the gaps
   (paths), not over them. It's built on the shared collision module so the server simulation and the

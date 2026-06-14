@@ -43,9 +43,18 @@ Bake a radial-gradient soft ellipse texture once (canvas → `Texture`), use a `
 (soft edges). Bake a vertical bottom-darkening gradient and add it as a `blendMode:'multiply'` child
 so feet sink into the ground — the #1 "planted vs floating" cue.
 
-### 1.3 z-height channel (Low, high)
+### 1.3 z-height channel (Low, high) — **done (height-reactive shadows)**
 Generalize `PROJECTILE_HEIGHT` (sprite raised, shadow on plane) into a reusable `z`: sprite at `-z`,
 shadow `scale`↓ + `alpha`↓ as `z` grows. Drives leaps, knock-ups, loot-pop arc.
+
+**Implemented** as the `client/shadow-lift.ts` pure helper: `shadowLift(lift, falloff?)` maps an
+elevation in world px to `{scale, alpha}` multipliers for the planted ground shadow (identity at
+`lift === 0`). The renderer reads the lift it already computes — the bob/hover on actors
+(`view.sprite.y`), the loot-pop hop (`drop.y`), and the constant `PROJECTILE_HEIGHT` — and multiplies
+the captured planted shadow metrics (`ActorView.shadowPlanted`) each frame via `liftShadow(...)`. No
+shader, no new wire fields, quality-agnostic. A standalone reusable `z` per entity wasn't needed: the
+elevations are all already local to their render paths, so threading a new state field would have been
+bloat for no extra capability.
 
 ### 1.4 Faux-perspective scale + camera dolly offset (Low–Med, high)
 Subtle depth scale by screen-y (near ~1.1, far ~0.9, clamped). Bias `originY` so the player sits
