@@ -27,6 +27,17 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 | 12 | feat | **Rift modifiers** (D3 mutators) — 8 tier-gated, applied at spawn+reward | green | bf2f64d; +21 → 1364; world rolls from derived seed; /rift entry announces |
 | 13 | feat | **Salvage/disenchant** — gear → crafting materials, /salvage cmd | green | 71b8b57; +4 → 1368; 3 new materials; world.salvage |
 
+### User-requested (during playtest): click-to-target UX
+8a09529 target frame (portrait+name+level+HP bar); 18eeedf world selection ring. The chase +
+auto-attack ALREADY worked (moveSample/autoAttackAbility) — only the VISUALS were missing.
+
+### Iteration 14 plan: integrate crafting.ts (gives salvage materials a sink!)
+crafting.ts (19 tests, on disk UNTRACKED) PURE: CraftRecipe + DEFAULT_RECIPES (3:1 ladder
+scrap→dust→essence→rune_shard + 2 terminal sinks); canCraft/applyCraft. Closes the gap that salvage
+mats (mat_scrap/dust/essence) currently have NO consumer. Wire: schema crafting_recipes +
+crafting_recipe_io; ensureCrafting seed; content loadCrafting + getRecipe; World.craft(playerId,
+recipeId) (loot Map↔record, applyCraft); /recipes + /craft <id> commands. Needs server restart.
+
 ### Session pause (2026-06-14): user testing with fresh DB
 All 4 parallel-built modules integrated + committed; working tree clean. Deleted game.db for a fresh
 seed; started `npm run dev`. NOTE for follow-up: TRADE has no client panel yet (server+protocol only —
