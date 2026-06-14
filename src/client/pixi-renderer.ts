@@ -2549,19 +2549,29 @@ export class PixiRenderer {
       container.addChild(shadow);
       // Rarity glint: a static additive halo under the drop in its rarity color (brighter the rarer),
       // so a good drop reads from across the screen — the ARPG loot-pop. Drawn once (no per-frame
-      // cost); hidden when effects are reduced.
-      if (this.effectsEnabled) {
-        const glint = lootGlint(e.rarity);
-        if (glint.intensity > 0) {
-          const glow = new Graphics();
-          const r = 9 + glint.intensity * 8;
-          glow.circle(0, -8, r).fill({ color: glint.color, alpha: 0.1 + glint.intensity * 0.16 });
-          glow
-            .circle(0, -8, r * 0.55)
-            .fill({ color: glint.color, alpha: 0.12 + glint.intensity * 0.18 });
-          glow.blendMode = 'add';
-          container.addChild(glow);
-        }
+      // cost); the glow is hidden when effects are reduced, the top-tier name label always shows.
+      const glint = lootGlint(e.rarity);
+      if (this.effectsEnabled && glint.intensity > 0) {
+        const glow = new Graphics();
+        const r = 9 + glint.intensity * 8;
+        glow.circle(0, -8, r).fill({ color: glint.color, alpha: 0.1 + glint.intensity * 0.16 });
+        glow
+          .circle(0, -8, r * 0.55)
+          .fill({ color: glint.color, alpha: 0.12 + glint.intensity * 0.18 });
+        glow.blendMode = 'add';
+        container.addChild(glow);
+      }
+      // D2-style drop label for the genuinely exciting tiers (epic+ / unique / corrupted): the item's
+      // name floats over the drop in its rarity color so you know it's worth the trip.
+      if (glint.label) {
+        const name = this.content.item(e.itemId ?? '')?.name ?? e.itemId ?? 'Item';
+        const label = new Text({
+          text: name,
+          style: { fontFamily: 'system-ui', fontWeight: 'bold', fontSize: 11, fill: glint.color },
+        });
+        label.anchor.set(0.5, 1);
+        label.position.set(0, -20);
+        container.addChild(label);
       }
       view = {
         container,
