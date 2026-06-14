@@ -349,6 +349,10 @@ describe('tuning tables are live-editable via /set', () => {
   it('shrine_buffs.magnitude coerces a real', () => {
     expect(coerceColumn('shrine_buffs', 'magnitude', '0.5')).toEqual({ ok: true, value: 0.5 });
   });
+
+  it('game_config.value coerces a real', () => {
+    expect(coerceColumn('game_config', 'value', '1.6')).toEqual({ ok: true, value: 1.6 });
+  });
 });
 
 describe('EDITABLE_TABLES invariants', () => {

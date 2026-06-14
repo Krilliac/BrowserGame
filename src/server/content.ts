@@ -1,4 +1,4 @@
-import { config } from './config.js';
+import { config, applyConfigOverrides } from './config.js';
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
 import type { AreaDef, DecorProp } from '../shared/areas.js';
@@ -444,6 +444,7 @@ let activeContent: Content | undefined;
 /** Initialize (or replace) the content database. The server calls this with a file path. */
 export function initGameDb(file?: string): Content {
   activeDb = openDatabase(file ?? ':memory:');
+  applyConfigOverrides(activeDb); // overlay the game_config tuning rows onto the code defaults
   activeContent = loadContent(activeDb);
   return activeContent;
 }
@@ -459,6 +460,7 @@ export function getContent(): Content {
  */
 export function reloadContent(): Content {
   if (!activeDb) return getContent();
+  applyConfigOverrides(activeDb); // re-overlay tuning so a direct game_config SQL edit takes effect
   activeContent = loadContent(activeDb);
   return activeContent;
 }

@@ -311,6 +311,15 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       sort_order: { type: 'int', min: 0, max: 9999 },
     },
   },
+
+  game_config: {
+    pk: 'key',
+    label: 'tuning knob',
+    note: 'global game-tuning overlay (e.g. difficulty.mobDamage); /reloadcontent to apply',
+    columns: {
+      value: { type: 'real', min: 0, max: 1_000_000_000 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

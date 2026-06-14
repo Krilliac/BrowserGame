@@ -188,6 +188,16 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Global game-tuning overlay (TrinityCore-style world settings): a key/value table of numeric
+-- gameplay knobs. key is a dotted config path (e.g. 'difficulty.mobDamage', 'drops.gemBoss') and
+-- value overrides the code default in config.ts at load. Only whitelisted GAMEPLAY sections are
+-- seeded here — server plumbing and secrets (ports, tokens, paths) deliberately never live in the DB.
+-- Edit a row + restart (or /reloadcontent) to rebalance difficulty/economy/drops without a recompile.
+CREATE TABLE IF NOT EXISTS game_config (
+  key   TEXT PRIMARY KEY,
+  value REAL NOT NULL
+);
+
 -- Self-buff a spell grants its caster (player War Cry / Sprint / Renew; mob heal-spells). One buff
 -- per ability. buff is a StatusId ('might'|'haste'|'regen'); magnitude is the buff strength.
 -- Seeded from ability-effects.ts; edit to retune spell utility.

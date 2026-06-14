@@ -56,6 +56,9 @@ import { listTables, listColumns, listRows, getRow, editContent } from './conten
 // Load all game content from SQLite (the source of truth). Defaults to ./game.db; the file is
 // created and seeded from the built-in content on first run. Edit it with any SQLite tool.
 const content = initGameDb(config.server.gameDbPath);
+// initGameDb has overlaid the game_config tuning rows onto `config`; rebind the sim's tuning locals
+// so the overlay takes effect on this run (the values below + world.ts are bound at module load).
+applyRuntimeConfig();
 console.log(
   `[browsergame] content loaded: ${content.areas().length} areas, ${content.abilityOrder().length} abilities`,
 );
@@ -77,7 +80,8 @@ function encodeContent(): string {
 
 /** Re-read content from the DB, re-encode the packet, and push it to every connected client. */
 function rebroadcastContent(): number {
-  const c = reloadContent();
+  const c = reloadContent(); // also re-overlays game_config tuning onto `config`
+  applyRuntimeConfig(); // push any changed tuning into the sim's bound locals (live game_config edits)
   contentMessage = encodeContent();
   for (const { socket } of players.values()) {
     if (socket.readyState === socket.OPEN) socket.send(contentMessage);

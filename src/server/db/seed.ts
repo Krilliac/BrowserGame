@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import { config } from '../config.js';
+import { config, TUNABLE_SECTIONS } from '../config.js';
 import { AREAS, AREA_THEMES, type DecorProp } from '../../shared/areas.js';
 import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
@@ -322,6 +322,7 @@ export function seed(db: Database): void {
   ensureAbilityStatusEffects(db); // per-ability on-hit slow/burn/weaken (seeded from code defaults)
   ensureAbilityCastBuffs(db); // per-ability self-buff on cast (seeded from code defaults)
   ensureShrineBuffs(db); // shrine blessing pool (seeded from code defaults)
+  ensureGameConfig(db); // global game-tuning overlay (seeded from the config.ts defaults)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -382,6 +383,22 @@ function ensureShrineBuffs(db: Database): void {
     'INSERT OR IGNORE INTO shrine_buffs (id,buff,duration_ms,magnitude,label,sort_order) VALUES (?,?,?,?,?,?)',
   );
   DEFAULT_SHRINE_BUFFS.forEach((b, i) => ins.run(b.id, b.buff, b.ms, b.magnitude, b.label, i));
+}
+
+/**
+ * Seed the global game-tuning overlay from the code defaults: one `<section>.<field> = value` row
+ * per numeric field of each whitelisted GAMEPLAY section (config.ts TUNABLE_SECTIONS). Idempotent:
+ * INSERT OR IGNORE keyed on the dotted key, so an operator's rebalanced values survive a restart.
+ * Plumbing/secret sections (server.*) are never written here.
+ */
+function ensureGameConfig(db: Database): void {
+  const ins = db.prepare('INSERT OR IGNORE INTO game_config (key,value) VALUES (?,?)');
+  const groups = config as unknown as Record<string, Record<string, unknown>>;
+  for (const section of TUNABLE_SECTIONS) {
+    for (const [field, value] of Object.entries(groups[section] ?? {})) {
+      if (typeof value === 'number') ins.run(`${section}.${field}`, value);
+    }
+  }
 }
 
 /**

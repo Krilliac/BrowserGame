@@ -197,3 +197,64 @@ export const config = {
     spawnPerCallMax: 2000,
   },
 };
+
+/**
+ * The config sections whose numeric fields are overridable from the `game_config` DB table (the
+ * TrinityCore-style world-settings overlay). These are pure GAMEPLAY-tuning knobs — server plumbing
+ * and secrets (`server.*`, ports/tokens/paths) are deliberately excluded so nothing sensitive ever
+ * lives in content. `world.*` is also excluded: its scale is captured at content-load (content.ts)
+ * and baked into served coordinates, so a post-load override would not take effect.
+ */
+export const TUNABLE_SECTIONS = [
+  'networking',
+  'difficulty',
+  'coop',
+  'density',
+  'progression',
+  'drops',
+  'economy',
+  'bounty',
+  'invasion',
+  'items',
+  'potions',
+  'bots',
+] as const;
+
+/** A config object viewed as nested numeric groups, for the generic overlay below. */
+type ConfigGroups = Record<string, Record<string, unknown>>;
+
+/** Minimal read surface of the content DB (so this module never imports better-sqlite3). */
+interface ConfigDb {
+  prepare(sql: string): { all(): unknown[] };
+}
+
+/**
+ * Overlay the `game_config` rows onto a config object: for each `<section>.<field> = value` row,
+ * set `target[section][field] = value` — but ONLY for a whitelisted section, an already-present
+ * numeric field, and a finite value. This makes the DB the runtime authority for tuning while
+ * keeping code as the default, and is hardened against typos and prototype-pollution (unknown keys,
+ * `__proto__`/`constructor`, and non-numeric fields are skipped). Mutates in place.
+ */
+export function applyConfigOverrides(
+  db: ConfigDb,
+  target: ConfigGroups = config as unknown as ConfigGroups,
+): void {
+  const allowed = new Set<string>(TUNABLE_SECTIONS);
+  const rows = db.prepare('SELECT key, value FROM game_config').all() as {
+    key: string;
+    value: number;
+  }[];
+  for (const { key, value } of rows) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    const dot = key.indexOf('.');
+    if (dot <= 0) continue;
+    const section = key.slice(0, dot);
+    const field = key.slice(dot + 1);
+    if (!allowed.has(section)) continue;
+    if (field === '__proto__' || field === 'constructor' || field === 'prototype') continue;
+    const group = target[section];
+    if (!group || !Object.prototype.hasOwnProperty.call(group, field)) continue;
+    if (typeof group[field] !== 'number') continue;
+    group[field] = value;
+  }
+}

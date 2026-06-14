@@ -23,6 +23,7 @@ queries) into in-memory structures the simulation reads. Tables (`src/server/db/
 | `ability_status_effects` | Per-ability **on-hit effects** — `slow` / `burn` (DoT) / `weaken`, with duration + magnitude (seeded from `ability-effects.ts`) |
 | `ability_cast_buffs` | Per-ability **self-buff on cast** — `might` / `haste` / `regen` (player shouts, mob heal-spells) |
 | `shrine_buffs` | The **shrine blessing pool** — the timed buffs a charged shrine grants at random, with player-facing labels |
+| `game_config` | **Global game-tuning overlay** (TrinityCore-style world settings) — `<section>.<field> → value` rows that override the gameplay knobs in `config.ts` at load (difficulty, drops, economy, density, …). Server plumbing/secrets are deliberately excluded |
 | `weather_modifiers` | Per-`WeatherKind` **gameplay** multipliers (`move_scale`, `aggro_scale`) — how a weather state *plays*, not just looks (seeded from `weather-effects.ts`) |
 | `elite_modifiers` | The elite ("champion") variant roster — flavor prefix + hp/damage/speed multipliers a normal spawn can roll (seeded from `mobs.ts`) |
 | `quests` | Quest definitions (schema seeded with a sample) |
