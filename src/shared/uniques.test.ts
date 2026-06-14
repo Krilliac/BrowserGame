@@ -16,9 +16,9 @@ describe('UNIQUES catalogue', () => {
     }
   });
 
-  it('has 10-12 entries', () => {
-    expect(UNIQUES.length).toBeGreaterThanOrEqual(10);
-    expect(UNIQUES.length).toBeLessThanOrEqual(12);
+  it('has a curated pool of 18-24 entries', () => {
+    expect(UNIQUES.length).toBeGreaterThanOrEqual(18);
+    expect(UNIQUES.length).toBeLessThanOrEqual(24);
   });
 
   it('has no duplicate names', () => {
@@ -29,6 +29,26 @@ describe('UNIQUES catalogue', () => {
   it('has no duplicate ids', () => {
     const ids = UNIQUES.map((u) => u.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('covers every equipment slot (so a slot-targeted drop can always find a unique)', () => {
+    const slots = [
+      'head',
+      'neck',
+      'shoulders',
+      'chest',
+      'hands',
+      'waist',
+      'legs',
+      'feet',
+      'mainhand',
+      'offhand',
+      'ring',
+      'trinket',
+    ] as const;
+    for (const slot of slots) {
+      expect(uniquesForSlot(slot).length, `slot ${slot}`).toBeGreaterThanOrEqual(1);
+    }
   });
 
   it('each unique has 2-4 fixed affixes', () => {
@@ -119,8 +139,9 @@ describe('uniquesForSlot', () => {
     }
   });
 
-  it('returns an empty array for a slot with no uniques', () => {
-    // 'legs' has no unique authored in the pool.
-    expect(uniquesForSlot('legs')).toEqual([]);
+  it('returns an empty array for a slot nothing occupies', () => {
+    // Every real ItemSlot now has at least one unique (asserted above), so use an
+    // unrecognized slot value to exercise the no-match path.
+    expect(uniquesForSlot('quiver' as unknown as Parameters<typeof uniquesForSlot>[0])).toEqual([]);
   });
 });

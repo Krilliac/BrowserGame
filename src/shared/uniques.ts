@@ -167,6 +167,97 @@ export const UNIQUES: UniqueDef[] = [
     ],
     flavor: 'It sees three paths where the prey sees one.',
   },
+
+  // --- Frontier & dead-lands legendaries: fills the shoulders / waist / legs slots and
+  // deepens the off-hand / neck / ring / trinket chase, themed to the later acts. ---
+  {
+    id: 'mantle_of_the_pale_king',
+    name: 'Mantle of the Pale King',
+    baseId: 'frostforged_pauldrons',
+    affixes: [
+      { stat: 'hp', value: 62 },
+      { stat: 'armor', value: 12 },
+      { stat: 'vigor', value: 10 },
+    ],
+    flavor: 'The cold he ruled with never left the cloth.',
+  },
+  {
+    id: 'cinch_of_the_unmade',
+    name: 'Cinch of the Unmade',
+    baseId: 'runed_belt_of_wards',
+    affixes: [
+      { stat: 'hp', value: 58 },
+      { stat: 'vigor', value: 13 },
+      { stat: 'armor', value: 9 },
+    ],
+    flavor: 'It holds together what the world is busy forgetting.',
+  },
+  {
+    id: 'tread_of_the_last_watch',
+    name: 'Tread of the Last Watch',
+    baseId: 'warden_greaves',
+    affixes: [
+      { stat: 'move', value: 16 },
+      { stat: 'hp', value: 52 },
+      { stat: 'armor', value: 10 },
+    ],
+    flavor: 'They walked the wall until there was no more wall to walk.',
+  },
+  {
+    id: 'bond_of_the_hunt',
+    name: 'Bond of the Hunt',
+    baseId: 'band_of_the_wolf',
+    affixes: [
+      { stat: 'crit', value: 14 },
+      { stat: 'move', value: 14 },
+      { stat: 'swift', value: 12 },
+    ],
+    flavor: 'The pack runs as one, and so does its bearer.',
+  },
+  {
+    id: 'emberglass_heart',
+    name: 'Emberglass Heart',
+    baseId: 'emberglass_orb',
+    affixes: [
+      { stat: 'power', value: 16 },
+      { stat: 'crit', value: 13 },
+      { stat: 'vigor', value: 9 },
+    ],
+    flavor: 'A forge-coal that never learned how to go out.',
+  },
+  {
+    id: 'choker_of_the_sleepless',
+    name: 'Choker of the Sleepless',
+    baseId: 'amulet_of_the_vigil',
+    affixes: [
+      { stat: 'hp', value: 64 },
+      { stat: 'vigor', value: 14 },
+      { stat: 'lifesteal', value: 7 },
+    ],
+    flavor: 'Worn by those who could not afford to close their eyes.',
+  },
+  {
+    id: 'ashen_effigy',
+    name: 'Ashen Effigy',
+    baseId: 'talisman_of_ash',
+    affixes: [
+      { stat: 'power', value: 14 },
+      { stat: 'lifesteal', value: 8 },
+      { stat: 'crit', value: 12 },
+    ],
+    flavor: 'Whatever it was carved to honor, only the ash remembers.',
+  },
+  {
+    id: 'moonsilver_edge',
+    name: 'Moonsilver Edge',
+    baseId: 'moonsilver_saber',
+    affixes: [
+      { stat: 'crit', value: 18 },
+      { stat: 'swift', value: 16 },
+      { stat: 'lifesteal', value: 8 },
+    ],
+    flavor: 'It cuts the way moonlight does — before you know it has.',
+  },
 ];
 
 /** Look up the base item for a unique def, falling back to a zero-stat placeholder if missing. */

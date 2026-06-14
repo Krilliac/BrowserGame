@@ -31,6 +31,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Eight new original legendaries — the unique loot chase now covers every slot.** Expanded the
+  curated `UNIQUES` pool (`src/shared/uniques.ts`) from 12 to 20 hand-authored items, filling the
+  previously-empty **shoulders / waist / legs** slots and deepening the off-hand / neck / ring /
+  trinket chase, all themed to the later acts: *Mantle of the Pale King*, *Cinch of the Unmade*,
+  *Tread of the Last Watch*, *Bond of the Hunt*, *Emberglass Heart*, *Choker of the Sleepless*,
+  *Ashen Effigy*, and *Moonsilver Edge*. Each is built on a real equipment base with fixed,
+  build-defining affixes kept inside the agreed magnitude bands. Original content (our own names,
+  flavor, and stats) inspired by the ARPG loot-chase pattern — no third-party data. They drop
+  world-wide through the existing `rollRandomUnique` path; a new test asserts the pool now covers
+  every equipment slot so slot-targeted drops can always find a unique.
 - **Wilds bestiary — wildlife & vermin across every overworld combat zone.** Fourteen new roaming
   species fill the ecological gaps from Gloomwood to the Voidmarch, adding swarm / ambusher / caster
   archetypes to zones that lacked them so **every** overworld combat zone in the game now carries a
