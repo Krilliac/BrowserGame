@@ -41,6 +41,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 (achievements module, or #2 reconnect grace, or #15 content-pack discovery). Then another client-UX.
 
 | 17 | feat | **Achievements** — level/gold milestone unlocks; /achievements | green | 4165ce5; +23 → 1420; earned[] in save; checkAchievements in creditKill; code-driven |
+| 18 | feat(ui) | **Target status badges** — Slow/Burn/Weak on target frame | green | 78bc12c; client-only; surfaces proc/elemental statuses; refresh-live |
+
+NEXT (it.19): backend via parallel agent (alternation). Candidates: kill/bestiary counter on the save
+(unlocks kill-based achievements + leaderboard metric), boss enrage timer, or #15 content-pack discovery.
+Pushed through it.17; push again after a few more or when user asks.
 
 ### USER DIRECTIVE (2026-06-14): after the achievements iteration, COMMIT + PUSH everything. [DOING NOW]
 Push branch loop/autonomous-20260614 to origin (github.com/Krilliac/BrowserGame): `git push -u origin
