@@ -97,3 +97,28 @@ describe('health globes', () => {
     expect(pickerHealed).toBeGreaterThan(allyHealed);
   });
 });
+
+describe('devLootShowcase (QA loot spread)', () => {
+  it('drops a globe + labeled top-tier gear + a glint spread, and wounds the player', () => {
+    const w = newWorld();
+    const id = w.spawn('Curator');
+    w.teleport(id, 800, 600);
+    const fullHp = w.playerStats(id)!.hp;
+
+    const n = w.devLootShowcase(id);
+
+    expect(n).toBeGreaterThanOrEqual(5);
+    const items = w.snapshot().filter((e) => e.kind === 'item');
+    expect(items.filter((e) => e.itemId === 'healthglobe')).toHaveLength(1); // a globe to grab
+    const gear = items.filter((e) => e.rarity); // glint-eligible rolled gear
+    expect(gear.length).toBeGreaterThanOrEqual(4);
+    // At least one guaranteed labeled tier (the unique or the corrupted piece).
+    expect(gear.some((e) => e.rarity === 'unique' || e.rarity === 'corrupted')).toBe(true);
+    expect(w.playerStats(id)!.hp).toBeLessThan(fullHp); // wounded so the globe heals visibly
+  });
+
+  it('is a no-op for an unknown or dead player', () => {
+    const w = newWorld();
+    expect(w.devLootShowcase(999)).toBe(0);
+  });
+});

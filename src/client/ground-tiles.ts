@@ -55,8 +55,28 @@ export interface GroundTileset {
     threshold: number;
     /** Edge softness 0..1 around the cutoff; the fade band where patches dither into the base. */
     margin?: number;
+    /**
+     * Optional worn-dirt-path layer (RENDER toward the Diablo look): winding dirt trails baked UNDER
+     * the detail patches, from a seamless ridged wave (see {@link pathCoverage}) so the trails tile
+     * across the repeating ground pattern without a seam. Its `tiles` are full dirt floor tiles.
+     */
+    path?: {
+      /** Full dirt floor tiles stamped along the trail (picked per-cell for variety). */
+      tiles: { col: number; row: number }[];
+      /** Trail coverage cutoff 0..1; higher → thinner, sparser trails. */
+      threshold: number;
+      /** Edge softness 0..1 — the worn band where dirt fades into the grass. */
+      margin?: number;
+    };
   };
 }
+
+/**
+ * The bake stamps a PATTERN_TILES × PATTERN_TILES tile pattern that the renderer then TilingSprites
+ * across the area. Anything meant to read as continuous ground (the dirt paths) must be periodic over
+ * this span or it shows a seam at every repeat. The renderer imports this so the two never drift.
+ */
+export const PATTERN_TILES = 16;
 
 const TILES = '/assets/curated/tiles';
 
@@ -113,6 +133,16 @@ export const GROUND_TILESETS: Record<string, GroundTileset> = {
       scale: 5,
       threshold: 0.62,
       margin: 0.1,
+      // Worn dirt trails winding through the village green (forest_spring's solid dirt, col 4).
+      path: {
+        tiles: [
+          { col: 4, row: 1 },
+          { col: 4, row: 2 },
+          { col: 4, row: 3 },
+        ],
+        threshold: 0.82,
+        margin: 0.14,
+      },
     },
   },
   // Gloomwood — the same grass, near-plain; the area's dark grade does the brooding.
@@ -135,6 +165,16 @@ export const GROUND_TILESETS: Record<string, GroundTileset> = {
       scale: 6,
       threshold: 0.68,
       margin: 0.1,
+      // Worn dirt trails through the gloom (same forest_spring dirt; a touch wider/more travelled).
+      path: {
+        tiles: [
+          { col: 4, row: 1 },
+          { col: 4, row: 2 },
+          { col: 4, row: 3 },
+        ],
+        threshold: 0.6,
+        margin: 0.2,
+      },
     },
   },
   // Seasonal variant of the grass biomes (no area defaults to it; available to DB re-skins).
@@ -407,4 +447,41 @@ export function patchTileFor(
   if (!patch || patch.length === 0) return undefined;
   const idx = Math.floor(hash2(gx + 9173, gy + 1471) * patch.length) % patch.length;
   return patch[idx];
+}
+
+/**
+ * Worn-dirt-path coverage in [0, 1] for cell (gx, gy): 0 = clear grass, 1 = solid dirt trail,
+ * fractional = the worn fade band at a trail edge (used as the draw alpha). Built from a **seamless**
+ * ridged wave — a sine phase that winds with position — so the trails tile across the repeating
+ * ground pattern (period {@link PATTERN_TILES} on each axis) with no seam, unlike the blob noise.
+ * Returns 0 for tilesets without a `path` layer.
+ */
+export function pathCoverage(ts: GroundTileset, gx: number, gy: number): number {
+  const p = ts.blend?.path;
+  if (!p) return 0;
+  const N = PATTERN_TILES;
+  const TAU = Math.PI * 2;
+  // A diagonal trail whose centerline meanders: the cos zero-crossings are the trail, warped by a
+  // cross-axis sine for an organic wind. Integer frequencies over N keep it exactly periodic on both
+  // axes (seamless across the repeat).
+  const phase = (TAU / N) * (gx + gy) + 2.2 * Math.sin((TAU / N) * (gx - gy));
+  const ridge = 1 - Math.abs(Math.cos(phase)); // 1 on the trail centerline, 0 away from it
+  const m = p.margin ?? 0.12;
+  const lo = p.threshold - m;
+  const hi = p.threshold + m;
+  if (ridge <= lo) return 0;
+  if (ridge >= hi) return 1;
+  return smooth((ridge - lo) / (hi - lo));
+}
+
+/** Which dirt tile to stamp along the trail at (gx, gy), or undefined when the set has no path. */
+export function pathTileFor(
+  ts: GroundTileset,
+  gx: number,
+  gy: number,
+): { col: number; row: number } | undefined {
+  const tiles = ts.blend?.path?.tiles;
+  if (!tiles || tiles.length === 0) return undefined;
+  const idx = Math.floor(hash2(gx + 4423, gy + 7919) * tiles.length) % tiles.length;
+  return tiles[idx];
 }

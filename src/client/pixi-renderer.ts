@@ -60,7 +60,10 @@ import {
   groundTilesetFor,
   patchCoverage,
   patchTileFor,
+  pathCoverage,
+  pathTileFor,
   pickTile,
+  PATTERN_TILES,
 } from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
 import { combineTints } from './tint.js';
@@ -3103,13 +3106,16 @@ export class PixiRenderer {
     // their tile/blend lists, so keying on src alone collided and the second area reused the first bake.
     const key = `tiles:${ts.src}:${ts.tiles.map((t) => `${t.col},${t.row},${t.weight}`).join('|')}:${
       ts.blend
-        ? `b${ts.blend.patch.map((p) => `${p.col},${p.row}`).join('.')}@${ts.blend.threshold}`
+        ? `b${ts.blend.patch.map((p) => `${p.col},${p.row}`).join('.')}@${ts.blend.threshold}` +
+          (ts.blend.path
+            ? `p${ts.blend.path.tiles.map((p) => `${p.col},${p.row}`).join('.')}@${ts.blend.path.threshold}`
+            : '')
         : ''
     }`;
     const cached = this.groundTextures.get(key);
     if (cached) return cached;
     const TILE_WORLD = 32; // world px per tile (16px art shown 2×, 32px art native)
-    const N = 16; // pattern tiles per side — big enough that the repeat reads as natural ground
+    const N = PATTERN_TILES; // pattern tiles per side — the dirt-path layer is periodic over this
     const cv = document.createElement('canvas');
     cv.width = N * TILE_WORLD;
     cv.height = N * TILE_WORLD;
@@ -3133,8 +3139,19 @@ export class PixiRenderer {
         // Base floor first (un-annotated tilesets stop here → byte-identical to before).
         const base = pickTile(ts, gx, gy);
         drawCell(base.col, base.row, gx, gy);
-        // Then fade a clustered detail patch over it where the biome-noise says so (RENDER-04).
         if (ts.blend) {
+          // Worn dirt trails next, faded in at their edges — under the detail patches so a wildflower
+          // can still sit at a trail's grassy verge (seamless across the repeat — see pathCoverage).
+          const pathCov = pathCoverage(ts, gx, gy);
+          if (pathCov > 0.02) {
+            const dirt = pathTileFor(ts, gx, gy);
+            if (dirt) {
+              ctx.globalAlpha = pathCov;
+              drawCell(dirt.col, dirt.row, gx, gy);
+              ctx.globalAlpha = 1;
+            }
+          }
+          // Then fade a clustered detail patch over it where the biome-noise says so (RENDER-04).
           const cov = patchCoverage(ts, gx, gy);
           if (cov > 0.02) {
             const pt = patchTileFor(ts, gx, gy);

@@ -988,6 +988,46 @@ export class World {
   }
 
   /**
+   * Dev/QA loot showcase: drop a curated spread of ground loot around the player so the loot
+   * visuals (rarity glints, top-tier name labels) and the health-globe pickup/heal can be verified
+   * in one frame — a guaranteed unique and a corrupted piece (always labeled), several random gear
+   * rolls (a glint spread), and a health globe at the player's feet. The player is left lightly
+   * wounded so grabbing the globe fires the heal floater. Returns the number of items dropped.
+   */
+  devLootShowcase(id: number): number {
+    const player = this.players.get(id);
+    if (!player || player.dead) return 0;
+    let n = 0;
+    // A wide horizontal row south of the player. X spacing is generous (the tilted projection
+    // compresses Y, not X) so each drop's glint + label reads without overlapping its neighbor or
+    // the character.
+    const place = (k: number) => ({ x: player.x + (k - 2.5) * 96, y: player.y + 150 });
+
+    const unique = rollRandomUnique(this.allocId());
+    this.dropGround(unique.baseId, 1, place(0).x, place(0).y).instance = unique;
+    n++;
+    const corruptBase = this.randomEquipBase();
+    if (corruptBase) {
+      const corrupt = rollCorruptedInstance(this.allocId(), corruptBase);
+      this.dropGround(corruptBase.id, 1, place(1).x, place(1).y).instance = corrupt;
+      n++;
+    }
+    for (let k = 2; k < 6; k++) {
+      const base = this.randomEquipBase();
+      if (!base) continue;
+      const inst = rollItemInstance(this.allocId(), base, this.rand, 1);
+      this.dropGround(base.id, 1, place(k).x, place(k).y).instance = inst;
+      n++;
+    }
+    // A health globe a little further south — far enough to sit on the ground (not auto-collected),
+    // so it's visible until the player walks onto it — and a wound so the pickup heals (floats a +N).
+    this.dropItemAt(HEALTH_GLOBE_ITEM, 1, player.x, player.y + 170);
+    n++;
+    player.hp = Math.max(1, Math.round(player.maxHp * 0.4));
+    return n;
+  }
+
+  /**
    * Gamble gold for a random item of an equip slot (the D3-Kadala gold sink). Re-validates the
    * gambler is in range, the slot is real, and the player can afford the per-level cost.
    */

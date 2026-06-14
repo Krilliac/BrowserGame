@@ -175,6 +175,16 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'showcase',
+    minLevel: AccessLevel.GameMaster,
+    usage: '/showcase',
+    help: 'Drop a QA loot spread (rarity glints, top-tier labels, a health globe) and wound yourself, for verifying the loot visuals.',
+    run: (ctx) => {
+      const n = ctx.world.devLootShowcase(ctx.playerId);
+      ctx.reply(n ? `Dropped ${n} showcase item(s) — grab the globe to heal.` : 'Showcase failed.');
+    },
+  },
+  {
     name: 'speed',
     minLevel: AccessLevel.GameMaster,
     usage: '/speed <multiplier>',
