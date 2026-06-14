@@ -385,6 +385,51 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       tier: { type: 'int', min: 1, max: 3 },
     },
   },
+
+  runes: {
+    pk: 'id',
+    label: 'rune',
+    note: 'a socketable rune; /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+    },
+  },
+
+  runewords: {
+    pk: 'id',
+    label: 'runeword',
+    note: 'recipe (comma-separated rune ids in order); /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      runes: { type: 'text' },
+      flavor: { type: 'text', nullable: true },
+    },
+  },
+
+  runeword_bonuses: {
+    pk: 'id',
+    label: 'runeword bonus',
+    note: 'an affix a runeword grants; /reloadcontent to apply',
+    columns: {
+      runeword_id: { type: 'text' },
+      stat: {
+        type: 'enum',
+        values: [
+          'power',
+          'hp',
+          'crit',
+          'multishot',
+          'lifesteal',
+          'swift',
+          'move',
+          'armor',
+          'vigor',
+        ],
+      },
+      value: { type: 'real', min: 0, max: 100000 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

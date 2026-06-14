@@ -9,6 +9,13 @@ import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
 import type { StatusEffectKind } from './ability-effects.js';
 import { applyRarityOverrides, type Rarity, type RarityDef } from '../shared/items.js';
 import { applyGemOverrides, type GemDef } from '../shared/gems.js';
+import {
+  applyRuneOverrides,
+  applyRunewordOverrides,
+  type RuneDef,
+  type RunewordDef,
+} from '../shared/runewords.js';
+import type { Affix } from '../shared/items.js';
 import type { StatusId } from './status-effects.js';
 
 /**
@@ -101,6 +108,10 @@ export interface Content {
   rarityTiers(): Partial<Record<Rarity, RarityDef>>;
   /** The full socketable gem catalog (overlaid onto the shared GEMS table on both sides). */
   gems(): GemDef[];
+  /** The rune pool (overlaid onto the shared RUNES list; server-side runeword detection). */
+  runes(): RuneDef[];
+  /** The runeword recipes (overlaid onto the shared RUNEWORDS list). */
+  runewords(): RunewordDef[];
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -455,6 +466,30 @@ export function loadContent(db: GameDatabase): Content {
     tier: r.tier,
   }));
 
+  // Rune pool + runeword recipes (server-side runeword detection). Recipe sequence is the
+  // comma-joined rune list; bonuses are reassembled from runeword_bonuses in sort order.
+  const runes = (db.prepare('SELECT * FROM runes').all() as RuneRow[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+  }));
+  const bonusStmt = db.prepare(
+    'SELECT stat, value FROM runeword_bonuses WHERE runeword_id = ? ORDER BY sort_order',
+  );
+  const runewords = (db.prepare('SELECT * FROM runewords').all() as RunewordRow[]).map((r) => {
+    const bonuses = (bonusStmt.all(r.id) as { stat: string; value: number }[]).map((b) => ({
+      stat: b.stat as Affix['stat'],
+      value: b.value,
+    }));
+    const def: RunewordDef = {
+      id: r.id,
+      name: r.name,
+      runes: r.runes.split(',').filter((s) => s.length > 0),
+      bonuses,
+    };
+    if (r.flavor !== null) def.flavor = r.flavor;
+    return def;
+  });
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -495,6 +530,8 @@ export function loadContent(db: GameDatabase): Content {
     dungeonAreaIds: () => [...dungeons.keys()],
     rarityTiers: () => rarityTiers,
     gems: () => gems,
+    runes: () => runes,
+    runewords: () => runewords,
   };
 }
 
@@ -509,6 +546,8 @@ export function initGameDb(file?: string): Content {
   activeContent = loadContent(activeDb);
   applyRarityOverrides(activeContent.rarityTiers()); // overlay DB rarity tuning onto shared RARITY
   applyGemOverrides(activeContent.gems()); // overlay the DB gem catalog onto shared GEMS
+  applyRuneOverrides(activeContent.runes()); // overlay rune pool onto shared RUNES
+  applyRunewordOverrides(activeContent.runewords()); // overlay runeword recipes onto shared RUNEWORDS
   return activeContent;
 }
 
@@ -527,6 +566,8 @@ export function reloadContent(): Content {
   activeContent = loadContent(activeDb);
   applyRarityOverrides(activeContent.rarityTiers()); // re-overlay rarity tuning on reload
   applyGemOverrides(activeContent.gems()); // re-overlay gem catalog on reload
+  applyRuneOverrides(activeContent.runes()); // re-overlay rune pool on reload
+  applyRunewordOverrides(activeContent.runewords()); // re-overlay runeword recipes on reload
   return activeContent;
 }
 
@@ -757,4 +798,14 @@ interface GemRow {
   stat: string;
   value: number;
   tier: number;
+}
+interface RuneRow {
+  id: string;
+  name: string;
+}
+interface RunewordRow {
+  id: string;
+  name: string;
+  runes: string;
+  flavor: string | null;
 }

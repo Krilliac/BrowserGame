@@ -25,7 +25,7 @@ export interface RuneDef {
  * The rune pool. Evocative one-syllable names, ids prefixed `rune_`. The orchestrator seeds matching
  * socketable item rows in the content DB keyed by these ids; this list is the canonical source.
  */
-export const RUNES: RuneDef[] = [
+export const DEFAULT_RUNES: RuneDef[] = [
   { id: 'rune_el', name: 'El' },
   { id: 'rune_tir', name: 'Tir' },
   { id: 'rune_ort', name: 'Ort' },
@@ -37,6 +37,9 @@ export const RUNES: RuneDef[] = [
   { id: 'rune_vex', name: 'Vex' },
   { id: 'rune_zod', name: 'Zod' },
 ];
+
+/** The LIVE rune pool (overlaid from the `runes` DB table on load). Mutated in place — see below. */
+export const RUNES: RuneDef[] = [...DEFAULT_RUNES];
 
 /**
  * A runeword: its `runes` must be socketed **in order**, starting at the first socket. The length of
@@ -55,7 +58,7 @@ export interface RunewordDef {
  * like minting a top-tier item. Note "Vigor" is a deliberate prefix of "Vigil" to exercise the
  * longest-match preference in {@link detectRuneword}.
  */
-export const RUNEWORDS: RunewordDef[] = [
+export const DEFAULT_RUNEWORDS: RunewordDef[] = [
   {
     id: 'rw_vigor',
     name: 'Vigor',
@@ -130,6 +133,21 @@ export const RUNEWORDS: RunewordDef[] = [
     flavor: 'The end, spoken in three syllables.',
   },
 ];
+
+/** The LIVE runeword recipes (overlaid from the `runewords` DB tables on load). Mutated in place. */
+export const RUNEWORDS: RunewordDef[] = DEFAULT_RUNEWORDS.map((r) => ({ ...r }));
+
+/** Replace the live {@link RUNES} pool; an empty list RESETS to {@link DEFAULT_RUNES}. In place. */
+export function applyRuneOverrides(list: RuneDef[]): void {
+  RUNES.length = 0;
+  RUNES.push(...(list.length ? list : DEFAULT_RUNES));
+}
+
+/** Replace the live {@link RUNEWORDS} recipes; an empty list RESETS to {@link DEFAULT_RUNEWORDS}. */
+export function applyRunewordOverrides(list: RunewordDef[]): void {
+  RUNEWORDS.length = 0;
+  RUNEWORDS.push(...(list.length ? list : DEFAULT_RUNEWORDS));
+}
 
 /** Look up a rune by id. */
 export function rune(id: string): RuneDef | undefined {

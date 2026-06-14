@@ -188,6 +188,32 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Runes: the socketable atoms players slot to build runewords. Seeded from DEFAULT_RUNES
+-- (runewords.ts); also registered as content items so the client shows their name/icon.
+CREATE TABLE IF NOT EXISTS runes (
+  id   TEXT PRIMARY KEY,
+  name TEXT NOT NULL
+);
+
+-- Runewords: a named recipe (an ordered rune sequence) that grants bonus affixes when those runes
+-- fill the start of an item's sockets in order. runes is the comma-separated ordered rune-id list.
+-- Detection + bonus application are server-side; seeded from DEFAULT_RUNEWORDS (runewords.ts).
+CREATE TABLE IF NOT EXISTS runewords (
+  id     TEXT PRIMARY KEY,
+  name   TEXT NOT NULL,
+  runes  TEXT NOT NULL,                 -- ordered rune ids, comma-separated (e.g. 'rune_el,rune_tir')
+  flavor TEXT
+);
+
+-- The affix bonuses a runeword grants when active. One row per (runeword, stat).
+CREATE TABLE IF NOT EXISTS runeword_bonuses (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  runeword_id  TEXT NOT NULL,
+  stat         TEXT NOT NULL,           -- a buff AffixStat
+  value        REAL NOT NULL,
+  sort_order   INTEGER NOT NULL DEFAULT 0
+);
+
 -- Gems: the socketable catalog. Each gem grants a flat bonus to one affix stat. Seeded from
 -- DEFAULT_GEMS (gems.ts); overlaid onto the shared GEMS catalog on both sides (server load + content
 -- packet). Add a row to introduce a new gem; tier drives the combine chain + drop weight (in code).

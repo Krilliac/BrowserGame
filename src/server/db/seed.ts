@@ -16,7 +16,7 @@ import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
 import { DEFAULT_GEMS } from '../../shared/gems.js';
 import { DEFAULT_RARITY, type Rarity } from '../../shared/items.js';
-import { RUNES } from '../../shared/runewords.js';
+import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
 import { EXPANSION_AREA_MOBS, EXPANSION_LOOT } from './seed-expansion.js';
 import { EXPANSION_DECOR } from './seed-decor.js';
@@ -327,6 +327,7 @@ export function seed(db: Database): void {
   ensureDungeons(db); // procedural dungeon pools/bosses (seeded from areas.ts DUNGEONS)
   ensureRarityTiers(db); // item rarity tiers (seeded from items.ts DEFAULT_RARITY)
   ensureGems(db); // socketable gem catalog (seeded from gems.ts DEFAULT_GEMS)
+  ensureRunewords(db); // rune pool + runeword recipes (seeded from runewords.ts defaults)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -456,6 +457,27 @@ function ensureGems(db: Database): void {
   );
   for (const g of Object.values(DEFAULT_GEMS))
     ins.run(g.id, g.name, g.color, g.stat, g.value, g.tier);
+}
+
+/**
+ * Seed the rune pool + runeword recipes from the code defaults (runewords.ts). Idempotent:
+ * INSERT OR IGNORE keyed on id, so designer-added runes/runewords survive a restart. The runeword's
+ * ordered rune sequence is stored comma-joined; its bonuses are one row each.
+ */
+function ensureRunewords(db: Database): void {
+  const insRune = db.prepare('INSERT OR IGNORE INTO runes (id,name) VALUES (?,?)');
+  for (const r of DEFAULT_RUNES) insRune.run(r.id, r.name);
+
+  const hasRw = db.prepare('SELECT 1 FROM runewords WHERE id = ?');
+  const insRw = db.prepare('INSERT INTO runewords (id,name,runes,flavor) VALUES (?,?,?,?)');
+  const insBonus = db.prepare(
+    'INSERT INTO runeword_bonuses (runeword_id,stat,value,sort_order) VALUES (?,?,?,?)',
+  );
+  for (const rw of DEFAULT_RUNEWORDS) {
+    if (hasRw.get(rw.id)) continue;
+    insRw.run(rw.id, rw.name, rw.runes.join(','), rw.flavor ?? null);
+    rw.bonuses.forEach((b, i) => insBonus.run(rw.id, b.stat, b.value, i));
+  }
 }
 
 /**
@@ -1031,7 +1053,7 @@ function ensureSpellbookContent(db: Database): void {
   }
   // Runes (for runewords): socketable like gems, registered as content items so the client gets
   // their name + color. The runeword detection lives in shared/runewords.ts.
-  for (const r of RUNES) {
+  for (const r of DEFAULT_RUNES) {
     insItem.run(r.id, r.name, 'gem', null, null, null, '#d8b25a', 50, null);
   }
 

@@ -369,6 +369,18 @@ describe('tuning tables are live-editable via /set', () => {
     expect(coerceColumn('gems', 'stat', 'power')).toEqual({ ok: true, value: 'power' });
     expect(coerceColumn('gems', 'stat', 'frail').ok).toBe(false);
   });
+
+  it('runewords.runes coerces a recipe string', () => {
+    expect(coerceColumn('runewords', 'runes', 'rune_el,rune_tir')).toEqual({
+      ok: true,
+      value: 'rune_el,rune_tir',
+    });
+  });
+
+  it('runeword_bonuses.stat is enum-guarded', () => {
+    expect(coerceColumn('runeword_bonuses', 'stat', 'armor')).toEqual({ ok: true, value: 'armor' });
+    expect(coerceColumn('runeword_bonuses', 'stat', 'nonsense').ok).toBe(false);
+  });
 });
 
 describe('EDITABLE_TABLES invariants', () => {
