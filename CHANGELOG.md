@@ -31,20 +31,27 @@ versioning once it stabilizes.
 
 ### Added
 
-- **Wilds bestiary — wildlife & vermin spread across the world's existing zones.** Ten new roaming
-  species fill the ecological gaps from Gloomwood through the Act 2 road, adding swarm / ambusher /
-  caster archetypes to zones that lacked them. **Act 1 + Wastes:** the **Gloomweb Spider** and
-  goat-legged **Bramble Satyr** (Gloomwood), skittering **Tomb Rats** (Shadow Crypt), the
-  venom-spitting **Mire Serpent** (Rotfen Marsh), chitinous **Cinder Ants** (Emberdeep Mines), the
-  petrifying **Wyrmcrag Cockatrice** (Frostpeak Pass), and the void-bloated **Sundered Worm** (the
-  Sundered Wastes). **Act 2 road:** **Barrow Vermin** (the Grimfrost Barrows), the **Pineweb Spider**
-  (the Howling Barrens), and the **Tidefang Serpent** (the Sunken Pass). Pure data through the
-  established idempotent seed paths: templates in `src/server/mobs.ts` (with pack / flanker / enrage
-  traits and three gaze/venom casters), spawns + zone-matched loot in the new
-  `src/server/db/seed-wilds.ts` (wired via `ensureWildsContent`, which also seeds a per-mob
-  `sprite_tints` cast so sprite-sharing pairs read as distinct creatures), and five new
+- **Wilds bestiary — wildlife & vermin across every overworld combat zone.** Fourteen new roaming
+  species fill the ecological gaps from Gloomwood to the Voidmarch, adding swarm / ambusher / caster
+  archetypes to zones that lacked them so **every** overworld combat zone in the game now carries a
+  wilds species. **Act 1 + Wastes:** the **Gloomweb Spider** and goat-legged **Bramble Satyr**
+  (Gloomwood), skittering **Tomb Rats** (Shadow Crypt), the venom-spitting **Mire Serpent** (Rotfen
+  Marsh), chitinous **Cinder Ants** (Emberdeep Mines), the petrifying **Wyrmcrag Cockatrice**
+  (Frostpeak Pass), and the void-bloated **Sundered Worm** (the Sundered Wastes). **Act 2 road:**
+  **Barrow Vermin** (the Grimfrost Barrows), the **Pineweb Spider** (the Howling Barrens), and the
+  **Tidefang Serpent** (the Sunken Pass). **Act 3 dead-lands:** the **Blightweb Spider** (the
+  Blighted Spire), the **Dune Serpent** (the Ashveil Desert), the **Chasm Worm** (the Shattered
+  Causeway), and the **Void Vermin** swarm (the Voidmarch). The new creatures also seed into
+  thematically- and level-matched **dungeon pools** — caves & catacombs get tomb-rats and a cave
+  spider, the Writhing Hive a serpent, the Abyssal Throne a blight spider, the Unmade Court the void
+  swarm + chasm worm, and the endgame Rift four scaled picks. Pure data through the established
+  idempotent seed paths: templates in `src/server/mobs.ts` (with pack / flanker / enrage traits and
+  four gaze/venom casters), spawns + zone-matched loot in the new `src/server/db/seed-wilds.ts`
+  (wired via `ensureWildsContent`, which also seeds a per-mob `sprite_tints` cast so sprite-sharing
+  pairs read as distinct creatures), dungeon-pool entries in `src/shared/areas.ts`, and five new
   `rogues-sprites.ts` mapping rules (satyr / serpent / ant / cockatrice / vermin). Covered by
-  `seed-wilds.test.ts`, the content-integrity suite, and the sprite-resolution test.
+  `seed-wilds.test.ts`, the content-integrity suite, the dungeon-population tests, and the
+  sprite-resolution test.
 - **Drifting cloud shadows over outdoor ground (world-anchored depth cue).** Soft dark patches now
   sail slowly across the terrain on the wind, implying a sky and sun *above* the otherwise-flat
   plane. They're **world-anchored** — cloud positions are world coordinates and the layer's transform

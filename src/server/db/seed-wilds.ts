@@ -6,8 +6,10 @@
  *
  * These creatures fill ecological gaps across the existing overworld zones rather than
  * adding new areas: a spider + satyr in Gloomwood, tomb rats in the crypt, a marsh
- * serpent, a mine ant, a frostpeak cockatrice, a void-bloated worm in the Wastes, and a
- * swarm/ambusher/caster trio along the Act 2 road (the Barrows, the Barrens, the Pass).
+ * serpent, a mine ant, a frostpeak cockatrice, a void-bloated worm in the Wastes, a
+ * swarm/ambusher/caster trio along the Act 2 road (the Barrows, the Barrens, the Pass),
+ * and a citadel spider / desert serpent / chasm worm / void swarm across Act 3 — so every
+ * overworld combat zone in the game now carries a wilds species.
  *
  * Loot follows the established loot_entry shape (see seedLoot in seed.ts and
  * src/server/drop-table.ts): an 'always' gold row, a weighted 'main' roll where the
@@ -36,6 +38,11 @@ export const WILDS_AREA_MOBS: { areaId: string; templateId: string; count: numbe
   { areaId: 'grimfrost_barrow', templateId: 'barrow_vermin', count: 4 },
   { areaId: 'howling_barrens', templateId: 'pineweb_spider', count: 3 },
   { areaId: 'sunken_pass', templateId: 'drowned_serpent', count: 3 },
+  // Act 3 dead-lands (L27-52): the Blighted Spire and the lands beyond Vhal'reth
+  { areaId: 'blighted_spire', templateId: 'blightweb_spider', count: 3 },
+  { areaId: 'ashveil_desert', templateId: 'dune_serpent', count: 3 },
+  { areaId: 'shattered_causeway', templateId: 'chasm_worm', count: 2 },
+  { areaId: 'voidmarch', templateId: 'void_vermin', count: 4 },
 ];
 
 export interface WildsLootRow {
@@ -167,4 +174,19 @@ export const WILDS_LOOT: WildsLootRow[] = [
     { itemId: 'rune_shard', weight: 32 },
     { chance: 0.25, items: ['mithril_armor'] },
   ),
+  // --- Act 3 dead-lands (L29-49): the deep gold-and-shards economy, with late gear. ---
+  ...loot('blightweb_spider', [60, 120], { itemId: 'rune_shard', weight: 32, rare: 0.1 }),
+  ...loot(
+    'dune_serpent',
+    [85, 150],
+    { itemId: 'rune_shard', weight: 35, min: 1, max: 2 },
+    { chance: 0.3, items: ['mithril_visage', 'moonsilver_saber'] },
+  ),
+  ...loot(
+    'chasm_worm',
+    [100, 170],
+    { itemId: 'rune_shard', weight: 36, min: 1, max: 2 },
+    { chance: 0.3, items: ['mithril_legplates'] },
+  ),
+  ...loot('void_vermin', [100, 180], { itemId: 'rune_shard', weight: 30, min: 1, max: 2 }),
 ];

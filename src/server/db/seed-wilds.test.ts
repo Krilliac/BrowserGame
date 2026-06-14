@@ -24,6 +24,9 @@ const KNOWN_ITEM_IDS = new Set([
   'steel_armor',
   'steel_helm',
   'mithril_armor',
+  'mithril_visage',
+  'mithril_legplates',
+  'moonsilver_saber',
 ]);
 
 const LOOT_GROUPS = new Set(['always', 'main', 'rare', 'gear']);

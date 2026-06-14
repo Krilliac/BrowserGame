@@ -111,6 +111,10 @@ const SEEDED_MOB_NAMES = [
   'Barrow Vermin',
   'Pineweb Spider',
   'Tidefang Serpent',
+  'Blightweb Spider',
+  'Dune Serpent',
+  'Chasm Worm',
+  'Void Vermin',
 ];
 
 /** NPC kinds from the content DB enum (src/server/db/editable.ts). */

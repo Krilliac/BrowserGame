@@ -702,6 +702,10 @@ function ensureWildsContent(db: Database): void {
     ['mob:cinder_ant', '#d86a3a'], // ember-lit chitin
     ['mob:wyrmcrag_cockatrice', '#bcd0ee'], // frost-rimed feathers
     ['mob:sundered_worm', '#b07ae8'], // void-bloated flesh
+    ['mob:blightweb_spider', '#5a7a4a'], // blight-green citadel spider
+    ['mob:dune_serpent', '#d0b88a'], // sun-bleached desert scales
+    ['mob:chasm_worm', '#9a90a0'], // grey stone-burrower
+    ['mob:void_vermin', '#a07ad0'], // rift-violet swarm
   ];
   for (const [target, tint] of WILDS_TINTS) tintIns.run(target, tint);
 }

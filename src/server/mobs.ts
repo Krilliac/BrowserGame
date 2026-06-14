@@ -1544,6 +1544,68 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     projectileSpeed: 320,
     kiteRange: 230,
   },
+
+  // --- Act 3 dead-lands wilds (L29-49): a citadel spider, a desert serpent, a chasm
+  // burrower, and a void swarm — wildlife persisting where the world is coming apart. ---
+  blightweb_spider: {
+    id: 'blightweb_spider',
+    name: 'Blightweb Spider',
+    hp: 185, // floor mobs stay under 200 (so traits apply); threat scales via damage/level
+    level: 29,
+    hue: 90,
+    speed: 150,
+    aggroRange: 330,
+    attackRange: 46,
+    damage: 36,
+    attackCooldownMs: 900,
+    behavior: 'melee',
+    telegraphMs: 180,
+  },
+  dune_serpent: {
+    id: 'dune_serpent',
+    name: 'Dune Serpent',
+    hp: 180,
+    level: 41,
+    hue: 40,
+    speed: 112,
+    aggroRange: 500,
+    attackRange: 370,
+    damage: 52,
+    attackCooldownMs: 1600,
+    behavior: 'ranged',
+    telegraphMs: 660,
+    projectileSpeed: 330,
+    kiteRange: 240,
+  },
+  chasm_worm: {
+    id: 'chasm_worm',
+    name: 'Chasm Worm',
+    hp: 195,
+    level: 45,
+    hue: 280,
+    speed: 80,
+    aggroRange: 350,
+    attackRange: 64,
+    damage: 70,
+    attackCooldownMs: 1500,
+    behavior: 'melee',
+    telegraphMs: 580,
+    slamRadius: 130,
+  },
+  void_vermin: {
+    id: 'void_vermin',
+    name: 'Void Vermin',
+    hp: 150, // a squishy but fast swarm pouring through the fraying world
+    level: 49,
+    hue: 285,
+    speed: 165,
+    aggroRange: 300,
+    attackRange: 42,
+    damage: 44,
+    attackCooldownMs: 720,
+    behavior: 'melee',
+    telegraphMs: 150,
+  },
 };
 
 export interface AreaMobSpawn {
@@ -1683,6 +1745,7 @@ export const MOB_SPELLS: Record<string, AbilityId> = {
   mire_serpent: 'poison_spit', // a venom bolt from the reeds
   wyrmcrag_cockatrice: 'frostlance', // the petrifying gaze — slows on hit
   drowned_serpent: 'venom', // a heavier venom bolt down the drowned road
+  dune_serpent: 'venom', // the desert viper's spit
 };
 
 /**
@@ -1793,6 +1856,11 @@ export const MOB_TRAITS: Record<string, MobTrait[]> = {
   barrow_vermin: ['pack', 'craven'],
   pineweb_spider: ['pack', 'flanker'],
   drowned_serpent: ['craven'],
+  // Act 3 dead-lands wilds.
+  blightweb_spider: ['pack', 'flanker'],
+  dune_serpent: ['craven'],
+  chasm_worm: ['enrage'],
+  void_vermin: ['pack', 'craven'],
 };
 
 /**
