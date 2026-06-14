@@ -137,6 +137,19 @@ CREATE TABLE IF NOT EXISTS mob_templates (
   traits              TEXT                     -- JSON array of personality traits (pack/craven/…)
 );
 
+-- Individual creature SPAWNS: one row = one placed monster (uid/guid), referencing its
+-- mob_templates entry, at a fixed position, with per-spawn flags (e.g. forced ELITE). This is the
+-- template-vs-spawn split: area_mobs is the count-based random scatter; this is explicit, addressable
+-- placement (a named guardian at a fixed spot, etc.). Empty by default — add rows via SQL.
+CREATE TABLE IF NOT EXISTS creature_spawns (
+  uid         INTEGER PRIMARY KEY AUTOINCREMENT,
+  area_id     TEXT NOT NULL,
+  template_id TEXT NOT NULL REFERENCES mob_templates(id),
+  x           INTEGER NOT NULL,
+  y           INTEGER NOT NULL,
+  flags       INTEGER NOT NULL DEFAULT 0        -- bitmask (CreatureSpawnFlags): ELITE, …
+);
+
 CREATE TABLE IF NOT EXISTS area_mobs (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   area_id      TEXT NOT NULL,

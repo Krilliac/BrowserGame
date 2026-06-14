@@ -63,6 +63,16 @@ export interface QuestDef {
   turnInCount: number;
 }
 
+/** One placed monster: its spawn UID, the template it instances, a fixed position, and spawn flags. */
+export interface CreatureSpawn {
+  uid: number;
+  templateId: string;
+  x: number;
+  y: number;
+  /** Bitmask of {@link CreatureSpawnFlags} (e.g. ELITE). */
+  flags: number;
+}
+
 /** One row on a vendor's shelf. */
 export interface StockEntry {
   itemId: string;
@@ -89,6 +99,8 @@ export interface Content {
   /** Procedural dungeon population (pool/boss/elite chances) for a dungeon area, or undefined. */
   dungeon(areaId: string): DungeonDef | undefined;
   areaMobs(areaId: string): { templateId: string; count: number }[];
+  /** Individual placed monsters (uid spawns) for an area — fixed-position, overridable. */
+  creatureSpawns(areaId: string): CreatureSpawn[];
   npcs(areaId: string): NpcDef[];
   quests(): QuestDef[];
   quest(id: string): QuestDef | undefined;
@@ -349,6 +361,21 @@ export function loadContent(db: GameDatabase): Content {
     npcs.set(r.area_id, list);
   }
 
+  // Individual creature spawns (uid-level placements), grouped by area. Positions are authored in
+  // the compact coordinate space, so scale them like NPCs/decor.
+  const creatureSpawns = new Map<string, CreatureSpawn[]>();
+  for (const r of db.prepare('SELECT * FROM creature_spawns').all() as CreatureSpawnRow[]) {
+    const list = creatureSpawns.get(r.area_id) ?? [];
+    list.push({
+      uid: r.uid,
+      templateId: r.template_id,
+      x: r.x * WORLD_SCALE,
+      y: r.y * WORLD_SCALE,
+      flags: r.flags,
+    });
+    creatureSpawns.set(r.area_id, list);
+  }
+
   const quests = (db.prepare('SELECT * FROM quests').all() as QuestRow[]).map((q) => ({
     id: q.id,
     name: q.name,
@@ -418,6 +445,7 @@ export function loadContent(db: GameDatabase): Content {
     mobTemplate: (id) => mobTemplates.get(id),
     dungeon: (areaId) => dungeons.get(areaId),
     areaMobs: (areaId) => areaMobs.get(areaId) ?? [],
+    creatureSpawns: (areaId) => creatureSpawns.get(areaId) ?? [],
     npcs: (areaId) => npcs.get(areaId) ?? [],
     quests: () => quests,
     quest: (id) => quests.find((q) => q.id === id),
@@ -621,6 +649,14 @@ interface AreaMobRow {
   area_id: string;
   template_id: string;
   count: number;
+}
+interface CreatureSpawnRow {
+  uid: number;
+  area_id: string;
+  template_id: string;
+  x: number;
+  y: number;
+  flags: number;
 }
 interface NpcRow {
   area_id: string;

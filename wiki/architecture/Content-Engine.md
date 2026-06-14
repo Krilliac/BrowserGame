@@ -37,13 +37,13 @@ Two rules make something "DB-driven" here:
 |---|---|---|---|---|
 | Areas / portals / themes | `areas`,`portals`,`area_theme` | ✅ | ✅ | ⬜ (still `shared/areas.ts`) |
 | Abilities (spells) | `abilities` | ✅ | ✅ | ⬜ (still `shared/combat.ts`) |
-| **Items (equipment/materials)** | `items` | ✅ | ✅ (`ItemInfo`) | ✅ `seed-items.ts` |
-| **Legendaries (uniques)** | `uniques` | ✅ | n/a (sent as instances) | ✅ `seed-uniques.ts` |
-| Monsters | `mob_templates`,`area_mobs` | ✅ (incl. traits/spell/support) | n/a (sent in snapshots) | ⬜ (still `mobs.ts`) |
+| **Items (equipment/materials/legendaries)** | `items` (+`flags`/`base_id`/`affixes`) | ✅ | ✅ (`ItemInfo`) | ✅ `seed-items.ts` / `seed-uniques.ts` |
+| Monsters (templates) | `mob_templates`,`area_mobs` | ✅ (incl. traits/spell/support) | n/a (sent in snapshots) | ⬜ (still `mobs.ts`) |
+| Monster spawns (UID) | `creature_spawns` (+`flags`) | ✅ | n/a | ✅ (SQL, empty by default) |
+| NPCs | `npcs` (uid `id` + `npc_flags`) | ✅ | via snapshots | ✅ (seed-*) |
 | Loot tables | `loot_entry` | ✅ | n/a | ✅ (seed-*) |
 | Dungeon population | `dungeons` | ✅ | n/a | ⬜ (`DUNGEONS` const = seed + client `isDungeon`) |
-| NPCs | `npcs` | ✅ | via content/snapshots | ✅ (seed-*) |
-| Decor / objects | `decor` | ✅ | via content packet | ✅ (seed-*) |
+| Decor / objects | `decor` (uid `id`) | ✅ | via content packet | ✅ (seed-*) |
 | Quests | `quests` | ✅ | via packet | partly (seed-*) |
 | Vendor stock | `vendor_stock` | ✅ | via shop packet | ✅ (seed-*) |
 

@@ -77,6 +77,7 @@ import {
 } from './hirelings.js';
 import { isDungeon, type DungeonDef, type Rect } from '../shared/areas.js';
 import { NpcFlags, hasNpcFlag } from '../shared/npc-flags.js';
+import { CreatureSpawnFlags, hasSpawnFlag } from '../shared/spawn-flags.js';
 import {
   blockersForDecor,
   pointInAnyBlocker,
@@ -721,6 +722,17 @@ export class World {
       for (let i = 0; i < spawn.count; i++) {
         this.createMob(template, this.randomMobX(), this.randomMobY());
       }
+    }
+    // Explicit per-spawn placements (uid rows): fixed position + per-spawn flags (e.g. forced elite).
+    for (const spawn of content.creatureSpawns(areaId)) {
+      const template = content.mobTemplate(spawn.templateId);
+      if (!template) continue;
+      this.createMob(
+        template,
+        spawn.x,
+        spawn.y,
+        hasSpawnFlag(spawn.flags, CreatureSpawnFlags.ELITE),
+      );
     }
   }
 

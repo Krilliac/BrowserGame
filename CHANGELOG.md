@@ -29,6 +29,16 @@ versioning once it stabilizes.
   - **Client message pump is contained:** a well-formed-but-unexpected server frame hitting a handler
     is caught per-message so it can't throw out of the socket listener and stop later frames.
 
+### Added
+
+- **Individual creature spawns — the template-vs-spawn split (UID/guid placements).** A new
+  `creature_spawns` table places one monster per row (its own `uid`) referencing a `mob_templates`
+  entry, at a fixed position, with a per-spawn `flags` bitmask (`CreatureSpawnFlags`, e.g. forced
+  `ELITE`). `content.ts` exposes `creatureSpawns(areaId)` and `world.ts` places them alongside the
+  count-based `area_mobs` random scatter. Empty by default (no gameplay change); add rows via SQL to
+  pin a named guardian or a forced champion at an exact spot. This makes monster spawns individually
+  addressable + overridable, the way NPC and decor rows already are.
+
 ### Changed
 
 - **NPCs carry a service `npc_flags` bitmask (TrinityCore-style npcflag).** Each `npcs` row gains an
