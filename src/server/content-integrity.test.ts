@@ -104,3 +104,45 @@ describe('drop-table integrity (sampled)', () => {
     }
   });
 });
+
+describe('npc integrity', () => {
+  it("every NPC has a name + kind and stands inside its area's bounds", () => {
+    for (const a of c.areas()) {
+      for (const npc of c.npcs(a.id)) {
+        expect(npc.name, `${a.id} npc name`).toBeTruthy();
+        expect(npc.kind, `${a.id} ${npc.name} kind`).toBeTruthy();
+        expect(npc.x, `${a.id} ${npc.name} x`).toBeGreaterThanOrEqual(0);
+        expect(npc.x, `${a.id} ${npc.name} x`).toBeLessThanOrEqual(a.width);
+        expect(npc.y, `${a.id} ${npc.name} y`).toBeGreaterThanOrEqual(0);
+        expect(npc.y, `${a.id} ${npc.name} y`).toBeLessThanOrEqual(a.height);
+      }
+    }
+  });
+});
+
+describe('quest integrity', () => {
+  it('every quest is well-formed and references only real mobs/items', () => {
+    for (const q of c.quests()) {
+      expect(q.id, 'quest id').toBeTruthy();
+      expect(q.name, `${q.id} name`).toBeTruthy();
+      expect(q.description, `${q.id} description`).toBeTruthy();
+      expect(q.rewardGold, `${q.id} rewardGold`).toBeGreaterThanOrEqual(0);
+      expect(q.rewardXp, `${q.id} rewardXp`).toBeGreaterThanOrEqual(0);
+
+      // A kill quest must name a REAL mob template and ask for a positive count.
+      if (q.targetMob !== null) {
+        expect(c.mobTemplate(q.targetMob), `${q.id} target mob ${q.targetMob}`).toBeDefined();
+        expect(q.targetCount, `${q.id} targetCount`).toBeGreaterThan(0);
+      }
+      // A collect quest must name a REAL item to turn in, in a positive amount.
+      if (q.turnInItem !== null) {
+        expect(c.item(q.turnInItem), `${q.id} turn-in item ${q.turnInItem}`).toBeDefined();
+        expect(q.turnInCount, `${q.id} turnInCount`).toBeGreaterThan(0);
+      }
+      // A reward item (e.g. a spellbook) must be a real item.
+      if (q.rewardItem !== null) {
+        expect(c.item(q.rewardItem), `${q.id} reward item ${q.rewardItem}`).toBeDefined();
+      }
+    }
+  });
+});

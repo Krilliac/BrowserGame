@@ -170,3 +170,14 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   drop-table check (25 rngs/mob) that all rolled loot resolves to a real item or gold.
 - Tests: +7 (996 total). Confirms current seed data is clean; future typos now fail the build.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 16 — NPC + quest content-integrity coverage
+- Picked: extend iter-15 integrity to the remaining data-driven content (NPCs, quests). A quest whose
+  targetMob references a deleted monster, or whose reward/turn-in item doesn't exist, would break the
+  quest silently at runtime. (tier: coverage for risky data.)
+- Did: added NPC integrity (every NPC has name+kind and sits inside its area bounds) and quest
+  integrity (id/name/desc present, rewardGold/XP >= 0, and — the key checks — a kill quest's targetMob
+  resolves to a real mob template with positive count, a collect quest's turnInItem is a real item
+  with positive count, and any rewardItem is a real item).
+- Tests: +2 (998 total). Confirms current quest/NPC data is clean; future broken references fail build.
+- Result: COMMITTED — gate check+build GREEN.
