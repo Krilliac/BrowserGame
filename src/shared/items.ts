@@ -116,6 +116,21 @@ export interface Affix {
   value: number;
 }
 
+/**
+ * Bitmask flags on an item template (extensible — add bits as needed). Stored as the `flags` int on
+ * each `items` row, so an item can carry several at once. The LEGENDARY bit marks hand-authored
+ * uniques (which carry fixed `affixes` + a `baseId`), and excludes them from random base/gamble rolls.
+ */
+export const ItemFlags = {
+  LEGENDARY: 1 << 0,
+} as const;
+export type ItemFlag = (typeof ItemFlags)[keyof typeof ItemFlags];
+
+/** True if `flags` has the given {@link ItemFlags} bit set. */
+export function hasItemFlag(flags: number, flag: ItemFlag): boolean {
+  return (flags & flag) !== 0;
+}
+
 /** Affix stats that are penalties (corrupted gear pairs one of these with a strong buff). */
 const DEBUFF_STATS: AffixStat[] = ['frail', 'fragile'];
 

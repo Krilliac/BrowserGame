@@ -113,8 +113,14 @@ const kobold = MOB_TEMPLATES.thistle_kobold!; // pack + craven melee
 const orc = MOB_TEMPLATES.mosshide_orc!; // enrage melee
 const stalker = MOB_TEMPLATES.wraithfrost_stalker!; // flanker melee
 
+// Mirror the DB-loaded template: fold the authored trait/spell/support consts onto the template,
+// since stepMob now reads mob.template.traits (loaded from the DB at runtime) rather than a global.
 function viewOf(template: typeof wolf, x = 0, y = 0, attackReady = true): MobView {
-  return { x, y, template, attackReady };
+  const withTraits = {
+    ...template,
+    ...(MOB_TRAITS[template.id] ? { traits: MOB_TRAITS[template.id] } : {}),
+  };
+  return { x, y, template: withTraits, attackReady };
 }
 function ctx(overrides: Partial<MobStepContext> = {}): MobStepContext {
   return { hpFrac: 1, packNearby: 0, seed: 1, alerted: false, ...overrides };
@@ -247,19 +253,19 @@ describe('stepMob (no-ctx regression)', () => {
 
 describe('traitDamageMult', () => {
   it('returns 1.5 for enrage templates below 35% hp, else 1', () => {
-    expect(traitDamageMult('mosshide_orc', 0.34)).toBe(1.5);
-    expect(traitDamageMult('mosshide_orc', 0.35)).toBe(1);
-    expect(traitDamageMult('mosshide_orc', 1)).toBe(1);
-    expect(traitDamageMult('wolf', 0.1)).toBe(1); // pack, not enrage
-    expect(traitDamageMult('no_such_template', 0.1)).toBe(1);
+    expect(traitDamageMult(MOB_TRAITS['mosshide_orc'], 0.34)).toBe(1.5);
+    expect(traitDamageMult(MOB_TRAITS['mosshide_orc'], 0.35)).toBe(1);
+    expect(traitDamageMult(MOB_TRAITS['mosshide_orc'], 1)).toBe(1);
+    expect(traitDamageMult(MOB_TRAITS['wolf'], 0.1)).toBe(1); // pack, not enrage
+    expect(traitDamageMult(undefined, 0.1)).toBe(1);
   });
 });
 
 describe('isPackish', () => {
   it('reports the pack trait', () => {
-    expect(isPackish('wolf')).toBe(true);
-    expect(isPackish('mosshide_orc')).toBe(false);
-    expect(isPackish('no_such_template')).toBe(false);
+    expect(isPackish(MOB_TRAITS['wolf'])).toBe(true);
+    expect(isPackish(MOB_TRAITS['mosshide_orc'])).toBe(false);
+    expect(isPackish(undefined)).toBe(false);
   });
 });
 

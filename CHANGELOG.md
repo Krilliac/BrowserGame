@@ -31,6 +31,95 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Individual creature spawns — the template-vs-spawn split (UID/guid placements).** A new
+  `creature_spawns` table places one monster per row (its own `uid`) referencing a `mob_templates`
+  entry, at a fixed position, with a per-spawn `flags` bitmask (`CreatureSpawnFlags`, e.g. forced
+  `ELITE`). `content.ts` exposes `creatureSpawns(areaId)` and `world.ts` places them alongside the
+  count-based `area_mobs` random scatter. Empty by default (no gameplay change); add rows via SQL to
+  pin a named guardian or a forced champion at an exact spot. This makes monster spawns individually
+  addressable + overridable, the way NPC and decor rows already are.
+
+### Changed
+
+- **NPCs carry a service `npc_flags` bitmask (TrinityCore-style npcflag).** Each `npcs` row gains an
+  `npc_flags` integer (a bitmask of `NpcFlags`: VENDOR / QUESTGIVER / HEALER / GAMBLER / ARTIFICER /
+  BANKER / RECRUITER / RIFTKEEPER), populated from the NPC's `kind` and override-preserving. The
+  E-key interaction dispatcher and every service guard in `world.ts` now check the flag instead of a
+  single `kind` string — so one NPC can offer several services at once (e.g. a vendor that is also a
+  quest-giver) by setting more bits via SQL. `kind` stays as the primary role + sprite.
+- **Legendaries merged into the items table + an item `flags` bitmask.** The separate `uniques` table
+  is gone; a legendary is now an `items` row carrying the `LEGENDARY` flag, its `base_id`, and fixed
+  `affixes` (slot/power/hp/color copied from the base). `content.ts` derives the unique catalogue
+  from flagged item rows, and the random gear/gamble pool excludes `LEGENDARY` items so they drop
+  only via the dedicated unique roll. New `ItemFlags`/`hasItemFlag` (and `NpcFlags`/`hasNpcFlag`).
+- **Procedural dungeon population is now database-driven (content-engine phase 4).** A new `dungeons`
+  table holds each dungeon's pack pool (JSON), boss, mini-boss + chances, elite chance, and mob
+  counts, seeded from the `DUNGEONS` const; `content.ts` exposes `content.dungeon(areaId)` and
+  `world.ts` rolls dungeon population from the DB. The `DUNGEONS` const remains only as the
+  structural client `isDungeon` check and the seed default — so a dungeon's roster can be retuned
+  with SQL.
+- **Monster traits / spells / support are now database-driven (content-engine phase 3).** The runtime
+  no longer reads the `MOB_SPELLS`/`MOB_SUPPORT`/`MOB_TRAITS` consts: `mob_templates` gained `spell`,
+  `support`, and `traits` (JSON) columns, seeded from the authoring maps and loaded onto the
+  `MobTemplate` by `content.ts`. The `world.ts` caster/support logic reads `template.spell` /
+  `template.support`, and the `stepMob` AI plus the `traitDamageMult`/`isPackish` helpers now take
+  the template's `traits` array — so a monster's casting and personality come straight from the DB.
+  The consts remain only as authored seed data.
+- **Items are now fully database-driven (content-engine phase 2).** The DB `items` table is the
+  single runtime source of truth and nothing reads a hardcoded item const during the game:
+  - `gamble.ts` no longer imports `EQUIPMENT` — `rollGamble`/`isGambleSlot` take the equip-base pool
+    as a parameter, which `world.ts` builds from the content DB (a new `equipBases()` helper).
+  - The client `item-icons.ts` resolves an item's slot from the content packet via an injected
+    resolver (`setItemSlotResolver`, wired in `main.ts` to `net.content`) instead of importing the
+    data const — removing the last client-side read of `EQUIPMENT`.
+  - The `EQUIPMENT` base catalogue and `MATERIALS` moved out of `src/shared/equipment.ts` into a new
+    `src/server/db/seed-items.ts` (the items "world-DB content"); `src/shared/equipment.ts` now holds
+    only slot **types/labels** and the doll-slot mapping. New `seed-items.test.ts` validates the
+    catalogue and that every base/material seeds into the `items` table.
+- **Legendaries are now database-driven (content-engine phase 1).** The hand-authored `UNIQUES`
+  catalogue, previously a hardcoded array in `src/shared/uniques.ts`, now lives in a new `uniques`
+  SQLite table seeded from `src/server/db/seed-uniques.ts` and loaded by `content.ts` — the same
+  DB-as-source-of-truth pattern the rest of the content uses. `content.ts` owns the catalogue,
+  `uniquesForSlot`, and `rollRandomUnique` (resolving each base's power/hp from the `items` table);
+  `world.ts` mints legendaries through the `Content` API. `shared/uniques.ts` is reduced to a pure,
+  data-free roller (`rollUnique` + `pickUnique`) shared by the seed layer, the loader, and the
+  tests. You can now add or rebalance a legendary with SQL — no code change. This is the first step
+  of a phased move of all content (items, spells, monsters, quests, terrain, objects) to a
+  TrinityCore/MaNGOS-style DB content engine; see `wiki/architecture/Content-Engine.md`.
+
+### Added
+
+- **Eight new original legendaries — the unique loot chase now covers every slot.** Expanded the
+  curated `UNIQUES` pool (`src/shared/uniques.ts`) from 12 to 20 hand-authored items, filling the
+  previously-empty **shoulders / waist / legs** slots and deepening the off-hand / neck / ring /
+  trinket chase, all themed to the later acts: *Mantle of the Pale King*, *Cinch of the Unmade*,
+  *Tread of the Last Watch*, *Bond of the Hunt*, *Emberglass Heart*, *Choker of the Sleepless*,
+  *Ashen Effigy*, and *Moonsilver Edge*. Each is built on a real equipment base with fixed,
+  build-defining affixes kept inside the agreed magnitude bands. Original content (our own names,
+  flavor, and stats) inspired by the ARPG loot-chase pattern — no third-party data. They drop
+  world-wide through the existing `rollRandomUnique` path; a new test asserts the pool now covers
+  every equipment slot so slot-targeted drops can always find a unique.
+- **Wilds bestiary — wildlife & vermin across every overworld combat zone.** Fourteen new roaming
+  species fill the ecological gaps from Gloomwood to the Voidmarch, adding swarm / ambusher / caster
+  archetypes to zones that lacked them so **every** overworld combat zone in the game now carries a
+  wilds species. **Act 1 + Wastes:** the **Gloomweb Spider** and goat-legged **Bramble Satyr**
+  (Gloomwood), skittering **Tomb Rats** (Shadow Crypt), the venom-spitting **Mire Serpent** (Rotfen
+  Marsh), chitinous **Cinder Ants** (Emberdeep Mines), the petrifying **Wyrmcrag Cockatrice**
+  (Frostpeak Pass), and the void-bloated **Sundered Worm** (the Sundered Wastes). **Act 2 road:**
+  **Barrow Vermin** (the Grimfrost Barrows), the **Pineweb Spider** (the Howling Barrens), and the
+  **Tidefang Serpent** (the Sunken Pass). **Act 3 dead-lands:** the **Blightweb Spider** (the
+  Blighted Spire), the **Dune Serpent** (the Ashveil Desert), the **Chasm Worm** (the Shattered
+  Causeway), and the **Void Vermin** swarm (the Voidmarch). The new creatures also seed into
+  thematically- and level-matched **dungeon pools** — caves & catacombs get tomb-rats and a cave
+  spider, the Writhing Hive a serpent, the Abyssal Throne a blight spider, the Unmade Court the void
+  swarm + chasm worm, and the endgame Rift four scaled picks. Pure data through the established
+  idempotent seed paths: templates in `src/server/mobs.ts` (with pack / flanker / enrage traits and
+  four gaze/venom casters), spawns + zone-matched loot in the new `src/server/db/seed-wilds.ts`
+  (wired via `ensureWildsContent`, which also seeds a per-mob `sprite_tints` cast so sprite-sharing
+  pairs read as distinct creatures), dungeon-pool entries in `src/shared/areas.ts`, and five new
+  `rogues-sprites.ts` mapping rules (satyr / serpent / ant / cockatrice / vermin). Covered by
+  `seed-wilds.test.ts`, the content-integrity suite, the dungeon-population tests, and the
+  sprite-resolution test.
 - **Drifting cloud shadows over outdoor ground (world-anchored depth cue).** Soft dark patches now
   sail slowly across the terrain on the wind, implying a sky and sun *above* the otherwise-flat
   plane. They're **world-anchored** — cloud positions are world coordinates and the layer's transform

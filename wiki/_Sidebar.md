@@ -11,6 +11,7 @@
 
 - [Overview](architecture/Overview.md)
 - [Content Database (SQLite)](architecture/Content-Database.md)
+- [Content Engine (DB as source of truth)](architecture/Content-Engine.md)
 - [Chat Commands & Access Levels](architecture/Commands-And-Access.md)
 - [Areas & Instances](architecture/Areas-And-Instances.md)
 - [Combat, Monsters & Rendering](architecture/Combat.md)

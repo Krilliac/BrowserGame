@@ -1,10 +1,10 @@
 import type { Database } from 'better-sqlite3';
 import { config } from '../config.js';
-import { AREAS, AREA_THEMES, type DecorProp } from '../../shared/areas.js';
+import { AREAS, AREA_THEMES, DUNGEONS, type DecorProp } from '../../shared/areas.js';
 import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
-import { EQUIPMENT } from '../../shared/equipment.js';
-import { MOB_TEMPLATES, AREA_MOBS } from '../mobs.js';
+import { EQUIPMENT, MATERIALS } from './seed-items.js';
+import { MOB_TEMPLATES, AREA_MOBS, MOB_SPELLS, MOB_SUPPORT, MOB_TRAITS } from '../mobs.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
 import { GEMS } from '../../shared/gems.js';
@@ -15,18 +15,10 @@ import { EXPANSION_DECOR } from './seed-decor.js';
 import { ensureSpellTomeContent } from './seed-spells.js';
 import { FRONTIER_NPCS, FRONTIER_DECOR, FRONTIER_LOOT, FRONTIER_QUESTS } from './seed-frontier.js';
 import { ACTS_NPCS, ACTS_DECOR, ACTS_LOOT, ACTS_QUESTS, ACTS_VENDOR_STOCK } from './seed-acts.js';
-
-/** Display names + colors for the non-equipment loot materials (and gold). */
-const MATERIALS: Record<string, { name: string; color: string }> = {
-  gold: { name: 'Gold', color: '#f2c14e' },
-  wolf_pelt: { name: 'Wolf Pelt', color: '#9c7a4d' },
-  bone: { name: 'Bone', color: '#e8e2d0' },
-  bat_wing: { name: 'Bat Wing', color: '#7a5a8a' },
-  rune_shard: { name: 'Rune Shard', color: '#5fb0e0' },
-  venom_gland: { name: 'Venom Gland', color: '#9fd86a' },
-  ember_ore: { name: 'Ember Ore', color: '#ff8a3a' },
-  frost_core: { name: 'Frost Core', color: '#a8e0ff' },
-};
+import { WILDS_AREA_MOBS, WILDS_LOOT } from './seed-wilds.js';
+import { UNIQUES } from './seed-uniques.js';
+import { ItemFlags } from '../../shared/items.js';
+import { KIND_TO_NPC_FLAG } from '../../shared/npc-flags.js';
 
 /**
  * Spellbooks: one tome per ability. Reading one learns the spell (or ranks it up — the Diablo 1
@@ -307,8 +299,12 @@ export function seed(db: Database): void {
   ensureWorldExpansion(db); // dungeons, new monsters, and the dungeon entrance portals
   ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
   ensureExpansionContent(db); // hand-placed decor, new-monster rosters/loot, sprite tints
+  ensureLegendaryItems(db); // the legendary catalogue → rows in the `items` table (LEGENDARY flag)
+  ensureDungeonsContent(db); // procedural dungeon population → the `dungeons` table
+  ensureWildsContent(db); // wildlife/vermin rosters + loot spread across the existing zones
   ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
   ensureActsContent(db); // the Act 2 road + all of Act 3 (Vhalreth, its zones, the Unmade Court)
+  ensureNpcFlags(db); // derive npc_flags from each NPC's kind (idempotent; preserves overrides)
   ensureDenContent(db); // the generic cellar/den interior (procedural mini-dungeon shell)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
@@ -661,6 +657,123 @@ function ensureExpansionContent(db: Database): void {
 }
 
 /**
+ * Upsert the wilds bestiary (src/server/db/seed-wilds.ts) into an already-seeded DB: the new
+ * wildlife/vermin rosters and their loot. The templates themselves flow through
+ * ensureWorldExpansion (it upserts every MOB_TEMPLATES row). Idempotent with the same guards
+ * the asset expansion uses: spawns per (area, template); loot once a mob has any rows.
+ */
+function ensureWildsContent(db: Database): void {
+  const areaMobExists = db.prepare('SELECT 1 FROM area_mobs WHERE area_id = ? AND template_id = ?');
+  const areaMobIns = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');
+  for (const s of WILDS_AREA_MOBS) {
+    if (!areaMobExists.get(s.areaId, s.templateId)) areaMobIns.run(s.areaId, s.templateId, s.count);
+  }
+
+  const lootExists = db.prepare('SELECT 1 FROM loot_entry WHERE mob_template_id = ? LIMIT 1');
+  const lootIns = db.prepare(
+    'INSERT INTO loot_entry (mob_template_id,grp,item_id,weight,min_qty,max_qty,is_nothing,chance) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  const lootMobs = new Set(WILDS_LOOT.map((l) => l.mobTemplateId));
+  for (const mobId of lootMobs) {
+    if (lootExists.get(mobId)) continue;
+    for (const l of WILDS_LOOT) {
+      if (l.mobTemplateId !== mobId) continue;
+      lootIns.run(mobId, l.grp, l.itemId, l.weight, l.minQty, l.maxQty, l.isNothing, l.chance);
+    }
+  }
+
+  // Per-mob sprite tints: give each wilds species its own cast so the pairs that share a
+  // 32rogues cell (two spiders, two rats/serpents) still read as distinct creatures.
+  const tintIns = db.prepare('INSERT OR IGNORE INTO sprite_tints (target,tint) VALUES (?,?)');
+  const WILDS_TINTS: [string, string][] = [
+    ['mob:gloomweb_spider', '#9a86c0'], // gloom-violet carapace
+    ['mob:pineweb_spider', '#7a8a6a'], // pine grey-green
+    ['mob:bramble_satyr', '#9ec07a'], // mossy hide
+    ['mob:tomb_rat', '#b8b0a0'], // dusty crypt fur
+    ['mob:barrow_vermin', '#aebccc'], // pale barrow-ice fur
+    ['mob:mire_serpent', '#8fd86a'], // venom green
+    ['mob:drowned_serpent', '#6a9aa0'], // drowned teal
+    ['mob:cinder_ant', '#d86a3a'], // ember-lit chitin
+    ['mob:wyrmcrag_cockatrice', '#bcd0ee'], // frost-rimed feathers
+    ['mob:sundered_worm', '#b07ae8'], // void-bloated flesh
+    ['mob:blightweb_spider', '#5a7a4a'], // blight-green citadel spider
+    ['mob:dune_serpent', '#d0b88a'], // sun-bleached desert scales
+    ['mob:chasm_worm', '#9a90a0'], // grey stone-burrower
+    ['mob:void_vermin', '#a07ad0'], // rift-violet swarm
+  ];
+  for (const [target, tint] of WILDS_TINTS) tintIns.run(target, tint);
+}
+
+/**
+ * Upsert the legendary (unique) catalogue (src/server/db/seed-uniques.ts) into the `items` table —
+ * legendaries are merged into items, each a row carrying the LEGENDARY flag, its `base_id` (the base
+ * it is built on), and its fixed `affixes` (JSON). Slot/power/hp/color are copied from the base so
+ * the row is a self-contained equip item. Idempotent: INSERT OR IGNORE on the item id. Runs after the
+ * base items exist (in the always-run ensure section).
+ */
+function ensureLegendaryItems(db: Database): void {
+  const ins = db.prepare(
+    `INSERT OR IGNORE INTO items
+       (id,name,kind,slot,power,hp,color,sell_value,teaches,flags,base_id,affixes,flavor)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  for (const u of UNIQUES) {
+    const base = EQUIPMENT[u.baseId];
+    if (!base) continue; // a legendary on an unknown base is skipped (asserted in tests)
+    ins.run(
+      u.id,
+      u.name,
+      'equip',
+      base.slot,
+      base.power ?? null,
+      base.hp ?? null,
+      base.color,
+      0,
+      null,
+      ItemFlags.LEGENDARY,
+      u.baseId,
+      JSON.stringify(u.affixes),
+      u.flavor ?? null,
+    );
+  }
+}
+
+/**
+ * Populate each NPC's `npc_flags` bitmask from its `kind` (the service it implies), so one NPC can
+ * carry several services. Idempotent and override-preserving: only fills rows still at 0, so a
+ * hand-edited multi-service NPC (e.g. vendor + questgiver) survives reboots.
+ */
+function ensureNpcFlags(db: Database): void {
+  const upd = db.prepare('UPDATE npcs SET npc_flags = ? WHERE kind = ? AND npc_flags = 0');
+  for (const [kind, flag] of Object.entries(KIND_TO_NPC_FLAG)) upd.run(flag, kind);
+}
+
+/**
+ * Upsert the procedural dungeon population (DUNGEONS in shared/areas.ts) into the `dungeons` table.
+ * Idempotent: INSERT OR IGNORE on the dungeon area_id; the pool is stored as a JSON array. The const
+ * stays the structural `isDungeon` source + seed default; the server reads population from the DB.
+ */
+function ensureDungeonsContent(db: Database): void {
+  const ins = db.prepare(
+    `INSERT OR IGNORE INTO dungeons
+       (area_id,pool,boss,mini_boss,mini_boss_chance,elite_chance,min_mobs,max_mobs)
+     VALUES (?,?,?,?,?,?,?,?)`,
+  );
+  for (const [areaId, d] of Object.entries(DUNGEONS)) {
+    ins.run(
+      areaId,
+      JSON.stringify(d.pool),
+      d.boss,
+      d.miniBoss ?? null,
+      d.miniBossChance,
+      d.eliteChance,
+      d.minMobs,
+      d.maxMobs,
+    );
+  }
+}
+
+/**
  * Upsert the dungeon-era content (new monster templates, the four dungeon areas + their themes, and
  * the dungeon entrance/return portals) into an already-seeded DB. Idempotent: INSERT OR IGNORE keyed
  * on the primary keys, and portals are guarded by (area_id, to_area) since that table has no natural
@@ -670,8 +783,8 @@ function ensureWorldExpansion(db: Database): void {
   const insMob = db.prepare(
     `INSERT OR IGNORE INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
-        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     insMob.run(
@@ -691,6 +804,9 @@ function ensureWorldExpansion(db: Database): void {
       t.kiteRange ?? null,
       t.slamRadius ?? null,
       t.dashSpeed ?? null,
+      MOB_SPELLS[t.id] ?? null,
+      MOB_SUPPORT[t.id] ?? null,
+      MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
     );
   }
 
@@ -1045,8 +1161,8 @@ function seedMobs(db: Database): void {
   const mob = db.prepare(
     `INSERT INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
-        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     mob.run(
@@ -1066,6 +1182,9 @@ function seedMobs(db: Database): void {
       t.kiteRange ?? null,
       t.slamRadius ?? null,
       t.dashSpeed ?? null,
+      MOB_SPELLS[t.id] ?? null,
+      MOB_SUPPORT[t.id] ?? null,
+      MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
     );
   }
   const am = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');

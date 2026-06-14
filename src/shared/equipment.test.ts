@@ -1,18 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { EQUIPMENT, equipDef, isEquip } from './equipment.js';
+import { EQUIP_SLOTS, SLOT_LABELS, dollSlotsFor } from './equipment.js';
 
-describe('equipment defs', () => {
-  it('recognizes equippable item ids', () => {
-    expect(isEquip('iron_sword')).toBe(true);
-    expect(isEquip('wolf_pelt')).toBe(false);
+/**
+ * equipment.ts is now slot TYPES + labels only — the item base DATA is database-driven (see
+ * src/server/db/seed-items.test.ts). These tests cover the shared slot contract.
+ */
+describe('equipment slot contract', () => {
+  it('every doll slot has a label', () => {
+    for (const slot of EQUIP_SLOTS) {
+      expect(SLOT_LABELS[slot], slot).toBeTruthy();
+    }
   });
 
-  it('weapons carry power, armor carries hp, and slots cover the doll', () => {
-    expect(EQUIPMENT.iron_sword!.power).toBeGreaterThan(0);
-    expect(EQUIPMENT.iron_sword!.slot).toBe('mainhand');
-    expect(EQUIPMENT.iron_armor!.hp).toBeGreaterThan(0);
-    expect(equipDef('leather_armor')?.slot).toBe('chest');
-    expect(equipDef('copper_ring')?.slot).toBe('ring');
-    expect(equipDef('iron_helm')?.slot).toBe('head');
+  it('maps an item slot to its doll slot(s); rings fill either ring slot', () => {
+    expect(dollSlotsFor('chest')).toEqual(['chest']);
+    expect(dollSlotsFor('mainhand')).toEqual(['mainhand']);
+    expect(dollSlotsFor('ring')).toEqual(['ring1', 'ring2']);
+  });
+
+  it('exposes the 13 doll slots (two ring positions)', () => {
+    expect(EQUIP_SLOTS).toContain('ring1');
+    expect(EQUIP_SLOTS).toContain('ring2');
+    expect(EQUIP_SLOTS.length).toBe(13);
   });
 });

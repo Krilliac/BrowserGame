@@ -83,7 +83,25 @@ CREATE TABLE IF NOT EXISTS items (
   hp          REAL,
   color       TEXT,
   sell_value  INTEGER NOT NULL DEFAULT 0,
-  teaches     TEXT                             -- spellbook only: the ability id it teaches
+  teaches     TEXT,                            -- spellbook only: the ability id it teaches
+  flags       INTEGER NOT NULL DEFAULT 0,      -- bitmask (ItemFlags): LEGENDARY, …
+  base_id     TEXT,                            -- legendaries: the base item they are built on
+  affixes     TEXT,                            -- legendaries: JSON array of { stat, value }
+  flavor      TEXT                             -- legendaries: tooltip flavor line
+);
+
+-- Procedural dungeon population: the random pack pool + boss + elite/mini-boss chances for each
+-- dungeon area. DB-driven balance content (mirrors DUNGEONS in shared/areas.ts, which stays as the
+-- structural isDungeon metadata + the seed source). Edit rows to retune a dungeon's roster.
+CREATE TABLE IF NOT EXISTS dungeons (
+  area_id          TEXT PRIMARY KEY,
+  pool             TEXT NOT NULL,              -- JSON array of regular monster template ids
+  boss             TEXT NOT NULL,
+  mini_boss        TEXT,
+  mini_boss_chance REAL NOT NULL DEFAULT 0,
+  elite_chance     REAL NOT NULL DEFAULT 0,
+  min_mobs         INTEGER NOT NULL,
+  max_mobs         INTEGER NOT NULL
 );
 
 -- What a vendor NPC sells, keyed by area + NPC name (NPC row ids are autoincrement, names are
@@ -113,7 +131,23 @@ CREATE TABLE IF NOT EXISTS mob_templates (
   projectile_speed    REAL,
   kite_range          REAL,
   slam_radius         REAL,
-  dash_speed          REAL
+  dash_speed          REAL,
+  spell               TEXT,                    -- caster: ability id cast in place of the basic attack
+  support             TEXT,                    -- support caster: self buff/heal ability id
+  traits              TEXT                     -- JSON array of personality traits (pack/craven/…)
+);
+
+-- Individual creature SPAWNS: one row = one placed monster (uid/guid), referencing its
+-- mob_templates entry, at a fixed position, with per-spawn flags (e.g. forced ELITE). This is the
+-- template-vs-spawn split: area_mobs is the count-based random scatter; this is explicit, addressable
+-- placement (a named guardian at a fixed spot, etc.). Empty by default — add rows via SQL.
+CREATE TABLE IF NOT EXISTS creature_spawns (
+  uid         INTEGER PRIMARY KEY AUTOINCREMENT,
+  area_id     TEXT NOT NULL,
+  template_id TEXT NOT NULL REFERENCES mob_templates(id),
+  x           INTEGER NOT NULL,
+  y           INTEGER NOT NULL,
+  flags       INTEGER NOT NULL DEFAULT 0        -- bitmask (CreatureSpawnFlags): ELITE, …
 );
 
 CREATE TABLE IF NOT EXISTS area_mobs (
@@ -144,7 +178,8 @@ CREATE TABLE IF NOT EXISTS npcs (
   x        INTEGER NOT NULL,
   y        INTEGER NOT NULL,
   hue      REAL NOT NULL,
-  kind     TEXT NOT NULL                       -- 'vendor'
+  kind     TEXT NOT NULL,                      -- primary role + sprite, e.g. 'vendor'
+  npc_flags INTEGER NOT NULL DEFAULT 0         -- bitmask (NpcFlags): VENDOR|QUESTGIVER|… services
 );
 
 -- Static set-dressing PROPS per area: cosmetic objects (tents, wagons, a palisade wall, a bonfire,
@@ -187,7 +222,8 @@ CREATE TABLE IF NOT EXISTS quests (
   reward_xp     INTEGER NOT NULL DEFAULT 0,
   reward_item   TEXT,                          -- optional item granted on completion (e.g. a tome)
   turn_in_item  TEXT,                          -- collect quests: the item id to turn in
-  turn_in_count INTEGER NOT NULL DEFAULT 0     -- collect quests: how many to turn in
+  turn_in_count INTEGER NOT NULL DEFAULT 0,    -- collect quests: how many to turn in
+  flags         INTEGER NOT NULL DEFAULT 0     -- bitmask (QuestFlags): REPEATABLE, …
 );
 
 -- Accounts: username -> access level (Player 0 .. Developer 4), with a salted password hash.

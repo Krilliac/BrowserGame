@@ -1,10 +1,13 @@
 import { config } from './config.js';
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
-import type { AreaDef, DecorProp } from '../shared/areas.js';
+import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
-import type { MobTemplate } from './mobs.js';
+import { hasItemFlag, ItemFlags, type Affix, type ItemInstance } from '../shared/items.js';
+import { pickUnique, rollUnique, type UniqueDef } from '../shared/uniques.js';
+import { KIND_TO_NPC_FLAG } from '../shared/npc-flags.js';
+import type { MobTemplate, MobTrait } from './mobs.js';
 
 /**
  * Runtime game content, loaded from the SQLite database (the source of truth) via parametrized
@@ -23,6 +26,14 @@ export interface ItemDef {
   sellValue: number;
   /** Spellbooks only: the ability id this book teaches. */
   teaches: string | null;
+  /** Bitmask of {@link ItemFlags} (e.g. LEGENDARY). */
+  flags: number;
+  /** Legendaries only: the base item id this unique is built on (for its rolled stats + look). */
+  baseId: string | null;
+  /** Legendaries only: the fixed, build-defining affixes. */
+  affixes: Affix[] | null;
+  /** Optional flavor line (legendaries). */
+  flavor: string | null;
 }
 
 export interface NpcDef {
@@ -30,7 +41,10 @@ export interface NpcDef {
   x: number;
   y: number;
   hue: number;
+  /** Primary role + sprite (e.g. 'vendor'). */
   kind: string;
+  /** Bitmask of {@link NpcFlags} — the services this NPC offers (derived from kind if unset). */
+  flags: number;
 }
 
 export interface QuestDef {
@@ -47,6 +61,18 @@ export interface QuestDef {
   turnInItem: string | null;
   /** Collect quests: how many of {@link turnInItem} to turn in. */
   turnInCount: number;
+  /** Bitmask of {@link QuestFlags} (e.g. REPEATABLE). */
+  flags: number;
+}
+
+/** One placed monster: its spawn UID, the template it instances, a fixed position, and spawn flags. */
+export interface CreatureSpawn {
+  uid: number;
+  templateId: string;
+  x: number;
+  y: number;
+  /** Bitmask of {@link CreatureSpawnFlags} (e.g. ELITE). */
+  flags: number;
 }
 
 /** One row on a vendor's shelf. */
@@ -64,8 +90,19 @@ export interface Content {
   item(id: string): ItemDef | undefined;
   items(): ItemDef[];
   sellValue(itemId: string): number;
+  /** The unique (legendary) catalogue, loaded from the `uniques` table. */
+  uniques(): UniqueDef[];
+  unique(id: string): UniqueDef | undefined;
+  /** Unique defs whose base item occupies the given slot (for slot-targeted drops). */
+  uniquesForSlot(slot: string): UniqueDef[];
+  /** Mint a random legendary, resolving its base power/hp from the items table. */
+  rollRandomUnique(uid: number, rng?: () => number): ItemInstance | undefined;
   mobTemplate(id: string): MobTemplate | undefined;
+  /** Procedural dungeon population (pool/boss/elite chances) for a dungeon area, or undefined. */
+  dungeon(areaId: string): DungeonDef | undefined;
   areaMobs(areaId: string): { templateId: string; count: number }[];
+  /** Individual placed monsters (uid spawns) for an area — fixed-position, overridable. */
+  creatureSpawns(areaId: string): CreatureSpawn[];
   npcs(areaId: string): NpcDef[];
   quests(): QuestDef[];
   quest(id: string): QuestDef | undefined;
@@ -226,6 +263,45 @@ export function loadContent(db: GameDatabase): Content {
       color: r.color,
       sellValue: r.sell_value,
       teaches: r.teaches,
+      flags: r.flags,
+      baseId: r.base_id,
+      affixes: r.affixes !== null ? (JSON.parse(r.affixes) as Affix[]) : null,
+      flavor: r.flavor,
+    });
+  }
+
+  // UNIQUE (legendary) catalogue — now merged into the `items` table: a legendary is any item row
+  // with the LEGENDARY flag, carrying its `baseId` (the base it is built on) + fixed `affixes`.
+  const uniqueDefs: UniqueDef[] = [];
+  const uniquesById = new Map<string, UniqueDef>();
+  for (const it of items.values()) {
+    if (!hasItemFlag(it.flags, ItemFlags.LEGENDARY) || it.baseId === null || it.affixes === null) {
+      continue;
+    }
+    const def: UniqueDef = {
+      id: it.id,
+      name: it.name,
+      baseId: it.baseId,
+      affixes: it.affixes,
+      ...(it.flavor !== null ? { flavor: it.flavor } : {}),
+    };
+    uniqueDefs.push(def);
+    uniquesById.set(def.id, def);
+  }
+  const uniquesForSlot = (slot: string): UniqueDef[] =>
+    uniqueDefs.filter((d) => items.get(d.baseId)?.slot === slot);
+
+  // Procedural dungeon population — DB-driven balance content (pool stored as a JSON array).
+  const dungeons = new Map<string, DungeonDef>();
+  for (const r of db.prepare('SELECT * FROM dungeons').all() as DungeonRow[]) {
+    dungeons.set(r.area_id, {
+      pool: JSON.parse(r.pool) as string[],
+      boss: r.boss,
+      ...(r.mini_boss !== null ? { miniBoss: r.mini_boss } : {}),
+      miniBossChance: r.mini_boss_chance,
+      eliteChance: r.elite_chance,
+      minMobs: r.min_mobs,
+      maxMobs: r.max_mobs,
     });
   }
 
@@ -259,6 +335,9 @@ export function loadContent(db: GameDatabase): Content {
     if (r.kite_range !== null) template.kiteRange = r.kite_range;
     if (r.slam_radius !== null) template.slamRadius = r.slam_radius;
     if (r.dash_speed !== null) template.dashSpeed = r.dash_speed;
+    if (r.spell !== null) template.spell = r.spell as AbilityId;
+    if (r.support !== null) template.support = r.support as AbilityId;
+    if (r.traits !== null) template.traits = JSON.parse(r.traits) as MobTrait[];
     mobTemplates.set(r.id, template);
   }
 
@@ -278,8 +357,25 @@ export function loadContent(db: GameDatabase): Content {
       y: r.y * WORLD_SCALE,
       hue: r.hue,
       kind: r.kind,
+      // Fall back to the kind-implied flag if the column has not been populated/overridden.
+      flags: r.npc_flags || (KIND_TO_NPC_FLAG[r.kind] ?? 0),
     });
     npcs.set(r.area_id, list);
+  }
+
+  // Individual creature spawns (uid-level placements), grouped by area. Positions are authored in
+  // the compact coordinate space, so scale them like NPCs/decor.
+  const creatureSpawns = new Map<string, CreatureSpawn[]>();
+  for (const r of db.prepare('SELECT * FROM creature_spawns').all() as CreatureSpawnRow[]) {
+    const list = creatureSpawns.get(r.area_id) ?? [];
+    list.push({
+      uid: r.uid,
+      templateId: r.template_id,
+      x: r.x * WORLD_SCALE,
+      y: r.y * WORLD_SCALE,
+      flags: r.flags,
+    });
+    creatureSpawns.set(r.area_id, list);
   }
 
   const quests = (db.prepare('SELECT * FROM quests').all() as QuestRow[]).map((q) => ({
@@ -293,6 +389,7 @@ export function loadContent(db: GameDatabase): Content {
     rewardItem: q.reward_item ?? null,
     turnInItem: q.turn_in_item ?? null,
     turnInCount: q.turn_in_count ?? 0,
+    flags: q.flags ?? 0,
   }));
 
   const loot = new Map<string, LootGroup>();
@@ -339,8 +436,19 @@ export function loadContent(db: GameDatabase): Content {
     item: (id) => items.get(id),
     items: () => [...items.values()],
     sellValue: (id) => items.get(id)?.sellValue ?? 0,
+    uniques: () => [...uniqueDefs],
+    unique: (id) => uniquesById.get(id),
+    uniquesForSlot,
+    rollRandomUnique: (uid, rng = Math.random) => {
+      const def = pickUnique(uniqueDefs, rng);
+      if (!def) return undefined;
+      const base = items.get(def.baseId);
+      return rollUnique(uid, def, { power: base?.power ?? 0, hp: base?.hp ?? 0 }, rng);
+    },
     mobTemplate: (id) => mobTemplates.get(id),
+    dungeon: (areaId) => dungeons.get(areaId),
     areaMobs: (areaId) => areaMobs.get(areaId) ?? [],
+    creatureSpawns: (areaId) => creatureSpawns.get(areaId) ?? [],
     npcs: (areaId) => npcs.get(areaId) ?? [],
     quests: () => quests,
     quest: (id) => quests.find((q) => q.id === id),
@@ -497,6 +605,20 @@ interface ItemRow {
   color: string | null;
   sell_value: number;
   teaches: string | null;
+  flags: number;
+  base_id: string | null;
+  affixes: string | null;
+  flavor: string | null;
+}
+interface DungeonRow {
+  area_id: string;
+  pool: string;
+  boss: string;
+  mini_boss: string | null;
+  mini_boss_chance: number;
+  elite_chance: number;
+  min_mobs: number;
+  max_mobs: number;
 }
 interface VendorStockRow {
   area_id: string;
@@ -522,11 +644,22 @@ interface MobRow {
   kite_range: number | null;
   slam_radius: number | null;
   dash_speed: number | null;
+  spell: string | null;
+  support: string | null;
+  traits: string | null;
 }
 interface AreaMobRow {
   area_id: string;
   template_id: string;
   count: number;
+}
+interface CreatureSpawnRow {
+  uid: number;
+  area_id: string;
+  template_id: string;
+  x: number;
+  y: number;
+  flags: number;
 }
 interface NpcRow {
   area_id: string;
@@ -535,6 +668,7 @@ interface NpcRow {
   y: number;
   hue: number;
   kind: string;
+  npc_flags: number;
 }
 interface QuestRow {
   id: string;
@@ -547,6 +681,7 @@ interface QuestRow {
   reward_item: string | null;
   turn_in_item: string | null;
   turn_in_count: number;
+  flags: number;
 }
 interface LootRow {
   mob_template_id: string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AREAS, DUNGEONS } from '../../shared/areas.js';
-import { EQUIPMENT } from '../../shared/equipment.js';
+import { EQUIPMENT } from './seed-items.js';
 import { MOB_TEMPLATES } from '../mobs.js';
 import { FRONTIER_DECOR, FRONTIER_LOOT, FRONTIER_NPCS, FRONTIER_QUESTS } from './seed-frontier.js';
 import type { DecorRow } from './seed-decor.js';
