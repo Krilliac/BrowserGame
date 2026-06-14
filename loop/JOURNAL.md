@@ -19,6 +19,8 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 
 | 7 | feat | **Per-element resistances (#14)** — fire/cold/lightning/poison + mob resists | green | 3b230af; +12 → 1239; neutral-by-default; applied at both hit sites; 8 thematic mobs |
 
+| 8 | infra | **Versioned migration chain** (#8) — PRAGMA user_version + ordered MIGRATIONS[] | pending | exactly-once migrations in txns; migration #1 wraps existing column backfill; LATEST_DB_VERSION; +3 tests |
+
 ### Iteration 8 candidates (vary axis after a run of big combat features)
 - **#8 versioned migration chain** (S, infra) — now well-justified (~10 new tables/cols added); safe, fully testable.
 - **#15 content-pack discovery** (M, tooling) — typed seed registry replacing explicit imports.

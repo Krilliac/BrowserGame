@@ -1,11 +1,17 @@
 import type { Database } from 'better-sqlite3';
 
 /**
- * Lightweight forward migrations for content databases that predate newer columns. `CREATE TABLE IF
- * NOT EXISTS` never alters an existing table, so a `game.db` created by an older build is missing
- * columns added since (e.g. the environment-theme look fields). We add any missing column with its
- * default, so old saves keep working without a manual SQL dance. New columns added in the future:
- * append them here.
+ * Forward migrations for content databases, run as an ordered, version-gated chain (Diesel/Veloren
+ * style). `CREATE TABLE IF NOT EXISTS` in SCHEMA never alters an existing table, so a `game.db` from
+ * an older build is missing columns added since. Each migration declares a `version`; on open we read
+ * the DB's `PRAGMA user_version`, run every migration newer than that in its own transaction, then
+ * stamp the new version — so each migration runs AT MOST ONCE per database.
+ *
+ * Migration #1 is the historical "add any missing column" sweep — its operations are idempotent
+ * (add-if-missing), so it is safe on a brand-new DB (SCHEMA already made the columns) and on a partly
+ * upgraded one. FUTURE non-idempotent transforms (renames, backfills, splits) get the real benefit:
+ * append a new entry with the next version and a one-shot `up(db)`; user_version guarantees exactly-
+ * once execution. Never edit a shipped migration's version or body — only append.
  */
 const AREA_THEME_COLUMNS: Record<string, string> = {
   ground_base: "TEXT NOT NULL DEFAULT '#1f2a1c'",
@@ -53,13 +59,50 @@ const QUESTS_COLUMNS: Record<string, string> = {
   turn_in_count: 'INTEGER NOT NULL DEFAULT 0',
 };
 
+/** One ordered, version-gated migration. `up` runs once when the DB's user_version is below `version`. */
+interface Migration {
+  version: number;
+  name: string;
+  up(db: Database): void;
+}
+
+/**
+ * The migration chain, in ascending version order. APPEND ONLY — never renumber or rewrite a shipped
+ * entry (databases in the wild have already recorded which versions they ran).
+ */
+const MIGRATIONS: Migration[] = [
+  {
+    version: 1,
+    name: 'ensure-base-columns',
+    up(db) {
+      // Idempotent column backfill — safe on a fresh DB (columns already exist) or a partial upgrade.
+      if (hasTable(db, 'area_theme')) ensureColumns(db, 'area_theme', AREA_THEME_COLUMNS);
+      if (hasTable(db, 'mob_templates')) ensureColumns(db, 'mob_templates', MOB_TEMPLATE_COLUMNS);
+      if (hasTable(db, 'abilities')) ensureColumns(db, 'abilities', ABILITIES_COLUMNS);
+      if (hasTable(db, 'items')) ensureColumns(db, 'items', ITEMS_COLUMNS);
+      if (hasTable(db, 'quests')) ensureColumns(db, 'quests', QUESTS_COLUMNS);
+    },
+  },
+];
+
+/** The newest migration version this build knows about (0 if there are none). */
+export const LATEST_DB_VERSION = MIGRATIONS.reduce((m, x) => Math.max(m, x.version), 0);
+
+/**
+ * Bring a content DB up to date: run every migration newer than its recorded `user_version`, each in
+ * its own transaction, stamping the version after each so a crash mid-chain resumes cleanly. Already-
+ * current (or newer, e.g. opened by a future build) DBs are left untouched.
+ */
 export function migrate(db: Database): void {
-  // Tables may not exist yet on a brand-new DB — SCHEMA creates them; skip a table if absent.
-  if (hasTable(db, 'area_theme')) ensureColumns(db, 'area_theme', AREA_THEME_COLUMNS);
-  if (hasTable(db, 'mob_templates')) ensureColumns(db, 'mob_templates', MOB_TEMPLATE_COLUMNS);
-  if (hasTable(db, 'abilities')) ensureColumns(db, 'abilities', ABILITIES_COLUMNS);
-  if (hasTable(db, 'items')) ensureColumns(db, 'items', ITEMS_COLUMNS);
-  if (hasTable(db, 'quests')) ensureColumns(db, 'quests', QUESTS_COLUMNS);
+  const current = db.pragma('user_version', { simple: true }) as number;
+  for (const m of MIGRATIONS) {
+    if (m.version <= current) continue;
+    db.transaction(() => {
+      m.up(db);
+      // version is a trusted code constant (never user input) — safe to inline.
+      db.pragma(`user_version = ${m.version}`);
+    })();
+  }
 }
 
 function hasTable(db: Database, name: string): boolean {
