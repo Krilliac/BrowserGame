@@ -718,8 +718,9 @@ export class World {
     if (players <= 1) return; // solo instances ride the normal respawn loop untouched
     const base = roster.reduce((s, r) => s + r.n, 0);
     // Each extra player adds DENSITY_PER_PLAYER worth of mobs, capped so a mega-crowd doesn't
-    // carpet the map. The roster count is already world-scaled (×10) at content load.
-    const target = Math.round(base * Math.min(DENSITY_CAP, 1 + DENSITY_PER_PLAYER * (players - 1)));
+    // carpet the map (the same per-extra-player scaling shape as co-op damage/gold). The roster
+    // count is already world-scaled (×10) at content load.
+    const target = Math.round(base * coopScale(players, DENSITY_PER_PLAYER, DENSITY_CAP));
     let living = 0;
     for (const m of this.mobs.values()) if (!m.dead) living++;
     let toSpawn = Math.min(target - living, DENSITY_TOPUP_PER_CALL);

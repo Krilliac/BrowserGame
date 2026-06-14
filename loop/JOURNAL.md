@@ -135,3 +135,13 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
 - Tests: +4 tierGoldScale (tier-0=1, monotonic, 4× cap, garbage→1); world-pots + world-chests still
   green (town tier-0/solo unchanged). 989 total.
 - Result: COMMITTED — gate check+build GREEN (missing test import caught + fixed first).
+
+## Iteration 13 — DRY crowd-density scaling through coopScale (tech debt)
+- Picked: maintainDensity inlined the same `min(cap, 1 + per*(players-1))` shape as co-op damage/gold.
+  (tier: tech debt — zero behavior change.)
+- Did: replaced the inline math with `coopScale(players, DENSITY_PER_PLAYER, DENSITY_CAP)`. Proven
+  behavior-neutral: the early `if (players <= 1) return` guard means players>=2 always, where
+  coopScale === the old expression exactly; world-density.test (30-player crowd top-up) still green.
+  All three co-op-shaped scalings (damage, gold, density) now share one helper.
+- Tests: no new tests (refactor covered by existing world-density + coopScale unit tests). 989 total.
+- Result: COMMITTED — gate check+build GREEN.
