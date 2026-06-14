@@ -72,17 +72,21 @@ last runtime reads of the shared data consts and (b) moving the *authored* array
    elite chances + mob counts) seeded from the `DUNGEONS` const; `content.ts` exposes
    `content.dungeon(areaId)` and `world.ts` reads dungeon population from it. The `DUNGEONS` const
    stays as the structural client `isDungeon` check + the seed source.
-6. **Gems & runes → DB.** Next. `GEMS` (`shared/gems.ts`) and `RUNES` (`shared/runewords.ts`) are
-   still read at runtime by `world.ts` (artificer gem-combine, rune drops) and the client
-   (`item-icons.ts`, runewords). Add `gems`/`runes` tables, load via `content.ts`, and ship them in
-   the content packet so both sides read the DB.
-7. **Authoring relocation (optional, type-safety permitting).** The `AREAS`/`ABILITIES`/
-   `MOB_TEMPLATES` data still lives in `src/shared` as the seed default + the source of derived
-   literal-union types (notably `AbilityId = keyof typeof ABILITY_DEFS`). These are already
-   DB-driven at *runtime*; relocating the data out of shared would force those types to plain
-   `string`, losing compile-time safety across the codebase. Treat these consts as the project's
-   "world-DB content files" (the Trinity `.sql` analogue) unless the type trade-off is accepted.
-8. **Quests.** Consolidate the scattered quest seed arrays; add area-scoped offering (the deferred
-   roadmap item) now that quests are uniformly DB-driven.
+6. **Gems & runes.** Gems and runes are registered as `items` rows (kind `gem`) so the client gets
+   their name/colour/detection from the content packet (the client no longer imports the `GEMS`
+   const). Their **socket stat-folding + runeword matching** stay in `shared/gems.ts` /
+   `shared/runewords.ts` as pure rule-logic (deterministic game rules + the authoring source), the
+   same accepted pattern as combat formulas — relocating that data buys no runtime change.
+7. **Flags & spawns everywhere.** ✅ `items` (`ItemFlags`: LEGENDARY), `npcs` (`NpcFlags`:
+   vendor/questgiver/…), `quests` (`QuestFlags`: REPEATABLE), and a `creature_spawns` table give
+   per-spawn UID placements with `CreatureSpawnFlags` (ELITE). Decor already has spawn UIDs (`id`)
+   and a `kind` discriminator; a parallel decor flag bitmask was deliberately *not* added (it would
+   duplicate `kind` with no new capability — anti-bloat).
+8. **Authoring relocation (deliberately deferred).** `AREAS`/`ABILITIES`/`MOB_TEMPLATES`/`GEMS`/
+   `RUNES` data still lives in `src/shared`/`src/server` as the seed default **and** the source of
+   derived literal-union types (e.g. `AbilityId = keyof typeof ABILITY_DEFS`) and pure rule-logic.
+   These are already DB-driven at *runtime*; physically moving the data would force those types to
+   plain `string` and scatter the rule-logic, a real loss of safety/clarity for zero runtime gain.
+   Treat them as the project's "world-DB content files" (the Trinity `.sql` analogue).
 
 Each phase keeps `npm run check` green and ships independently.
