@@ -247,6 +247,27 @@ describe('boss-script integrity', () => {
   });
 });
 
+describe('item-proc integrity', () => {
+  it('every proc on a real item has sane numbers + a status ability that does something', () => {
+    for (const item of c.items()) {
+      for (const p of c.itemProcs(item.id)) {
+        expect(p.chance, `${item.id} proc chance`).toBeGreaterThanOrEqual(0);
+        expect(p.chance, `${item.id} proc chance`).toBeLessThanOrEqual(1);
+        expect(p.icdMs, `${item.id} proc icd`).toBeGreaterThanOrEqual(0);
+        if (p.effect.kind === 'damage') {
+          expect(p.effect.amount, `${item.id} proc damage amount`).toBeGreaterThan(0);
+        } else {
+          // A status proc whose ability has no on-hit effect would be a silent no-op.
+          expect(
+            c.abilityStatusEffects(p.effect.ability).length,
+            `${item.id} status proc ability "${p.effect.ability}" applies no status`,
+          ).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+});
+
 describe('npc integrity', () => {
   it("every NPC has a name + kind and stands inside its area's bounds", () => {
     for (const a of c.areas()) {

@@ -468,6 +468,22 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     },
   },
 
+  item_procs: {
+    pk: 'id',
+    label: 'item proc',
+    note: 'a chance-on-hit/crit effect a base item grants; /reloadcontent to apply',
+    columns: {
+      source_id: { type: 'text' },
+      trigger: { type: 'enum', values: ['onHit', 'onCrit'] },
+      chance: { type: 'real', min: 0, max: 1 },
+      icd_ms: { type: 'int', min: 0, max: 600000 },
+      effect: { type: 'enum', values: ['damage', 'status'] },
+      amount: { type: 'real', min: 0, max: 100000, nullable: true },
+      ability: { type: 'text', nullable: true },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
   mob_script_phases: {
     pk: 'id',
     label: 'boss script phase',

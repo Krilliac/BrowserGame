@@ -13,7 +13,9 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 
 | 4 | feat+coverage | New **Sentinel's Plate** steel set + set **completability** integrity guard | green | 3ea2f66; +1 test → 1213; guard: pieces must fit doll slots (ring=2) |
 
-### Iteration 5 plan (proc system — needs focus)
+| 5 | feat | **Item proc system** (#6) — chance-on-hit/crit gear effects | pending | pure resolver (ICD + onHit/onCrit) + data-driven item_procs; hook in damageMob w/ procDepth recursion guard; 2 seeded procs (frost glaive chills, doomspike crit-nuke); +17 tests |
+
+### Iteration 5 plan (proc system — needs focus) [DONE]
 Highest felt-value next: on-hit **proc system** (#6, anchor "loot=build" identity). Hook point
 found: `damageMob` (world.ts:2949) is the single chokepoint; `attacker = players.get(attackerId)`.
 Cast path (world.ts:~1970) is input-coupled — DON'T reuse it. v1 = direct-effect procs (bonus

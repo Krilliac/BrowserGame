@@ -30,6 +30,7 @@ import {
 import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
 import { DEFAULT_ITEM_SETS } from '../../shared/item-sets.js';
 import { DEFAULT_BOSS_SCRIPTS } from '../boss-scripts.js';
+import { DEFAULT_ITEM_PROCS } from '../item-procs.js';
 import { DEFAULT_SKILL_TREE, type SkillEffects } from '../../shared/skilltree.js';
 import { DEFAULT_HIRELING_TEMPLATES } from '../hirelings.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
@@ -340,6 +341,7 @@ export function seed(db: Database): void {
   ensureRunewords(db); // rune pool + runeword recipes (seeded from runewords.ts defaults)
   ensureItemSets(db); // item-set membership + threshold bonuses (seeded from item-sets.ts defaults)
   ensureBossScripts(db); // scripted apex-boss phases/steps (seeded from boss-scripts.ts defaults)
+  ensureItemProcs(db); // chance-on-hit/crit item procs (seeded from item-procs.ts defaults)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
   ensureHirelings(db); // mercenary roster (seeded from hirelings.ts DEFAULT_HIRELING_TEMPLATES)
@@ -483,6 +485,31 @@ function ensureItemSets(db: Database): void {
     insSet.run(s.id, s.name, s.pieces.join(','), s.flavor ?? null);
     s.bonuses.forEach((b, i) =>
       insBonus.run(s.id, b.requiredPieces, b.affix.stat, b.affix.value, i),
+    );
+  }
+}
+
+/**
+ * Seed the item procs from the code defaults (item-procs.ts). Idempotent: a source item that already
+ * has a proc row is skipped (so designer edits survive a restart). Each seed default is one proc on a
+ * distinct source, so a single row per source is written.
+ */
+function ensureItemProcs(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM item_procs WHERE source_id = ? LIMIT 1');
+  const ins = db.prepare(
+    'INSERT INTO item_procs (source_id,trigger,chance,icd_ms,effect,amount,ability,sort_order) VALUES (?,?,?,?,?,?,?,?)',
+  );
+  for (const p of DEFAULT_ITEM_PROCS) {
+    if (has.get(p.sourceId)) continue;
+    ins.run(
+      p.sourceId,
+      p.trigger,
+      p.chance,
+      p.icdMs,
+      p.effect.kind,
+      p.effect.kind === 'damage' ? p.effect.amount : null,
+      p.effect.kind === 'status' ? p.effect.ability : null,
+      0,
     );
   }
 }

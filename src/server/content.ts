@@ -27,6 +27,7 @@ import {
 } from '../shared/runewords.js';
 import { applyItemSetOverrides, type ItemSetDef } from '../shared/item-sets.js';
 import { applyBossScriptOverrides, type BossScript, type BossStep } from './boss-scripts.js';
+import type { ProcDef, ProcEffect } from './item-procs.js';
 import { applySkillTreeOverrides, type SkillNode, type SkillEffects } from '../shared/skilltree.js';
 import { KIND_TO_NPC_FLAG } from '../shared/npc-flags.js';
 import {
@@ -170,6 +171,8 @@ export interface Content {
   itemSets(): ItemSetDef[];
   /** Scripted boss phases keyed by boss template id (overlaid onto the live BOSS_SCRIPTS). */
   bossScripts(): Record<string, BossScript>;
+  /** The procs a base item carries (chance-on-hit/crit effects); empty if it has none. */
+  itemProcs(sourceId: string): ProcDef[];
   /** Affix roll ranges per scalar stat (server-only; overlaid onto the shared AFFIX_RANGES). */
   affixRanges(): Record<string, AffixRange>;
   /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
@@ -633,6 +636,30 @@ export function loadContent(db: GameDatabase): Content {
     (bossScripts[p.template_id] ??= { phases: [] }).phases.push({ hpBelow: p.hp_below, loop });
   }
 
+  // Item procs, keyed by source base-item id. A stable per-source index gives each proc an id for
+  // ICD bookkeeping. Malformed rows (a status proc with no ability, a damage proc with no positive
+  // amount) are dropped so a bad SQL edit can't crash the hit path.
+  const itemProcs = new Map<string, ProcDef[]>();
+  for (const r of db
+    .prepare('SELECT * FROM item_procs ORDER BY source_id, sort_order')
+    .all() as ItemProcRow[]) {
+    let effect: ProcEffect | null = null;
+    if (r.effect === 'status' && r.ability) effect = { kind: 'status', ability: r.ability };
+    else if (r.effect === 'damage' && r.amount !== null && r.amount > 0)
+      effect = { kind: 'damage', amount: r.amount };
+    if (!effect) continue;
+    const list = itemProcs.get(r.source_id) ?? [];
+    list.push({
+      id: `${r.source_id}#${list.length}`,
+      sourceId: r.source_id,
+      trigger: r.trigger === 'onCrit' ? 'onCrit' : 'onHit',
+      chance: r.chance,
+      icdMs: r.icd_ms,
+      effect,
+    });
+    itemProcs.set(r.source_id, list);
+  }
+
   // Affix roll ranges (server-only) + flavor names/tiers (client-coupled). A NULL up_to is Infinity.
   const affixRanges: Record<string, AffixRange> = {};
   for (const r of db.prepare('SELECT * FROM affix_ranges').all() as AffixRangeRow[]) {
@@ -734,6 +761,7 @@ export function loadContent(db: GameDatabase): Content {
     runewords: () => runewords,
     itemSets: () => itemSets,
     bossScripts: () => bossScripts,
+    itemProcs: (sourceId) => itemProcs.get(sourceId) ?? [],
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
     skillTree: () => skillTree,
@@ -1044,6 +1072,15 @@ interface RunewordRow {
   name: string;
   runes: string;
   flavor: string | null;
+}
+interface ItemProcRow {
+  source_id: string;
+  trigger: string;
+  chance: number;
+  icd_ms: number;
+  effect: string;
+  amount: number | null;
+  ability: string | null;
 }
 interface ItemSetRow {
   id: string;

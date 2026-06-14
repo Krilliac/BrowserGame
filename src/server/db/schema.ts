@@ -364,6 +364,22 @@ CREATE TABLE IF NOT EXISTS mob_script_steps (
   text            TEXT
 );
 
+-- Item procs: a chance-on-hit/crit effect a base item grants while equipped (Diablo proc / Flare
+-- passive_trigger). The roll + internal-cooldown logic is pure code (item-procs.ts); only the proc
+-- data lives here. effect 'damage' uses amount; effect 'status' uses ability (whose on-hit status
+-- is applied). Seeded from DEFAULT_ITEM_PROCS; the World applies fired effects with a recursion guard.
+CREATE TABLE IF NOT EXISTS item_procs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id  TEXT NOT NULL,            -- base item id that carries the proc
+  trigger    TEXT NOT NULL,            -- onHit | onCrit
+  chance     REAL NOT NULL DEFAULT 1,  -- 0..1 probability when eligible + off cooldown
+  icd_ms     INTEGER NOT NULL DEFAULT 0,
+  effect     TEXT NOT NULL,            -- damage | status
+  amount     REAL,                     -- damage procs: bonus damage dealt
+  ability    TEXT,                     -- status procs: ability whose on-hit status to apply
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 -- Gems: the socketable catalog. Each gem grants a flat bonus to one affix stat. Seeded from
 -- DEFAULT_GEMS (gems.ts); overlaid onto the shared GEMS catalog on both sides (server load + content
 -- packet). Add a row to introduce a new gem; tier drives the combine chain + drop weight (in code).

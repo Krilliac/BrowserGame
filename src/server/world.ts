@@ -106,6 +106,7 @@ import {
 import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
 import { setBonuses } from '../shared/item-sets.js';
+import { resolveProcs, type ProcDef } from './item-procs.js';
 import {
   championGoldPile,
   coopScale,
@@ -408,6 +409,10 @@ interface Player {
   vigor: number;
   /** Bonus mana/sec from the Energy attribute (added to base mana regen). */
   manaRegenBonus: number;
+  /** Item procs from equipped gear (rebuilt in recomputeStats; chance-on-hit/crit effects). */
+  procs: ProcDef[];
+  /** Per-proc internal-cooldown clocks (procId → next-ready sim time). Persists across recomputes. */
+  procIcd: Map<string, number>;
   /** Allocatable attributes (strength/vitality/dexterity/energy) feeding derived stats. */
   attributes: AttributeSet;
   /** Unspent attribute points (earned on level-up). */
@@ -600,6 +605,7 @@ export class World {
   private localId = 1;
   private readonly allocId: () => number;
   private now = 0; // accumulated sim time, ms (drives cooldowns/respawns)
+  private procDepth = 0; // recursion guard: a fired proc's own damage must not itself proc
   // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
   // Solid colliders for this area — rects (house walls, cliffs, ridges, barriers) AND circles
@@ -1561,11 +1567,13 @@ export class World {
     let move = 0; // percent move bonus
     let armor = 0; // percent incoming-damage reduction
     let vigor = 0; // bonus HP regenerated per second
+    const procs: ProcDef[] = []; // chance-on-hit/crit procs gathered from equipped gear
     for (const slot of EQUIP_SLOTS) {
       const inst = player.equipment[slot];
       if (!inst) continue;
       power += inst.power;
       bonusHp += inst.hp;
+      procs.push(...getContent().itemProcs(inst.baseId));
       for (const a of inst.affixes ?? []) {
         if (a.stat === 'power') power += a.value;
         else if (a.stat === 'hp') bonusHp += a.value;
@@ -1635,6 +1643,7 @@ export class World {
     player.power = power;
     player.critChance = crit;
     player.multishot = multishot;
+    player.procs = procs;
     player.lifesteal = Math.min(0.6, lifesteal / 100); // cap life steal at 60% of damage
     player.cooldownMult = Math.max(0.4, 1 - swift / 100); // cap attack speed at +60%
     player.moveMult = Math.min(1.5, 1 + move / 100); // cap move speed at +50%
@@ -1805,6 +1814,8 @@ export class World {
       potions: { health: POTION_START, mana: POTION_START },
       potionReadyAt: 0,
       manaRegenBonus: 0,
+      procs: [],
+      procIcd: new Map(),
       attributes: emptyAttributes(),
       attrPoints: 0,
       skills: new Set(),
@@ -2984,6 +2995,28 @@ export class World {
       mob.respawnAt = this.now + MOB_RESPAWN_MS;
       this.events.push({ kind: 'death', x: mob.x, y: mob.y });
       this.onMobKilled(mob);
+    } else if (
+      this.procDepth === 0 &&
+      amount > 0 &&
+      attacker &&
+      !attacker.dead &&
+      attacker.procs.length > 0
+    ) {
+      // On-hit item procs (gear-granted "chance on hit/crit"). Only on a SURVIVING mob, and only at
+      // depth 0 so a proc's own damage can't itself proc — no proc-storm, no infinite recursion. A
+      // lethal proc's recursive damageMob handles the kill + loot exactly once.
+      this.procDepth++;
+      for (const eff of resolveProcs(
+        attacker.procs,
+        { crit, now: this.now },
+        attacker.procIcd,
+        this.rand,
+      )) {
+        if (eff.kind === 'damage') this.damageMob(mob, eff.amount, undefined, attackerId, false);
+        else applyStatus(mob, eff.ability as AbilityId);
+        if (mob.dead) break;
+      }
+      this.procDepth--;
     }
   }
 
