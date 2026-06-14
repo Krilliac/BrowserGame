@@ -23,7 +23,17 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 
 | 9 | feat | **Leaderboard / ladder** (#12) — best-ever level/gold per character | green | c242f3b; +9 → 1250; autosave write hook; /ladder cmd |
 | 10a | feat | **Timed game-events** (#11) — Bloodmoon/Golden Hour XP bonus | green | 8baeaae; +37 → 1306; agent-built module wired to data+host (sim-clock, /events cmd) |
-| 10b | feat | **Trade window** (#13) — atomic escrow — MODULE READY, integrate next | pending | trade.ts/trade.test.ts (18 tests) on disk UNTRACKED; needs chokepoint wiring |
+| 10b | feat | **Trade** (#13) — secure atomic escrow trading | green | 3d5091e; +24 → 1328; world session+commit revalidation, protocol, index routing; client panel deferred |
+| 11 | feat | **Rift modifiers** (D3 mutators) — MODULE READY, integrate next | pending | rift-modifiers.ts/.test.ts (16 tests) on disk UNTRACKED; agent wiring guide below |
+
+### Iteration 12 plan: integrate rift-modifiers.ts (agent guide)
+rift-modifiers.ts is PURE (8 mutators: berserk/juggernaut/bountiful/scholarly/frenzied/empowered/
+vengeful/cataclysmic, minTier-gated; rollRiftModifiers/aggregateRiftEffects→RiftEffects). Wire:
+(1) schema rift_modifiers table; (2) ensureRiftModifiers seed; (3) content loader+accessor (add a
+`pool` param to rollRiftModifiers so it reads DB rows, default DEFAULT_*); (4) world-rifts: on rift
+open, roll mods seeded from the rift's existing seed, store on the rift, apply RiftEffects — mob
+hp/damage/speed at spawn (after tier scaling), loot qty + xp at reward sites; broadcast mod names to
+client on open. Reuse the game-events xpEventMult pattern for xp/loot if convenient.
 
 ### Iteration 11 plan: integrate trade.ts (agent's wiring guide)
 trade.ts is a PURE escrow state machine (createTrade/setOffer[resets both confirms]/confirm/commit).
