@@ -77,6 +77,19 @@ export const DEFAULT_ITEM_SETS: ItemSetDef[] = [
     flavor: 'Iron answers iron; the full plate answers everything.',
   },
   {
+    id: 'set_sentinel',
+    name: "Sentinel's Plate",
+    // Steel tier (between iron and mithril) — a four-piece defensive bruiser across distinct slots.
+    pieces: ['steel_sword', 'steel_armor', 'steel_helm', 'tower_shield'],
+    bonuses: [
+      { requiredPieces: 2, affix: { stat: 'armor', value: 9 } },
+      { requiredPieces: 3, affix: { stat: 'hp', value: 50 } },
+      { requiredPieces: 4, affix: { stat: 'power', value: 14 } },
+      { requiredPieces: 4, affix: { stat: 'armor', value: 5 } },
+    ],
+    flavor: 'Hold the line. The line is you.',
+  },
+  {
     id: 'set_mithril',
     name: 'Mithril Regalia',
     // High-tier mithril — a glass-cannon crit/power set.

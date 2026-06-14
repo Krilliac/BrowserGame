@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getContent, initGameDb } from './content.js';
 import { MOB_TEMPLATES } from './mobs.js';
 import { isDungeon } from '../shared/areas.js';
+import { dollSlotsFor, type ItemSlot } from '../shared/equipment.js';
 
 initGameDb(':memory:');
 const c = getContent();
@@ -159,6 +160,26 @@ describe('item-set integrity', () => {
       for (const piece of s.pieces) {
         // A typo'd piece id would make the set silently un-completable in-game.
         expect(c.item(piece), `${s.id} piece "${piece}" is not a real item`).toBeDefined();
+      }
+    }
+  });
+
+  it('every set is COMPLETABLE: its pieces fit distinct doll slots', () => {
+    // A set whose pieces collide on a slot (e.g. two chest pieces) can never reach its top
+    // threshold — the bonus would be dead content. Rings are the one slot with capacity 2.
+    for (const s of c.itemSets()) {
+      const perSlot = new Map<string, number>();
+      for (const piece of s.pieces) {
+        const slot = c.item(piece)?.slot as ItemSlot | null | undefined;
+        expect(slot, `${s.id} piece "${piece}" has no slot`).toBeTruthy();
+        perSlot.set(slot as string, (perSlot.get(slot as string) ?? 0) + 1);
+      }
+      for (const [slot, count] of perSlot) {
+        const capacity = dollSlotsFor(slot as ItemSlot).length; // ring -> 2, everything else -> 1
+        expect(
+          count,
+          `${s.id} has ${count} '${slot}' pieces but only ${capacity} slot(s)`,
+        ).toBeLessThanOrEqual(capacity);
       }
     }
   });
