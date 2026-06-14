@@ -19,6 +19,33 @@ export interface Footprint {
   maxY: number;
 }
 
+/** A solid circle obstacle in world coordinates — round terrain (boulders, mountain bases). */
+export interface Circle {
+  cx: number;
+  cy: number;
+  r: number;
+}
+
+/**
+ * The full set of solid geometry for an area: axis-aligned `rects` (walls, cliffs, ridges, the
+ * footprints of buildings) and `circles` (round terrain you slide around — boulders, mountains).
+ * The server sim and the client predictor BOTH resolve movement against this same set, so they
+ * agree exactly (the prerequisite for no rubber-banding).
+ */
+export interface Blockers {
+  rects: readonly Rect[];
+  circles: readonly Circle[];
+}
+
+/** Decor kinds whose footprint `(x,y)→(x2,y2)` is a solid RECT (walls/ledges/chokepoint barriers). */
+const RECT_SOLID_KINDS = new Set(['cliff', 'ridge', 'barrier', 'wall']);
+/** Decor kinds that are solid CIRCLES — round terrain you walk around (mountains slide, not stick). */
+const CIRCLE_SOLID_KINDS = new Set(['mountain', 'boulder', 'peak']);
+/** Circle radius (world units) at scale 1 for a round-solid prop authored with only a `scale` (no
+ *  footprint). Sized for the scaled world so a lone boulder is a real obstacle, not a pebble; big
+ *  terrain should use a footprint instead. Exported so the renderer sizes the rock to the collider. */
+export const BOULDER_BASE_RADIUS = 90;
+
 /** Default wall thickness (world units) when none is supplied. */
 const DEFAULT_THICKNESS = 10;
 /** Default door-gap width (world units) on the south wall when none is supplied. */
@@ -39,18 +66,62 @@ const HOUSE_DOOR_WIDTH = 72;
  * against identical geometry — the prerequisite for no rubber-banding.
  */
 export function wallsForDecor(decor: readonly DecorProp[]): Rect[] {
-  const walls: Rect[] = [];
+  return [...blockersForDecor(decor).rects];
+}
+
+/** Footprint (min/max corners) of a decor prop that carries an `(x,y)→(x2,y2)` rect, else undefined. */
+function footprintOf(d: DecorProp): Footprint | undefined {
+  if (d.x2 === undefined || d.y2 === undefined) return undefined;
+  return {
+    minX: Math.min(d.x, d.x2),
+    minY: Math.min(d.y, d.y2),
+    maxX: Math.max(d.x, d.x2),
+    maxY: Math.max(d.y, d.y2),
+  };
+}
+
+/**
+ * Build the full solid geometry (rects + circles) for an area from its decor — the single source of
+ * truth both the server sim and the client predictor collide against (so they never disagree). Solid
+ * kinds:
+ *  - `house`  → walls with a centered south door gap (existing behavior).
+ *  - `cliff` / `ridge` / `barrier` / `wall` → a solid RECT from the footprint (tall cliff faces,
+ *    ledges, and invisible chokepoint barriers; the navigable PATHS are simply the gaps between them).
+ *  - `mountain` / `boulder` / `peak` → a solid CIRCLE you slide around: from the footprint's inscribed
+ *    circle when one is given, else a radius scaled from the prop's `scale` (default scale 1).
+ * Every other decor kind is non-solid (purely decorative), exactly as before.
+ */
+export function blockersForDecor(decor: readonly DecorProp[]): Blockers {
+  const rects: Rect[] = [];
+  const circles: Circle[] = [];
   for (const d of decor) {
-    if (d.kind !== 'house' || d.x2 === undefined || d.y2 === undefined) continue;
-    const foot: Footprint = {
-      minX: Math.min(d.x, d.x2),
-      minY: Math.min(d.y, d.y2),
-      maxX: Math.max(d.x, d.x2),
-      maxY: Math.max(d.y, d.y2),
-    };
-    walls.push(...houseWalls(foot, { doorWidth: HOUSE_DOOR_WIDTH }));
+    if (d.kind === 'house') {
+      const foot = footprintOf(d);
+      if (foot) rects.push(...houseWalls(foot, { doorWidth: HOUSE_DOOR_WIDTH }));
+    } else if (RECT_SOLID_KINDS.has(d.kind)) {
+      const foot = footprintOf(d);
+      if (foot)
+        rects.push({
+          x: foot.minX,
+          y: foot.minY,
+          w: foot.maxX - foot.minX,
+          h: foot.maxY - foot.minY,
+        });
+    } else if (CIRCLE_SOLID_KINDS.has(d.kind)) {
+      const foot = footprintOf(d);
+      if (foot) {
+        // Inscribed circle of the footprint (centered; radius = the smaller half-extent).
+        circles.push({
+          cx: (foot.minX + foot.maxX) / 2,
+          cy: (foot.minY + foot.maxY) / 2,
+          r: Math.min(foot.maxX - foot.minX, foot.maxY - foot.minY) / 2,
+        });
+      } else {
+        circles.push({ cx: d.x, cy: d.y, r: BOULDER_BASE_RADIUS * (d.scale ?? 1) });
+      }
+    }
   }
-  return walls;
+  return { rects, circles };
 }
 
 /**
@@ -138,8 +209,9 @@ export function resolveCircleMove(
   ny: number,
   radius: number,
   rects: readonly Rect[],
+  circles: readonly Circle[] = [],
 ): { x: number; y: number } {
-  if (rects.length === 0) {
+  if (rects.length === 0 && circles.length === 0) {
     return { x: nx, y: ny };
   }
 
@@ -167,6 +239,37 @@ export function resolveCircleMove(
       } else if (y < py) {
         y = r.y + r.h + radius;
       }
+    }
+  }
+
+  // --- Round terrain: push the body radially out of each solid circle it overlaps. ---
+  // A radial push (not axis-separated) lets the body slide smoothly AROUND a boulder/mountain
+  // instead of catching on it: each frame it is shoved to the circle's surface along the
+  // center-to-center line, and the tangential part of the next move carries it around.
+  for (const c of circles) {
+    const dx = x - c.cx;
+    const dy = y - c.cy;
+    const minDist = radius + c.r;
+    const distSq = dx * dx + dy * dy;
+    if (distSq >= minDist * minDist) continue; // outside (or just touching) → no push
+    if (distSq > 0) {
+      const dist = Math.sqrt(distSq);
+      x = c.cx + (dx / dist) * minDist;
+      y = c.cy + (dy / dist) * minDist;
+    } else {
+      // Dead-center (no direction from the new point): shove back toward where the body CAME from,
+      // so a head-on move bounces back the way it came rather than teleporting out the far side.
+      // If the previous point is also the center (truly degenerate), fall back to +x — never NaN.
+      let bx = px - c.cx;
+      let by = py - c.cy;
+      const bl = Math.hypot(bx, by);
+      if (bl === 0) {
+        bx = 1;
+        by = 0;
+      }
+      const blen = bl === 0 ? 1 : bl;
+      x = c.cx + (bx / blen) * minDist;
+      y = c.cy + (by / blen) * minDist;
     }
   }
 
@@ -284,6 +387,22 @@ export function segmentIntersectsRect(
 export function pointInAnyRect(x: number, y: number, rects: readonly Rect[]): boolean {
   for (const r of rects) {
     if (pointInRect(x, y, r)) return true;
+  }
+  return false;
+}
+
+/** Inclusive point-in-circle test (on the rim counts as inside, matching pointInRect's convention). */
+export function pointInCircle(x: number, y: number, c: Circle): boolean {
+  const dx = x - c.cx;
+  const dy = y - c.cy;
+  return dx * dx + dy * dy <= c.r * c.r;
+}
+
+/** True if the point is inside ANY solid blocker (rect or circle) — e.g. a projectile hitting terrain. */
+export function pointInAnyBlocker(x: number, y: number, blockers: Blockers): boolean {
+  if (pointInAnyRect(x, y, blockers.rects)) return true;
+  for (const c of blockers.circles) {
+    if (pointInCircle(x, y, c)) return true;
   }
   return false;
 }

@@ -11,7 +11,14 @@
  * Determinism: every decision is a pure function of (view, state, nowMs) and the seed baked
  * into the state at spawn. No Math.random, no Date.now — variation comes from a seeded RNG
  * carried in the state so two bots with the same seed behave identically.
+ *
+ * When the host groups bots into a squad (see `bot-squad.ts`), it fills {@link BotView.squad} so the
+ * same brain also acts as a team member: focus-firing the squad's shared target, regrouping on a
+ * rally call, and standing off at a role-appropriate distance (tanks dive, DPS kite, healers hang
+ * back and self-sustain). With no squad context the brain behaves exactly as a solo bot.
  */
+
+import type { BotRole } from './bot-squad.js';
 
 /** A simplified ability view the host fills from the bot's known spells + content stats. */
 export interface BotAbilityView {
@@ -49,6 +56,15 @@ export interface BotView {
   /** A travel waypoint the host sets while the bot is journeying to the next zone (a portal).
    *  When set, the bot heads there — fighting anything in its path — instead of aimless wander. */
   goal?: { x: number; y: number };
+  /** Squad coordination from the host (absent for a solo bot) — makes the brain act as a team. */
+  squad?: {
+    /** This bot's role, which sets how aggressively it closes distance. */
+    role: BotRole;
+    /** The one target the whole squad concentrates fire on (position included so we commit early). */
+    focusTarget?: { id: number; x: number; y: number; hp: number };
+    /** A regroup point: when set, converge here instead of pushing toward the next zone. */
+    rally?: { x: number; y: number };
+  };
 }
 
 /** What the bot wants to do this tick. `input` is always present (idle = all false). */
@@ -85,6 +101,12 @@ const EDGE_MARGIN = 80; // steer back toward center within this distance of a bo
 const WANDER_MIN_MS = 1000; // a wander heading lasts 1.0..2.5s
 const WANDER_SPAN_MS = 1500;
 const WALK_DEADZONE = 6; // per-axis deadzone so the bot doesn't jitter on target
+// --- Squad cooperation tuning ---------------------------------------------------------
+const SQUAD_FOCUS_RANGE = 900; // commit to the squad's shared target from this far (converge on it)
+const HEALER_SELF_HEAL_FRAC = 0.7; // a support bot tops itself up below 70% to stay the survivor
+// Role standoff: how deep into an ability's range a role holds. Tanks crowd the target; DPS keep the
+// default kite gap; healers hang at the very edge so they rarely get dragged into melee.
+const ROLE_STOP_FRAC: Record<BotRole, number> = { tank: 0.6, dps: STOP_RANGE_FRAC, healer: 0.98 };
 
 /** Make a fresh bot state from a spawn seed. Deterministic: same seed → same future. */
 export function newBotState(seed: number): BotState {
@@ -107,12 +129,28 @@ export function stepBot(view: BotView, state: BotState, nowMs: number): BotDecis
 
   const hpFrac = view.self.maxHp > 0 ? view.self.hp / view.self.maxHp : 1;
   const nearestMob = nearest(view.self, view.mobs);
+  const role: BotRole = view.squad?.role ?? 'dps';
 
   // --- Survival comes first ---------------------------------------------------------
   // A health potion is the cheapest save: quaff it the moment we dip under the threshold.
   if (hpFrac < HEAL_POTION_HP_FRAC && view.potions.health > 0) {
     state.mode = 'recover';
     return { input: { ...IDLE }, usePotion: 'health' };
+  }
+
+  // Support role: heal is self-only in this engine, so a "healer" keeps ITSELF up — staying the
+  // squad's durable survivor (the party's group sustain is the rally/regroup behavior below). It
+  // tops up earlier than the panic threshold so it rarely drops mid-fight.
+  if (role === 'healer' && hpFrac < HEALER_SELF_HEAL_FRAC) {
+    const heal = readyHeal(view);
+    if (heal) {
+      state.mode = 'recover';
+      const aim = nearestMob ?? { x: view.self.x + 1, y: view.self.y };
+      return {
+        input: { ...IDLE },
+        cast: { ability: heal.id, dx: aim.x - view.self.x, dy: aim.y - view.self.y },
+      };
+    }
   }
 
   // No potions and critically low → run directly away from the nearest threat until safe.
@@ -128,16 +166,34 @@ export function stepBot(view: BotView, state: BotState, nowMs: number): BotDecis
   }
 
   // --- Fight ------------------------------------------------------------------------
-  // When travelling to a goal, only stop for mobs that are genuinely in the way (closer than the
-  // travel-fight radius) so the bot still makes progress toward the next zone instead of getting
-  // pinned grinding forever. Free-roaming, it engages anything within the full engage range.
+  // Target priority: the squad's shared focus target (commit from far so the party collapses one
+  // enemy together), else the nearest mob within our normal engage range. When travelling to a goal
+  // we only stop for mobs genuinely in the way, so the bot still makes progress toward the next zone.
   const fightRange = view.goal ? TRAVEL_FIGHT_RANGE : ENGAGE_RANGE;
-  if (nearestMob) {
-    const dist = Math.hypot(nearestMob.x - view.self.x, nearestMob.y - view.self.y);
-    if (dist <= fightRange) {
+  const focus = view.squad?.focusTarget;
+  let target: { x: number; y: number } | undefined;
+  let targetRange = 0;
+  if (focus && focus.hp > 0) {
+    target = { x: focus.x, y: focus.y };
+    targetRange = Math.max(fightRange, SQUAD_FOCUS_RANGE);
+  } else if (nearestMob) {
+    target = nearestMob;
+    targetRange = fightRange;
+  }
+  if (target) {
+    const dist = Math.hypot(target.x - view.self.x, target.y - view.self.y);
+    if (dist <= targetRange) {
       state.mode = 'fight';
-      return fight(view, nearestMob, dist);
+      return fight(view, target, dist, role);
     }
+  }
+
+  // --- Regroup on a squad rally call (scattered party, or rescuing a downed/low member) ---------
+  // Converge on the rally point BEFORE pushing toward the next zone, so nobody runs to endgame solo
+  // and the group re-forms around a casualty.
+  if (view.squad?.rally) {
+    state.mode = 'wander';
+    return { input: walkToward(view.self, view.squad.rally.x, view.squad.rally.y) };
   }
 
   // --- Travel toward the goal (a portal the host is routing us to) -------------------
@@ -151,8 +207,14 @@ export function stepBot(view: BotView, state: BotState, nowMs: number): BotDecis
   return wander(view, state, nowMs);
 }
 
-/** Engage the target: pick the best in-range affordable ability, kite to its range, cast. */
-function fight(view: BotView, mob: { x: number; y: number }, dist: number): BotDecision {
+/** Engage the target: pick the best in-range affordable ability, kite to its range, cast. The role
+ *  sets the standoff — a tank crowds the target, DPS keep the default gap, a healer hangs at the edge. */
+function fight(
+  view: BotView,
+  mob: { x: number; y: number },
+  dist: number,
+  role: BotRole = 'dps',
+): BotDecision {
   const dx = mob.x - view.self.x;
   const dy = mob.y - view.self.y;
   const choice = pickAbility(view, dist);
@@ -164,7 +226,7 @@ function fight(view: BotView, mob: { x: number; y: number }, dist: number): BotD
 
   // Too far for the chosen ability → advance. Inside its comfortable range → hold and fire,
   // so a ranged bot naturally kites instead of running into melee.
-  const stopRange = Math.max(1, choice.range) * STOP_RANGE_FRAC;
+  const stopRange = Math.max(1, choice.range) * ROLE_STOP_FRAC[role];
   if (choice.kind !== 'melee' && choice.range > 0 && dist > stopRange) {
     return { input: walkToward(view.self, mob.x, mob.y) };
   }
@@ -172,6 +234,14 @@ function fight(view: BotView, mob: { x: number; y: number }, dist: number): BotD
     return { input: walkToward(view.self, mob.x, mob.y) };
   }
   return { input: { ...IDLE }, cast: { ability: choice.id, dx, dy } };
+}
+
+/** A heal ability that is ready and affordable this tick (for the support role's self-sustain). */
+function readyHeal(view: BotView): BotAbilityView | undefined {
+  for (const a of view.abilities) {
+    if (a.kind === 'heal' && a.cooldownReady && a.manaCost <= view.self.mana) return a;
+  }
+  return undefined;
 }
 
 /**

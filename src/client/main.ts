@@ -29,7 +29,7 @@ import { SettingsStore, ACCESS_GM, ZOOM_BOUNDS, type Settings } from './settings
 import { createSettingsPanel } from './settings-panel.js';
 import { createEnginePanel } from './engine-panel.js';
 import { Predictor } from './predictor.js';
-import { wallsForDecor } from '../shared/collision.js';
+import { blockersForDecor } from '../shared/collision.js';
 import { drawBelt } from './belt.js';
 import { ATTRIBUTE_KEYS, ATTRIBUTE_LABELS, ATTRIBUTE_EFFECTS } from '../shared/attributes.js';
 import { drawSkillTree, type SkillTreeButton } from './skilltree-panel.js';
@@ -80,6 +80,29 @@ const name =
 // server's `content` packet — the client mirrors the SQLite DB).
 const net = new Net(name);
 const renderer = new PixiRenderer(app, net.content);
+
+// Render-fault self-heal: the optional GPU passes (deferred-lighting composite + terrain heightmap,
+// both custom/extra meshes) can null-deref when PixiJS binds them on some drivers
+// (`BindGroup.setResource` → "Cannot read properties of null") — a fault our headless GPU can't
+// reproduce. That throw happens inside PixiJS's OWN auto-render ticker listener, which our frame()
+// try/catch can't reach, so it would otherwise repeat every frame and brick the canvas. Catch it at
+// the window level and drop the eye-candy (revert to flat ground + direct world render); the game
+// keeps running. Scoped to this exact signature so unrelated errors are untouched.
+let gpuFxHealed = false;
+window.addEventListener('error', (e) => {
+  if (gpuFxHealed) return;
+  const msg = e.message ?? '';
+  const stack = (e.error as Error | undefined)?.stack ?? '';
+  const isMeshBindFault =
+    /reading '0'/.test(msg) || // the exact BindGroup.setResource null-deref signature
+    (/Cannot read properties of null/.test(msg) &&
+      /(setResource|MeshPipe|MeshAdaptor|BindGroup)/.test(stack));
+  if (!isMeshBindFault) return;
+  gpuFxHealed = true;
+  console.warn('[render] GPU mesh-bind fault — disabling deferred lighting + terrain heightmap.');
+  renderer.disableHeavyGpuFx();
+});
+
 statusEl.textContent = 'loading assets…'; // ~90 curated textures; phones appreciate the heads-up
 await renderer.loadAssets();
 void loadItemIcons(); // HUD item icons (bag/stash/belt) — panels fall back until loaded
@@ -170,7 +193,7 @@ setInterval(() => {
   // Feed the predictor the area's solid walls once its content is available (which may arrive after
   // the area change). Same geometry the server collides against → collision with no rubber-banding.
   if (area && net.areaId !== lastWallsAreaId) {
-    predictor.setWalls(wallsForDecor(area.decor ?? []));
+    predictor.setBlockers(blockersForDecor(area.decor ?? []));
     lastWallsAreaId = net.areaId;
   }
   const seq = predictor.ready ? predictor.step(sample, STEP_DT, net.you.moveMul) : 0;

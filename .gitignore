@@ -47,3 +47,7 @@ game.db
 game.db-shm
 game.db-wal
 .shots/
+
+# Bot-squad run reports (generated at runtime)
+botrun-report.json
+botrun-report.md

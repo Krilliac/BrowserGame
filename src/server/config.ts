@@ -70,6 +70,10 @@ export const config = {
     mobCountScale: 10,
     /** Portal trigger-span multiplier (less than the world scale — a pad, not a wall of light). */
     portalSpanScale: 2,
+    /** SIZE multiplier for terrain footprints (cliffs/mountains/boulders). Their POSITION still rides
+     *  `scale`, but their size uses this — kept at canonical 1× so terrain is a ground feature, not a
+     *  screen-filling wall. Tune up (e.g. 1.5–2) for more imposing massifs. */
+    terrainSizeScale: 1,
   },
 
   /** Global difficulty — the world is balanced to be dangerous so ground is earned, not strolled. */
@@ -92,6 +96,11 @@ export const config = {
     damagePerPlayer: 0.15,
     /** Cap on the co-op damage multiplier. */
     damageCap: 2.2,
+    /** Extra monster GOLD per additional living player (D3 "more players, more loot" — the reward
+     *  side of grouping up, since drops are contested and the zone is harder). */
+    goldPerPlayer: 0.12,
+    /** Cap on the co-op gold multiplier. */
+    goldCap: 1.6,
   },
 
   /** Crowd mob-density scaling (maintainDensity): keep a flooded zone full of targets. */

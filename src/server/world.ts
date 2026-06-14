@@ -1,5 +1,5 @@
 ﻿import { clamp } from '../shared/math.js';
-import { moveVector } from '../shared/movement.js';
+import { moveVector, stepToward } from '../shared/movement.js';
 import {
   MAX_NAME_LENGTH,
   PLAYER_SPEED,
@@ -77,11 +77,13 @@ import {
 } from './hirelings.js';
 import { DUNGEONS, isDungeon, type DungeonDef, type Rect } from '../shared/areas.js';
 import {
-  pointInAnyRect,
+  blockersForDecor,
+  pointInAnyBlocker,
   resolveCircleMove,
   separateCircles,
-  wallsForDecor,
   PLAYER_COLLISION_RADIUS,
+  type Blockers,
+  type Circle,
 } from '../shared/collision.js';
 import { mulberry32 } from '../shared/math.js';
 import {
@@ -101,7 +103,17 @@ import {
 } from '../shared/attributes.js';
 import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
-import { levelForXp, levelProgress, maxHpForLevel, xpForLevel, xpReward } from './progression.js';
+import {
+  championGoldPile,
+  coopScale,
+  levelForXp,
+  levelProgress,
+  maxHpForLevel,
+  scaleGoldForLevel,
+  tierGoldScale,
+  xpForLevel,
+  xpReward,
+} from './progression.js';
 import { StatusSet } from './status-effects.js';
 import { SpatialGrid } from './spatial.js';
 import { getContent, type QuestDef } from './content.js';
@@ -131,7 +143,37 @@ function asBaseItem(def: {
 }
 
 const PICKUP_RADIUS = 30;
+/** Gold within this radius of a living player is vacuumed toward them (the ARPG gold-magnet feel). */
+const GOLD_MAGNET_RADIUS = 95;
+/** How fast vacuumed gold flies toward the player (world px/s). */
+const GOLD_MAGNET_SPEED = 460;
 let ITEM_TTL_MS = config.items.itemTtlMs;
+
+/**
+ * One gold-magnet step (pure): pull a gold drop toward the NEAREST living player that is within the
+ * magnet radius but still outside the pickup radius (inside pickup, the normal pickup collects it —
+ * we don't fight it). Returns the gold's new position; unchanged when no player qualifies. Exported
+ * so the vacuum behavior is unit-testable without a World.
+ */
+export function goldMagnetStep(
+  item: { x: number; y: number },
+  players: Iterable<{ x: number; y: number; dead: boolean }>,
+  dt: number,
+): { x: number; y: number } {
+  let bestDist = Infinity;
+  let target: { x: number; y: number } | undefined;
+  for (const p of players) {
+    if (p.dead) continue;
+    const d = Math.hypot(p.x - item.x, p.y - item.y);
+    if (d > GOLD_MAGNET_RADIUS || d <= PICKUP_RADIUS) continue; // out of band → leave it
+    if (d < bestDist) {
+      bestDist = d;
+      target = p;
+    }
+  }
+  if (!target) return { x: item.x, y: item.y };
+  return stepToward(item.x, item.y, target.x, target.y, GOLD_MAGNET_SPEED * dt);
+}
 
 /** Rift gold fee per tier â€” the endgame gold sink; the risk you choose is the fee you pay. */
 let RIFT_COST_PER_TIER = config.economy.riftCostPerTier;
@@ -174,6 +216,9 @@ let LEVEL_HP_SCALE = config.difficulty.levelHpScale;
 // this much (capped), so grouping up makes the area meaningfully harder — survival wants a team.
 let COOP_DAMAGE_PER_PLAYER = config.coop.damagePerPlayer;
 let COOP_DAMAGE_CAP = config.coop.damageCap;
+// ...and raises monster GOLD by this much (capped) — the reward side of grouping up.
+let COOP_GOLD_PER_PLAYER = config.coop.goldPerPlayer;
+let COOP_GOLD_CAP = config.coop.goldCap;
 // Crowd mob-density scaling (maintainDensity): each extra living player raises the target living-
 // mob count by this fraction of the base roster, capped, topped up gradually so a flooded zone
 // stays full of targets instead of being farmed to extinction.
@@ -264,6 +309,8 @@ export function applyRuntimeConfig(): void {
   LEVEL_HP_SCALE = config.difficulty.levelHpScale;
   COOP_DAMAGE_PER_PLAYER = config.coop.damagePerPlayer;
   COOP_DAMAGE_CAP = config.coop.damageCap;
+  COOP_GOLD_PER_PLAYER = config.coop.goldPerPlayer;
+  COOP_GOLD_CAP = config.coop.goldCap;
   DENSITY_PER_PLAYER = config.density.perPlayer;
   DENSITY_CAP = config.density.cap;
   DENSITY_TOPUP_PER_CALL = config.density.topupPerCall;
@@ -330,6 +377,9 @@ interface Player {
   cooldownMult: number;
   /** Movement-speed multiplier (>1 = faster), from +move affixes; clamped. */
   moveMult: number;
+  /** GM debug speed multiplier (the `/speed` command); 1 = normal. Folds into playerMoveMul so the
+   *  client predictor (which reads the reported moveMul) stays in sync — no rubber-banding. */
+  debugSpeed: number;
   /** Incoming-damage multiplier from +fragile (raises it) and +armor (lowers it); floored. */
   damageTakenMult: number;
   /** Bonus HP regenerated per second from +vigor affixes (added to base regen). */
@@ -528,8 +578,9 @@ export class World {
   private now = 0; // accumulated sim time, ms (drives cooldowns/respawns)
   // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
-  // Solid wall colliders for this area (house footprints), lazily built from decor (null = not yet).
-  private walls: Rect[] | null = null;
+  // Solid colliders for this area — rects (house walls, cliffs, ridges, barriers) AND circles
+  // (round terrain: mountains, boulders). Lazily built from decor (null = not yet built).
+  private blockerCache: Blockers | null = null;
   // Lootable chests for this area, lazily built from 'chest' decor (null = not yet built).
   private chests: { id: number; x: number; y: number; opened: boolean }[] | null = null;
   // Breakable pots for this area, lazily built from 'pot' decor (null = not yet built).
@@ -667,8 +718,9 @@ export class World {
     if (players <= 1) return; // solo instances ride the normal respawn loop untouched
     const base = roster.reduce((s, r) => s + r.n, 0);
     // Each extra player adds DENSITY_PER_PLAYER worth of mobs, capped so a mega-crowd doesn't
-    // carpet the map. The roster count is already world-scaled (×10) at content load.
-    const target = Math.round(base * Math.min(DENSITY_CAP, 1 + DENSITY_PER_PLAYER * (players - 1)));
+    // carpet the map (the same per-extra-player scaling shape as co-op damage/gold). The roster
+    // count is already world-scaled (×10) at content load.
+    const target = Math.round(base * coopScale(players, DENSITY_PER_PLAYER, DENSITY_CAP));
     let living = 0;
     for (const m of this.mobs.values()) if (!m.dead) living++;
     let toSpawn = Math.min(target - living, DENSITY_TOPUP_PER_CALL);
@@ -1654,6 +1706,7 @@ export class World {
       lifesteal: 0,
       cooldownMult: 1,
       moveMult: 1,
+      debugSpeed: 1,
       damageTakenMult: 1,
       vigor: 0,
       god: false,
@@ -1869,8 +1922,26 @@ export class World {
    */
   private playerMoveMul(player: Player): number {
     return (
-      this.moveScale * player.moveMult * player.buffs.moveFactor() * player.debuffs.slowFactor()
+      this.moveScale *
+      player.moveMult *
+      player.debugSpeed *
+      player.buffs.moveFactor() *
+      player.debuffs.slowFactor()
     );
+  }
+
+  /**
+   * Set a player's GM debug speed multiplier (the `/speed` command). Clamped to a sane range so a
+   * typo can't make the player un-collidable (huge per-tick steps tunnel through walls). Returns the
+   * clamped value actually applied. Folds into playerMoveMul, so the reported moveMul carries it and
+   * the client predictor stays in lockstep.
+   */
+  setDebugSpeed(id: number, mult: number): number {
+    const player = this.players.get(id);
+    if (!player) return 1;
+    const clamped = Math.max(0.1, Math.min(10, mult));
+    player.debugSpeed = clamped;
+    return clamped;
   }
 
   /**
@@ -1882,10 +1953,20 @@ export class World {
    * harder (×1 + COOP_DAMAGE_PER_PLAYER each, capped), so a crowded area is genuinely more
    * dangerous — you want allies at your back, not just sharing your XP. Solo play is unscaled.
    */
-  private coopDamageScale(): number {
+  /** Living players in this instance — the head-count both co-op scales key off. */
+  private livingPlayerCount(): number {
     let alive = 0;
     for (const p of this.players.values()) if (!p.dead) alive++;
-    return Math.min(COOP_DAMAGE_CAP, 1 + COOP_DAMAGE_PER_PLAYER * Math.max(0, alive - 1));
+    return alive;
+  }
+
+  private coopDamageScale(): number {
+    return coopScale(this.livingPlayerCount(), COOP_DAMAGE_PER_PLAYER, COOP_DAMAGE_CAP);
+  }
+
+  /** Co-op GOLD multiplier: a crowded instance drops richer gold (D3 "more players, more loot"). */
+  private coopGoldScale(): number {
+    return coopScale(this.livingPlayerCount(), COOP_GOLD_PER_PLAYER, COOP_GOLD_CAP);
   }
 
   private mobOutgoing(mob: Mob, template: MobTemplate): number {
@@ -1943,6 +2024,7 @@ export class World {
           ny,
           PLAYER_COLLISION_RADIUS,
           this.wallList(),
+          this.circleList(),
         );
         player.x = resolved.x;
         player.y = resolved.y;
@@ -1956,11 +2038,18 @@ export class World {
   }
 
   /** The area's solid wall colliders, built once from its house decor (empty for areas with none). */
-  private wallList(): Rect[] {
-    if (this.walls === null) {
-      this.walls = wallsForDecor(getContent().area(this.areaId)?.decor ?? []);
+  /** The area's solid geometry (rects + circles), built once from decor and cached. */
+  private blockers(): Blockers {
+    if (this.blockerCache === null) {
+      this.blockerCache = blockersForDecor(getContent().area(this.areaId)?.decor ?? []);
     }
-    return this.walls;
+    return this.blockerCache;
+  }
+  private wallList(): readonly Rect[] {
+    return this.blockers().rects;
+  }
+  private circleList(): readonly Circle[] {
+    return this.blockers().circles;
   }
 
   /** The area's shrines, built once from its 'shrine' decor (empty for areas with none). */
@@ -2109,7 +2198,8 @@ export class World {
       if (Math.hypot(player.x - pot.x, player.y - pot.y) > POT_RADIUS) continue;
       pot.broken = true;
       this.events.push({ kind: 'pickup', x: pot.x, y: pot.y });
-      const gold = POT_GOLD_MIN + Math.floor(this.rand() * (POT_GOLD_MAX - POT_GOLD_MIN + 1));
+      const base = POT_GOLD_MIN + Math.floor(this.rand() * (POT_GOLD_MAX - POT_GOLD_MIN + 1));
+      const gold = Math.round(base * tierGoldScale(this.tier) * this.coopGoldScale());
       this.dropGround('gold', gold, pot.x, pot.y);
       if (this.rand() < 0.1) {
         player.potions.health = Math.min(POTION_CAP, player.potions.health + 1);
@@ -2123,7 +2213,8 @@ export class World {
       if (c.opened) continue;
       if (Math.hypot(player.x - c.x, player.y - c.y) > CHEST_RADIUS) continue;
       c.opened = true;
-      const gold = CHEST_GOLD_MIN + Math.floor(this.rand() * (CHEST_GOLD_MAX - CHEST_GOLD_MIN + 1));
+      const base = CHEST_GOLD_MIN + Math.floor(this.rand() * (CHEST_GOLD_MAX - CHEST_GOLD_MIN + 1));
+      const gold = Math.round(base * tierGoldScale(this.tier) * this.coopGoldScale());
       this.dropGround('gold', gold, c.x, c.y);
       const corrupt = this.corruption() * CORRUPT_DROP_MAX;
       this.dropBonusGear(c.x, c.y, 1, corrupt, CHEST_UNIQUE_CHANCE); // one good piece (rare unique)...
@@ -2197,6 +2288,7 @@ export class World {
             clamp(mob.y + mob.dashVy * dt, 0, this.height),
             PLAYER_COLLISION_RADIUS,
             this.wallList(),
+            this.circleList(),
           );
           mob.x = dashed.x;
           mob.y = dashed.y;
@@ -2277,6 +2369,7 @@ export class World {
               clamp(mob.y + action.move.vy * speed * dt, 0, this.height),
               PLAYER_COLLISION_RADIUS,
               this.wallList(),
+              this.circleList(),
             );
             mob.x = resolved.x;
             mob.y = resolved.y;
@@ -2348,6 +2441,7 @@ export class World {
           ny,
           PLAYER_COLLISION_RADIUS,
           this.wallList(),
+          this.circleList(),
         );
         const intended = Math.hypot(nx - mob.x, ny - mob.y);
         const moved = Math.hypot(resolved.x - mob.x, resolved.y - mob.y);
@@ -2407,6 +2501,7 @@ export class World {
       clamp(mob.y + (best.y - mob.y) * inv * speed * dt, 0, this.height),
       PLAYER_COLLISION_RADIUS,
       this.wallList(),
+      this.circleList(),
     );
     mob.x = resolved.x;
     mob.y = resolved.y;
@@ -2666,7 +2761,7 @@ export class World {
       proj.ttl -= dt * 1000;
 
       // Walls stop shots: nobody (player, mob, or hireling) shoots through a house.
-      if (pointInAnyRect(proj.x, proj.y, this.wallList())) {
+      if (pointInAnyBlocker(proj.x, proj.y, this.blockers())) {
         this.projectiles.delete(proj.id);
         continue;
       }
@@ -2730,6 +2825,7 @@ export class World {
       clamp(mob.y + Math.sin(mob.wanderAngle) * speed * 0.35 * dt, 0, this.height),
       PLAYER_COLLISION_RADIUS,
       this.wallList(),
+      this.circleList(),
     );
     mob.x = resolved.x;
     mob.y = resolved.y;
@@ -2808,10 +2904,23 @@ export class World {
     const corruptedChance = this.corruptedDropChance(mob, isBoss);
     for (const stack of content.rollLoot(mob.templateId, this.rand)) {
       const id = this.allocId();
+      // Base drop-table gold is fixed per template; scale it by the mob's actual level (i.e. rift
+      // tier) so deeper monsters spill richer hoards (tier 0 keeps the table amount), then by the
+      // co-op multiplier so a crowded instance pays more. Solo at tier 0 = exactly the table amount.
+      const qty =
+        stack.item === 'gold'
+          ? Math.round(
+              scaleGoldForLevel(
+                stack.qty,
+                mob.level,
+                content.mobTemplate(mob.templateId)?.level ?? mob.level,
+              ) * this.coopGoldScale(),
+            )
+          : stack.qty;
       const item: GroundItem = {
         id,
         itemId: stack.item,
-        qty: stack.qty,
+        qty,
         x: mob.x + (this.rand() - 0.5) * 30,
         y: mob.y + (this.rand() - 0.5) * 30,
         ttl: ITEM_TTL_MS,
@@ -2836,9 +2945,14 @@ export class World {
       this.items.set(id, item);
     }
 
-    // Champion bonus: a pile of gold + one guaranteed, rarity-bumped piece of gear.
+    // Champion bonus: a level-scaled pile of gold + one guaranteed, rarity-bumped piece of gear.
     if (mob.elite) {
-      this.dropGround('gold', 30 + Math.floor(this.rand() * 50), mob.x, mob.y);
+      this.dropGround(
+        'gold',
+        Math.round(championGoldPile(mob.level, this.rand) * this.coopGoldScale()),
+        mob.x,
+        mob.y,
+      );
       this.dropBonusGear(mob.x, mob.y, 2, corruptedChance);
     }
 
@@ -3057,6 +3171,12 @@ export class World {
       if (item.ttl <= 0) {
         this.items.delete(item.id);
         continue;
+      }
+      // Gold-vacuum: pull a gold drop toward the nearest living player in magnet range (ARPG feel).
+      if (item.itemId === 'gold') {
+        const moved = goldMagnetStep(item, this.players.values(), dt);
+        item.x = moved.x;
+        item.y = moved.y;
       }
       for (const player of this.players.values()) {
         if (player.dead) continue;

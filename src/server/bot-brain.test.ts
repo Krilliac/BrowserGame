@@ -148,6 +148,69 @@ describe('bot-brain', () => {
     }
   });
 
+  // --- Squad cooperation ---------------------------------------------------------------
+
+  it('focus-fires the squad target even when a closer mob is present', () => {
+    const state = newBotState(1);
+    const view = makeView({
+      // A closer mob to the left, but the squad has called focus on the one to the right.
+      mobs: [
+        { id: 1, x: 450, y: 500, hp: 40 },
+        { id: 2, x: 650, y: 500, hp: 40 },
+      ],
+      abilities: [arrow],
+      squad: { role: 'dps', focusTarget: { id: 2, x: 650, y: 500, hp: 40 } },
+    });
+    const d = stepBot(view, state, 0);
+    expect(d.cast?.ability).toBe('arrow');
+    expect(d.cast?.dx).toBeGreaterThan(0); // aimed right, at the focus target (not the left mob)
+  });
+
+  it('commits toward the squad focus target from beyond the solo engage range', () => {
+    const state = newBotState(1);
+    const view = makeView({
+      mobs: [],
+      abilities: [slash], // melee, so it must walk in
+      // Focus target 800px to the right — past ENGAGE_RANGE(500), inside SQUAD_FOCUS_RANGE(900).
+      squad: { role: 'tank', focusTarget: { id: 7, x: 1300, y: 500, hp: 100 } },
+    });
+    const d = stepBot(view, state, 0);
+    expect(state.mode).toBe('fight');
+    expect(d.input.right).toBe(true);
+  });
+
+  it('regroups to the rally point instead of pushing toward the travel goal', () => {
+    const state = newBotState(1);
+    const view = makeView({
+      mobs: [],
+      goal: { x: 900, y: 500 }, // the next-zone portal is to the right…
+      squad: { role: 'dps', rally: { x: 100, y: 500 } }, // …but a rally pulls the bot left to regroup
+    });
+    const d = stepBot(view, state, 0);
+    expect(d.input.left).toBe(true);
+    expect(d.input.right).toBe(false);
+  });
+
+  it('a healer tops itself up (self-heal) below the support threshold', () => {
+    const state = newBotState(1);
+    const heal: BotAbilityView = {
+      id: 'heal',
+      kind: 'heal',
+      damage: 30,
+      range: 0,
+      manaCost: 5,
+      cooldownReady: true,
+    };
+    const view = makeView({
+      self: { x: 500, y: 500, hp: 60, maxHp: 100, mana: 100, maxMana: 100, level: 5, dead: false },
+      abilities: [arrow, heal],
+      mobs: [{ id: 1, x: 600, y: 500, hp: 40 }],
+      squad: { role: 'healer' },
+    });
+    const d = stepBot(view, state, 0);
+    expect(d.cast?.ability).toBe('heal');
+  });
+
   it('stops fleeing once hp recovers above 60%', () => {
     const state = newBotState(1);
     const view = makeView({

@@ -1,7 +1,6 @@
 import { clamp, moveVector } from '../shared/movement.js';
 import { PLAYER_SPEED, type InputState } from '../shared/protocol.js';
-import { resolveCircleMove, PLAYER_COLLISION_RADIUS } from '../shared/collision.js';
-import type { Rect } from '../shared/areas.js';
+import { resolveCircleMove, PLAYER_COLLISION_RADIUS, type Blockers } from '../shared/collision.js';
 
 /**
  * Client-side prediction + server reconciliation (Gambetta's model). The local player is simulated
@@ -23,9 +22,10 @@ export class Predictor {
   private seq = 0;
   private width = 2000;
   private height = 2000;
-  // Solid wall colliders for the current area (house footprints). Set on area change from the same
-  // decor the server uses, so prediction resolves collisions identically (no rubber-banding).
-  private walls: readonly Rect[] = [];
+  // Solid colliders for the current area — rects (house walls, cliffs, barriers) AND circles
+  // (mountains, boulders). Set on area change from the SAME decor the server uses, so prediction
+  // resolves collisions identically (no rubber-banding).
+  private blockers: Blockers = { rects: [], circles: [] };
   // Each pending input records the speed multiplier active when it was sent, so replaying it during
   // reconciliation integrates exactly like the server did (which scales by weather/affix/buff/slow).
   private pending: { seq: number; input: InputState; moveMul: number }[] = [];
@@ -35,9 +35,9 @@ export class Predictor {
     this.height = height;
   }
 
-  /** Set the current area's solid walls (must be the SAME geometry the server collides against). */
-  setWalls(walls: readonly Rect[]): void {
-    this.walls = walls;
+  /** Set the area's solid geometry (must be the SAME blockers the server collides against). */
+  setBlockers(blockers: Blockers): void {
+    this.blockers = blockers;
   }
 
   /** Drop prediction (e.g. on area change); the next reconcile re-initializes from authority. */
@@ -94,14 +94,15 @@ export class Predictor {
     const speed = PLAYER_SPEED * moveMul;
     const nx = clamp(target.x + dx * speed * dt, 0, this.width);
     const ny = clamp(target.y + dy * speed * dt, 0, this.height);
-    // Same resolveCircleMove the server runs, against the same walls — keeps prediction in lockstep.
+    // Same resolveCircleMove the server runs, against the same blockers — keeps prediction in lockstep.
     const resolved = resolveCircleMove(
       target.x,
       target.y,
       nx,
       ny,
       PLAYER_COLLISION_RADIUS,
-      this.walls,
+      this.blockers.rects,
+      this.blockers.circles,
     );
     target.x = resolved.x;
     target.y = resolved.y;

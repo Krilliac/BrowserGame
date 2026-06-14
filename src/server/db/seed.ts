@@ -310,6 +310,19 @@ export function seed(db: Database): void {
   ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
   ensureActsContent(db); // the Act 2 road + all of Act 3 (Vhalreth, its zones, the Unmade Court)
   ensureDenContent(db); // the generic cellar/den interior (procedural mini-dungeon shell)
+  cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
+}
+
+/**
+ * Remove solid-terrain decor (cliffs/mountains/boulders) from areas that should never have it — the
+ * safe town/villages. Idempotent: deletes nothing once clean. This scrubs stray rows (e.g. terrain
+ * accidentally seeded into town during development) so a village never sprouts a mountain.
+ */
+function cleanupStrayTerrain(db: Database): void {
+  db.prepare(
+    `DELETE FROM decor WHERE kind IN ('cliff','ridge','barrier','wall','mountain','boulder','peak')
+       AND area_id IN ('town','duskhaven')`,
+  ).run();
 }
 
 /**

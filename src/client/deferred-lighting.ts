@@ -291,7 +291,11 @@ export class DeferredLighting {
     const shader = new Shader({
       glProgram,
       resources: {
-        uAlbedo: Texture.EMPTY.source,
+        // Initialize the albedo sampler to a REAL 1×1 texture (white), never Texture.EMPTY — an
+        // empty texture has a null GPU resource, and binding a null resource is what crashes strict
+        // drivers in BindGroup.setResource. run() swaps in the live albedo target each frame; this
+        // just guarantees the very first bind is valid (defensive hardening of the custom shader).
+        uAlbedo: Texture.WHITE.source,
         compositeUniforms: {
           uResolution: { value: new Float32Array([1, 1]), type: 'vec2<f32>' },
           uReliefStrength: { value: RELIEF_STRENGTH, type: 'f32' },

@@ -50,6 +50,52 @@ export function xpReward(mobLevel: number): number {
   return base + 2 * pastKnee * pastKnee;
 }
 
+/**
+ * Gold in a champion/elite monster's bonus pile, scaled by its level so the reward tracks the threat:
+ * a level-1 wolf spills a handful, a level-60 rift champion a real hoard. A flat base + a level-scaled
+ * core + a level-scaled random spread. Pure given the injected rng (deterministic + testable).
+ */
+export function championGoldPile(mobLevel: number, rng: () => number = Math.random): number {
+  const lvl = sanitizeLevel(mobLevel);
+  return Math.round(40 + lvl * 9 + rng() * (30 + lvl * 5));
+}
+
+/**
+ * Scale a monster's base drop-table gold by how far its actual level outpaces its template level —
+ * i.e. by rift tier (a mob spawns at templateLevel + 2·tier). A mob at its base level (tier 0) keeps
+ * the table's amount exactly, so the normal game is unchanged; deeper rifts pay more, capped at 4×
+ * so it never runs away. Always at least 1. Pure.
+ */
+export function scaleGoldForLevel(
+  baseQty: number,
+  mobLevel: number,
+  templateLevel: number,
+): number {
+  const base = Math.max(0, Math.floor(baseQty) || 0);
+  const factor = Math.min(4, Math.max(1, sanitizeLevel(mobLevel) / sanitizeLevel(templateLevel)));
+  return Math.max(1, Math.round(base * factor));
+}
+
+/**
+ * Co-op scaling factor for an instance with `alive` living players: 1 solo, then +`perPlayer` for
+ * each additional player, capped at `cap`. Used both ways — to make a crowded zone more dangerous
+ * (damage) and more rewarding (gold). Pure; a non-positive/garbage count resolves to solo (×1).
+ */
+export function coopScale(alive: number, perPlayer: number, cap: number): number {
+  const n = Math.max(0, Math.floor(alive) || 0);
+  return Math.min(cap, 1 + perPlayer * Math.max(0, n - 1));
+}
+
+/**
+ * Gold multiplier from an area's rift tier — for level-less gold sources (chests, smashed pots) that
+ * can't use {@link scaleGoldForLevel}. Tier 0 (the normal world) is ×1 so nothing changes there;
+ * deeper rifts pay more, capped at 4×. Pure; a non-positive/garbage tier resolves to ×1.
+ */
+export function tierGoldScale(tier: number): number {
+  const t = Math.max(0, Math.floor(tier) || 0);
+  return Math.min(4, 1 + t * 0.35);
+}
+
 /** Player max HP at a given level (base 100, scaling up per level). */
 export function maxHpForLevel(level: number): number {
   const lvl = sanitizeLevel(level);
