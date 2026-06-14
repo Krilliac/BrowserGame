@@ -690,6 +690,30 @@ function sendPartyState(playerId: number): void {
   send(conn.socket, inviteFrom ? { t: 'party', members, inviteFrom } : { t: 'party', members });
 }
 
+/** One-invite-per-second cooldown per player (sim-clock ms), to stop trade-invite popup spam. */
+const tradeInviteAt = new Map<number, number>();
+
+/** Send the current trade table to BOTH participants (so confirmations stay honest on each side). */
+function sendTradeState(world: World, anyParticipantId: number): void {
+  const s = world.tradeStateFor(anyParticipantId);
+  if (!s) return;
+  const stateMsg: ServerMessage = {
+    t: 'trade_state',
+    aId: s.aId,
+    bId: s.bId,
+    aGold: s.aOffer.gold,
+    aItemUids: s.aOffer.itemUids,
+    bGold: s.bOffer.gold,
+    bItemUids: s.bOffer.itemUids,
+    aConfirmed: s.aConfirmed,
+    bConfirmed: s.bConfirmed,
+  };
+  for (const id of [s.aId, s.bId]) {
+    const c = players.get(id);
+    if (c) send(c.socket, stateMsg);
+  }
+}
+
 /** Send a player their friends list with live presence. */
 function sendFriends(playerId: number): void {
   const conn = players.get(playerId);
@@ -1111,6 +1135,87 @@ wss.on('connection', (socket) => {
           case 'party_leave': {
             const affected = parties.leave(entityId);
             for (const m of affected) sendPartyState(m);
+            break;
+          }
+          case 'trade_invite': {
+            if (!players.has(entityId) || typeof msg.targetName !== 'string') break;
+            const now = simMs();
+            if ((tradeInviteAt.get(entityId) ?? 0) > now) break; // anti-spam: one invite/sec
+            tradeInviteAt.set(entityId, now + 1000);
+            const target = findPlayerByName(msg.targetName);
+            const me = players.get(entityId);
+            const them = target !== undefined ? players.get(target) : undefined;
+            if (target === undefined || !me || !them || me.instanceId !== them.instanceId) {
+              send(socket, {
+                t: 'chat',
+                from: 'System',
+                text: 'That player is not nearby.',
+                channel: 'system',
+              });
+              break;
+            }
+            const world = manager.get(me.instanceId)?.world;
+            if (!world) break;
+            const r = world.startTrade(entityId, target);
+            if (!r.ok) {
+              send(socket, {
+                t: 'chat',
+                from: 'System',
+                text: r.reason ?? 'Could not trade.',
+                channel: 'system',
+              });
+              break;
+            }
+            send(me.socket, { t: 'trade_open', otherId: target, otherName: nameOf(target) ?? '?' });
+            send(them.socket, {
+              t: 'trade_open',
+              otherId: entityId,
+              otherName: nameOf(entityId) ?? '?',
+            });
+            sendTradeState(world, entityId);
+            break;
+          }
+          case 'trade_offer': {
+            const me = players.get(entityId);
+            const world = me ? manager.get(me.instanceId)?.world : undefined;
+            if (!world) break;
+            const gold = typeof msg.gold === 'number' ? msg.gold : 0;
+            const itemUids = Array.isArray(msg.itemUids)
+              ? msg.itemUids.filter((u): u is number => typeof u === 'number')
+              : [];
+            if (world.tradeSetOffer(entityId, { gold, itemUids })) sendTradeState(world, entityId);
+            break;
+          }
+          case 'trade_confirm': {
+            const me = players.get(entityId);
+            const world = me ? manager.get(me.instanceId)?.world : undefined;
+            if (!world) break;
+            const partners = world.tradePartners(entityId); // capture before commit clears the session
+            const result = world.tradeConfirm(entityId);
+            if (result === 'updated') {
+              sendTradeState(world, entityId);
+            } else if ((result === 'committed' || result === 'failed') && partners) {
+              const reason = result === 'committed' ? 'committed' : 'aborted';
+              for (const id of [partners.aId, partners.bId]) {
+                const c = players.get(id);
+                // The committed swap is reflected to each client by the next per-tick `you` update.
+                if (c) send(c.socket, { t: 'trade_closed', reason });
+              }
+            }
+            break;
+          }
+          case 'trade_cancel': {
+            const me = players.get(entityId);
+            const world = me ? manager.get(me.instanceId)?.world : undefined;
+            if (!world) break;
+            const partners = world.tradePartners(entityId);
+            world.tradeCancel(entityId);
+            if (partners) {
+              for (const id of [partners.aId, partners.bId]) {
+                const c = players.get(id);
+                if (c) send(c.socket, { t: 'trade_closed', reason: 'cancelled' });
+              }
+            }
             break;
           }
           case 'friend_add': {

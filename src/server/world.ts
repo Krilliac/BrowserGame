@@ -109,6 +109,17 @@ import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runeword
 import { setBonuses } from '../shared/item-sets.js';
 import { resolveProcs, type ProcDef } from './item-procs.js';
 import {
+  createTrade,
+  setOffer as tradeSetOfferPure,
+  confirm as tradeConfirmPure,
+  cancel as tradeCancelPure,
+  commit as tradeCommitPure,
+  bothConfirmed,
+  isParticipant,
+  type TradeSession,
+  type TradeOffer,
+} from './trade.js';
+import {
   championGoldPile,
   coopScale,
   healthGlobeHeal,
@@ -610,6 +621,10 @@ export class World {
   // Liveops XP multiplier from active timed game-events. Injected by the host each tick (the schedule
   // is wall-clock-ish and computed OUTSIDE the sim to keep the World deterministic); 1 = no event.
   private xpEventMult = 1;
+  // Active player-to-player trades, keyed by EACH participant's id (both map to the same session).
+  // One trade per player. The negotiation logic is the pure trade.ts state machine; the World owns
+  // the inventory transfer + re-validation at commit (security-critical).
+  private readonly tradeSessions = new Map<number, TradeSession>();
   // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
   // Solid colliders for this area — rects (house walls, cliffs, ridges, barriers) AND circles
@@ -1564,6 +1579,141 @@ export class World {
     this.xpEventMult = Number.isFinite(mult) && mult >= 0 ? mult : 1;
   }
 
+  // --- Player-to-player trading -----------------------------------------------------------
+  // Negotiation is the pure trade.ts state machine (offers + the anti-scam "change voids confirms"
+  // rule); the World owns proximity, the session registry, and the atomic re-validated swap.
+
+  /** Max distance (px) between two players to open a trade — they must be near each other. */
+  private static readonly TRADE_RANGE = 220;
+
+  /**
+   * Open a trade between two players in THIS instance. Both must exist, be alive, be within range,
+   * and neither already be trading. Returns the outcome for the host to relay to the initiator.
+   */
+  startTrade(aId: number, bId: number): { ok: boolean; reason?: string } {
+    if (aId === bId) return { ok: false, reason: 'You cannot trade with yourself.' };
+    const a = this.players.get(aId);
+    const b = this.players.get(bId);
+    if (!a || !b || a.dead || b.dead) return { ok: false, reason: 'That player is not available.' };
+    if (this.tradeSessions.has(aId) || this.tradeSessions.has(bId))
+      return { ok: false, reason: 'One of you is already trading.' };
+    if (Math.hypot(a.x - b.x, a.y - b.y) > World.TRADE_RANGE)
+      return { ok: false, reason: 'You are too far apart to trade.' };
+    const session = createTrade(aId, bId);
+    if (!session) return { ok: false, reason: 'Could not open trade.' };
+    this.tradeSessions.set(aId, session);
+    this.tradeSessions.set(bId, session);
+    return { ok: true };
+  }
+
+  /** Stage a player's offer (gold + bag-item uids). True if applied (host then re-broadcasts state). */
+  tradeSetOffer(playerId: number, offer: TradeOffer): boolean {
+    const s = this.tradeSessions.get(playerId);
+    if (!s) return false;
+    return tradeSetOfferPure(s, playerId, offer);
+  }
+
+  /**
+   * Confirm a player's side. When BOTH have confirmed, atomically commit the swap (re-validating
+   * ownership + gold + bag space) and tear the session down. Returns the resulting status so the
+   * host knows whether to re-broadcast state ('updated') or close the window ('committed'/'failed').
+   */
+  tradeConfirm(playerId: number): 'updated' | 'committed' | 'failed' | 'none' {
+    const s = this.tradeSessions.get(playerId);
+    if (!s) return 'none';
+    if (!tradeConfirmPure(s, playerId)) return 'failed';
+    if (!bothConfirmed(s)) return 'updated';
+    const plan = tradeCommitPure(s);
+    const done = plan ? this.applyTradeCommit(plan) : false;
+    this.endTradeFor(playerId);
+    return done ? 'committed' : 'failed';
+  }
+
+  /** Cancel a player's active trade. Returns the OTHER participant's id (to notify), or undefined. */
+  tradeCancel(playerId: number): number | undefined {
+    const s = this.tradeSessions.get(playerId);
+    if (!s) return undefined;
+    const other = s.aId === playerId ? s.bId : s.aId;
+    tradeCancelPure(s);
+    this.endTradeFor(playerId);
+    return other;
+  }
+
+  /** The current trade view for a participant (host sends it to BOTH sides after each change). */
+  tradeStateFor(playerId: number):
+    | {
+        aId: number;
+        bId: number;
+        aOffer: TradeOffer;
+        bOffer: TradeOffer;
+        aConfirmed: boolean;
+        bConfirmed: boolean;
+      }
+    | undefined {
+    const s = this.tradeSessions.get(playerId);
+    if (!s || !isParticipant(s, playerId)) return undefined;
+    return {
+      aId: s.aId,
+      bId: s.bId,
+      aOffer: s.aOffer,
+      bOffer: s.bOffer,
+      aConfirmed: s.aConfirmed,
+      bConfirmed: s.bConfirmed,
+    };
+  }
+
+  /** Both participant ids of a player's active trade (host uses it to message both), or undefined. */
+  tradePartners(playerId: number): { aId: number; bId: number } | undefined {
+    const s = this.tradeSessions.get(playerId);
+    return s ? { aId: s.aId, bId: s.bId } : undefined;
+  }
+
+  /** Drop the session both participants share (commit/cancel/disconnect/death). Idempotent. */
+  private endTradeFor(playerId: number): void {
+    const s = this.tradeSessions.get(playerId);
+    if (!s) return;
+    this.tradeSessions.delete(s.aId);
+    this.tradeSessions.delete(s.bId);
+  }
+
+  /**
+   * Atomically apply a confirmed trade plan: re-validate that each side STILL owns every offered uid
+   * (a BAG item) + has the gold + will fit the incoming items, then swap. SECURITY-CRITICAL — the
+   * pure module can't see inventories, so a client could move/sell an item between confirm and
+   * commit; we re-check here and abort the WHOLE trade on any failure (never a partial transfer).
+   */
+  private applyTradeCommit(plan: {
+    aId: number;
+    bId: number;
+    toA: TradeOffer;
+    toB: TradeOffer;
+  }): boolean {
+    const pa = this.players.get(plan.aId);
+    const pb = this.players.get(plan.bId);
+    if (!pa || !pb || pa.dead || pb.dead) return false;
+    const aGives = plan.toB; // A's own offer → B receives it
+    const bGives = plan.toA; // B's own offer → A receives it
+    // Re-validate ownership: every offered uid must still be a BAG item of the giver.
+    const aItems = aGives.itemUids.map((u) => pa.gear.find((g) => g.uid === u));
+    const bItems = bGives.itemUids.map((u) => pb.gear.find((g) => g.uid === u));
+    if (aItems.some((g) => g === undefined) || bItems.some((g) => g === undefined)) return false;
+    if (pa.gold < aGives.gold || pb.gold < bGives.gold) return false;
+    // Re-validate bag space after the net swap, so nobody overflows their bag.
+    const aFinal = pa.gear.length - aGives.itemUids.length + bGives.itemUids.length;
+    const bFinal = pb.gear.length - bGives.itemUids.length + aGives.itemUids.length;
+    if (aFinal > MAX_BAG_GEAR || bFinal > MAX_BAG_GEAR) return false;
+    // All checks passed — apply atomically (validate-all-then-mutate).
+    const aRemove = new Set(aGives.itemUids);
+    const bRemove = new Set(bGives.itemUids);
+    pa.gear = pa.gear.filter((g) => !aRemove.has(g.uid));
+    pb.gear = pb.gear.filter((g) => !bRemove.has(g.uid));
+    for (const g of aItems) if (g) pb.gear.push(g);
+    for (const g of bItems) if (g) pa.gear.push(g);
+    pa.gold += bGives.gold - aGives.gold;
+    pb.gold += aGives.gold - bGives.gold;
+    return true;
+  }
+
   /** Derive power, max HP, crit, multishot, and damage-taken from level + every equipped instance. */
   private recomputeStats(player: Player): void {
     let power = 0;
@@ -1936,6 +2086,7 @@ export class World {
   }
 
   remove(id: number): void {
+    this.endTradeFor(id); // drop any active trade so the partner isn't stuck "in trade"
     this.despawnHirelingOf(id);
     this.players.delete(id);
   }

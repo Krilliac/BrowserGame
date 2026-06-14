@@ -223,6 +223,14 @@ export type ClientMessage =
   | { t: 'buy'; itemId: string }
   /** Sell the whole bag (materials + unequipped gear) to a nearby vendor. */
   | { t: 'sell' }
+  /** Open a trade with a nearby player (server validates proximity + availability). */
+  | { t: 'trade_invite'; targetName: string }
+  /** Stage your whole trade offer (gold + bag item uids). Replace-semantics; server sanitises. */
+  | { t: 'trade_offer'; gold: number; itemUids: number[] }
+  /** Affirm the current trade table. Any later offer change voids this server-side. */
+  | { t: 'trade_confirm' }
+  /** Back out of the current trade. */
+  | { t: 'trade_cancel' }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string }
   /** Dev engine panel request (Developer access). `rid` correlates the `engine_res` reply. */
@@ -393,6 +401,22 @@ export type ServerMessage =
   | { t: 'hire_open'; offers: { type: string; name: string; cost: number }[] }
   /** Open the rift window (sent when interacting with the Riftkeeper); fee = tier × costBase. */
   | { t: 'rift_open'; maxTier: number; costBase: number }
+  /** A trade window opened with `otherName`; the client should show the trade UI. */
+  | { t: 'trade_open'; otherId: number; otherName: string }
+  /** Current trade table (sent to BOTH participants after every change so confirmations stay honest). */
+  | {
+      t: 'trade_state';
+      aId: number;
+      bId: number;
+      aGold: number;
+      aItemUids: number[];
+      bGold: number;
+      bItemUids: number[];
+      aConfirmed: boolean;
+      bConfirmed: boolean;
+    }
+  /** The trade ended; `reason` says how (committed / cancelled / declined / aborted). */
+  | { t: 'trade_closed'; reason: string }
   /** Open the Artificer window (sent when interacting with an artificer NPC). */
   | { t: 'artificer_open'; rerollCost: number; unsocketCost: number }
   /** The server moved this player to another area instance (e.g. through a portal). */
