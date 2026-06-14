@@ -31,6 +31,17 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **NPCs carry a service `npc_flags` bitmask (TrinityCore-style npcflag).** Each `npcs` row gains an
+  `npc_flags` integer (a bitmask of `NpcFlags`: VENDOR / QUESTGIVER / HEALER / GAMBLER / ARTIFICER /
+  BANKER / RECRUITER / RIFTKEEPER), populated from the NPC's `kind` and override-preserving. The
+  E-key interaction dispatcher and every service guard in `world.ts` now check the flag instead of a
+  single `kind` string — so one NPC can offer several services at once (e.g. a vendor that is also a
+  quest-giver) by setting more bits via SQL. `kind` stays as the primary role + sprite.
+- **Legendaries merged into the items table + an item `flags` bitmask.** The separate `uniques` table
+  is gone; a legendary is now an `items` row carrying the `LEGENDARY` flag, its `base_id`, and fixed
+  `affixes` (slot/power/hp/color copied from the base). `content.ts` derives the unique catalogue
+  from flagged item rows, and the random gear/gamble pool excludes `LEGENDARY` items so they drop
+  only via the dedicated unique roll. New `ItemFlags`/`hasItemFlag` (and `NpcFlags`/`hasNpcFlag`).
 - **Procedural dungeon population is now database-driven (content-engine phase 4).** A new `dungeons`
   table holds each dungeon's pack pool (JSON), boss, mini-boss + chances, elite chance, and mob
   counts, seeded from the `DUNGEONS` const; `content.ts` exposes `content.dungeon(areaId)` and

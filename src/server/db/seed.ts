@@ -18,6 +18,7 @@ import { ACTS_NPCS, ACTS_DECOR, ACTS_LOOT, ACTS_QUESTS, ACTS_VENDOR_STOCK } from
 import { WILDS_AREA_MOBS, WILDS_LOOT } from './seed-wilds.js';
 import { UNIQUES } from './seed-uniques.js';
 import { ItemFlags } from '../../shared/items.js';
+import { KIND_TO_NPC_FLAG } from '../../shared/npc-flags.js';
 
 /**
  * Spellbooks: one tome per ability. Reading one learns the spell (or ranks it up — the Diablo 1
@@ -303,6 +304,7 @@ export function seed(db: Database): void {
   ensureWildsContent(db); // wildlife/vermin rosters + loot spread across the existing zones
   ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
   ensureActsContent(db); // the Act 2 road + all of Act 3 (Vhalreth, its zones, the Unmade Court)
+  ensureNpcFlags(db); // derive npc_flags from each NPC's kind (idempotent; preserves overrides)
   ensureDenContent(db); // the generic cellar/den interior (procedural mini-dungeon shell)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
@@ -734,6 +736,16 @@ function ensureLegendaryItems(db: Database): void {
       u.flavor ?? null,
     );
   }
+}
+
+/**
+ * Populate each NPC's `npc_flags` bitmask from its `kind` (the service it implies), so one NPC can
+ * carry several services. Idempotent and override-preserving: only fills rows still at 0, so a
+ * hand-edited multi-service NPC (e.g. vendor + questgiver) survives reboots.
+ */
+function ensureNpcFlags(db: Database): void {
+  const upd = db.prepare('UPDATE npcs SET npc_flags = ? WHERE kind = ? AND npc_flags = 0');
+  for (const [kind, flag] of Object.entries(KIND_TO_NPC_FLAG)) upd.run(flag, kind);
 }
 
 /**

@@ -6,6 +6,7 @@ import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
 import { hasItemFlag, ItemFlags, type Affix, type ItemInstance } from '../shared/items.js';
 import { pickUnique, rollUnique, type UniqueDef } from '../shared/uniques.js';
+import { KIND_TO_NPC_FLAG } from '../shared/npc-flags.js';
 import type { MobTemplate, MobTrait } from './mobs.js';
 
 /**
@@ -40,7 +41,10 @@ export interface NpcDef {
   x: number;
   y: number;
   hue: number;
+  /** Primary role + sprite (e.g. 'vendor'). */
   kind: string;
+  /** Bitmask of {@link NpcFlags} — the services this NPC offers (derived from kind if unset). */
+  flags: number;
 }
 
 export interface QuestDef {
@@ -339,6 +343,8 @@ export function loadContent(db: GameDatabase): Content {
       y: r.y * WORLD_SCALE,
       hue: r.hue,
       kind: r.kind,
+      // Fall back to the kind-implied flag if the column has not been populated/overridden.
+      flags: r.npc_flags || (KIND_TO_NPC_FLAG[r.kind] ?? 0),
     });
     npcs.set(r.area_id, list);
   }
@@ -623,6 +629,7 @@ interface NpcRow {
   y: number;
   hue: number;
   kind: string;
+  npc_flags: number;
 }
 interface QuestRow {
   id: string;

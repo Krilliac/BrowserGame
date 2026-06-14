@@ -76,6 +76,7 @@ import {
   type HirelingTemplate,
 } from './hirelings.js';
 import { isDungeon, type DungeonDef, type Rect } from '../shared/areas.js';
+import { NpcFlags, hasNpcFlag } from '../shared/npc-flags.js';
 import {
   blockersForDecor,
   pointInAnyBlocker,
@@ -571,6 +572,8 @@ interface Npc {
   y: number;
   hue: number;
   kind: NpcKind;
+  /** Bitmask of {@link NpcFlags} — the services this NPC offers (drives E-key interaction). */
+  flags: number;
 }
 
 /** A live mercenary entity: follows its owner, fights monsters, dies (voiding the contract). */
@@ -904,7 +907,15 @@ export class World {
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
       const kind = (KINDS as string[]).includes(npc.kind) ? (npc.kind as NpcKind) : 'vendor';
-      this.npcs.set(id, { id, name: npc.name, x: npc.x, y: npc.y, hue: npc.hue, kind });
+      this.npcs.set(id, {
+        id,
+        name: npc.name,
+        x: npc.x,
+        y: npc.y,
+        hue: npc.hue,
+        kind,
+        flags: npc.flags,
+      });
     }
   }
 
@@ -914,22 +925,22 @@ export class World {
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
     if (!npc) return;
-    if (npc.kind === 'vendor') {
+    if (hasNpcFlag(npc.flags, NpcFlags.VENDOR)) {
       // Open the shop; selling is now an explicit button, never a destructive side effect of E.
       this.shopOffers.push({
         playerId: player.id,
         vendor: npc.name,
         stock: this.vendorStockFor(npc.name),
       });
-    } else if (npc.kind === 'healer') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.HEALER)) {
       this.healAtNpc(player, npc.name);
-    } else if (npc.kind === 'gambler') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.GAMBLER)) {
       this.gambleOffers.push({ playerId: player.id, cost: gambleCost(player.level) });
-    } else if (npc.kind === 'artificer') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.ARTIFICER)) {
       this.artificerOffers.push({ playerId: player.id });
-    } else if (npc.kind === 'banker') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.BANKER)) {
       this.pushStash(player); // open the stash window with the current contents
-    } else if (npc.kind === 'recruiter') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.RECRUITER)) {
       const cost = hirelingCost(player.level);
       this.hireOffers.push({
         playerId: player.id,
@@ -939,7 +950,7 @@ export class World {
           cost,
         })),
       });
-    } else if (npc.kind === 'riftkeeper') {
+    } else if (hasNpcFlag(npc.flags, NpcFlags.RIFTKEEPER)) {
       this.riftOffers.push({
         playerId: player.id,
         maxTier: maxRiftTier(player.level),
@@ -1036,7 +1047,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'gambler') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.GAMBLER)) return;
     const bases = this.equipBases();
     if (!isGambleSlot(slot, bases)) return;
     const cost = gambleCost(player.level);
@@ -1116,7 +1127,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return false;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'riftkeeper') return false;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.RIFTKEEPER)) return false;
     if (!Number.isInteger(tier) || tier < 1 || tier > maxRiftTier(player.level)) return false;
     const cost = tier * RIFT_COST_PER_TIER;
     if (player.gold < cost) {
@@ -1135,7 +1146,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'recruiter') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.RECRUITER)) return;
     const template = hirelingTemplate(type);
     if (!template) return;
     const cost = hirelingCost(player.level);
@@ -1194,7 +1205,7 @@ export class World {
   depositToStash(id: number, uid: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
-    if (this.nearbyNpc(player)?.kind !== 'banker') return;
+    if (!hasNpcFlag(this.nearbyNpc(player)?.flags ?? 0, NpcFlags.BANKER)) return;
     if (player.stash.length >= STASH_CAP) {
       this.notify(player.id, 'Your stash is full.');
       return;
@@ -1210,7 +1221,7 @@ export class World {
   withdrawFromStash(id: number, uid: number): void {
     const player = this.players.get(id);
     if (!player || player.dead) return;
-    if (this.nearbyNpc(player)?.kind !== 'banker') return;
+    if (!hasNpcFlag(this.nearbyNpc(player)?.flags ?? 0, NpcFlags.BANKER)) return;
     if (player.gear.length >= MAX_BAG_GEAR) {
       this.notify(player.id, 'Your bag is full.');
       return;
@@ -1231,7 +1242,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'artificer') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.ARTIFICER)) return;
     const inst = player.gear.find((g) => g.uid === uid);
     if (!inst || (inst.affixes?.length ?? 0) === 0) return;
     if (player.gold < ARTIFICER_REROLL_GOLD || (player.loot.get('rune_shard') ?? 0) < 1) return;
@@ -1249,7 +1260,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'artificer') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.ARTIFICER)) return;
     if (!(EQUIP_SLOTS as string[]).includes(slot)) return;
     const inst = player.equipment[slot as EquipSlot];
     const gemId = inst?.sockets?.[index];
@@ -1274,7 +1285,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'artificer') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.ARTIFICER)) return;
     for (const gemId of Object.keys(GEMS)) {
       const have = player.loot.get(gemId) ?? 0;
       const next = nextGemTier(gemId);
@@ -1299,7 +1310,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'vendor') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.VENDOR)) return;
     const content = getContent();
     let gold = 0;
     for (const [item, qty] of player.loot) {
@@ -1325,7 +1336,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
-    if (!npc || npc.kind !== 'vendor') return;
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.VENDOR)) return;
     // Validate against the SHOWN (rotated + repriced) stock, so you can only buy what's currently on
     // the shelf and at the displayed price.
     const entry = this.vendorStockFor(npc.name).find((s) => s.itemId === itemId);

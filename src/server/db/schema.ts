@@ -165,7 +165,8 @@ CREATE TABLE IF NOT EXISTS npcs (
   x        INTEGER NOT NULL,
   y        INTEGER NOT NULL,
   hue      REAL NOT NULL,
-  kind     TEXT NOT NULL                       -- 'vendor'
+  kind     TEXT NOT NULL,                      -- primary role + sprite, e.g. 'vendor'
+  npc_flags INTEGER NOT NULL DEFAULT 0         -- bitmask (NpcFlags): VENDOR|QUESTGIVER|… services
 );
 
 -- Static set-dressing PROPS per area: cosmetic objects (tents, wagons, a palisade wall, a bonfire,
