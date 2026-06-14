@@ -33,10 +33,23 @@ lighting (`pixi-lights` is v7/@pixi/layers-only — does not work in v8).
 
 Cheap, build on code already present, need **no new art**.
 
-### 1.1 Skewed/offset blob shadows leaning away from the torch (Low, very high)
-Make the foot ellipse lean away from `PLAYER_LIGHT` (screen-center): farther from light ⇒ longer +
-thinner + more offset (`shadow.skew.x`, `shadow.scale.y`, `shadow.position`). No shader. Store the
-shadow ref on `ActorView`.
+### 1.1 Skewed/offset blob shadows leaning away from the light (Low, very high) — **done**
+Make the foot ellipse lean + lengthen away from the light (`shadow.skew.x`, `shadow.scale.y`,
+`shadow.position`). No shader. Store the shadow ref on `ActorView`.
+
+**Implemented** in two passes against a **fixed baked sun** rather than the screen-center torch — the
+project deliberately keeps every shadow leaning the same way (the consistent D2 baked-light look), so
+direction is constant and only the sun's *altitude* animates:
+- The skewed/offset blob + the sheared sprite-copy cast shadow (hero/elites) are the planted base
+  (`makeActor`, `SHADOW_OFFSET_*`/`SHADOW_SKEW`), with the shadow ref captured on
+  `ActorView.shadowPlanted`.
+- **Time-of-day rake** (`client/sun-shadow.ts`, pure + tested): `Atmosphere.sunShadow()` maps the
+  day/night `daylight` to length + alpha multipliers (identity at noon and indoors). The renderer
+  samples it once per frame and the single shadow updater (`liftShadow`) lengthens `scale.y` + the
+  offset reach (not width) and fades alpha, so shadows are short/dark at noon and long/faint at
+  dawn/dusk. Applied to blob, cast copy, loot, and projectile shadows; static decor keeps its baked
+  foot shadows (raking is scoped to per-frame entities). Torch-relative *direction* swing was
+  intentionally skipped to preserve the baked-sun consistency.
 
 ### 1.2 Soft baked AO shadow + darkened sprite base (Low, high)
 Bake a radial-gradient soft ellipse texture once (canvas → `Texture`), use a `Sprite` for the shadow

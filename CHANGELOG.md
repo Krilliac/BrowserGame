@@ -31,6 +31,21 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Time-of-day sun shadows (2.5D depth + atmosphere cue).** Actor/loot/projectile ground shadows
+  are now coupled to the same sun that drives the day/night cycle: a high **noon sun throws short,
+  dark, crisp shadows**, and a low **dawn/dusk (or moonlit-night) sun rakes them long and faint**
+  across the ground — watching shadows stretch out toward evening is a strong "real lit surface"
+  signal a flat top-down scene can fake. Built on the existing day/night clock and the
+  height-reactive shadow plumbing below:
+  - A new pure, stateless helper (`client/sun-shadow.ts`) maps the sun's altitude (the atmosphere's
+    `daylight`) to `stretch`/`alpha` multipliers; an overhead/noon sun (and indoor areas, which have
+    no cycle) returns the exact `{1, 1}` identity, so those scenes keep today's look. Unit-tested.
+  - `Atmosphere.sunShadow()` exposes the factor (outdoor → time-of-day, indoor → identity); the
+    renderer samples it **once per frame** and folds it into the single shadow updater, lengthening
+    each shadow's *length* + *reach* (not its width) so it rakes away from the feet. Applied uniformly
+    to the soft blob, the sheared hero/elite cast-shadow copy, loot drops, and projectiles. Direction
+    stays the fixed baked-sun lean (the deliberate D2 look) — only how high the sun has climbed
+    animates. Static decor keeps its baked foot shadows (per-frame raking is scoped to live entities).
 - **Height-reactive contact shadows (2.5D depth cue).** Billboards (actors, loot, projectiles) ride
   above a flat ground shadow, but that shadow used to stay a fixed size + opacity however high the
   caster floated — a dead giveaway that the world is flat. The ground shadow now **shrinks and fades

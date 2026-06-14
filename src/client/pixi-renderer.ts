@@ -462,10 +462,18 @@ interface ActorView {
   dyn?: Graphics;
   /** Soft, directional ground shadow (leans away from a fixed sun — the D2 "planted" cue). */
   shadow?: Sprite;
-  /** Planted (grounded) metrics of the ground shadow — its base scale + alpha captured at build
-   *  time. The per-frame height-reactive cue (`liftShadow`) shrinks + fades from this baseline as
-   *  the caster rises off the ground, so a bob/hover/pop reads as real elevation. */
-  shadowPlanted?: { node: Container; sx: number; sy: number; alpha: number };
+  /** Planted (grounded) metrics of the ground shadow — its base scale, offset + alpha captured at
+   *  build time. The per-frame cues (`liftShadow`) multiply from this baseline: the height-reactive
+   *  shrink/fade as the caster rises off the ground, and the time-of-day sun stretch/fade. `ox`/`oy`
+   *  is the shadow's planted offset from the feet, lengthened with the shadow toward dusk. */
+  shadowPlanted?: {
+    node: Container;
+    sx: number;
+    sy: number;
+    ox: number;
+    oy: number;
+    alpha: number;
+  };
   /** Important actors (hero/elite): a sheared, darkened sprite-copy cast shadow (RENDER-07). It
    *  shares the body's current frame texture, so it always matches the pose (updated on frame change). */
   castShadow?: Sprite;
@@ -509,6 +517,7 @@ const SHADOW_OFFSET_X = 0.42; // shadow slides toward lower-right (away from the
 const SHADOW_OFFSET_Y = 0.18;
 const SHADOW_SKEW = -0.55; // slants the ellipse so it reads as cast across the ground
 const SHADOW_ALPHA = 0.42;
+const CAST_SHADOW_ALPHA = 0.4; // sheared sprite-copy cast shadow (hero/elites), at the noon sun
 
 export class PixiRenderer {
   private readonly ground: TilingSprite;
@@ -578,6 +587,9 @@ export class PixiRenderer {
   // Local player's equipped "look" (which paper-doll layers to show), set from net.you.equipment.
   private playerLook: Record<string, boolean> = { armor: false, weapon: false, helm: false };
   private shakeMag = 0; // current screen-shake amplitude (px), decays each frame
+  // Time-of-day sun shadow multipliers (length + alpha), refreshed once per frame from the
+  // atmosphere's day/night clock and applied to every actor/loot/projectile shadow.
+  private frameSun = { stretch: 1, alpha: 1 };
   private lastDeathT0 = 0; // newest death-FX timestamp already turned into a shake
   private lastAnimT0 = 0; // newest FX timestamp already turned into a one-shot animation
   private lastDecalT0 = 0; // newest FX timestamp already turned into decals/particles
@@ -1899,6 +1911,9 @@ export class PixiRenderer {
     const nowMs = performance.now();
     this.triggerAnimEvents(state.fx, nowMs);
 
+    // Refresh the time-of-day sun once for the whole frame so every shadow rakes consistently.
+    this.frameSun = this.atmosphere.sunShadow();
+
     for (const view of this.views.values()) view.seen = false;
     for (const e of state.entities) {
       if (e.kind === 'projectile') this.updateProjectile(e);
@@ -2176,17 +2191,22 @@ export class PixiRenderer {
   }
 
   /**
-   * Height-reactive contact shadow: shrink + fade an actor/loot/projectile's planted ground shadow
-   * by the caster's current elevation (`lift`, world px above the ground plane). No-op until a
-   * `shadowPlanted` baseline was captured. The shrink-and-fade as something rises (and the snap
-   * back tight on landing) is the readable 2.5D "how high is this" cue.
+   * Drive a planted ground shadow from two cues, both multiplying its captured baseline (no-op until
+   * a `shadowPlanted` was captured):
+   *   - height-reactive: shrink + fade as the caster rises off the plane (`lift`, world px), the
+   *     readable "how high is this" contact cue, snapping tight on landing;
+   *   - time-of-day sun: lengthen + fade toward dawn/dusk, short + dark at noon (`this.frameSun`).
+   * The sun stretches *length* (scale.y) + reach (offset), not width, so the shadow rakes away from
+   * the feet rather than ballooning.
    */
   private liftShadow(view: ActorView, lift: number, falloff?: number): void {
     const p = view.shadowPlanted;
     if (!p) return;
     const m = shadowLift(lift, falloff);
-    p.node.scale.set(p.sx * m.scale, p.sy * m.scale);
-    p.node.alpha = p.alpha * m.alpha;
+    const sun = this.frameSun;
+    p.node.scale.set(p.sx * m.scale, p.sy * m.scale * sun.stretch);
+    p.node.position.set(p.ox * sun.stretch, p.oy * sun.stretch);
+    p.node.alpha = p.alpha * m.alpha * sun.alpha;
   }
 
   private updateActor(e: EntityState, isSelf: boolean): void {
@@ -2214,7 +2234,18 @@ export class PixiRenderer {
       const sheet = view.sheet;
       const { row, col } = resolveAnim(anim, sheet.clips, e.facing, moving, now);
       view.sprite.texture = this.frame(sheetKey(e)!, sheet.fw, sheet.fh, col, row);
-      if (view.castShadow) view.castShadow.texture = view.sprite.texture; // keep the cast pose in sync
+      if (view.castShadow) {
+        const cs = view.castShadow;
+        cs.texture = view.sprite.texture; // keep the cast pose in sync
+        // Rake the sheared cast shadow with the same time-of-day sun as the blob shadows: longer +
+        // fainter toward dusk, short + dark at noon. Recomputed from the planted constants each
+        // frame (no drift), scaling length (scale.y) + reach (offset), not width.
+        const sun = this.frameSun;
+        const csR = e.kind === 'mob' ? MOB_RADIUS : PLAYER_RADIUS;
+        cs.scale.set(sheet.scale, sheet.scale * PITCH * sun.stretch);
+        cs.position.set(csR * SHADOW_OFFSET_X * sun.stretch, csR * SHADOW_OFFSET_Y * sun.stretch);
+        cs.alpha = CAST_SHADOW_ALPHA * sun.alpha;
+      }
 
       // A small vertical bob — a quick footstep lift while moving, a slow breath while idle —
       // staggered per entity so a crowd doesn't pulse in lockstep. Sells the billboards as alive.
@@ -2265,10 +2296,11 @@ export class PixiRenderer {
           ? -Math.abs(Math.sin(now / 110 + phase)) * 2.5
           : Math.sin(now / 420 + phase) * 1.2;
     }
-    // Height-reactive contact shadow: the blob shrinks + fades as the billboard rises off the
-    // ground (walk bob, idle breath, flyer hover) and tightens back on contact (sprite.y is the
-    // negative lift). A no-op for cast-shadow actors and procedural orbs (no shadowPlanted).
-    if (view.sprite) this.liftShadow(view, Math.max(0, -view.sprite.y));
+    // Drive the blob shadow each frame: the height-reactive shrink/fade as the billboard rises off
+    // the ground (walk bob, idle breath, flyer hover; sprite.y is the negative lift) plus the
+    // time-of-day sun rake. Procedural orbs don't bob (lift 0) but still want the sun; cast-shadow
+    // actors have no shadowPlanted, so liftShadow no-ops for them (their cast copy rakes instead).
+    this.liftShadow(view, view.sprite ? Math.max(0, -view.sprite.y) : 0);
     view.lastX = e.x;
     view.lastY = e.y;
     if (view.sprite) {
@@ -2394,7 +2426,7 @@ export class PixiRenderer {
         cast.scale.set(sheet.scale, sheet.scale * PITCH); // flatten onto the tilted ground
         cast.skew.x = SHADOW_SKEW;
         cast.tint = 0x000000;
-        cast.alpha = 0.4;
+        cast.alpha = CAST_SHADOW_ALPHA;
         cast.position.set(radius * SHADOW_OFFSET_X, radius * SHADOW_OFFSET_Y);
         container.addChildAt(cast, 0); // behind the body and the blob
         view.castShadow = cast;
@@ -2458,6 +2490,8 @@ export class PixiRenderer {
         node: shadow,
         sx: shadow.scale.x,
         sy: shadow.scale.y,
+        ox: shadow.position.x,
+        oy: shadow.position.y,
         alpha: shadow.alpha,
       };
     }
@@ -2524,7 +2558,7 @@ export class PixiRenderer {
       const shadow = new Graphics();
       shadow.ellipse(0, 0, radius * 1.3, radius * 0.6).fill({ color: '#000000', alpha: 0.28 });
       container.addChild(shadow);
-      view.shadowPlanted = { node: shadow, sx: 1, sy: 1, alpha: 1 };
+      view.shadowPlanted = { node: shadow, sx: 1, sy: 1, ox: 0, oy: 0, alpha: 1 };
       this.liftShadow(view, PROJECTILE_HEIGHT);
       if (strip && hasStrip) {
         const s = new Sprite(this.frame(strip.alias, 16, 16, 0, 0));
@@ -2626,7 +2660,7 @@ export class PixiRenderer {
         spawnT: performance.now(),
         // The flat ellipse drops at node scale/alpha 1 (its fill carries the 0.3 visible alpha), so
         // the height cue multiplies cleanly from this baseline as the drop pops + settles.
-        shadowPlanted: { node: shadow, sx: 1, sy: 1, alpha: 1 },
+        shadowPlanted: { node: shadow, sx: 1, sy: 1, ox: 0, oy: 0, alpha: 1 },
       };
       if (alias && this.tex.has(alias)) {
         const s = new Sprite(this.tex.get(alias)!);
