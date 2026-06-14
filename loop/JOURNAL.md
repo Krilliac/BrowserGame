@@ -21,7 +21,8 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 
 | 8 | infra | **Versioned migration chain** (#8) — PRAGMA user_version + ordered MIGRATIONS[] | green | 70ae394; +3 → 1242; migration #1 wraps existing backfill; exactly-once in txns |
 
-| 9 | feat | **Leaderboard / ladder** (#12) — best-ever level/gold per character | pending | leaderboard.ts module (recordScore upsert-max, topScores); table; autosave write hook (World stays pure); /ladder cmd; +9 tests |
+| 9 | feat | **Leaderboard / ladder** (#12) — best-ever level/gold per character | green | c242f3b; +9 → 1250; autosave write hook; /ladder cmd |
+| 10 | parallel | Dispatch agents: build game-events.ts (#11) + trade.ts (#13) modules concurrently | in-flight | agents build isolated pure modules + tests; orchestrator wires chokepoints next |
 
 ### Parallel-agent mode (user req, iteration 10+)
 User: dispatch agents to work on multiple files concurrently for speed. Approach: scout/scope inline,
