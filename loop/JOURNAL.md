@@ -22,7 +22,20 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 | 8 | infra | **Versioned migration chain** (#8) — PRAGMA user_version + ordered MIGRATIONS[] | green | 70ae394; +3 → 1242; migration #1 wraps existing backfill; exactly-once in txns |
 
 | 9 | feat | **Leaderboard / ladder** (#12) — best-ever level/gold per character | green | c242f3b; +9 → 1250; autosave write hook; /ladder cmd |
-| 10 | parallel | Dispatch agents: build game-events.ts (#11) + trade.ts (#13) modules concurrently | in-flight | agents build isolated pure modules + tests; orchestrator wires chokepoints next |
+| 10a | feat | **Timed game-events** (#11) — Bloodmoon/Golden Hour XP bonus | green | 8baeaae; +37 → 1306; agent-built module wired to data+host (sim-clock, /events cmd) |
+| 10b | feat | **Trade window** (#13) — atomic escrow — MODULE READY, integrate next | pending | trade.ts/trade.test.ts (18 tests) on disk UNTRACKED; needs chokepoint wiring |
+
+### Iteration 11 plan: integrate trade.ts (agent's wiring guide)
+trade.ts is a PURE escrow state machine (createTrade/setOffer[resets both confirms]/confirm/commit).
+Wire: (1) protocol.ts msgs — C→S tradeInvite/tradeRespond/tradeOffer(full offer)/tradeConfirm/
+tradeCancel; S→C tradeOpen/tradeState/tradeClosed; decode defensively. (2) world.ts: Map<sessionId,
+TradeSession> + per-player Map<playerId,sessionId> (one trade/player); startTrade (proximity+same-
+instance), tradeSetOffer/Confirm/Cancel re-broadcast tradeState; tradeCommit MUST re-validate each
+uid is STILL in the giver's bag + gold + free space, else abort whole (never partial). Tear down on
+disconnect/death/area-change. (3) index.ts: route msgs + rate-limit invites(1/s)+offer churn. (4)
+client trade panel — DEFER to a follow-up (server+protocol first). Big integration; may split.
+
+### Parallel-agent mode (user req, iteration 10+)
 
 ### Parallel-agent mode (user req, iteration 10+)
 User: dispatch agents to work on multiple files concurrently for speed. Approach: scout/scope inline,
