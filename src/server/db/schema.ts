@@ -222,7 +222,8 @@ CREATE TABLE IF NOT EXISTS quests (
   reward_xp     INTEGER NOT NULL DEFAULT 0,
   reward_item   TEXT,                          -- optional item granted on completion (e.g. a tome)
   turn_in_item  TEXT,                          -- collect quests: the item id to turn in
-  turn_in_count INTEGER NOT NULL DEFAULT 0     -- collect quests: how many to turn in
+  turn_in_count INTEGER NOT NULL DEFAULT 0,    -- collect quests: how many to turn in
+  flags         INTEGER NOT NULL DEFAULT 0     -- bitmask (QuestFlags): REPEATABLE, …
 );
 
 -- Accounts: username -> access level (Player 0 .. Developer 4), with a salted password hash.

@@ -61,6 +61,8 @@ export interface QuestDef {
   turnInItem: string | null;
   /** Collect quests: how many of {@link turnInItem} to turn in. */
   turnInCount: number;
+  /** Bitmask of {@link QuestFlags} (e.g. REPEATABLE). */
+  flags: number;
 }
 
 /** One placed monster: its spawn UID, the template it instances, a fixed position, and spawn flags. */
@@ -387,6 +389,7 @@ export function loadContent(db: GameDatabase): Content {
     rewardItem: q.reward_item ?? null,
     turnInItem: q.turn_in_item ?? null,
     turnInCount: q.turn_in_count ?? 0,
+    flags: q.flags ?? 0,
   }));
 
   const loot = new Map<string, LootGroup>();
@@ -678,6 +681,7 @@ interface QuestRow {
   reward_item: string | null;
   turn_in_item: string | null;
   turn_in_count: number;
+  flags: number;
 }
 interface LootRow {
   mob_template_id: string;

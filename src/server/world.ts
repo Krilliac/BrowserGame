@@ -78,6 +78,7 @@ import {
 import { isDungeon, type DungeonDef, type Rect } from '../shared/areas.js';
 import { NpcFlags, hasNpcFlag } from '../shared/npc-flags.js';
 import { CreatureSpawnFlags, hasSpawnFlag } from '../shared/spawn-flags.js';
+import { QuestFlags, hasQuestFlag } from '../shared/quest-flags.js';
 import {
   blockersForDecor,
   pointInAnyBlocker,
@@ -1501,7 +1502,8 @@ export class World {
   /** Grant a quest's rewards, mark it done, and notify â€” shared by kill + collect completion. */
   private completeQuest(player: Player, quest: QuestDef): void {
     player.quests.delete(quest.id);
-    player.questsDone.add(quest.id);
+    // A repeatable quest is never marked permanently done, so it can be taken again.
+    if (!hasQuestFlag(quest.flags, QuestFlags.REPEATABLE)) player.questsDone.add(quest.id);
     player.gold += quest.rewardGold;
     player.xp += quest.rewardXp;
     player.level = levelForXp(player.xp);
