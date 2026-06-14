@@ -31,6 +31,12 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **Procedural dungeon population is now database-driven (content-engine phase 4).** A new `dungeons`
+  table holds each dungeon's pack pool (JSON), boss, mini-boss + chances, elite chance, and mob
+  counts, seeded from the `DUNGEONS` const; `content.ts` exposes `content.dungeon(areaId)` and
+  `world.ts` rolls dungeon population from the DB. The `DUNGEONS` const remains only as the
+  structural client `isDungeon` check and the seed default — so a dungeon's roster can be retuned
+  with SQL.
 - **Monster traits / spells / support are now database-driven (content-engine phase 3).** The runtime
   no longer reads the `MOB_SPELLS`/`MOB_SUPPORT`/`MOB_TRAITS` consts: `mob_templates` gained `spell`,
   `support`, and `traits` (JSON) columns, seeded from the authoring maps and loaded onto the

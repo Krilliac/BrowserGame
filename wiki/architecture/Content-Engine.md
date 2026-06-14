@@ -41,6 +41,7 @@ Two rules make something "DB-driven" here:
 | **Legendaries (uniques)** | `uniques` | ✅ | n/a (sent as instances) | ✅ `seed-uniques.ts` |
 | Monsters | `mob_templates`,`area_mobs` | ✅ (incl. traits/spell/support) | n/a (sent in snapshots) | ⬜ (still `mobs.ts`) |
 | Loot tables | `loot_entry` | ✅ | n/a | ✅ (seed-*) |
+| Dungeon population | `dungeons` | ✅ | n/a | ⬜ (`DUNGEONS` const = seed + client `isDungeon`) |
 | NPCs | `npcs` | ✅ | via content/snapshots | ✅ (seed-*) |
 | Decor / objects | `decor` | ✅ | via content packet | ✅ (seed-*) |
 | Quests | `quests` | ✅ | via packet | partly (seed-*) |
@@ -67,10 +68,21 @@ last runtime reads of the shared data consts and (b) moving the *authored* array
    `template.traits` and the trait helpers take a `traits` array — no runtime read of the
    `MOB_SPELLS`/`MOB_SUPPORT`/`MOB_TRAITS` consts (which remain only as authored seed data).
    Remaining: relocate `MOB_TEMPLATES`/`AREA_MOBS` data out of `mobs.ts` into the seed layer.
-5. **Areas / terrain / objects → DB-authored.** Move `AREAS`/`AREA_THEMES`/`DUNGEONS` data into the
-   seed layer; the client already loads areas from the packet. Fold terrain/collision data into the
-   DB where it is still computed from consts.
-6. **Quests.** Consolidate the scattered quest seed arrays; add area-scoped offering (the deferred
+5. **Dungeon population → DB.** ✅ Done. New `dungeons` table (pool as JSON + boss / mini-boss /
+   elite chances + mob counts) seeded from the `DUNGEONS` const; `content.ts` exposes
+   `content.dungeon(areaId)` and `world.ts` reads dungeon population from it. The `DUNGEONS` const
+   stays as the structural client `isDungeon` check + the seed source.
+6. **Gems & runes → DB.** Next. `GEMS` (`shared/gems.ts`) and `RUNES` (`shared/runewords.ts`) are
+   still read at runtime by `world.ts` (artificer gem-combine, rune drops) and the client
+   (`item-icons.ts`, runewords). Add `gems`/`runes` tables, load via `content.ts`, and ship them in
+   the content packet so both sides read the DB.
+7. **Authoring relocation (optional, type-safety permitting).** The `AREAS`/`ABILITIES`/
+   `MOB_TEMPLATES` data still lives in `src/shared` as the seed default + the source of derived
+   literal-union types (notably `AbilityId = keyof typeof ABILITY_DEFS`). These are already
+   DB-driven at *runtime*; relocating the data out of shared would force those types to plain
+   `string`, losing compile-time safety across the codebase. Treat these consts as the project's
+   "world-DB content files" (the Trinity `.sql` analogue) unless the type trade-off is accepted.
+8. **Quests.** Consolidate the scattered quest seed arrays; add area-scoped offering (the deferred
    roadmap item) now that quests are uniformly DB-driven.
 
 Each phase keeps `npm run check` green and ships independently.
