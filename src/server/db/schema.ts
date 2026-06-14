@@ -334,6 +334,36 @@ CREATE TABLE IF NOT EXISTS item_set_bonuses (
   sort_order      INTEGER NOT NULL DEFAULT 0
 );
 
+-- Scripted boss phases (TrinityCore smart_scripts, cut to essentials): the DATA half of the apex-boss
+-- action queue. The executor + step vocabulary stay in code (boss-scripts.ts); only the phase/step
+-- data lives here, so designers can re-tune fights or add a scripted boss without touching the sim.
+-- One row per (boss, phase); the phase is active while hp/maxHp < hp_below (last match wins).
+CREATE TABLE IF NOT EXISTS mob_script_phases (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_id TEXT NOT NULL,            -- the boss MOB_TEMPLATES id
+  hp_below    REAL NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
+-- The ordered steps of a phase loop. kind is a closed BossStep enum; only the columns relevant to
+-- that kind are set (the rest are NULL): moveTo->x,y,speed_mult; wait/brawl->ms; cast->ability;
+-- summon->summon_template,summon_count,summon_radius; shout->text. Malformed rows are skipped on load.
+CREATE TABLE IF NOT EXISTS mob_script_steps (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  phase_id        INTEGER NOT NULL,     -- -> mob_script_phases.id
+  sort_order      INTEGER NOT NULL DEFAULT 0,
+  kind            TEXT NOT NULL,        -- moveTo|wait|brawl|cast|summon|shout
+  x               REAL,
+  y               REAL,
+  speed_mult      REAL,
+  ms              INTEGER,
+  ability         TEXT,
+  summon_template TEXT,
+  summon_count    INTEGER,
+  summon_radius   REAL,
+  text            TEXT
+);
+
 -- Gems: the socketable catalog. Each gem grants a flat bonus to one affix stat. Seeded from
 -- DEFAULT_GEMS (gems.ts); overlaid onto the shared GEMS catalog on both sides (server load + content
 -- packet). Add a row to introduce a new gem; tier drives the combine chain + drop weight (in code).

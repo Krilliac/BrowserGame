@@ -26,6 +26,7 @@ import {
   type RunewordDef,
 } from '../shared/runewords.js';
 import { applyItemSetOverrides, type ItemSetDef } from '../shared/item-sets.js';
+import { applyBossScriptOverrides, type BossScript, type BossStep } from './boss-scripts.js';
 import { applySkillTreeOverrides, type SkillNode, type SkillEffects } from '../shared/skilltree.js';
 import { KIND_TO_NPC_FLAG } from '../shared/npc-flags.js';
 import {
@@ -167,6 +168,8 @@ export interface Content {
   runewords(): RunewordDef[];
   /** The item sets + threshold bonuses (overlaid onto the shared ITEM_SETS list). */
   itemSets(): ItemSetDef[];
+  /** Scripted boss phases keyed by boss template id (overlaid onto the live BOSS_SCRIPTS). */
+  bossScripts(): Record<string, BossScript>;
   /** Affix roll ranges per scalar stat (server-only; overlaid onto the shared AFFIX_RANGES). */
   affixRanges(): Record<string, AffixRange>;
   /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
@@ -614,6 +617,22 @@ export function loadContent(db: GameDatabase): Content {
     return def;
   });
 
+  // Scripted boss phases: rebuild Record<bossId, BossScript> from the phase + step rows. Each step
+  // row only fills the columns its `kind` uses; rowToStep validates that and DROPS malformed rows
+  // (a bad SQL edit degrades a fight gracefully — it never crashes the boss tick).
+  const stepStmt = db.prepare(
+    'SELECT * FROM mob_script_steps WHERE phase_id = ? ORDER BY sort_order',
+  );
+  const bossScripts: Record<string, BossScript> = {};
+  for (const p of db
+    .prepare('SELECT * FROM mob_script_phases ORDER BY template_id, sort_order')
+    .all() as MobScriptPhaseRow[]) {
+    const loop = (stepStmt.all(p.id) as MobScriptStepRow[])
+      .map(rowToBossStep)
+      .filter((s): s is BossStep => s !== null);
+    (bossScripts[p.template_id] ??= { phases: [] }).phases.push({ hpBelow: p.hp_below, loop });
+  }
+
   // Affix roll ranges (server-only) + flavor names/tiers (client-coupled). A NULL up_to is Infinity.
   const affixRanges: Record<string, AffixRange> = {};
   for (const r of db.prepare('SELECT * FROM affix_ranges').all() as AffixRangeRow[]) {
@@ -714,6 +733,7 @@ export function loadContent(db: GameDatabase): Content {
     runes: () => runes,
     runewords: () => runewords,
     itemSets: () => itemSets,
+    bossScripts: () => bossScripts,
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
     skillTree: () => skillTree,
@@ -735,6 +755,7 @@ export function initGameDb(file?: string): Content {
   applyRuneOverrides(activeContent.runes()); // overlay rune pool onto shared RUNES
   applyRunewordOverrides(activeContent.runewords()); // overlay runeword recipes onto shared RUNEWORDS
   applyItemSetOverrides(activeContent.itemSets()); // overlay item sets onto shared ITEM_SETS
+  applyBossScriptOverrides(activeContent.bossScripts()); // overlay boss scripts onto live BOSS_SCRIPTS
   applyAffixRangeOverrides(activeContent.affixRanges()); // overlay affix roll ranges
   applyAffixNameOverrides(activeContent.affixNames()); // overlay affix flavor names
   applySkillTreeOverrides(activeContent.skillTree()); // overlay the passive skill tree
@@ -760,6 +781,7 @@ export function reloadContent(): Content {
   applyRuneOverrides(activeContent.runes()); // re-overlay rune pool on reload
   applyRunewordOverrides(activeContent.runewords()); // re-overlay runeword recipes on reload
   applyItemSetOverrides(activeContent.itemSets()); // re-overlay item sets on reload
+  applyBossScriptOverrides(activeContent.bossScripts()); // re-overlay boss scripts on reload
   applyAffixRangeOverrides(activeContent.affixRanges()); // re-overlay affix roll ranges on reload
   applyAffixNameOverrides(activeContent.affixNames()); // re-overlay affix flavor names on reload
   applySkillTreeOverrides(activeContent.skillTree()); // re-overlay the passive skill tree on reload
@@ -1028,6 +1050,59 @@ interface ItemSetRow {
   name: string;
   pieces: string;
   flavor: string | null;
+}
+interface MobScriptPhaseRow {
+  id: number;
+  template_id: string;
+  hp_below: number;
+  sort_order: number;
+}
+interface MobScriptStepRow {
+  kind: string;
+  x: number | null;
+  y: number | null;
+  speed_mult: number | null;
+  ms: number | null;
+  ability: string | null;
+  summon_template: string | null;
+  summon_count: number | null;
+  summon_radius: number | null;
+  text: string | null;
+}
+
+/**
+ * Rebuild one {@link BossStep} from a DB row, or return null if the row is malformed (wrong `kind`
+ * or a missing required column for that kind). Null rows are dropped on load so a bad SQL edit
+ * degrades a fight rather than crashing the boss tick — the executor only ever sees valid steps.
+ */
+function rowToBossStep(r: MobScriptStepRow): BossStep | null {
+  switch (r.kind) {
+    case 'moveTo':
+      if (r.x === null || r.y === null) return null;
+      return r.speed_mult === null
+        ? { kind: 'moveTo', x: r.x, y: r.y }
+        : { kind: 'moveTo', x: r.x, y: r.y, speedMult: r.speed_mult };
+    case 'wait':
+      return r.ms === null ? null : { kind: 'wait', ms: r.ms };
+    case 'brawl':
+      return r.ms === null ? null : { kind: 'brawl', ms: r.ms };
+    case 'cast':
+      return r.ability === null ? null : { kind: 'cast', ability: r.ability as AbilityId };
+    case 'summon':
+      if (r.summon_template === null || r.summon_count === null || r.summon_radius === null) {
+        return null;
+      }
+      return {
+        kind: 'summon',
+        templateId: r.summon_template,
+        count: r.summon_count,
+        radius: r.summon_radius,
+      };
+    case 'shout':
+      return r.text === null ? null : { kind: 'shout', text: r.text };
+    default:
+      return null;
+  }
 }
 interface AffixRangeRow {
   stat: string;

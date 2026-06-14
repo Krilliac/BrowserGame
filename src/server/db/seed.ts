@@ -29,6 +29,7 @@ import {
 } from '../../shared/items.js';
 import { DEFAULT_RUNES, DEFAULT_RUNEWORDS } from '../../shared/runewords.js';
 import { DEFAULT_ITEM_SETS } from '../../shared/item-sets.js';
+import { DEFAULT_BOSS_SCRIPTS } from '../boss-scripts.js';
 import { DEFAULT_SKILL_TREE, type SkillEffects } from '../../shared/skilltree.js';
 import { DEFAULT_HIRELING_TEMPLATES } from '../hirelings.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
@@ -338,6 +339,7 @@ export function seed(db: Database): void {
   ensureGems(db); // socketable gem catalog (seeded from gems.ts DEFAULT_GEMS)
   ensureRunewords(db); // rune pool + runeword recipes (seeded from runewords.ts defaults)
   ensureItemSets(db); // item-set membership + threshold bonuses (seeded from item-sets.ts defaults)
+  ensureBossScripts(db); // scripted apex-boss phases/steps (seeded from boss-scripts.ts defaults)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
   ensureHirelings(db); // mercenary roster (seeded from hirelings.ts DEFAULT_HIRELING_TEMPLATES)
@@ -482,6 +484,47 @@ function ensureItemSets(db: Database): void {
     s.bonuses.forEach((b, i) =>
       insBonus.run(s.id, b.requiredPieces, b.affix.stat, b.affix.value, i),
     );
+  }
+}
+
+/**
+ * Seed the scripted boss phases + steps from the code defaults (boss-scripts.ts). Idempotent: a boss
+ * that already has any phase row is skipped, so designer edits survive a restart. Each step writes
+ * only the columns its `kind` uses (the rest stay NULL); the content loader skips malformed rows.
+ */
+function ensureBossScripts(db: Database): void {
+  const hasPhase = db.prepare('SELECT 1 FROM mob_script_phases WHERE template_id = ? LIMIT 1');
+  const insPhase = db.prepare(
+    'INSERT INTO mob_script_phases (template_id,hp_below,sort_order) VALUES (?,?,?)',
+  );
+  const insStep = db.prepare(
+    `INSERT INTO mob_script_steps
+       (phase_id,sort_order,kind,x,y,speed_mult,ms,ability,summon_template,summon_count,summon_radius,text)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+  for (const [templateId, script] of Object.entries(DEFAULT_BOSS_SCRIPTS)) {
+    if (hasPhase.get(templateId)) continue;
+    script.phases.forEach((phase, pi) => {
+      const phaseId = insPhase.run(templateId, phase.hpBelow, pi).lastInsertRowid as
+        | number
+        | bigint;
+      phase.loop.forEach((step, si) => {
+        insStep.run(
+          phaseId,
+          si,
+          step.kind,
+          step.kind === 'moveTo' ? step.x : null,
+          step.kind === 'moveTo' ? step.y : null,
+          step.kind === 'moveTo' ? (step.speedMult ?? null) : null,
+          step.kind === 'wait' || step.kind === 'brawl' ? step.ms : null,
+          step.kind === 'cast' ? step.ability : null,
+          step.kind === 'summon' ? step.templateId : null,
+          step.kind === 'summon' ? step.count : null,
+          step.kind === 'summon' ? step.radius : null,
+          step.kind === 'shout' ? step.text : null,
+        );
+      });
+    });
   }
 }
 

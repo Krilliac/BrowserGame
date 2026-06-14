@@ -468,6 +468,37 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     },
   },
 
+  mob_script_phases: {
+    pk: 'id',
+    label: 'boss script phase',
+    note: 'a boss phase (active while hp/maxHp < hp_below); /reloadcontent to apply',
+    columns: {
+      template_id: { type: 'text' },
+      hp_below: { type: 'real', min: 0, max: 1 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
+  mob_script_steps: {
+    pk: 'id',
+    label: 'boss script step',
+    note: 'one step of a boss phase loop; only the columns for its kind are used; /reloadcontent to apply',
+    columns: {
+      phase_id: { type: 'int', min: 1, max: 9999999 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+      kind: { type: 'enum', values: ['moveTo', 'wait', 'brawl', 'cast', 'summon', 'shout'] },
+      x: { type: 'real', min: 0, max: 1, nullable: true },
+      y: { type: 'real', min: 0, max: 1, nullable: true },
+      speed_mult: { type: 'real', min: 0, max: 10, nullable: true },
+      ms: { type: 'int', min: 0, max: 600000, nullable: true },
+      ability: { type: 'text', nullable: true },
+      summon_template: { type: 'text', nullable: true },
+      summon_count: { type: 'int', min: 0, max: 99, nullable: true },
+      summon_radius: { type: 'real', min: 0, max: 4000, nullable: true },
+      text: { type: 'text', nullable: true },
+    },
+  },
+
   uniques: {
     pk: 'id',
     label: 'unique item',
