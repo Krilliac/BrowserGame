@@ -39,6 +39,12 @@ export interface MobTemplate {
   slamRadius?: number;
   /** Charger only: dash speed (px/s) of the lunge after the wind-up. */
   dashSpeed?: number;
+  /** Caster: ability id this mob casts in place of its basic attack (loaded from the DB). */
+  spell?: AbilityId;
+  /** Support caster: a self buff/heal ability cast periodically while fighting (loaded from the DB). */
+  support?: AbilityId;
+  /** Personality traits that vary how it fights (loaded from the DB; see {@link MobTrait}). */
+  traits?: MobTrait[];
 }
 
 export const MOB_TEMPLATES: Record<string, MobTemplate> = {
@@ -1867,14 +1873,14 @@ export const MOB_TRAITS: Record<string, MobTrait[]> = {
  * Damage multiplier the orchestrator applies to an attacking mob's outgoing damage:
  * enraged templates hit 1.5x harder while below the enrage threshold.
  */
-export function traitDamageMult(templateId: string, hpFrac: number): number {
-  const enraged = MOB_TRAITS[templateId]?.includes('enrage') && hpFrac < ENRAGE_HP_FRAC;
+export function traitDamageMult(traits: MobTrait[] | undefined, hpFrac: number): number {
+  const enraged = traits?.includes('enrage') && hpFrac < ENRAGE_HP_FRAC;
   return enraged ? 1.5 : 1;
 }
 
 /** Whether a template runs in packs — the orchestrator uses this for help-calls (alerting packmates). */
-export function isPackish(templateId: string): boolean {
-  return MOB_TRAITS[templateId]?.includes('pack') ?? false;
+export function isPackish(traits: MobTrait[] | undefined): boolean {
+  return traits?.includes('pack') ?? false;
 }
 
 export interface MobView {
@@ -1939,7 +1945,7 @@ export function stepMob(
   aggroScale = 1,
   ctx?: MobStepContext,
 ): MobIntent {
-  const traits = ctx ? (MOB_TRAITS[mob.template.id] ?? []) : [];
+  const traits = ctx ? (mob.template.traits ?? []) : [];
 
   let aggroMult = 1;
   let speedMult = 1;

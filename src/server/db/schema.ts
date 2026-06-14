@@ -125,7 +125,10 @@ CREATE TABLE IF NOT EXISTS mob_templates (
   projectile_speed    REAL,
   kite_range          REAL,
   slam_radius         REAL,
-  dash_speed          REAL
+  dash_speed          REAL,
+  spell               TEXT,                    -- caster: ability id cast in place of the basic attack
+  support             TEXT,                    -- support caster: self buff/heal ability id
+  traits              TEXT                     -- JSON array of personality traits (pack/craven/…)
 );
 
 CREATE TABLE IF NOT EXISTS area_mobs (

@@ -39,7 +39,7 @@ Two rules make something "DB-driven" here:
 | Abilities (spells) | `abilities` | ✅ | ✅ | ⬜ (still `shared/combat.ts`) |
 | **Items (equipment/materials)** | `items` | ✅ | ✅ (`ItemInfo`) | ✅ `seed-items.ts` |
 | **Legendaries (uniques)** | `uniques` | ✅ | n/a (sent as instances) | ✅ `seed-uniques.ts` |
-| Monsters | `mob_templates`,`area_mobs` | ✅ | n/a (sent in snapshots) | ⬜ (still `mobs.ts`) |
+| Monsters | `mob_templates`,`area_mobs` | ✅ (incl. traits/spell/support) | n/a (sent in snapshots) | ⬜ (still `mobs.ts`) |
 | Loot tables | `loot_entry` | ✅ | n/a | ✅ (seed-*) |
 | NPCs | `npcs` | ✅ | via content/snapshots | ✅ (seed-*) |
 | Decor / objects | `decor` | ✅ | via content packet | ✅ (seed-*) |
@@ -61,9 +61,12 @@ last runtime reads of the shared data consts and (b) moving the *authored* array
    `src/shared/equipment.ts` into `seed-items.ts`, leaving only slot **types/labels** in shared.
 3. **Spells → DB-authored.** Move the `ABILITIES` data to `seed-spells`/`seed-items`-style seed,
    keep `AbilityId`/types shared; server + client already read the DB/packet.
-4. **Monsters → DB-authored.** Move `MOB_TEMPLATES`/`AREA_MOBS`/`MOB_TRAITS`/`MOB_SPELLS` into the
-   seed layer; the server already reads `mob_templates`/`area_mobs` via content. Add trait/spell
-   columns (or a side table) so the const isn't needed at runtime.
+4. **Monsters — runtime → DB.** ✅ Done. Added `spell`/`support`/`traits` columns to
+   `mob_templates` (traits as JSON), seeded from the authoring maps; `content.ts` loads them onto the
+   template; `world.ts` and the `stepMob` AI now read `template.spell`/`template.support`/
+   `template.traits` and the trait helpers take a `traits` array — no runtime read of the
+   `MOB_SPELLS`/`MOB_SUPPORT`/`MOB_TRAITS` consts (which remain only as authored seed data).
+   Remaining: relocate `MOB_TEMPLATES`/`AREA_MOBS` data out of `mobs.ts` into the seed layer.
 5. **Areas / terrain / objects → DB-authored.** Move `AREAS`/`AREA_THEMES`/`DUNGEONS` data into the
    seed layer; the client already loads areas from the packet. Fold terrain/collision data into the
    DB where it is still computed from consts.

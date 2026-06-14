@@ -4,7 +4,7 @@ import { AREAS, AREA_THEMES, type DecorProp } from '../../shared/areas.js';
 import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
 import { EQUIPMENT, MATERIALS } from './seed-items.js';
-import { MOB_TEMPLATES, AREA_MOBS } from '../mobs.js';
+import { MOB_TEMPLATES, AREA_MOBS, MOB_SPELLS, MOB_SUPPORT, MOB_TRAITS } from '../mobs.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
 import { GEMS } from '../../shared/gems.js';
@@ -725,8 +725,8 @@ function ensureWorldExpansion(db: Database): void {
   const insMob = db.prepare(
     `INSERT OR IGNORE INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
-        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     insMob.run(
@@ -746,6 +746,9 @@ function ensureWorldExpansion(db: Database): void {
       t.kiteRange ?? null,
       t.slamRadius ?? null,
       t.dashSpeed ?? null,
+      MOB_SPELLS[t.id] ?? null,
+      MOB_SUPPORT[t.id] ?? null,
+      MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
     );
   }
 
@@ -1100,8 +1103,8 @@ function seedMobs(db: Database): void {
   const mob = db.prepare(
     `INSERT INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
-        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     mob.run(
@@ -1121,6 +1124,9 @@ function seedMobs(db: Database): void {
       t.kiteRange ?? null,
       t.slamRadius ?? null,
       t.dashSpeed ?? null,
+      MOB_SPELLS[t.id] ?? null,
+      MOB_SUPPORT[t.id] ?? null,
+      MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
     );
   }
   const am = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');

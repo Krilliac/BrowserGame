@@ -31,6 +31,13 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **Monster traits / spells / support are now database-driven (content-engine phase 3).** The runtime
+  no longer reads the `MOB_SPELLS`/`MOB_SUPPORT`/`MOB_TRAITS` consts: `mob_templates` gained `spell`,
+  `support`, and `traits` (JSON) columns, seeded from the authoring maps and loaded onto the
+  `MobTemplate` by `content.ts`. The `world.ts` caster/support logic reads `template.spell` /
+  `template.support`, and the `stepMob` AI plus the `traitDamageMult`/`isPackish` helpers now take
+  the template's `traits` array — so a monster's casting and personality come straight from the DB.
+  The consts remain only as authored seed data.
 - **Items are now fully database-driven (content-engine phase 2).** The DB `items` table is the
   single runtime source of truth and nothing reads a hardcoded item const during the game:
   - `gamble.ts` no longer imports `EQUIPMENT` — `rollGamble`/`isGambleSlot` take the equip-base pool

@@ -6,7 +6,7 @@ import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
 import type { ItemInstance } from '../shared/items.js';
 import { pickUnique, rollUnique, type UniqueDef } from '../shared/uniques.js';
-import type { MobTemplate } from './mobs.js';
+import type { MobTemplate, MobTrait } from './mobs.js';
 
 /**
  * Runtime game content, loaded from the SQLite database (the source of truth) via parametrized
@@ -285,6 +285,9 @@ export function loadContent(db: GameDatabase): Content {
     if (r.kite_range !== null) template.kiteRange = r.kite_range;
     if (r.slam_radius !== null) template.slamRadius = r.slam_radius;
     if (r.dash_speed !== null) template.dashSpeed = r.dash_speed;
+    if (r.spell !== null) template.spell = r.spell as AbilityId;
+    if (r.support !== null) template.support = r.support as AbilityId;
+    if (r.traits !== null) template.traits = JSON.parse(r.traits) as MobTrait[];
     mobTemplates.set(r.id, template);
   }
 
@@ -565,6 +568,9 @@ interface MobRow {
   kite_range: number | null;
   slam_radius: number | null;
   dash_speed: number | null;
+  spell: string | null;
+  support: string | null;
+  traits: string | null;
 }
 interface AreaMobRow {
   area_id: string;

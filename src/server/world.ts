@@ -60,8 +60,6 @@ import {
   stepMob,
   isPackish,
   traitDamageMult,
-  MOB_SPELLS,
-  MOB_SUPPORT,
   type MobStepContext,
   type MobTemplate,
   type MobView,
@@ -2053,7 +2051,7 @@ export class World {
       MOB_DMG_TUNING *
       this.coopDamageScale() *
       // Enraged brutes (trait, below 35% HP) hit half again as hard â€” finish them or back off.
-      traitDamageMult(mob.templateId, mob.maxHp > 0 ? mob.hp / mob.maxHp : 1) *
+      traitDamageMult(template.traits, mob.maxHp > 0 ? mob.hp / mob.maxHp : 1) *
       mob.dmgMult *
       this.corruptionDmg() *
       mob.statuses.weakenFactor() *
@@ -2346,7 +2344,7 @@ export class World {
       const template = getContent().mobTemplate(mob.templateId)!;
 
       // Support casters periodically buff/heal themselves while a player is in the fight.
-      const support = MOB_SUPPORT[mob.templateId];
+      const support = template.support;
       if (support && mob.supportCd <= 0 && this.anyLivingPlayerWithin(mob, template.aggroRange)) {
         this.castMobSpell(mob, template, support);
         mob.supportCd = MOB_SUPPORT_COOLDOWN_MS;
@@ -2683,7 +2681,7 @@ export class World {
   private executeMobAttack(mob: Mob, template: MobTemplate): void {
     // Spellcaster monsters cast a real ability in place of their basic ranged/melee attack (the
     // charger keeps its signature lunge). The spell's projectile/cone debuffs the player it hits.
-    const spell = MOB_SPELLS[mob.templateId];
+    const spell = template.spell;
     if (spell && template.behavior !== 'charger') {
       this.castMobSpell(mob, template, spell);
       return;
@@ -2926,7 +2924,7 @@ export class World {
     // A hurt monster is ALERTED (extended aggro reach â€” it hunts rather than idles), and a
     // pack hunter calls for help: same-template packmates in earshot join the alert.
     mob.alertUntil = this.now + 8000;
-    if (isPackish(mob.templateId)) {
+    if (isPackish(getContent().mobTemplate(mob.templateId)?.traits)) {
       for (const ally of this.mobs.values()) {
         if (ally.dead || ally.templateId !== mob.templateId || ally.id === mob.id) continue;
         if (Math.hypot(ally.x - mob.x, ally.y - mob.y) <= 360) {
