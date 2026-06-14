@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AREAS, AREA_THEMES, DUNGEONS } from '../../shared/areas.js';
-import { EQUIPMENT } from '../../shared/equipment.js';
+import { EQUIPMENT } from './seed-items.js';
 import { MOB_TEMPLATES, AREA_MOBS } from '../mobs.js';
 import { NEW_SPELLBOOKS } from './seed-spells.js';
 import { ACTS_DECOR, ACTS_LOOT, ACTS_NPCS, ACTS_QUESTS, ACTS_VENDOR_STOCK } from './seed-acts.js';

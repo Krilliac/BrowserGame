@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { EQUIPMENT } from '../shared/equipment.js';
+import { EQUIPMENT } from '../server/db/seed-items.js';
 import { GEMS } from '../shared/gems.js';
 import { RUNES } from '../shared/runewords.js';
 import {

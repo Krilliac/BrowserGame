@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { EQUIPMENT, type ItemSlot } from './equipment.js';
+import { type ItemSlot } from './equipment.js';
 import { gambleCost, isGambleSlot, rollGamble } from './gamble.js';
 import type { BaseItem } from './items.js';
 
@@ -11,16 +11,19 @@ function seq(values: number[]): () => number {
 }
 
 /**
- * The gamble pool is now supplied by the caller (the server builds it from the content DB). For
- * these pure tests we build an equivalent pool from EQUIPMENT and pass it in.
+ * The gamble pool is supplied by the caller (the server builds it from the content DB). These pure
+ * tests pass an inline pool with multiple slots and 2+ bases in some slots (so the pick tests can
+ * assert first vs. last), keeping the shared test free of any item-data import.
  */
-const BASES: BaseItem[] = Object.values(EQUIPMENT).map((e) => ({
-  id: e.id,
-  name: e.name,
-  slot: e.slot,
-  power: e.power ?? null,
-  hp: e.hp ?? null,
-}));
+const BASES: BaseItem[] = [
+  { id: 'a_sword', name: 'A Sword', slot: 'mainhand', power: 6, hp: null },
+  { id: 'b_sword', name: 'B Sword', slot: 'mainhand', power: 13, hp: null },
+  { id: 'a_chest', name: 'A Chest', slot: 'chest', power: null, hp: 30 },
+  { id: 'b_chest', name: 'B Chest', slot: 'chest', power: null, hp: 65 },
+  { id: 'a_ring', name: 'A Ring', slot: 'ring', power: null, hp: null },
+  { id: 'b_ring', name: 'B Ring', slot: 'ring', power: null, hp: null },
+  { id: 'a_helm', name: 'A Helm', slot: 'head', power: null, hp: 12 },
+];
 const slotOf = (id: string): string => BASES.find((b) => b.id === id)!.slot;
 
 /** The set of ItemSlots that actually have a base item in the pool. */

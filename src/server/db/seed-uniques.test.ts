@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { EQUIPMENT, type ItemSlot } from '../../shared/equipment.js';
+import { type ItemSlot } from '../../shared/equipment.js';
+import { EQUIPMENT } from './seed-items.js';
 import { getContent, initGameDb } from '../content.js';
 import { UNIQUES } from './seed-uniques.js';
 

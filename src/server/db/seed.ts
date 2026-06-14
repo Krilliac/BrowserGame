@@ -3,7 +3,7 @@ import { config } from '../config.js';
 import { AREAS, AREA_THEMES, type DecorProp } from '../../shared/areas.js';
 import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
-import { EQUIPMENT } from '../../shared/equipment.js';
+import { EQUIPMENT, MATERIALS } from './seed-items.js';
 import { MOB_TEMPLATES, AREA_MOBS } from '../mobs.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
@@ -17,18 +17,6 @@ import { FRONTIER_NPCS, FRONTIER_DECOR, FRONTIER_LOOT, FRONTIER_QUESTS } from '.
 import { ACTS_NPCS, ACTS_DECOR, ACTS_LOOT, ACTS_QUESTS, ACTS_VENDOR_STOCK } from './seed-acts.js';
 import { WILDS_AREA_MOBS, WILDS_LOOT } from './seed-wilds.js';
 import { UNIQUES } from './seed-uniques.js';
-
-/** Display names + colors for the non-equipment loot materials (and gold). */
-const MATERIALS: Record<string, { name: string; color: string }> = {
-  gold: { name: 'Gold', color: '#f2c14e' },
-  wolf_pelt: { name: 'Wolf Pelt', color: '#9c7a4d' },
-  bone: { name: 'Bone', color: '#e8e2d0' },
-  bat_wing: { name: 'Bat Wing', color: '#7a5a8a' },
-  rune_shard: { name: 'Rune Shard', color: '#5fb0e0' },
-  venom_gland: { name: 'Venom Gland', color: '#9fd86a' },
-  ember_ore: { name: 'Ember Ore', color: '#ff8a3a' },
-  frost_core: { name: 'Frost Core', color: '#a8e0ff' },
-};
 
 /**
  * Spellbooks: one tome per ability. Reading one learns the spell (or ranks it up — the Diablo 1
