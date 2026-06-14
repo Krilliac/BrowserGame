@@ -35,6 +35,11 @@ auto-attack ALREADY worked (moveSample/autoAttackAbility) — only the VISUALS w
 
 | 15 | feat(ui) | **Salvage bag UI** — shift-click bag item to salvage | green | 5bfeaf4; protocol+net+index+main; hint added; no restart needed (mats already seeded) |
 
+| 16 | feat(ui) | **Set progress in character panel** — ship itemSets in content packet | green | 37fa68c; compact active-set line (panel was full; full per-bonus = future, needs resize) |
+
+NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via parallel agent
+(achievements module, or #2 reconnect grace, or #15 content-pack discovery). Then another client-UX.
+
 ### Iteration 16+ candidates
 - Set-bonus display in character panel (ship set membership in content packet → client shows N/M + active bonuses).
 - Crafting panel UI (list /recipes as clickable; needs server restart for crafting tables).
