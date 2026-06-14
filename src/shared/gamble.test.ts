@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import { EQUIPMENT, type ItemSlot } from './equipment.js';
 import { gambleCost, isGambleSlot, rollGamble } from './gamble.js';
+import type { BaseItem } from './items.js';
 
 /** A deterministic rng cycling through fixed draws — lets us assert exact picks. */
 function seq(values: number[]): () => number {
@@ -9,10 +10,21 @@ function seq(values: number[]): () => number {
   return () => values[i++ % values.length]!;
 }
 
-/** The set of ItemSlots that actually have a base item in EQUIPMENT. */
-const SLOTS_WITH_BASES = Array.from(
-  new Set(Object.values(EQUIPMENT).map((e) => e.slot)),
-) as ItemSlot[];
+/**
+ * The gamble pool is now supplied by the caller (the server builds it from the content DB). For
+ * these pure tests we build an equivalent pool from EQUIPMENT and pass it in.
+ */
+const BASES: BaseItem[] = Object.values(EQUIPMENT).map((e) => ({
+  id: e.id,
+  name: e.name,
+  slot: e.slot,
+  power: e.power ?? null,
+  hp: e.hp ?? null,
+}));
+const slotOf = (id: string): string => BASES.find((b) => b.id === id)!.slot;
+
+/** The set of ItemSlots that actually have a base item in the pool. */
+const SLOTS_WITH_BASES = Array.from(new Set(BASES.map((b) => b.slot))) as ItemSlot[];
 
 describe('gambleCost', () => {
   it('uses 50 + 30 * level', () => {
@@ -32,53 +44,53 @@ describe('gambleCost', () => {
 
 describe('isGambleSlot', () => {
   it('is true for slots that have base items', () => {
-    expect(isGambleSlot('mainhand')).toBe(true);
-    expect(isGambleSlot('chest')).toBe(true);
-    expect(isGambleSlot('ring')).toBe(true);
+    expect(isGambleSlot('mainhand', BASES)).toBe(true);
+    expect(isGambleSlot('chest', BASES)).toBe(true);
+    expect(isGambleSlot('ring', BASES)).toBe(true);
   });
 
   it('is false for non-equip / unknown / empty slots', () => {
-    expect(isGambleSlot('gold')).toBe(false);
-    expect(isGambleSlot('bogus')).toBe(false);
-    expect(isGambleSlot('')).toBe(false);
-    expect(isGambleSlot('ring1')).toBe(false); // a doll slot, not an ItemSlot with bases
+    expect(isGambleSlot('gold', BASES)).toBe(false);
+    expect(isGambleSlot('bogus', BASES)).toBe(false);
+    expect(isGambleSlot('', BASES)).toBe(false);
+    expect(isGambleSlot('ring1', BASES)).toBe(false); // a doll slot, not an ItemSlot with bases
   });
 
-  it('agrees with EQUIPMENT for every real slot', () => {
+  it('agrees with the pool for every real slot', () => {
     for (const slot of SLOTS_WITH_BASES) {
-      expect(isGambleSlot(slot)).toBe(true);
+      expect(isGambleSlot(slot, BASES)).toBe(true);
     }
   });
 });
 
 describe('rollGamble', () => {
   it('returns an instance whose base item actually has the requested slot', () => {
-    const inst = rollGamble(7, 'mainhand', seq([0.2, 0.5, 0.5, 0.5, 0.5]));
+    const inst = rollGamble(7, 'mainhand', BASES, seq([0.2, 0.5, 0.5, 0.5, 0.5]));
     expect(inst).not.toBeNull();
     expect(inst!.uid).toBe(7);
-    expect(EQUIPMENT[inst!.baseId]!.slot).toBe('mainhand');
+    expect(slotOf(inst!.baseId)).toBe('mainhand');
   });
 
   it('can pick any base in the slot pool depending on rng', () => {
     // rng() near 0 picks the first matching base; near 1 picks the last.
-    const first = rollGamble(1, 'chest', seq([0.0]));
-    const last = rollGamble(2, 'chest', seq([0.999]));
-    expect(EQUIPMENT[first!.baseId]!.slot).toBe('chest');
-    expect(EQUIPMENT[last!.baseId]!.slot).toBe('chest');
+    const first = rollGamble(1, 'chest', BASES, seq([0.0]));
+    const last = rollGamble(2, 'chest', BASES, seq([0.999]));
+    expect(slotOf(first!.baseId)).toBe('chest');
+    expect(slotOf(last!.baseId)).toBe('chest');
     expect(first!.baseId).not.toBe(last!.baseId);
   });
 
   it('resolves rings to a ring base (slot stays "ring")', () => {
-    const inst = rollGamble(3, 'ring', seq([0.3, 0.5, 0.5, 0.5, 0.5]));
+    const inst = rollGamble(3, 'ring', BASES, seq([0.3, 0.5, 0.5, 0.5, 0.5]));
     expect(inst).not.toBeNull();
-    expect(EQUIPMENT[inst!.baseId]!.slot).toBe('ring');
+    expect(slotOf(inst!.baseId)).toBe('ring');
   });
 
   it('returns null for a slot with no bases', () => {
-    expect(rollGamble(1, 'gold')).toBeNull();
-    expect(rollGamble(1, 'bogus')).toBeNull();
-    expect(rollGamble(1, '')).toBeNull();
-    expect(rollGamble(1, 'ring1')).toBeNull();
+    expect(rollGamble(1, 'gold', BASES)).toBeNull();
+    expect(rollGamble(1, 'bogus', BASES)).toBeNull();
+    expect(rollGamble(1, '', BASES)).toBeNull();
+    expect(rollGamble(1, 'ring1', BASES)).toBeNull();
   });
 
   it('never throws and always yields a matching-slot item across every valid slot', () => {
@@ -86,16 +98,16 @@ describe('rollGamble', () => {
     for (const slot of SLOTS_WITH_BASES) {
       // Sweep a range of rng values so we exercise different base picks per slot.
       for (let v = 0; v < 1; v += 0.13) {
-        const inst = rollGamble(uid++, slot, seq([v, 0.5, 0.5, 0.5, 0.5, 0.5]));
+        const inst = rollGamble(uid++, slot, BASES, seq([v, 0.5, 0.5, 0.5, 0.5, 0.5]));
         expect(inst).not.toBeNull();
-        expect(EQUIPMENT[inst!.baseId]!.slot).toBe(slot);
+        expect(slotOf(inst!.baseId)).toBe(slot);
       }
     }
   });
 
   it('can roll above-common rarity (the gambling appeal)', () => {
     // A low rng feeds rollRarity past the common weight band, so we should not be stuck on common.
-    const inst = rollGamble(42, 'mainhand', seq([0.2, 0.999, 0.5, 0.5, 0.5]));
+    const inst = rollGamble(42, 'mainhand', BASES, seq([0.2, 0.999, 0.5, 0.5, 0.5]));
     expect(inst).not.toBeNull();
     expect(inst!.rarity).not.toBe('common');
   });

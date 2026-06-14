@@ -1037,10 +1037,11 @@ export class World {
     if (!player || player.dead) return;
     const npc = this.nearbyNpc(player);
     if (!npc || npc.kind !== 'gambler') return;
-    if (!isGambleSlot(slot)) return;
+    const bases = this.equipBases();
+    if (!isGambleSlot(slot, bases)) return;
     const cost = gambleCost(player.level);
     if (player.gold < cost) return;
-    const inst = rollGamble(this.allocId(), slot);
+    const inst = rollGamble(this.allocId(), slot, bases);
     if (!inst) return;
     player.gold -= cost;
     this.addGear(player, inst);
@@ -3079,12 +3080,18 @@ export class World {
   }
 
   /** A random equippable base item (any slot), or null if the content has none. */
-  private randomEquipBase(): BaseItem | null {
-    const equips = getContent()
+  /** All equippable bases from the content DB, as BaseItems (the pool for gear/gamble rolls). */
+  private equipBases(): BaseItem[] {
+    return getContent()
       .items()
-      .filter((i) => i.kind === 'equip');
-    const def = equips[Math.floor(this.rand() * equips.length)];
-    return def ? asBaseItem(def) : null;
+      .filter((i) => i.kind === 'equip')
+      .map(asBaseItem)
+      .filter((b): b is BaseItem => b !== null);
+  }
+
+  private randomEquipBase(): BaseItem | null {
+    const bases = this.equipBases();
+    return bases[Math.floor(this.rand() * bases.length)] ?? null;
   }
 
   /** Drop one random equipment piece as a rolled, rarity-bumped instance (elite + bounty rewards). */
