@@ -80,11 +80,43 @@ describe('ability + item integrity', () => {
     }
   });
 
-  it('every item has an id, a kind, and a name', () => {
+  it('every item has an id, a kind, a name, and a non-negative sell value', () => {
     for (const item of c.items()) {
       expect(item.id, 'item id').toBeTruthy();
       expect(item.name, `${item.id} name`).toBeTruthy();
       expect(item.kind, `${item.id} kind`).toBeTruthy();
+      expect(item.sellValue, `${item.id} sellValue`).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('every spellbook teaches a REAL ability, and every equippable names a valid slot', () => {
+    // The 12 item-side slot categories (ItemSlot in shared/equipment.ts; two rings share 'ring').
+    const itemSlots = new Set([
+      'head',
+      'neck',
+      'shoulders',
+      'chest',
+      'hands',
+      'waist',
+      'legs',
+      'feet',
+      'mainhand',
+      'offhand',
+      'ring',
+      'trinket',
+    ]);
+    for (const item of c.items()) {
+      if (item.teaches !== null) {
+        // A tome that teaches a deleted/typo'd spell would silently fail to learn anything.
+        expect(
+          c.ability(item.teaches),
+          `${item.id} teaches unknown ability "${item.teaches}"`,
+        ).toBeDefined();
+      }
+      if (item.kind === 'equip') {
+        expect(item.slot, `${item.id} equip slot`).not.toBeNull();
+        expect(itemSlots.has(item.slot as string), `${item.id} bad slot "${item.slot}"`).toBe(true);
+      }
     }
   });
 });

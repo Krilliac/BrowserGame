@@ -181,3 +181,13 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   with positive count, and any rewardItem is a real item).
 - Tests: +2 (998 total). Confirms current quest/NPC data is clean; future broken references fail build.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 17 — spellbook→ability + equip-slot integrity
+- Picked: finish the cross-reference integrity. ItemDef.teaches holds the ability a spellbook grants;
+  a tome teaching a deleted/typo'd spell silently learns nothing. Equip items need a valid slot.
+  (tier: coverage for risky data.)
+- Did: extended content-integrity.test.ts — every item has non-negative sellValue; every spellbook
+  (teaches !== null) resolves to a REAL ability; every `equip` item names a valid ItemSlot category
+  (12 stable slots; rings share 'ring'). Closes the last data cross-reference gap.
+- Tests: +1 (999 total). Current data clean; future broken tome/slot references fail the build.
+- Result: COMMITTED — gate check+build GREEN.

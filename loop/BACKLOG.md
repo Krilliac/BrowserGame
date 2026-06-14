@@ -20,6 +20,7 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - [ ] Health-globe drops (D3): rare monster drop that instant-heals on pickup (new item kind +
       pickup branch + balance; decompose if it grows).
 - [~] chest/pot gold now tier+coop scaled (iter 12). Further flat-vs-scaled audit still open.
+- [x] content-integrity suite complete (iters 15-17): areas/mobs/abilities/items/drops/npcs/quests/spellbooks/slots.
 
 ## Coverage / robustness — remaining
 - [x] Circle-collision edge cases (iter 9): bounded-step block, separate circles, clean exit.
@@ -55,3 +56,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 14: deflaked world-hirelings combat test (seeded)
 - iter 15: content-data integrity coverage (+7 tests)
 - iter 16: NPC + quest integrity coverage (+2 tests)
+- iter 17: spellbook→ability + equip-slot integrity (+1 test)
