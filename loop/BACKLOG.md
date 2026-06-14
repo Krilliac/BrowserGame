@@ -16,7 +16,7 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 ## Diablo-feel — gameplay/content (server-side, unit-testable)
 - [x] D3-style gold magnetism (iter 4).  [x] champion gold scales with level (iter 6).
 - [x] Scale BASE monster gold by level (iter 8) — scaleGoldForLevel, tier-0 unchanged, 4× cap.
-- [ ] Party/co-op gold or loot bonus per extra nearby player (D3 "more players = more loot").
+- [x] Co-op gold bonus (iter 11): coopScale shared helper; gold ×(1+0.12/extra player, cap 1.6).
 - [ ] Health-globe drops (D3): rare monster drop that instant-heals on pickup (new item kind +
       pickup branch + balance; decompose if it grows).
 - [ ] Audit `mobs.ts`/`items.ts`/`gems.ts` for other small flat-vs-scaled un-Diablo spots.
@@ -49,3 +49,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 8: base monster gold scales with level (+5 tests)
 - iter 9: circle-collision edge-case coverage (+3 tests)
 - iter 10: config.ts invariant coverage (+5 tests)
+- iter 11: co-op gold bonus + DRY coopScale (+4 tests)

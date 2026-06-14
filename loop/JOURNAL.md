@@ -113,3 +113,15 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   (start<=cap).
 - Tests: +5 (981 total). No production code changed.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 11 — co-op gold bonus (Diablo-feel) + DRY co-op scaling
+- Picked: party/co-op gold bonus (D3 "more players, more loot") — grouping made the zone harder
+  (existing coopDamageScale) but not richer. (tier: spec/feature — Diablo-feel.)
+- Did: extracted the shared formula `coopScale(alive, perPlayer, cap)` into progression.ts; refactored
+  coopDamageScale to use it (behavior-neutral — world-tagging.test covers it) + added a new
+  `livingPlayerCount()` and `coopGoldScale()`; new config `coop.goldPerPlayer` (0.12) / `goldCap`
+  (1.6); applied the gold multiplier to BOTH monster gold sources (drop-table stack + champion pile).
+  Solo at tier 0 = exactly the table amount (unchanged).
+- Tests: +4 coopScale (solo=1, +per/player, cap, garbage→1); config chances/cap extended for the new
+  knobs; world-tagging still green (DRY proven safe). 985 total.
+- Result: COMMITTED — gate check+build GREEN.

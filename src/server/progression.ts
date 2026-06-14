@@ -76,6 +76,16 @@ export function scaleGoldForLevel(
   return Math.max(1, Math.round(base * factor));
 }
 
+/**
+ * Co-op scaling factor for an instance with `alive` living players: 1 solo, then +`perPlayer` for
+ * each additional player, capped at `cap`. Used both ways — to make a crowded zone more dangerous
+ * (damage) and more rewarding (gold). Pure; a non-positive/garbage count resolves to solo (×1).
+ */
+export function coopScale(alive: number, perPlayer: number, cap: number): number {
+  const n = Math.max(0, Math.floor(alive) || 0);
+  return Math.min(cap, 1 + perPlayer * Math.max(0, n - 1));
+}
+
 /** Player max HP at a given level (base 100, scaling up per level). */
 export function maxHpForLevel(level: number): number {
   const lvl = sanitizeLevel(level);

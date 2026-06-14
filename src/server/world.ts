@@ -105,6 +105,7 @@ import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
 import {
   championGoldPile,
+  coopScale,
   levelForXp,
   levelProgress,
   maxHpForLevel,
@@ -214,6 +215,9 @@ let LEVEL_HP_SCALE = config.difficulty.levelHpScale;
 // this much (capped), so grouping up makes the area meaningfully harder — survival wants a team.
 let COOP_DAMAGE_PER_PLAYER = config.coop.damagePerPlayer;
 let COOP_DAMAGE_CAP = config.coop.damageCap;
+// ...and raises monster GOLD by this much (capped) — the reward side of grouping up.
+let COOP_GOLD_PER_PLAYER = config.coop.goldPerPlayer;
+let COOP_GOLD_CAP = config.coop.goldCap;
 // Crowd mob-density scaling (maintainDensity): each extra living player raises the target living-
 // mob count by this fraction of the base roster, capped, topped up gradually so a flooded zone
 // stays full of targets instead of being farmed to extinction.
@@ -304,6 +308,8 @@ export function applyRuntimeConfig(): void {
   LEVEL_HP_SCALE = config.difficulty.levelHpScale;
   COOP_DAMAGE_PER_PLAYER = config.coop.damagePerPlayer;
   COOP_DAMAGE_CAP = config.coop.damageCap;
+  COOP_GOLD_PER_PLAYER = config.coop.goldPerPlayer;
+  COOP_GOLD_CAP = config.coop.goldCap;
   DENSITY_PER_PLAYER = config.density.perPlayer;
   DENSITY_CAP = config.density.cap;
   DENSITY_TOPUP_PER_CALL = config.density.topupPerCall;
@@ -1945,10 +1951,20 @@ export class World {
    * harder (×1 + COOP_DAMAGE_PER_PLAYER each, capped), so a crowded area is genuinely more
    * dangerous — you want allies at your back, not just sharing your XP. Solo play is unscaled.
    */
-  private coopDamageScale(): number {
+  /** Living players in this instance — the head-count both co-op scales key off. */
+  private livingPlayerCount(): number {
     let alive = 0;
     for (const p of this.players.values()) if (!p.dead) alive++;
-    return Math.min(COOP_DAMAGE_CAP, 1 + COOP_DAMAGE_PER_PLAYER * Math.max(0, alive - 1));
+    return alive;
+  }
+
+  private coopDamageScale(): number {
+    return coopScale(this.livingPlayerCount(), COOP_DAMAGE_PER_PLAYER, COOP_DAMAGE_CAP);
+  }
+
+  /** Co-op GOLD multiplier: a crowded instance drops richer gold (D3 "more players, more loot"). */
+  private coopGoldScale(): number {
+    return coopScale(this.livingPlayerCount(), COOP_GOLD_PER_PLAYER, COOP_GOLD_CAP);
   }
 
   private mobOutgoing(mob: Mob, template: MobTemplate): number {
@@ -2885,13 +2901,16 @@ export class World {
     for (const stack of content.rollLoot(mob.templateId, this.rand)) {
       const id = this.allocId();
       // Base drop-table gold is fixed per template; scale it by the mob's actual level (i.e. rift
-      // tier) so deeper monsters spill richer hoards. Tier 0 keeps the table amount (factor 1).
+      // tier) so deeper monsters spill richer hoards (tier 0 keeps the table amount), then by the
+      // co-op multiplier so a crowded instance pays more. Solo at tier 0 = exactly the table amount.
       const qty =
         stack.item === 'gold'
-          ? scaleGoldForLevel(
-              stack.qty,
-              mob.level,
-              content.mobTemplate(mob.templateId)?.level ?? mob.level,
+          ? Math.round(
+              scaleGoldForLevel(
+                stack.qty,
+                mob.level,
+                content.mobTemplate(mob.templateId)?.level ?? mob.level,
+              ) * this.coopGoldScale(),
             )
           : stack.qty;
       const item: GroundItem = {
@@ -2924,7 +2943,12 @@ export class World {
 
     // Champion bonus: a level-scaled pile of gold + one guaranteed, rarity-bumped piece of gear.
     if (mob.elite) {
-      this.dropGround('gold', championGoldPile(mob.level, this.rand), mob.x, mob.y);
+      this.dropGround(
+        'gold',
+        Math.round(championGoldPile(mob.level, this.rand) * this.coopGoldScale()),
+        mob.x,
+        mob.y,
+      );
       this.dropBonusGear(mob.x, mob.y, 2, corruptedChance);
     }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   championGoldPile,
+  coopScale,
   levelForXp,
   levelProgress,
   maxHpForLevel,
@@ -175,5 +176,31 @@ describe('scaleGoldForLevel', () => {
   it('sanitizes bad inputs (NaN / non-positive levels)', () => {
     expect(scaleGoldForLevel(80, NaN, NaN)).toBe(80); // both → level 1 → factor 1
     expect(scaleGoldForLevel(80, -3, 0)).toBe(80);
+  });
+});
+
+describe('coopScale', () => {
+  const per = 0.12;
+  const cap = 1.6;
+
+  it('is 1× solo (or with no players)', () => {
+    expect(coopScale(0, per, cap)).toBe(1);
+    expect(coopScale(1, per, cap)).toBe(1);
+  });
+
+  it('adds perPlayer for each extra living player', () => {
+    expect(coopScale(2, per, cap)).toBeCloseTo(1.12, 10);
+    expect(coopScale(3, per, cap)).toBeCloseTo(1.24, 10);
+    expect(coopScale(4, per, cap)).toBeGreaterThan(coopScale(3, per, cap));
+  });
+
+  it('never exceeds the cap', () => {
+    expect(coopScale(100, per, cap)).toBe(cap);
+    for (let n = 1; n <= 20; n++) expect(coopScale(n, per, cap)).toBeLessThanOrEqual(cap);
+  });
+
+  it('resolves garbage head-counts to solo (×1)', () => {
+    expect(coopScale(NaN, per, cap)).toBe(1);
+    expect(coopScale(-3, per, cap)).toBe(1);
   });
 });

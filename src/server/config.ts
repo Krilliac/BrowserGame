@@ -96,6 +96,11 @@ export const config = {
     damagePerPlayer: 0.15,
     /** Cap on the co-op damage multiplier. */
     damageCap: 2.2,
+    /** Extra monster GOLD per additional living player (D3 "more players, more loot" — the reward
+     *  side of grouping up, since drops are contested and the zone is harder). */
+    goldPerPlayer: 0.12,
+    /** Cap on the co-op gold multiplier. */
+    goldCap: 1.6,
   },
 
   /** Crowd mob-density scaling (maintainDensity): keep a flooded zone full of targets. */

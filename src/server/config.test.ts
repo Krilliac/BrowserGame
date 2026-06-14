@@ -24,6 +24,7 @@ describe('config invariants', () => {
     const chances = [
       config.difficulty.eliteChance,
       config.coop.damagePerPlayer,
+      config.coop.goldPerPlayer,
       config.density.perPlayer,
       config.drops.unique,
       config.drops.chestUnique,
@@ -60,6 +61,7 @@ describe('config invariants', () => {
     expect(config.difficulty.mobDamage).toBeGreaterThan(0);
     expect(config.density.cap).toBeGreaterThanOrEqual(1);
     expect(config.coop.damageCap).toBeGreaterThanOrEqual(1); // a cap below 1 would REDUCE solo damage
+    expect(config.coop.goldCap).toBeGreaterThanOrEqual(1); // a cap below 1 would REDUCE solo gold
   });
 
   it('keeps inventory/belt limits coherent (you can never start over the cap)', () => {
