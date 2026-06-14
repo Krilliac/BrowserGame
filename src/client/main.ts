@@ -2025,12 +2025,15 @@ function instLabel(inst: ItemInstance): string {
   return instanceTitle(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
 }
 
-/** Stat segments for a gear instance: base stat(s) then affixes, flagging debuffs for red text. */
-function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean }[] {
-  const segs: { text: string; debuff: boolean }[] = [];
+/** Stat segments for a gear instance: base stat(s), affixes (debuffs in red), then a set tag if any. */
+function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean; color?: string }[] {
+  const segs: { text: string; debuff: boolean; color?: string }[] = [];
   if (inst.power > 0) segs.push({ text: `+${inst.power} pow`, debuff: false });
   if (inst.hp > 0) segs.push({ text: `+${inst.hp} hp`, debuff: false });
   for (const a of inst.affixes) segs.push({ text: affixLabel(a as Affix), debuff: isDebuff(a) });
+  // Set tag: mark items that belong to an item set (green), so you can spot set pieces while looting.
+  const set = ITEM_SETS.find((s) => s.pieces.includes(inst.baseId));
+  if (set) segs.push({ text: `◆ ${set.name}`, debuff: false, color: '#9be09b' });
   return segs;
 }
 
@@ -2209,7 +2212,7 @@ function drawInventory(w: number): void {
       hud.font = '10px system-ui, sans-serif';
       let sx = px + 8;
       for (const seg of instStatSegments(inst)) {
-        hud.fillStyle = seg.debuff ? '#ff6b6b' : '#9fb0c0';
+        hud.fillStyle = seg.color ?? (seg.debuff ? '#ff6b6b' : '#9fb0c0');
         hud.fillText(seg.text, sx, ry + 23);
         sx += hud.measureText(seg.text).width + 7;
       }
