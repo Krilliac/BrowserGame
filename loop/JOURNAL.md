@@ -11,7 +11,15 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 | 2 | feat | **mob_scripts** (#3) — data-drive BOSS_SCRIPTS into a table | green | 907b015; +9 tests → 1208; executor/BossStep stay in code; defensive row→step |
 | 3 | coverage | **Integrity guards** for new content (item-sets + boss-scripts) | green | f7e8a84; +4 integrity tests → 1212 green, no flakes |
 
-| 4 | feat+coverage | New **Sentinel's Plate** steel set + set **completability** integrity guard | pending | 4th set (distinct slots); guard: pieces must fit doll slots (ring=2) — catches dead-content sets |
+| 4 | feat+coverage | New **Sentinel's Plate** steel set + set **completability** integrity guard | green | 3ea2f66; +1 test → 1213; guard: pieces must fit doll slots (ring=2) |
+
+### Iteration 5 plan (proc system — needs focus)
+Highest felt-value next: on-hit **proc system** (#6, anchor "loot=build" identity). Hook point
+found: `damageMob` (world.ts:2949) is the single chokepoint; `attacker = players.get(attackerId)`.
+Cast path (world.ts:~1970) is input-coupled — DON'T reuse it. v1 = direct-effect procs (bonus
+damage / apply status via existing damageMob + applyStatus), ICD per (player,proc), **recursion
+guard** (depth flag — procs must not re-proc → server hang). Player procs computed in recomputeStats
+→ player.procs. Pure resolver + tests first; seed a proc on a unique so it's felt.
 
 ### Next up (mining backlog, remaining high-value)
 - #2 reconnect grace window (phone-friendly; index.ts ws lifecycle — harder to unit-test)
