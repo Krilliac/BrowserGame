@@ -109,6 +109,12 @@ import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runeword
 import { setBonuses } from '../shared/item-sets.js';
 import { resolveProcs, type ProcDef } from './item-procs.js';
 import {
+  rollRiftModifiers,
+  aggregateRiftEffects,
+  type RiftModifierDef,
+  type RiftEffects,
+} from './rift-modifiers.js';
+import {
   createTrade,
   setOffer as tradeSetOfferPure,
   confirm as tradeConfirmPure,
@@ -704,7 +710,26 @@ export class World {
     this.areaId = areaId;
     this.areaCorruption = areaCorruption ?? new AreaCorruption();
     this.rand = mulberry32(this.seed);
+    // Rift modifiers: a tiered rift rolls named mutators (D3-style). Rolled from a DERIVED seed so it
+    // never disturbs the main spawn/loot rng — same rift seed ⇒ same modifiers. Tier 0 = none (the
+    // effects stay the neutral identity, so ordinary areas are completely unaffected).
+    if (this.tier > 0) {
+      const modRng = mulberry32((this.seed + 0x9e3779b9) >>> 0);
+      this.riftModifiers = rollRiftModifiers(this.tier, modRng, 2, getContent().riftModifiers());
+      this.riftEffects = aggregateRiftEffects(this.riftModifiers);
+    }
   }
+
+  /** The named rift mutators rolled for this instance (empty for a non-rift area). */
+  readonly riftModifiers: RiftModifierDef[] = [];
+  /** Aggregated rift-modifier effects, applied at mob spawn + reward sites; identity for tier 0. */
+  private riftEffects: RiftEffects = {
+    mobDamageMult: 1,
+    mobHpMult: 1,
+    mobSpeedMult: 1,
+    lootQuantityBonus: 0,
+    xpBonus: 0,
+  };
 
   /** The instance's seeded RNG â€” the only randomness source inside the simulation. */
   private readonly rand: () => number;
@@ -887,7 +912,11 @@ export class World {
     // template's level keeps same-level fights at several hits — and makes the apex bosses tanky.
     const levelHp = 1 + LEVEL_HP_SCALE * template.level;
     const hp = Math.round(
-      (mod ? template.hp * mod.hp : template.hp) * tierHp * MOB_HP_TUNING * levelHp,
+      (mod ? template.hp * mod.hp : template.hp) *
+        tierHp *
+        this.riftEffects.mobHpMult *
+        MOB_HP_TUNING *
+        levelHp,
     );
     this.mobs.set(id, {
       id,
@@ -919,8 +948,8 @@ export class World {
       dashVy: 0,
       dashHit: new Set(),
       elite,
-      dmgMult: (mod ? mod.dmg : 1) * tierDmg,
-      spdMult: mod ? mod.spd : 1,
+      dmgMult: (mod ? mod.dmg : 1) * tierDmg * this.riftEffects.mobDamageMult,
+      spdMult: (mod ? mod.spd : 1) * this.riftEffects.mobSpeedMult,
       invader,
       alertUntil: 0,
     });
@@ -3199,9 +3228,14 @@ export class World {
       // A small group XP bonus on top of the elite multiplier — a kill that took several hands is
       // worth more total, so co-op pays even though everyone shares it.
       const groupBonus = 1 + 0.1 * Math.max(0, mob.taggers.size - 1);
-      // xpEventMult folds in any active liveops event bonus (e.g. Bloodmoon +50%), injected by the host.
+      // xpEventMult folds in a liveops event bonus (e.g. Bloodmoon); riftEffects.xpBonus folds in any
+      // rolled rift mutator (e.g. Scholarly +40% XP). Both default to neutral outside their context.
       const reward = Math.round(
-        xpReward(mob.level) * (mob.elite ? 3 : 1) * groupBonus * this.xpEventMult,
+        xpReward(mob.level) *
+          (mob.elite ? 3 : 1) *
+          groupBonus *
+          this.xpEventMult *
+          (1 + this.riftEffects.xpBonus),
       );
       // Shared credit: EVERY player who tagged the mob, plus party members present in THIS instance,
       // each get the full XP and quest progress — grouping (and helping) is rewarded, never taxed.
@@ -3236,7 +3270,8 @@ export class World {
                 content.mobTemplate(mob.templateId)?.level ?? mob.level,
               ) * this.coopGoldScale(),
             )
-          : stack.qty;
+          : // Rift "Bountiful"-style mutators boost material stack sizes (0 outside a rift).
+            Math.max(1, Math.round(stack.qty * (1 + this.riftEffects.lootQuantityBonus)));
       const item: GroundItem = {
         id,
         itemId: stack.item,

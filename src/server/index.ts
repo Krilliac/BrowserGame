@@ -991,6 +991,18 @@ wss.on('connection', (socket) => {
                 instanceId: ev.toInstanceId,
               });
               announceArrival(p.socket, ev.toAreaId);
+              // Announce the rolled rift mutators so the player knows what twist they're walking into.
+              const riftWorld = manager.get(p.instanceId)?.world;
+              if (riftWorld && riftWorld.riftModifiers.length > 0) {
+                for (const m of riftWorld.riftModifiers) {
+                  send(p.socket, {
+                    t: 'chat',
+                    from: 'System',
+                    text: `Rift mutator — ${m.name}: ${m.desc}`,
+                    channel: 'system',
+                  });
+                }
+              }
               const stats = manager.get(p.instanceId)?.world.playerStats(entityId);
               social.updatePresence(p.token, ev.toAreaId, stats?.level ?? 1);
               const name = nameOf(entityId);

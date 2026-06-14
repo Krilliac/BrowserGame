@@ -528,6 +528,21 @@ CREATE TABLE IF NOT EXISTS game_events (
   announce    TEXT                     -- nullable; chat line broadcast when an occurrence begins
 );
 
+-- Rift modifiers: D3-style mutators a tiered rift rolls at open (e.g. Berserk: +mob damage, +loot).
+-- Seeded from rift-modifiers.ts DEFAULT_RIFT_MODIFIERS; the World rolls a couple (seeded by the rift)
+-- and applies the aggregated effects at mob spawn + reward sites. Column descr avoids the SQL keyword.
+CREATE TABLE IF NOT EXISTS rift_modifiers (
+  id                  TEXT    PRIMARY KEY,
+  name                TEXT    NOT NULL,
+  descr               TEXT    NOT NULL,
+  min_tier            INTEGER NOT NULL DEFAULT 1,
+  mob_damage_mult     REAL    NOT NULL DEFAULT 1,
+  mob_hp_mult         REAL    NOT NULL DEFAULT 1,
+  mob_speed_mult      REAL    NOT NULL DEFAULT 1,
+  loot_quantity_bonus REAL    NOT NULL DEFAULT 0,
+  xp_bonus            REAL    NOT NULL DEFAULT 0
+);
+
 -- Ladder / leaderboard: the best-ever score per character per metric (server is the sole writer;
 -- scores are recorded from the authoritative save on autosave). One row per (name, metric); the
 -- value only ever climbs (recordScore keeps the max). Read by the /ladder command.

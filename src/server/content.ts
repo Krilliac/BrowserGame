@@ -30,6 +30,7 @@ import { applyItemSetOverrides, type ItemSetDef } from '../shared/item-sets.js';
 import { applyBossScriptOverrides, type BossScript, type BossStep } from './boss-scripts.js';
 import type { ProcDef, ProcEffect } from './item-procs.js';
 import type { GameEventDef } from './game-events.js';
+import type { RiftModifierDef } from './rift-modifiers.js';
 import { applySkillTreeOverrides, type SkillNode, type SkillEffects } from '../shared/skilltree.js';
 import { KIND_TO_NPC_FLAG } from '../shared/npc-flags.js';
 import {
@@ -179,6 +180,8 @@ export interface Content {
   mobResists(templateId: string): ResistMap;
   /** The timed liveops game events (recurrence schedules; the host applies them on the sim clock). */
   gameEvents(): GameEventDef[];
+  /** The rift mutator pool (a tiered rift rolls a couple at open; the World applies their effects). */
+  riftModifiers(): RiftModifierDef[];
   /** Affix roll ranges per scalar stat (server-only; overlaid onto the shared AFFIX_RANGES). */
   affixRanges(): Record<string, AffixRange>;
   /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
@@ -690,6 +693,21 @@ export function loadContent(db: GameDatabase): Content {
     return ev;
   });
 
+  // Rift modifiers: the mutator pool. snake_case → camelCase; all fields present (DB has defaults).
+  const riftModifiers = (db.prepare('SELECT * FROM rift_modifiers').all() as RiftModifierRow[]).map(
+    (r) => ({
+      id: r.id,
+      name: r.name,
+      desc: r.descr,
+      minTier: r.min_tier,
+      mobDamageMult: r.mob_damage_mult,
+      mobHpMult: r.mob_hp_mult,
+      mobSpeedMult: r.mob_speed_mult,
+      lootQuantityBonus: r.loot_quantity_bonus,
+      xpBonus: r.xp_bonus,
+    }),
+  );
+
   // Affix roll ranges (server-only) + flavor names/tiers (client-coupled). A NULL up_to is Infinity.
   const affixRanges: Record<string, AffixRange> = {};
   for (const r of db.prepare('SELECT * FROM affix_ranges').all() as AffixRangeRow[]) {
@@ -794,6 +812,7 @@ export function loadContent(db: GameDatabase): Content {
     itemProcs: (sourceId) => itemProcs.get(sourceId) ?? [],
     mobResists: (templateId) => mobResists.get(templateId) ?? {},
     gameEvents: () => gameEvents,
+    riftModifiers: () => riftModifiers,
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
     skillTree: () => skillTree,
@@ -1118,6 +1137,17 @@ interface GameEventRow {
   length_min: number;
   xp_bonus: number | null;
   announce: string | null;
+}
+interface RiftModifierRow {
+  id: string;
+  name: string;
+  descr: string;
+  min_tier: number;
+  mob_damage_mult: number;
+  mob_hp_mult: number;
+  mob_speed_mult: number;
+  loot_quantity_bonus: number;
+  xp_bonus: number;
 }
 interface ItemProcRow {
   source_id: string;

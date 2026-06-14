@@ -34,6 +34,7 @@ import { DEFAULT_ITEM_SETS } from '../../shared/item-sets.js';
 import { DEFAULT_BOSS_SCRIPTS } from '../boss-scripts.js';
 import { DEFAULT_ITEM_PROCS } from '../item-procs.js';
 import { DEFAULT_GAME_EVENTS } from '../game-events.js';
+import { DEFAULT_RIFT_MODIFIERS } from '../rift-modifiers.js';
 import { DEFAULT_SKILL_TREE, type SkillEffects } from '../../shared/skilltree.js';
 import { DEFAULT_HIRELING_TEMPLATES } from '../hirelings.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
@@ -348,6 +349,7 @@ export function seed(db: Database): void {
   ensureAbilityElements(db); // tag elemental abilities (fire/cold/...) — only ones still 'physical'
   ensureMobResists(db); // per-element mob resistances (seeded from mobs.ts MOB_RESISTS)
   ensureGameEvents(db); // timed recurring liveops events (seeded from game-events.ts defaults)
+  ensureRiftModifiers(db); // D3-style rift mutators (seeded from rift-modifiers.ts defaults)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
   ensureHirelings(db); // mercenary roster (seeded from hirelings.ts DEFAULT_HIRELING_TEMPLATES)
@@ -570,6 +572,33 @@ function ensureGameEvents(db: Database): void {
   );
   for (const e of DEFAULT_GAME_EVENTS) {
     ins.run(e.id, e.name, e.periodMin, e.lengthMin, e.xpBonus ?? null, e.announce ?? null);
+  }
+}
+
+/**
+ * Seed the rift modifiers from the code defaults (rift-modifiers.ts). Idempotent: skipped once any
+ * row exists, so designer edits/additions survive a restart.
+ */
+function ensureRiftModifiers(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM rift_modifiers LIMIT 1');
+  if (has.get()) return;
+  const ins = db.prepare(
+    `INSERT INTO rift_modifiers
+       (id,name,descr,min_tier,mob_damage_mult,mob_hp_mult,mob_speed_mult,loot_quantity_bonus,xp_bonus)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+  );
+  for (const m of DEFAULT_RIFT_MODIFIERS) {
+    ins.run(
+      m.id,
+      m.name,
+      m.desc,
+      m.minTier,
+      m.mobDamageMult ?? 1,
+      m.mobHpMult ?? 1,
+      m.mobSpeedMult ?? 1,
+      m.lootQuantityBonus ?? 0,
+      m.xpBonus ?? 0,
+    );
   }
 }
 

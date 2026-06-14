@@ -469,6 +469,22 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     },
   },
 
+  rift_modifiers: {
+    pk: 'id',
+    label: 'rift modifier',
+    note: 'a D3-style rift mutator (multipliers/bonuses); /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      descr: { type: 'text' },
+      min_tier: { type: 'int', min: 0, max: 100 },
+      mob_damage_mult: { type: 'real', min: 0, max: 100 },
+      mob_hp_mult: { type: 'real', min: 0, max: 100 },
+      mob_speed_mult: { type: 'real', min: 0, max: 100 },
+      loot_quantity_bonus: { type: 'real', min: 0, max: 100 },
+      xp_bonus: { type: 'real', min: 0, max: 100 },
+    },
+  },
+
   game_events: {
     pk: 'id',
     label: 'game event',
