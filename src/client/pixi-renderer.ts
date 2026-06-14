@@ -518,6 +518,7 @@ const SHADOW_OFFSET_Y = 0.18;
 const SHADOW_SKEW = -0.55; // slants the ellipse so it reads as cast across the ground
 const SHADOW_ALPHA = 0.42;
 const CAST_SHADOW_ALPHA = 0.4; // sheared sprite-copy cast shadow (hero/elites), at the noon sun
+const CONTACT_AO_ALPHA = 0.3; // tight planted ambient-occlusion core directly under the feet
 
 export class PixiRenderer {
   private readonly ground: TilingSprite;
@@ -2374,6 +2375,19 @@ export class PixiRenderer {
     shadow.position.set(radius * SHADOW_OFFSET_X, radius * SHADOW_OFFSET_Y);
     shadow.skew.x = SHADOW_SKEW;
     container.addChild(shadow);
+    // Contact-AO core (desktop only): a small, tight, dark soft ellipse pinned at the feet that —
+    // unlike the directional shadow above — never lifts or rakes. It's the ambient occlusion where
+    // body meets ground, the "#1 planted-vs-floating" cue: as the directional shadow shrinks/slides
+    // off with height or a low sun, this core stays put, so the figure reads as truly grounded (and
+    // a rising one visibly parts from its contact point). Flyers never touch the ground, so skip it.
+    if (this.quality === 'high' && flyHeight(e) === 0) {
+      const contact = new Sprite(this.softShadowTexture());
+      contact.anchor.set(0.5, 0.5);
+      contact.width = radius * 1.5;
+      contact.height = radius * 0.7;
+      contact.alpha = CONTACT_AO_ALPHA;
+      container.addChild(contact);
+    }
     // The local player keeps a thin gold ground-ring so you can always pick yourself out.
     if (isSelf) {
       const ring = new Graphics();

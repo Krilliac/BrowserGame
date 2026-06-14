@@ -51,10 +51,18 @@ direction is constant and only the sun's *altitude* animates:
   foot shadows (raking is scoped to per-frame entities). Torch-relative *direction* swing was
   intentionally skipped to preserve the baked-sun consistency.
 
-### 1.2 Soft baked AO shadow + darkened sprite base (Low, high)
+### 1.2 Soft baked AO shadow + darkened sprite base (Low, high) — **done**
 Bake a radial-gradient soft ellipse texture once (canvas → `Texture`), use a `Sprite` for the shadow
 (soft edges). Bake a vertical bottom-darkening gradient and add it as a `blendMode:'multiply'` child
 so feet sink into the ground — the #1 "planted vs floating" cue.
+
+**Implemented**: the soft baked ellipse texture (`softShadowTexture`) backs every directional shadow.
+For the "feet sink into the ground" cue we use a **contact-AO core** instead of a multiply gradient on
+the sprite (a multiply child would darken the framebuffer ground, not the transparent-background
+sprite, and per-sprite baked darkening is fragile across the LPC/rogues sheets): a small, tight, dark
+soft ellipse pinned at the feet (`CONTACT_AO_ALPHA`), drawn under the sprite and *not* subject to the
+height-lift or sun-rake, so it stays as the fixed ground-contact while the directional shadow moves.
+Desktop-only (fill-rate), skipped for flyers.
 
 ### 1.3 z-height channel (Low, high) — **done (height-reactive shadows)**
 Generalize `PROJECTILE_HEIGHT` (sprite raised, shadow on plane) into a reusable `z`: sprite at `-z`,

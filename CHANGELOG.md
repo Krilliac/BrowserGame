@@ -31,6 +31,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Contact-AO grounding under actors (2.5D "planted" cue).** Beneath the directional shadow sits a
+  small, tight, dark soft-ellipse **ambient-occlusion core pinned at the feet** that — unlike the
+  cast shadow above it — never lifts with height or rakes with the sun. It's the dark contact where
+  body meets ground (the "#1 planted-vs-floating" cue from the renderer research): as the directional
+  shadow shrinks off with a hop or slides long under a low sun, this core stays put, so a standing
+  figure reads as truly grounded and a rising one visibly parts from its contact point. Desktop-only
+  (skipped on touch to save fill rate) and skipped for flyers (which never touch the ground); reuses
+  the shared soft-shadow texture, so no new asset or per-frame cost. Verified with the screenshot
+  harness (`scripts/screenshot.mjs`).
 - **Time-of-day sun shadows (2.5D depth + atmosphere cue).** Actor/loot/projectile ground shadows
   are now coupled to the same sun that drives the day/night cycle: a high **noon sun throws short,
   dark, crisp shadows**, and a low **dawn/dusk (or moonlit-night) sun rakes them long and faint**
