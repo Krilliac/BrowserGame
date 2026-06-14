@@ -31,6 +31,7 @@ import {
   attackRoll,
   BASE_CRIT_CHANCE,
   defenceRoll,
+  resistedDamage,
   rollCrit,
   rollDamage,
   rolledHit,
@@ -1989,8 +1990,13 @@ export class World {
           const base = rollAbilityDamage(player.level, mob.level, power);
           const crit = base > 0 && rollCrit(this.rand, player.critChance);
           const dmg = applyCrit(base, crit);
-          this.damageMob(mob, dmg, abilityId, player.id, crit);
-          if (dmg > 0) applyStatus(mob, abilityId);
+          const finalDmg = resistedDamage(
+            dmg,
+            ability.element ?? 'physical',
+            getContent().mobResists(mob.templateId),
+          );
+          this.damageMob(mob, finalDmg, abilityId, player.id, crit);
+          if (finalDmg > 0) applyStatus(mob, abilityId);
         }
       }
     } else {
@@ -2921,8 +2927,13 @@ export class World {
             const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
             const crit = base > 0 && rollCrit(this.rand, proj.critChance);
             const dmg = applyCrit(base, crit);
-            this.damageMob(mob, dmg, proj.abilityId, proj.ownerId, crit);
-            if (dmg > 0) applyStatus(mob, proj.abilityId);
+            const finalDmg = resistedDamage(
+              dmg,
+              getContent().ability(proj.abilityId)?.element ?? 'physical',
+              getContent().mobResists(mob.templateId),
+            );
+            this.damageMob(mob, finalDmg, proj.abilityId, proj.ownerId, crit);
+            if (finalDmg > 0) applyStatus(mob, proj.abilityId);
             consumed = true;
             break;
           }

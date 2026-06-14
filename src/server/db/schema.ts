@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS abilities (
   projectile_speed   REAL,
   projectile_ttl_ms  INTEGER,
   radius             REAL NOT NULL,
+  element            TEXT NOT NULL DEFAULT 'physical',  -- damage school (physical|fire|cold|lightning|poison)
   sort_order         INTEGER NOT NULL
 );
 
@@ -378,6 +379,16 @@ CREATE TABLE IF NOT EXISTS item_procs (
   amount     REAL,                     -- damage procs: bonus damage dealt
   ability    TEXT,                     -- status procs: ability whose on-hit status to apply
   sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+-- Mob resistances: per-element damage reduction for a monster template (Flare trait_elemental).
+-- Sparse — only non-zero resists get a row; a missing element means 0 (no resistance). value is a
+-- fraction: 1 = immune, 0.5 = halves it, negative = vulnerable. Applied server-side at the hit site.
+CREATE TABLE IF NOT EXISTS mob_resists (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_id TEXT NOT NULL,
+  element     TEXT NOT NULL,           -- fire | cold | lightning | poison | physical
+  value       REAL NOT NULL
 );
 
 -- Gems: the socketable catalog. Each gem grants a flat bonus to one affix stat. Seeded from

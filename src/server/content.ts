@@ -3,7 +3,8 @@ import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
 import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme, type WeatherKind } from '../shared/theme.js';
-import type { Ability, AbilityId } from '../shared/combat.js';
+import type { Ability, AbilityId, DamageElement } from '../shared/combat.js';
+import type { ResistMap } from './combat-formulas.js';
 import {
   hasItemFlag,
   ItemFlags,
@@ -173,6 +174,8 @@ export interface Content {
   bossScripts(): Record<string, BossScript>;
   /** The procs a base item carries (chance-on-hit/crit effects); empty if it has none. */
   itemProcs(sourceId: string): ProcDef[];
+  /** Per-element damage resistances for a mob template (empty if it has none). */
+  mobResists(templateId: string): ResistMap;
   /** Affix roll ranges per scalar stat (server-only; overlaid onto the shared AFFIX_RANGES). */
   affixRanges(): Record<string, AffixRange>;
   /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
@@ -333,6 +336,7 @@ export function loadContent(db: GameDatabase): Content {
       manaCost: r.mana_cost,
       color: r.color,
       radius: r.radius,
+      element: (r.element ?? 'physical') as DamageElement,
     };
     if (r.melee_half_angle !== null) ability.meleeHalfAngle = r.melee_half_angle;
     if (r.projectile_speed !== null) ability.projectileSpeed = r.projectile_speed;
@@ -660,6 +664,15 @@ export function loadContent(db: GameDatabase): Content {
     itemProcs.set(r.source_id, list);
   }
 
+  // Mob resistances by template id (sparse — only non-zero resists get a row). Looked up at the
+  // damage site to reduce typed (elemental) hits; a missing element means no resistance.
+  const mobResists = new Map<string, ResistMap>();
+  for (const r of db.prepare('SELECT * FROM mob_resists').all() as MobResistRow[]) {
+    const m = mobResists.get(r.template_id) ?? {};
+    m[r.element as DamageElement] = r.value;
+    mobResists.set(r.template_id, m);
+  }
+
   // Affix roll ranges (server-only) + flavor names/tiers (client-coupled). A NULL up_to is Infinity.
   const affixRanges: Record<string, AffixRange> = {};
   for (const r of db.prepare('SELECT * FROM affix_ranges').all() as AffixRangeRow[]) {
@@ -762,6 +775,7 @@ export function loadContent(db: GameDatabase): Content {
     itemSets: () => itemSets,
     bossScripts: () => bossScripts,
     itemProcs: (sourceId) => itemProcs.get(sourceId) ?? [],
+    mobResists: (templateId) => mobResists.get(templateId) ?? {},
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
     skillTree: () => skillTree,
@@ -914,6 +928,7 @@ interface AbilityRow {
   projectile_speed: number | null;
   projectile_ttl_ms: number | null;
   radius: number;
+  element: string | null;
 }
 interface ItemRow {
   id: string;
@@ -1072,6 +1087,11 @@ interface RunewordRow {
   name: string;
   runes: string;
   flavor: string | null;
+}
+interface MobResistRow {
+  template_id: string;
+  element: string;
+  value: number;
 }
 interface ItemProcRow {
   source_id: string;

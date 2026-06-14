@@ -10,8 +10,10 @@ import {
   MOB_SPELLS,
   MOB_SUPPORT,
   MOB_TRAITS,
+  MOB_RESISTS,
   DEFAULT_ELITE_MODIFIERS,
 } from '../mobs.js';
+import type { DamageElement } from '../../shared/combat.js';
 import { weatherModifiers } from '../weather-effects.js';
 import {
   DEFAULT_ABILITY_STATUS_EFFECTS,
@@ -342,6 +344,8 @@ export function seed(db: Database): void {
   ensureItemSets(db); // item-set membership + threshold bonuses (seeded from item-sets.ts defaults)
   ensureBossScripts(db); // scripted apex-boss phases/steps (seeded from boss-scripts.ts defaults)
   ensureItemProcs(db); // chance-on-hit/crit item procs (seeded from item-procs.ts defaults)
+  ensureAbilityElements(db); // tag elemental abilities (fire/cold/...) — only ones still 'physical'
+  ensureMobResists(db); // per-element mob resistances (seeded from mobs.ts MOB_RESISTS)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
   ensureHirelings(db); // mercenary roster (seeded from hirelings.ts DEFAULT_HIRELING_TEMPLATES)
@@ -511,6 +515,57 @@ function ensureItemProcs(db: Database): void {
       p.effect.kind === 'status' ? p.effect.ability : null,
       0,
     );
+  }
+}
+
+/**
+ * The damage school of each clearly-elemental ability. The base abilities seed as 'physical' (the
+ * column default); this map promotes the elemental ones. Ids not present in the DB are simply
+ * skipped (the UPDATE matches 0 rows), so the map can list more than any one build ships.
+ */
+const ABILITY_ELEMENTS: Record<string, DamageElement> = {
+  fireball: 'fire',
+  meteor: 'fire',
+  emberbolt: 'fire',
+  flamewave: 'fire',
+  cinderorb: 'fire',
+  infernonova: 'fire',
+  wyrmfire_lance: 'fire',
+  pyre_lance: 'fire',
+  frostbolt: 'cold',
+  glacierspike: 'cold',
+  frostnova: 'cold',
+  frost_lance: 'cold',
+  glacial_spike: 'cold',
+  lightning: 'lightning',
+  chain_lightning: 'lightning',
+  shock_nova: 'lightning',
+  voltaic_bolt: 'lightning',
+  poison_spit: 'poison',
+  toxic_cloud: 'poison',
+  venom_lance: 'poison',
+  mire_mortar: 'poison',
+};
+
+/**
+ * Tag elemental abilities with their damage school. Idempotent + edit-preserving: only updates rows
+ * still at the default 'physical', so a designer who re-schools an ability in the DB keeps it.
+ */
+function ensureAbilityElements(db: Database): void {
+  const upd = db.prepare("UPDATE abilities SET element = ? WHERE id = ? AND element = 'physical'");
+  for (const [id, element] of Object.entries(ABILITY_ELEMENTS)) upd.run(element, id);
+}
+
+/**
+ * Seed per-element mob resistances from the code defaults (mobs.ts MOB_RESISTS). Idempotent: a
+ * template that already has any resist row is skipped, so designer edits survive a restart.
+ */
+function ensureMobResists(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM mob_resists WHERE template_id = ? LIMIT 1');
+  const ins = db.prepare('INSERT INTO mob_resists (template_id,element,value) VALUES (?,?,?)');
+  for (const [templateId, resists] of Object.entries(MOB_RESISTS)) {
+    if (has.get(templateId)) continue;
+    for (const [element, value] of Object.entries(resists)) ins.run(templateId, element, value);
   }
 }
 

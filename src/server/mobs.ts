@@ -4,7 +4,24 @@
  * unit-tested (mobs.test.ts). The World owns mob state and applies the returned intent.
  */
 
-import type { AbilityId } from '../shared/combat.js';
+import type { AbilityId, DamageElement } from '../shared/combat.js';
+
+/**
+ * Per-element resistances for monster templates — the SEED SOURCE for the `mob_resists` table.
+ * Sparse: only non-zero resists are listed; a missing element means no resistance. Value is a
+ * fraction (1 = immune, 0.5 = halves it, negative = vulnerable). Thematic by design — fire-born
+ * creatures shrug off flame but flinch from cold, and vice versa — so elemental builds matter.
+ */
+export const MOB_RESISTS: Record<string, Partial<Record<DamageElement, number>>> = {
+  cinder_imp: { fire: 0.6, cold: -0.3 },
+  ember_acolyte: { fire: 0.5 },
+  pyre_caster: { fire: 0.75, cold: -0.3 },
+  cinderbone_archer: { fire: 0.5 },
+  cinder_ant: { fire: 0.5 },
+  frost_wolf: { cold: 0.5, fire: -0.3 },
+  wraithfrost_stalker: { cold: 0.6, fire: -0.3 },
+  grimfrost_barrow: { cold: 0.6 },
+};
 
 /**
  * How a monster fights:

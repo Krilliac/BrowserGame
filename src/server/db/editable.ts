@@ -105,6 +105,7 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       mana_cost: { type: 'int', min: 0, max: 1000 },
       color: { type: 'color' },
       radius: { type: 'real', min: 0, max: 400 },
+      element: { type: 'enum', values: ['physical', 'fire', 'cold', 'lightning', 'poison'] },
       sort_order: { type: 'int', min: 0, max: 99 },
       melee_half_angle: { type: 'real', min: 0, max: 3.2, nullable: true },
       projectile_speed: { type: 'real', min: 0, max: 4000, nullable: true },
@@ -465,6 +466,17 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       },
       value: { type: 'real', min: 0, max: 100000 },
       sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
+  mob_resists: {
+    pk: 'id',
+    label: 'mob resistance',
+    note: 'per-element damage resistance for a mob template (1=immune, negative=vulnerable); /reloadcontent to apply',
+    columns: {
+      template_id: { type: 'text' },
+      element: { type: 'enum', values: ['physical', 'fire', 'cold', 'lightning', 'poison'] },
+      value: { type: 'real', min: -1, max: 1 },
     },
   },
 
