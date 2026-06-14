@@ -43,7 +43,13 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 | 17 | feat | **Achievements** — level/gold milestone unlocks; /achievements | green | 4165ce5; +23 → 1420; earned[] in save; checkAchievements in creditKill; code-driven |
 | 18 | feat(ui) | **Target status badges** — Slow/Burn/Weak on target frame | green | 78bc12c; client-only; surfaces proc/elemental statuses; refresh-live |
 
-NEXT (it.19): backend via parallel agent (alternation). Candidates: kill/bestiary counter on the save
+| 19 | feat | **Kill counter** → kill achievements + /ladder kills metric | green | e47fee7; +1 → 1421; Player.kills+save; creditKill increments; Slayer→Reaper tiers |
+
+NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
+panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
+
+(old it.19 note below — superseded)
+OLD NEXT (it.19): backend via parallel agent (alternation). Candidates: kill/bestiary counter on the save
 (unlocks kill-based achievements + leaderboard metric), boss enrage timer, or #15 content-pack discovery.
 Pushed through it.17; push again after a few more or when user asks.
 
