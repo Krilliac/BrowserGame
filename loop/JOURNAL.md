@@ -33,6 +33,14 @@ auto-attack ALREADY worked (moveSample/autoAttackAbility) — only the VISUALS w
 
 | 14 | feat | **Crafting/refinement** — closes salvage sink; /recipes /craft | green | 54dce81; +6 → 1397; 3:1 ladder + sinks; data-driven recipes |
 
+| 15 | feat(ui) | **Salvage bag UI** — shift-click bag item to salvage | green | 5bfeaf4; protocol+net+index+main; hint added; no restart needed (mats already seeded) |
+
+### Iteration 16+ candidates
+- Set-bonus display in character panel (ship set membership in content packet → client shows N/M + active bonuses).
+- Crafting panel UI (list /recipes as clickable; needs server restart for crafting tables).
+- Trade client panel (server+protocol done #10b).
+- Backend via parallel agent: achievements module, #2 reconnect grace, #15 content-pack discovery.
+
 ### Iteration 15+ candidates (integration backlog now CLEAR)
 Backend is very deep. Highest FELT value now = CLIENT/UX surfacing (user flagged targeting gap):
 - Salvage/craft UI (bag salvage buttons + crafting panel) — /salvage needs item uids the bag UI
