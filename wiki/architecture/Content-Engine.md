@@ -37,7 +37,7 @@ Two rules make something "DB-driven" here:
 |---|---|---|---|---|
 | Areas / portals / themes | `areas`,`portals`,`area_theme` | ✅ | ✅ | ⬜ (still `shared/areas.ts`) |
 | Abilities (spells) | `abilities` | ✅ | ✅ | ⬜ (still `shared/combat.ts`) |
-| Items (equipment/materials) | `items` | ✅ | ✅ (`ItemInfo`) | ⬜ (still `shared/equipment.ts`) |
+| **Items (equipment/materials)** | `items` | ✅ | ✅ (`ItemInfo`) | ✅ `seed-items.ts` |
 | **Legendaries (uniques)** | `uniques` | ✅ | n/a (sent as instances) | ✅ `seed-uniques.ts` |
 | Monsters | `mob_templates`,`area_mobs` | ✅ | n/a (sent in snapshots) | ⬜ (still `mobs.ts`) |
 | Loot tables | `loot_entry` | ✅ | n/a | ✅ (seed-*) |
@@ -55,10 +55,10 @@ last runtime reads of the shared data consts and (b) moving the *authored* array
 1. **Legendaries → DB.** ✅ Done. New `uniques` table seeded from `seed-uniques.ts`; `content.ts`
    loads them and owns the random pick + base resolution; `shared/uniques.ts` is now a pure,
    data-free roller. `world.ts` mints via `content.rollRandomUnique`.
-2. **Items — finish the move.** Route the last const readers through the DB/packet
-   (`gamble.ts` → content; client `item-icons.ts` → `ClientContentStore`), then relocate the
-   `EQUIPMENT`/`MATERIALS` data out of `src/shared/equipment.ts` into `seed-items.ts`, leaving only
-   the slot **types/labels** in shared.
+2. **Items — full move.** ✅ Done. `gamble.ts` takes the equip pool as a parameter (server feeds it
+   from the DB); client `item-icons.ts` reads slots from the content packet via an injected resolver
+   (`setItemSlotResolver` in `main.ts`); the `EQUIPMENT`/`MATERIALS` data moved out of
+   `src/shared/equipment.ts` into `seed-items.ts`, leaving only slot **types/labels** in shared.
 3. **Spells → DB-authored.** Move the `ABILITIES` data to `seed-spells`/`seed-items`-style seed,
    keep `AbilityId`/types shared; server + client already read the DB/packet.
 4. **Monsters → DB-authored.** Move `MOB_TEMPLATES`/`AREA_MOBS`/`MOB_TRAITS`/`MOB_SPELLS` into the

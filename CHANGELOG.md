@@ -31,6 +31,17 @@ versioning once it stabilizes.
 
 ### Changed
 
+- **Items are now fully database-driven (content-engine phase 2).** The DB `items` table is the
+  single runtime source of truth and nothing reads a hardcoded item const during the game:
+  - `gamble.ts` no longer imports `EQUIPMENT` — `rollGamble`/`isGambleSlot` take the equip-base pool
+    as a parameter, which `world.ts` builds from the content DB (a new `equipBases()` helper).
+  - The client `item-icons.ts` resolves an item's slot from the content packet via an injected
+    resolver (`setItemSlotResolver`, wired in `main.ts` to `net.content`) instead of importing the
+    data const — removing the last client-side read of `EQUIPMENT`.
+  - The `EQUIPMENT` base catalogue and `MATERIALS` moved out of `src/shared/equipment.ts` into a new
+    `src/server/db/seed-items.ts` (the items "world-DB content"); `src/shared/equipment.ts` now holds
+    only slot **types/labels** and the doll-slot mapping. New `seed-items.test.ts` validates the
+    catalogue and that every base/material seeds into the `items` table.
 - **Legendaries are now database-driven (content-engine phase 1).** The hand-authored `UNIQUES`
   catalogue, previously a hardcoded array in `src/shared/uniques.ts`, now lives in a new `uniques`
   SQLite table seeded from `src/server/db/seed-uniques.ts` and loaded by `content.ts` — the same
