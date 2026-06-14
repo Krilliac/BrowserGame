@@ -1769,6 +1769,29 @@ function drawTargetFrame(): void {
     '#b33',
     `${Math.ceil(t.hp)} / ${t.maxHp}`,
   );
+
+  // Status badges (top-right): the slows/burns/weakens your spells + procs apply, made visible on
+  // the target. Flag bits match the snapshot's monster-debuff bits (1=slow, 2=burn, 4=weaken).
+  const flags = t.flags ?? 0;
+  const badges = [
+    { on: (flags & 1) !== 0, label: 'Slow', color: '#6fb4ff' },
+    { on: (flags & 2) !== 0, label: 'Burn', color: '#ff8a3a' },
+    { on: (flags & 4) !== 0, label: 'Weak', color: '#c77dff' },
+  ];
+  hud.font = 'bold 9px system-ui, sans-serif';
+  hud.textAlign = 'right';
+  let bx = fx + fw - 8;
+  for (const b of badges) {
+    if (!b.on) continue;
+    const bwid = hud.measureText(b.label).width + 8;
+    bx -= bwid;
+    hud.fillStyle = 'rgba(0,0,0,0.45)';
+    hud.fillRect(bx, fy + 6, bwid, 13);
+    hud.fillStyle = b.color;
+    hud.fillText(b.label, bx + bwid - 4, fy + 16);
+    bx -= 4;
+  }
+  hud.textAlign = 'left';
 }
 
 function drawHud(): void {
