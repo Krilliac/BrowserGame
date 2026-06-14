@@ -75,6 +75,7 @@ function encodeContent(): string {
     abilities: c.abilityList(),
     items: c.items(),
     tints: c.spriteTints(),
+    dungeons: c.dungeonAreaIds(),
   });
 }
 

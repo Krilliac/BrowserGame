@@ -320,6 +320,31 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       value: { type: 'real', min: 0, max: 1_000_000_000 },
     },
   },
+
+  dungeons: {
+    pk: 'area_id',
+    label: 'dungeon',
+    note: 'procedural dungeon def; applies to new instances',
+    columns: {
+      boss: { type: 'text' },
+      mini_boss: { type: 'text', nullable: true },
+      mini_boss_chance: { type: 'real', min: 0, max: 1 },
+      elite_chance: { type: 'real', min: 0, max: 1 },
+      min_mobs: { type: 'int', min: 0, max: 1000 },
+      max_mobs: { type: 'int', min: 0, max: 1000 },
+    },
+  },
+
+  dungeon_pool: {
+    pk: 'id',
+    label: 'dungeon pool entry',
+    note: 'a monster in a dungeon roster; applies to new instances',
+    columns: {
+      area_id: { type: 'text' },
+      template_id: { type: 'text' },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { initGameDb, getContent } from './content.js';
-import { DUNGEONS, isDungeon } from '../shared/areas.js';
+import { DUNGEONS } from '../shared/areas.js';
 
 initGameDb(':memory:');
 
@@ -103,7 +103,7 @@ describe('world graph integrity', () => {
 
   it('the caves are a real dungeon and the town has enterable houses', () => {
     // Hollowroot Caverns: the new "caves" branch, a procedural dungeon off Gloomwood.
-    expect(isDungeon('hollowroot')).toBe(true);
+    expect(c.isDungeon('hollowroot')).toBe(true);
     expect(c.area('hollowroot')?.name).toBe('Hollowroot Caverns');
     const d = DUNGEONS.hollowroot!;
     const refs = [...d.pool, d.boss, ...(d.miniBoss ? [d.miniBoss] : [])];

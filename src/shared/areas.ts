@@ -1349,11 +1349,6 @@ export const DUNGEONS: Record<string, DungeonDef> = {
   },
 };
 
-/** True if the area id is a procedural dungeon (populated from DUNGEONS rather than fixed spawns). */
-export function isDungeon(areaId: string): boolean {
-  return areaId in DUNGEONS;
-}
-
 export function areaOf(id: string): AreaDef | undefined {
   return AREAS[id];
 }

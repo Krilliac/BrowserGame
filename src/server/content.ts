@@ -1,7 +1,7 @@
 import { config, applyConfigOverrides } from './config.js';
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
-import type { AreaDef, DecorProp } from '../shared/areas.js';
+import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme, type WeatherKind } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
 import { type MobTemplate, type EliteModifier, DEFAULT_ELITE_MODIFIERS } from './mobs.js';
@@ -89,6 +89,12 @@ export interface Content {
   castBuff(abilityId: string): CastBuff | undefined;
   /** The shrine blessing pool (one is picked at random), in deterministic order. */
   shrineBuffs(): ShrineBuff[];
+  /** Procedural-dungeon definition for an area (pool/boss/…), or undefined if it isn't a dungeon. */
+  dungeon(areaId: string): DungeonDef | undefined;
+  /** True if the area is a procedural dungeon (populated from a pool, not a fixed roster). */
+  isDungeon(areaId: string): boolean;
+  /** Every dungeon area id (shipped to the client so it knows which portals lead to a dungeon). */
+  dungeonAreaIds(): string[];
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -399,6 +405,26 @@ export function loadContent(db: GameDatabase): Content {
     db.prepare('SELECT * FROM shrine_buffs ORDER BY sort_order').all() as ShrineBuffRow[]
   ).map((r) => ({ buff: r.buff, ms: r.duration_ms, magnitude: r.magnitude, label: r.label }));
 
+  // Procedural dungeon definitions: scalar fields + the ordered monster pool, rebuilt into the
+  // shared DungeonDef shape the world simulation already consumes.
+  const poolStmt = db.prepare(
+    'SELECT template_id FROM dungeon_pool WHERE area_id = ? ORDER BY sort_order',
+  );
+  const dungeons = new Map<string, DungeonDef>();
+  for (const r of db.prepare('SELECT * FROM dungeons').all() as DungeonRow[]) {
+    const pool = (poolStmt.all(r.area_id) as { template_id: string }[]).map((p) => p.template_id);
+    const def: DungeonDef = {
+      pool,
+      boss: r.boss,
+      miniBossChance: r.mini_boss_chance,
+      eliteChance: r.elite_chance,
+      minMobs: r.min_mobs,
+      maxMobs: r.max_mobs,
+    };
+    if (r.mini_boss !== null) def.miniBoss = r.mini_boss;
+    dungeons.set(r.area_id, def);
+  }
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -434,6 +460,9 @@ export function loadContent(db: GameDatabase): Content {
     abilityStatusEffects: (abilityId) => statusEffects.get(abilityId) ?? [],
     castBuff: (abilityId) => castBuffs.get(abilityId),
     shrineBuffs: () => shrineBuffs,
+    dungeon: (areaId) => dungeons.get(areaId),
+    isDungeon: (areaId) => dungeons.has(areaId),
+    dungeonAreaIds: () => [...dungeons.keys()],
   };
 }
 
@@ -666,4 +695,13 @@ interface ShrineBuffRow {
   magnitude: number;
   label: string;
   sort_order: number;
+}
+interface DungeonRow {
+  area_id: string;
+  boss: string;
+  mini_boss: string | null;
+  mini_boss_chance: number;
+  elite_chance: number;
+  min_mobs: number;
+  max_mobs: number;
 }

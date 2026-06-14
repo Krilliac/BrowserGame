@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import { config, TUNABLE_SECTIONS } from '../config.js';
-import { AREAS, AREA_THEMES, type DecorProp } from '../../shared/areas.js';
+import { AREAS, AREA_THEMES, DUNGEONS, type DecorProp } from '../../shared/areas.js';
 import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
 import { EQUIPMENT } from '../../shared/equipment.js';
@@ -323,6 +323,7 @@ export function seed(db: Database): void {
   ensureAbilityCastBuffs(db); // per-ability self-buff on cast (seeded from code defaults)
   ensureShrineBuffs(db); // shrine blessing pool (seeded from code defaults)
   ensureGameConfig(db); // global game-tuning overlay (seeded from the config.ts defaults)
+  ensureDungeons(db); // procedural dungeon pools/bosses (seeded from areas.ts DUNGEONS)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -398,6 +399,34 @@ function ensureGameConfig(db: Database): void {
     for (const [field, value] of Object.entries(groups[section] ?? {})) {
       if (typeof value === 'number') ins.run(`${section}.${field}`, value);
     }
+  }
+}
+
+/**
+ * Seed the procedural dungeon definitions + pools from the code source (areas.ts DUNGEONS).
+ * Idempotent: skips a dungeon whose row already exists, so a designer's re-rostered pool survives a
+ * restart. Pool order is preserved via sort_order (keeps spawn picks deterministic for a seed).
+ */
+function ensureDungeons(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM dungeons WHERE area_id = ?');
+  const insD = db.prepare(
+    'INSERT INTO dungeons (area_id,boss,mini_boss,mini_boss_chance,elite_chance,min_mobs,max_mobs) VALUES (?,?,?,?,?,?,?)',
+  );
+  const insP = db.prepare(
+    'INSERT INTO dungeon_pool (area_id,template_id,sort_order) VALUES (?,?,?)',
+  );
+  for (const [areaId, d] of Object.entries(DUNGEONS)) {
+    if (has.get(areaId)) continue;
+    insD.run(
+      areaId,
+      d.boss,
+      d.miniBoss ?? null,
+      d.miniBossChance,
+      d.eliteChance,
+      d.minMobs,
+      d.maxMobs,
+    );
+    d.pool.forEach((t, i) => insP.run(areaId, t, i));
   }
 }
 

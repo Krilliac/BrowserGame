@@ -75,7 +75,7 @@ import {
   stepHireling,
   type HirelingTemplate,
 } from './hirelings.js';
-import { DUNGEONS, isDungeon, type DungeonDef, type Rect } from '../shared/areas.js';
+import type { DungeonDef, Rect } from '../shared/areas.js';
 import {
   blockersForDecor,
   pointInAnyBlocker,
@@ -635,7 +635,7 @@ export class World {
   populateMobs(areaId: string): void {
     // Dungeons are populated procedurally (random pack, elevated elites, a boss) â€” not from the
     // fixed area_mobs roster. Each instance is a fresh roll, so re-entering re-rolls the dungeon.
-    const dungeon = DUNGEONS[areaId];
+    const dungeon = getContent().dungeon(areaId);
     if (dungeon) {
       this.populateDungeon(dungeon);
       return;
@@ -658,7 +658,7 @@ export class World {
    * procedural rolls), the den, and quiet/solo instances. Called on a host interval, not per tick.
    */
   maintainDensity(): void {
-    if (isDungeon(this.areaId) || this.areaId === 'den') return;
+    if (getContent().isDungeon(this.areaId) || this.areaId === 'den') return;
     const roster = getContent()
       .areaMobs(this.areaId)
       .map((s) => ({ t: getContent().mobTemplate(s.templateId), n: s.count }))
@@ -2052,7 +2052,7 @@ export class World {
   private denList(): { id: number; x: number; y: number; name: string }[] {
     if (this.dens === null) {
       this.dens = [];
-      if (this.areaId !== 'den' && !isDungeon(this.areaId)) {
+      if (this.areaId !== 'den' && !getContent().isDungeon(this.areaId)) {
         const area = getContent().area(this.areaId);
         for (const d of area?.decor ?? []) {
           if (d.kind !== 'house' || d.x2 === undefined || d.y2 === undefined) continue;

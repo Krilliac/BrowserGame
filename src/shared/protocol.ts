@@ -303,6 +303,8 @@ export type ServerMessage =
       abilities: Ability[];
       items: ItemInfo[];
       tints?: Record<string, string>;
+      /** Area ids that are procedural dungeons — lets the client mark dungeon-bound portals. */
+      dungeons?: string[];
     }
   | {
       t: 'welcome';

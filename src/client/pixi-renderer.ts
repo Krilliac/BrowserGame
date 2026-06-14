@@ -16,7 +16,7 @@ import {
 import { MOB_RADIUS, PLAYER_RADIUS } from '../shared/combat.js';
 import { RARITY, type Rarity } from '../shared/items.js';
 import type { EntityState } from '../shared/protocol.js';
-import { isDungeon, type DecorProp } from '../shared/areas.js';
+import type { DecorProp } from '../shared/areas.js';
 import { BOULDER_BASE_RADIUS } from '../shared/collision.js';
 import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
@@ -1227,7 +1227,7 @@ export class PixiRenderer {
     c.zIndex = cy;
     this.propShadow(c, 14, 6);
     const g = new Graphics();
-    if (isDungeon(toArea)) {
+    if (this.content.isDungeon(toArea)) {
       // A weathered stone waymark: a tapered monolith with a carved down-arrow, ember-lit.
       g.moveTo(-10, 0).lineTo(-7, -46).lineTo(7, -46).lineTo(10, 0).closePath();
       g.fill({ color: '#4a4650' }).stroke({ width: 2, color: '#2e2b34' });

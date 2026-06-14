@@ -14,6 +14,7 @@ export class ClientContentStore {
   private order: AbilityId[] = [];
   private itemsById = new Map<string, ItemInfo>();
   private tintsByTarget = new Map<string, string>();
+  private dungeonIds = new Set<string>();
   loaded = false;
 
   load(
@@ -21,6 +22,7 @@ export class ClientContentStore {
     abilities: Ability[],
     items: ItemInfo[],
     tints?: Record<string, string>,
+    dungeons?: string[],
   ): void {
     this.areasById = new Map(areas.map((a) => [a.id, a]));
     this.abilitiesById = new Map(abilities.map((a) => [a.id, a]));
@@ -28,7 +30,13 @@ export class ClientContentStore {
     this.order = abilities.map((a) => a.id) as AbilityId[];
     this.itemsById = new Map(items.map((i) => [i.id, i]));
     this.tintsByTarget = new Map(Object.entries(tints ?? {}));
+    this.dungeonIds = new Set(dungeons ?? []);
     this.loaded = true;
+  }
+
+  /** True if the area id is a procedural dungeon (per the server's content packet). */
+  isDungeon(areaId: string): boolean {
+    return this.dungeonIds.has(areaId);
   }
 
   /** SQL sprite color override for a target key (e.g. 'decor:grave'), or undefined. */

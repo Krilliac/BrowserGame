@@ -188,6 +188,29 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Procedural dungeon definitions: an area present here is a DUNGEON — populated by a random pack
+-- from its pool (dungeon_pool) plus a boss and an optional mini-boss, rather than a fixed area_mobs
+-- roster. Seeded from areas.ts DUNGEONS; the server reads pools/bosses to populate instances, and the
+-- client is told the id set (content packet) so it knows which portals lead to a dungeon.
+CREATE TABLE IF NOT EXISTS dungeons (
+  area_id          TEXT PRIMARY KEY,
+  boss             TEXT NOT NULL,            -- end-boss template id, spawned once
+  mini_boss        TEXT,                     -- optional extra champion
+  mini_boss_chance REAL NOT NULL DEFAULT 0,
+  elite_chance     REAL NOT NULL DEFAULT 0,  -- per-mob champion chance (higher than overworld)
+  min_mobs         INTEGER NOT NULL,
+  max_mobs         INTEGER NOT NULL
+);
+
+-- The regular-monster pool for a dungeon: each spawn is an equal random pick. sort_order keeps the
+-- pick deterministic for a given seed.
+CREATE TABLE IF NOT EXISTS dungeon_pool (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  area_id     TEXT NOT NULL,
+  template_id TEXT NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
 -- Global game-tuning overlay (TrinityCore-style world settings): a key/value table of numeric
 -- gameplay knobs. key is a dotted config path (e.g. 'difficulty.mobDamage', 'drops.gemBoss') and
 -- value overrides the code default in config.ts at load. Only whitelisted GAMEPLAY sections are
