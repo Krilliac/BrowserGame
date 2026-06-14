@@ -12,6 +12,7 @@ const VALID_METRICS: ReadonlySet<AchievementMetric> = new Set<AchievementMetric>
   'level',
   'gold',
   'kills',
+  'bestiary',
 ]);
 
 describe('DEFAULT_ACHIEVEMENTS', () => {

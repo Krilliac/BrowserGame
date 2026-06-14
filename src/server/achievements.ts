@@ -5,13 +5,13 @@
  * has no hidden state. Persistence (the earned set lives in the player save), the unlock check, and
  * a `/achievements` command are wired by the orchestrator elsewhere — not here.
  *
- * WHY these metrics: `level`, `gold`, and lifetime `kills` are the stats actually tracked on a
- * character. We deliberately seed only metrics the simulation can satisfy — no *dead* achievements
- * for things (rift tier, area completion) nothing currently records.
+ * WHY these metrics: `level`, `gold`, lifetime `kills`, and `bestiary` (distinct species slain) are
+ * stats actually tracked on a character. We deliberately seed only metrics the simulation can satisfy
+ * — no *dead* achievements for things (rift tier, area completion) nothing currently records.
  */
 
 /** The character stats an achievement can key off — only metrics that already exist on a character. */
-export type AchievementMetric = 'level' | 'gold' | 'kills';
+export type AchievementMetric = 'level' | 'gold' | 'kills' | 'bestiary';
 
 /**
  * A single milestone. Earned when `stats[metric] >= threshold`. `threshold` is the inclusive bar:
@@ -31,7 +31,7 @@ export interface AchievementDef {
 }
 
 /**
- * The SEED SOURCE for achievements. Thematic tiers across the two live metrics, thresholds ascending
+ * The SEED SOURCE for achievements. Thematic tiers across the live metrics, thresholds ascending
  * per metric so each tier is strictly harder than the last. The orchestrator seeds a content table
  * from this list; this array remains the canonical default.
  */
@@ -122,6 +122,21 @@ export const DEFAULT_ACHIEVEMENTS: readonly AchievementDef[] = [
     desc: 'Slay 10,000 monsters.',
     metric: 'kills',
     threshold: 10000,
+  },
+  // Bestiary tiers — collect kills of distinct monster species.
+  {
+    id: 'bestiary_naturalist',
+    name: 'Naturalist',
+    desc: 'Slay 10 different kinds of monster.',
+    metric: 'bestiary',
+    threshold: 10,
+  },
+  {
+    id: 'bestiary_zoologist',
+    name: 'Zoologist',
+    desc: 'Slay 30 different kinds of monster.',
+    metric: 'bestiary',
+    threshold: 30,
   },
 ];
 

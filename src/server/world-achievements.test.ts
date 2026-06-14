@@ -9,7 +9,13 @@ initGameDb(':memory:');
  * in-progress. The unlock math (newlyEarned) is unit-tested in achievements.test.ts; here we cover
  * the save round-trip + the status display the World exposes to the command.
  */
-function save(level: number, gold: number, earned: string[], kills = 0): PlayerSave {
+function save(
+  level: number,
+  gold: number,
+  earned: string[],
+  kills = 0,
+  bestiary: string[] = [],
+): PlayerSave {
   return {
     name: 'Hero',
     hue: 0,
@@ -26,6 +32,7 @@ function save(level: number, gold: number, earned: string[], kills = 0): PlayerS
     questsDone: [],
     earnedAchievements: earned,
     kills,
+    bestiary,
   };
 }
 
@@ -62,5 +69,23 @@ describe('world achievements', () => {
     const lines = w.achievementStatus(4);
     expect(lines.some((l) => l.startsWith('✓') && l.includes('Slayer'))).toBe(true);
     expect(lines.some((l) => l.includes('Exterminator') && l.includes('150/500'))).toBe(true);
+  });
+
+  it('tracks the bestiary: persists distinct species and feeds collection milestones', () => {
+    const w = world();
+    const species = Array.from({ length: 12 }, (_, i) => `mob_${i}`); // 12 distinct → Naturalist (10) met
+    w.importPlayer(5, save(5, 0, [], 200, species), 100, 100);
+    expect(w.exportPlayer(5)!.bestiary?.sort()).toEqual([...species].sort());
+    const lines = w.achievementStatus(5);
+    expect(lines.some((l) => l.startsWith('✓') && l.includes('Naturalist'))).toBe(true);
+    expect(lines.some((l) => l.includes('Zoologist') && l.includes('12/30'))).toBe(true);
+  });
+
+  it('bestiaryStatus reports the distinct-species count, or a hint when empty', () => {
+    const w = world();
+    w.importPlayer(6, save(5, 0, []), 100, 100);
+    expect(w.bestiaryStatus(6)[0]).toMatch(/no monsters slain/i);
+    w.importPlayer(7, save(5, 0, [], 0, ['goblin', 'skeleton']), 100, 100);
+    expect(w.bestiaryStatus(7)[0]).toContain('2 species');
   });
 });

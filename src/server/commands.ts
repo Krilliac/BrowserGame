@@ -142,6 +142,15 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'bestiary',
+    minLevel: AccessLevel.Player,
+    usage: '/bestiary',
+    help: 'List the monster species you have slain.',
+    run: (ctx) => {
+      for (const line of ctx.world.bestiaryStatus(ctx.playerId)) ctx.reply(line);
+    },
+  },
+  {
     name: 'craft',
     minLevel: AccessLevel.Player,
     usage: '/craft <recipeId>',

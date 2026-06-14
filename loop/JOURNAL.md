@@ -51,7 +51,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 22 | feat(ui) | **H help/keybind overlay** + hint — discoverability | green | (pushed); lists keys+mouse+commands; "H Help" hint |
 
-NEXT (it.23): backend (alternation). Then client-UX. Pushed through it.22.
+| 23 | feat | **Monster bestiary** — track distinct species killed → collection achievements + /bestiary | green | +5 → 1426; Player.bestiary Set persists in save; creditKill records template; Naturalist(10)/Zoologist(30) achievements; world.bestiaryStatus |
+
+NEXT (it.24): client-UX (alternation) — e.g. a bestiary/achievements panel, or buff/timer display.
+Then back to backend. Push after a couple more (commits since it.22 push).
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).

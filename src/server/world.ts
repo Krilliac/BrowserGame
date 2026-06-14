@@ -450,6 +450,8 @@ interface Player {
   earnedAchievements: Set<string>;
   /** Lifetime monster kills credited to this character (persisted; drives achievements + ladder). */
   kills: number;
+  /** Distinct monster template ids this character has killed — the bestiary (persisted). */
+  bestiary: Set<string>;
   /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
   known: Map<AbilityId, number>;
   /** Area ids this character has visited â€” the waypoint fast-travel list. */
@@ -503,6 +505,8 @@ export interface PlayerSave {
   earnedAchievements?: string[];
   /** Lifetime monster kills (absent on old saves — defaults to 0). Drives kill achievements + ladder. */
   kills?: number;
+  /** Distinct monster template ids killed — the bestiary (absent on old saves — defaults to empty). */
+  bestiary?: string[];
   /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
   known?: [string, number][];
   /** Visited area ids (waypoints). Absent on old saves â€” the current area is added on load. */
@@ -2093,6 +2097,7 @@ export class World {
       questsDone: new Set(),
       earnedAchievements: new Set(),
       kills: 0,
+      bestiary: new Set(),
       known: new Map(STARTER_ABILITIES.map((a) => [a, 1])),
       discovered: new Set([this.areaId]),
       input: { up: false, down: false, left: false, right: false },
@@ -2133,6 +2138,7 @@ export class World {
       questsDone: [...p.questsDone],
       earnedAchievements: [...p.earnedAchievements],
       kills: p.kills,
+      bestiary: [...p.bestiary],
       known: [...p.known],
       discovered: [...p.discovered],
       hireling: p.hireling,
@@ -2178,6 +2184,7 @@ export class World {
     p.questsDone = new Set(save.questsDone);
     p.earnedAchievements = new Set(save.earnedAchievements ?? []);
     p.kills = save.kills ?? 0;
+    p.bestiary = new Set(save.bestiary ?? []);
     p.known = restoreKnown(save.known);
     // Carry visited areas across the transfer + always mark the area we just arrived in.
     p.discovered = new Set(save.discovered ?? []);
@@ -3607,6 +3614,7 @@ export class World {
     }
     p.level = newLevel;
     p.kills += 1; // shared-credit: every tagger/party member who is credited counts the kill
+    p.bestiary.add(mobTemplateId); // record the species for the bestiary collection
     this.recomputeStats(p);
     this.progressQuests(p, mobTemplateId);
     this.checkAchievements(p);
@@ -3618,7 +3626,12 @@ export class World {
    */
   private checkAchievements(player: Player): void {
     const fresh = newlyEarned(
-      { level: player.level, gold: player.gold, kills: player.kills },
+      {
+        level: player.level,
+        gold: player.gold,
+        kills: player.kills,
+        bestiary: player.bestiary.size,
+      },
       player.earnedAchievements,
     );
     for (const a of fresh) {
@@ -3631,12 +3644,28 @@ export class World {
   achievementStatus(playerId: number): string[] {
     const p = this.players.get(playerId);
     if (!p) return ['No character.'];
-    const stats: Record<string, number> = { level: p.level, gold: p.gold, kills: p.kills };
+    const stats: Record<string, number> = {
+      level: p.level,
+      gold: p.gold,
+      kills: p.kills,
+      bestiary: p.bestiary.size,
+    };
     return DEFAULT_ACHIEVEMENTS.map((a) => {
       const cur = stats[a.metric] ?? 0;
       const done = p.earnedAchievements.has(a.id) || cur >= a.threshold;
       return done ? `✓ ${a.name} — ${a.desc}` : `· ${a.name} (${cur}/${a.threshold} ${a.metric})`;
     });
+  }
+
+  /** Bestiary summary for /bestiary: the distinct species this character has slain, by name. */
+  bestiaryStatus(playerId: number): string[] {
+    const p = this.players.get(playerId);
+    if (!p) return ['No character.'];
+    if (p.bestiary.size === 0) return ['Bestiary: no monsters slain yet.'];
+    const names = [...p.bestiary]
+      .map((id) => getContent().mobTemplate(id)?.name ?? id)
+      .sort((a, b) => a.localeCompare(b));
+    return [`Bestiary: ${names.length} species discovered`, names.join(', ')];
   }
 
   private progressQuests(player: Player, mobTemplateId: string): void {
