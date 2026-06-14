@@ -10,6 +10,7 @@ import {
   type Rarity,
 } from '../shared/items.js';
 import { SLOT_LABELS } from '../shared/equipment.js';
+import { ITEM_SETS } from '../shared/item-sets.js';
 import { drawPartyPanel, type PartyButton } from './party-panel.js';
 import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
@@ -1463,6 +1464,24 @@ function drawCharacterPanel(): void {
     hud.textAlign = 'center';
     hud.fillText('+', btn.x + 12, btn.y + 15);
   });
+
+  // Active item-set progress — the bonuses themselves already fold into the Power/Crit/Max HP totals
+  // above; this line surfaces WHICH sets you're building and how close they are to the next threshold.
+  const eqBaseIds = new Set(
+    Object.values(net.you.equipment)
+      .filter((i): i is ItemInstance => !!i)
+      .map((i) => i.baseId),
+  );
+  const sets = ITEM_SETS.map((s) => ({ s, n: s.pieces.filter((p) => eqBaseIds.has(p)).length }))
+    .filter((x) => x.n > 0)
+    .map((x) => `${x.s.name} ${x.n}/${x.s.pieces.length}`);
+  if (sets.length > 0) {
+    hud.textAlign = 'left';
+    hud.font = '11px system-ui, sans-serif';
+    hud.fillStyle = '#9be09b';
+    hud.fillText(`Sets: ${sets.join(' · ')}`, px + 14, py + ph - 12);
+  }
+
   hud.textAlign = 'left';
 }
 

@@ -13,6 +13,7 @@ import type { AreaDef } from './areas.js';
 import type { ItemInstance, RarityDef, AffixName } from './items.js';
 import type { GemDef } from './gems.js';
 import type { SkillNode } from './skilltree.js';
+import type { ItemSetDef } from './item-sets.js';
 import type { AttributeSet } from './attributes.js';
 
 /** One quest's state for the client quest log. */
@@ -325,6 +326,8 @@ export type ServerMessage =
       affixNames?: Partial<Record<string, AffixName>>;
       /** The passive skill tree, so the client renders nodes/prereqs from DB data. */
       skillTree?: SkillNode[];
+      /** Item-set definitions, so the client shows set progress + bonuses in the character panel. */
+      itemSets?: ItemSetDef[];
     }
   | {
       t: 'welcome';

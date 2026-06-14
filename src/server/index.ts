@@ -93,6 +93,7 @@ function encodeContent(): string {
     gems: c.gems(),
     affixNames: c.affixNames(),
     skillTree: c.skillTree(),
+    itemSets: c.itemSets(),
   });
 }
 

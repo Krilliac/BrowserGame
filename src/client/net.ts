@@ -32,6 +32,7 @@ import {
   type RarityDef,
 } from '../shared/items.js';
 import { applyGemOverrides } from '../shared/gems.js';
+import { applyItemSetOverrides } from '../shared/item-sets.js';
 import { applySkillTreeOverrides } from '../shared/skilltree.js';
 import { type AttributeSet, emptyAttributes } from '../shared/attributes.js';
 
@@ -371,6 +372,8 @@ export class Net {
         applyAffixNameOverrides((msg.affixNames ?? {}) as Partial<Record<AffixStat, AffixName>>);
         // Mirror the passive skill tree so the panel renders nodes/prereqs from DB data.
         if (msg.skillTree) applySkillTreeOverrides(msg.skillTree);
+        // Mirror the item sets so the character panel can show set progress + active bonuses.
+        if (msg.itemSets) applyItemSetOverrides(msg.itemSets);
         this.contentRev++;
         break;
       case 'welcome':
