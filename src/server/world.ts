@@ -108,6 +108,7 @@ import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
 import { setBonuses } from '../shared/item-sets.js';
 import { resolveProcs, type ProcDef } from './item-procs.js';
+import { salvageYield, type MaterialKind, type MaterialYield } from './salvage.js';
 import {
   rollRiftModifiers,
   aggregateRiftEffects,
@@ -1294,6 +1295,37 @@ export class World {
     const [inst] = player.stash.splice(idx, 1);
     if (inst) player.gear.push(inst);
     this.pushStash(player);
+  }
+
+  /** Abstract salvage material kind → the concrete content loot item id it grants. */
+  private static readonly SALVAGE_ITEM_ID: Record<MaterialKind, string> = {
+    scrap: 'mat_scrap',
+    dust: 'mat_dust',
+    essence: 'mat_essence',
+    shard: 'rune_shard', // the top tier reuses the existing rune-shard material
+  };
+
+  /**
+   * Salvage a BAG gear instance into crafting materials (D2-cube disenchant). Only unequipped bag
+   * items qualify (equipped gear lives in `equipment`, never found here). Deterministic via the
+   * world rng. Returns the materials granted, or a reason it failed.
+   */
+  salvage(
+    playerId: number,
+    uid: number,
+  ): { ok: boolean; reason?: string; yields?: MaterialYield[] } {
+    const player = this.players.get(playerId);
+    if (!player) return { ok: false, reason: 'No such player.' };
+    const idx = player.gear.findIndex((g) => g.uid === uid);
+    if (idx < 0) return { ok: false, reason: 'No such item in your bag.' };
+    const [inst] = player.gear.splice(idx, 1);
+    if (!inst) return { ok: false, reason: 'No such item.' };
+    const yields = salvageYield(inst, this.rand);
+    for (const y of yields) {
+      const itemId = World.SALVAGE_ITEM_ID[y.kind];
+      player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + y.qty);
+    }
+    return { ok: true, yields };
   }
 
   /**

@@ -106,6 +106,22 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'salvage',
+    minLevel: AccessLevel.Player,
+    usage: '/salvage <itemUid>',
+    help: 'Break a bag item down into crafting materials.',
+    run: (ctx) => {
+      const uid = int(ctx.args, 0, -1);
+      const r = ctx.world.salvage(ctx.playerId, uid);
+      if (!r.ok) {
+        ctx.reply(r.reason ?? 'Could not salvage that.');
+        return;
+      }
+      const mats = (r.yields ?? []).map((y) => `${y.qty} ${y.kind}`).join(', ');
+      ctx.reply(`Salvaged → ${mats}.`);
+    },
+  },
+  {
     name: 'where',
     minLevel: AccessLevel.Player,
     usage: '/where',

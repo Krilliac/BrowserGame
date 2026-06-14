@@ -658,4 +658,8 @@ export const MATERIALS: Record<string, { name: string; color: string }> = {
   venom_gland: { name: 'Venom Gland', color: '#9fd86a' },
   ember_ore: { name: 'Ember Ore', color: '#ff8a3a' },
   frost_core: { name: 'Frost Core', color: '#a8e0ff' },
+  // Salvage materials — the disenchant economy (gear broken down via /salvage; see salvage.ts).
+  mat_scrap: { name: 'Scrap Metal', color: '#9a9a9a' },
+  mat_dust: { name: 'Arcane Dust', color: '#b98ce0' },
+  mat_essence: { name: 'Monster Essence', color: '#5fe0a8' },
 };
