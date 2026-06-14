@@ -31,7 +31,18 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 8a09529 target frame (portrait+name+level+HP bar); 18eeedf world selection ring. The chase +
 auto-attack ALREADY worked (moveSample/autoAttackAbility) — only the VISUALS were missing.
 
-### Iteration 14 plan: integrate crafting.ts (gives salvage materials a sink!)
+| 14 | feat | **Crafting/refinement** — closes salvage sink; /recipes /craft | green | 54dce81; +6 → 1397; 3:1 ladder + sinks; data-driven recipes |
+
+### Iteration 15+ candidates (integration backlog now CLEAR)
+Backend is very deep. Highest FELT value now = CLIENT/UX surfacing (user flagged targeting gap):
+- Salvage/craft UI (bag salvage buttons + crafting panel) — /salvage needs item uids the bag UI
+  doesn't show; a panel fixes that. Client-heavy, hard to gate-verify.
+- Set-bonus display in character panel (ship set membership in content packet).
+- Trade client panel (server+protocol already done #10b).
+Backend/infra options: #2 reconnect grace, #15 content-pack discovery.
+Lean: alternate a client-UX iteration (user can verify live) with backend via parallel agents.
+
+### Iteration 14 plan: integrate crafting.ts (gives salvage materials a sink!) [DONE]
 crafting.ts (19 tests, on disk UNTRACKED) PURE: CraftRecipe + DEFAULT_RECIPES (3:1 ladder
 scrap→dust→essence→rune_shard + 2 terminal sinks); canCraft/applyCraft. Closes the gap that salvage
 mats (mat_scrap/dust/essence) currently have NO consumer. Wire: schema crafting_recipes +
