@@ -14,9 +14,18 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - [ ] Thin-coverage branch gaps in existing tested modules (scan as we go).
 
 ## Diablo-feel — gameplay/content (server-side, unit-testable)
-- [ ] Audit combat/loot/affixes/monsters for small, high-value mechanics that deepen the ARPG loop
-      (each as one tested sub-item). Scan: `items.ts`, `gems.ts`, `runewords.ts`, `mobs.ts`, `progression.ts`.
-- [ ] Verify/strengthen loot-roll distribution invariants (rarity weighting, affix ranges).
+- [x] D3-style gold magnetism (iter 4).  [x] champion gold scales with level (iter 6).
+- [ ] Scale BASE monster gold by level too (check drop tables for a 'gold' stack; scale qty at the
+      drop site via a pure helper + test). Keep pots/chests consistent.
+- [ ] Party/co-op gold or loot bonus per extra nearby player (D3 "more players = more loot").
+- [ ] Health-globe drops (D3): rare monster drop that instant-heals on pickup (new item kind +
+      pickup branch + balance; decompose if it grows).
+- [ ] Audit `mobs.ts`/`items.ts`/`gems.ts` for other small flat-vs-scaled un-Diablo spots.
+
+## Coverage / robustness — remaining
+- [ ] Edge cases for the NEW circle collision (multi-overlapping circles; circle+rect corner;
+      bounded-speed no-tunnel) in `shared/collision.test.ts`.
+- [ ] `src/server/config.ts` invariant test (all multipliers finite + in sane ranges).
 
 ## Diablo-feel — visuals (cosmetic, client-only, screenshot-verified)
 - [ ] Ground/path treatment toward the D2 worn-dirt-path look (scan `ground-tiles.ts` / tilesets).
