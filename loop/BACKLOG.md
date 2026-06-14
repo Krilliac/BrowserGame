@@ -16,7 +16,6 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 ## Diablo-feel — gameplay/content (server-side, unit-testable)
 - [x] D3-style gold magnetism (iter 4).  [x] champion gold scales with level (iter 6).
 - [x] Scale BASE monster gold by level (iter 8) — scaleGoldForLevel, tier-0 unchanged, 4× cap.
-      drop site via a pure helper + test). Keep pots/chests consistent.
 - [ ] Party/co-op gold or loot bonus per extra nearby player (D3 "more players = more loot").
 - [ ] Health-globe drops (D3): rare monster drop that instant-heals on pickup (new item kind +
       pickup branch + balance; decompose if it grows).
@@ -25,7 +24,7 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 ## Coverage / robustness — remaining
 - [x] Circle-collision edge cases (iter 9): bounded-step block, separate circles, clean exit.
       bounded-speed no-tunnel) in `shared/collision.test.ts`.
-- [ ] `src/server/config.ts` invariant test (all multipliers finite + in sane ranges).
+- [x] `src/server/config.ts` invariants (iter 10): finite, chances [0,1], min<=max, start<=cap.
 
 ## Diablo-feel — visuals (cosmetic, client-only, screenshot-verified)
 - [ ] Ground/path treatment toward the D2 worn-dirt-path look (scan `ground-tiles.ts` / tilesets).
@@ -49,3 +48,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 7: protocol.ts wire-contract coverage (+5 tests) — all shared modules now tested
 - iter 8: base monster gold scales with level (+5 tests)
 - iter 9: circle-collision edge-case coverage (+3 tests)
+- iter 10: config.ts invariant coverage (+5 tests)

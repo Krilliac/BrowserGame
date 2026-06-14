@@ -102,3 +102,14 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   would be wrong.
 - Tests: +3 (976 total). No production code changed.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 10 — config invariant coverage
+- Picked: `src/server/config.ts` (the single tuning file) had no test — a typo or bad env override
+  (NaN tick rate, inverted gold range, >1 drop chance) would silently break the live game.
+  (tier: coverage for risky config.)
+- Did: `config.test.ts` asserting RELATIONSHIPS, not just types — every numeric leaf is finite
+  (generic recursive walk; catches NaN/Infinity from env parsing), every chance knob in [0,1], every
+  gold min<=max, core scaling/host knobs positive + sane, and belt/inventory limits coherent
+  (start<=cap).
+- Tests: +5 (981 total). No production code changed.
+- Result: COMMITTED — gate check+build GREEN.
