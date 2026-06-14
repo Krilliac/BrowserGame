@@ -231,6 +231,8 @@ export type ClientMessage =
   | { t: 'trade_confirm' }
   /** Back out of the current trade. */
   | { t: 'trade_cancel' }
+  /** Salvage a bag gear item into crafting materials (shift-click it in the bag). */
+  | { t: 'salvage'; uid: number }
   /** Privileged "in-game engine" command — gated server-side by an admin token. */
   | { t: 'admin'; token: string; command: string }
   /** Dev engine panel request (Developer access). `rid` correlates the `engine_res` reply. */

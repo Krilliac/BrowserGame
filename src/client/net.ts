@@ -239,6 +239,10 @@ export class Net {
     this.send({ t: 'equip', uid });
   }
 
+  sendSalvage(uid: number): void {
+    this.send({ t: 'salvage', uid });
+  }
+
   sendUnequip(slot: string): void {
     this.send({ t: 'unequip', slot });
   }

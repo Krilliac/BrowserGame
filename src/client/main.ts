@@ -468,7 +468,9 @@ window.addEventListener('pointerdown', (e) => {
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    net.sendEquip(bag.uid);
+    // Shift-click salvages the item into crafting materials; a plain click/tap equips it.
+    if (e.shiftKey) net.sendSalvage(bag.uid);
+    else net.sendEquip(bag.uid);
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
@@ -744,7 +746,9 @@ gameCanvas.addEventListener('pointerdown', (e) => {
   }
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    net.sendEquip(bag.uid);
+    // Shift-click salvages the item into crafting materials; a plain click/tap equips it.
+    if (e.shiftKey) net.sendSalvage(bag.uid);
+    else net.sendEquip(bag.uid);
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
@@ -2241,6 +2245,12 @@ function drawInventory(w: number): void {
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'left';
   hud.fillText('Bag', px + 8, py + 16);
+  // Hint: gear rows equip on click, salvage (→ crafting materials) on shift-click.
+  hud.font = '9px system-ui, sans-serif';
+  hud.fillStyle = '#9a8f76';
+  hud.textAlign = 'right';
+  hud.fillText('click: equip · shift-click: salvage', px + pw - 8, py + 16);
+  hud.textAlign = 'left';
   hud.font = '12px system-ui, sans-serif';
   items.forEach(([id, n], i) => {
     const ry = py + 24 + i * 16;

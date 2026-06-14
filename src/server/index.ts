@@ -938,6 +938,28 @@ wss.on('connection', (socket) => {
             if (p) manager.get(p.instanceId)?.world.unequip(entityId, msg.slot);
             break;
           }
+          case 'salvage': {
+            const p = players.get(entityId);
+            if (!p || typeof msg.uid !== 'number') break;
+            const r = manager.get(p.instanceId)?.world.salvage(entityId, msg.uid);
+            if (r?.ok) {
+              const mats = (r.yields ?? []).map((y) => `${y.qty} ${y.kind}`).join(', ');
+              send(p.socket, {
+                t: 'chat',
+                from: 'System',
+                text: `Salvaged → ${mats}.`,
+                channel: 'system',
+              });
+            } else if (r) {
+              send(p.socket, {
+                t: 'chat',
+                from: 'System',
+                text: r.reason ?? 'Could not salvage that.',
+                channel: 'system',
+              });
+            }
+            break;
+          }
           case 'learn': {
             const p = players.get(entityId);
             if (p && typeof msg.itemId === 'string') {
