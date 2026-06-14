@@ -108,6 +108,9 @@ const SEEDED_MOB_NAMES = [
   'Cinder Ant',
   'Wyrmcrag Cockatrice',
   'Sundered Worm',
+  'Barrow Vermin',
+  'Pineweb Spider',
+  'Tidefang Serpent',
 ];
 
 /** NPC kinds from the content DB enum (src/server/db/editable.ts). */
@@ -217,6 +220,17 @@ describe('mobSpriteCell', () => {
     expect(mobSpriteCell('Sundered Worm')).toEqual({
       sheet: 'monsters',
       ...MONSTER_CELLS['giant-earthworm'],
+    });
+    // "Barrow Vermin" is a rat-swarm via the vermin rule, not the wight/wraith of its zone.
+    expect(mobSpriteCell('Barrow Vermin')).toEqual({
+      sheet: 'monsters',
+      ...MONSTER_CELLS['giant-rat'],
+    });
+    // "Tidefang Serpent" is the snake — its id is drowned_serpent but the name must not
+    // fall through to the drowned→zombie rule.
+    expect(mobSpriteCell('Tidefang Serpent')).toEqual({
+      sheet: 'animals',
+      ...ANIMAL_CELLS['snake'],
     });
   });
 

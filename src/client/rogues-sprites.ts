@@ -205,6 +205,7 @@ const MOB_RULES: MobRule[] = [
   { re: /satyr|faun/, sheet: 'monsters', label: 'satyr' },
   { re: /serpent|\bsnake\b|viper/, sheet: 'animals', label: 'snake' },
   { re: /\bant\b/, sheet: 'monsters', label: 'giant-ant' },
+  { re: /vermin/, sheet: 'monsters', label: 'giant-rat' },
   // --- Abyssal Throne bestiary (seed-frontier.ts): specific words before the generics. ---
   { re: /sovereign|nyxathor/, sheet: 'monsters', label: 'dragon' },
   { re: /sentinel/, sheet: 'monsters', label: 'death-knight' },

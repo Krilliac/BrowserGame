@@ -1498,6 +1498,52 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     telegraphMs: 560,
     slamRadius: 120,
   },
+
+  // --- Act 2 road wilds (L22-28): a barrow swarm, a pine ambusher, a drowned caster. ---
+  barrow_vermin: {
+    id: 'barrow_vermin',
+    name: 'Barrow Vermin',
+    hp: 95,
+    level: 22,
+    hue: 210,
+    speed: 160, // a fast grave-rat swarm amid the slow barrow dead
+    aggroRange: 280,
+    attackRange: 40,
+    damage: 16,
+    attackCooldownMs: 720,
+    behavior: 'melee',
+    telegraphMs: 140,
+  },
+  pineweb_spider: {
+    id: 'pineweb_spider',
+    name: 'Pineweb Spider',
+    hp: 130,
+    level: 24,
+    hue: 90,
+    speed: 150,
+    aggroRange: 320,
+    attackRange: 44,
+    damage: 22,
+    attackCooldownMs: 900,
+    behavior: 'melee',
+    telegraphMs: 170,
+  },
+  drowned_serpent: {
+    id: 'drowned_serpent',
+    name: 'Tidefang Serpent',
+    hp: 160,
+    level: 28,
+    hue: 150,
+    speed: 110,
+    aggroRange: 480,
+    attackRange: 360,
+    damage: 28,
+    attackCooldownMs: 1600,
+    behavior: 'ranged',
+    telegraphMs: 640,
+    projectileSpeed: 320,
+    kiteRange: 230,
+  },
 };
 
 export interface AreaMobSpawn {
@@ -1636,6 +1682,7 @@ export const MOB_SPELLS: Record<string, AbilityId> = {
   // Wilds bestiary casters.
   mire_serpent: 'poison_spit', // a venom bolt from the reeds
   wyrmcrag_cockatrice: 'frostlance', // the petrifying gaze — slows on hit
+  drowned_serpent: 'venom', // a heavier venom bolt down the drowned road
 };
 
 /**
@@ -1742,6 +1789,10 @@ export const MOB_TRAITS: Record<string, MobTrait[]> = {
   mire_serpent: ['craven'],
   wyrmcrag_cockatrice: ['enrage'],
   sundered_worm: ['enrage'],
+  // Act 2 road wilds.
+  barrow_vermin: ['pack', 'craven'],
+  pineweb_spider: ['pack', 'flanker'],
+  drowned_serpent: ['craven'],
 };
 
 /**

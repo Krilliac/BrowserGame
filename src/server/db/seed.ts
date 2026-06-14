@@ -687,6 +687,23 @@ function ensureWildsContent(db: Database): void {
       lootIns.run(mobId, l.grp, l.itemId, l.weight, l.minQty, l.maxQty, l.isNothing, l.chance);
     }
   }
+
+  // Per-mob sprite tints: give each wilds species its own cast so the pairs that share a
+  // 32rogues cell (two spiders, two rats/serpents) still read as distinct creatures.
+  const tintIns = db.prepare('INSERT OR IGNORE INTO sprite_tints (target,tint) VALUES (?,?)');
+  const WILDS_TINTS: [string, string][] = [
+    ['mob:gloomweb_spider', '#9a86c0'], // gloom-violet carapace
+    ['mob:pineweb_spider', '#7a8a6a'], // pine grey-green
+    ['mob:bramble_satyr', '#9ec07a'], // mossy hide
+    ['mob:tomb_rat', '#b8b0a0'], // dusty crypt fur
+    ['mob:barrow_vermin', '#aebccc'], // pale barrow-ice fur
+    ['mob:mire_serpent', '#8fd86a'], // venom green
+    ['mob:drowned_serpent', '#6a9aa0'], // drowned teal
+    ['mob:cinder_ant', '#d86a3a'], // ember-lit chitin
+    ['mob:wyrmcrag_cockatrice', '#bcd0ee'], // frost-rimed feathers
+    ['mob:sundered_worm', '#b07ae8'], // void-bloated flesh
+  ];
+  for (const [target, tint] of WILDS_TINTS) tintIns.run(target, tint);
 }
 
 /**

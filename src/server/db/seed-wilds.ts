@@ -6,7 +6,8 @@
  *
  * These creatures fill ecological gaps across the existing overworld zones rather than
  * adding new areas: a spider + satyr in Gloomwood, tomb rats in the crypt, a marsh
- * serpent, a mine ant, a frostpeak cockatrice, and a void-bloated worm in the Wastes.
+ * serpent, a mine ant, a frostpeak cockatrice, a void-bloated worm in the Wastes, and a
+ * swarm/ambusher/caster trio along the Act 2 road (the Barrows, the Barrens, the Pass).
  *
  * Loot follows the established loot_entry shape (see seedLoot in seed.ts and
  * src/server/drop-table.ts): an 'always' gold row, a weighted 'main' roll where the
@@ -31,6 +32,10 @@ export const WILDS_AREA_MOBS: { areaId: string; templateId: string; count: numbe
   { areaId: 'frostpeak', templateId: 'wyrmcrag_cockatrice', count: 2 },
   // The Sundered Wastes (L20-26)
   { areaId: 'sundered_wastes', templateId: 'sundered_worm', count: 3 },
+  // Act 2 road (L21-31): Duskhaven → the Blighted Spire
+  { areaId: 'grimfrost_barrow', templateId: 'barrow_vermin', count: 4 },
+  { areaId: 'howling_barrens', templateId: 'pineweb_spider', count: 3 },
+  { areaId: 'sunken_pass', templateId: 'drowned_serpent', count: 3 },
 ];
 
 export interface WildsLootRow {
@@ -151,6 +156,15 @@ export const WILDS_LOOT: WildsLootRow[] = [
     'sundered_worm',
     [40, 90],
     { itemId: 'rune_shard', weight: 35, min: 1, max: 2 },
+    { chance: 0.25, items: ['mithril_armor'] },
+  ),
+  // --- Act 2 road (L22-28): the same gold-and-shards economy as the road bosses. ---
+  ...loot('barrow_vermin', [18, 40], { itemId: 'rune_shard', weight: 28 }),
+  ...loot('pineweb_spider', [22, 48], { itemId: 'rune_shard', weight: 30, rare: 0.1 }),
+  ...loot(
+    'drowned_serpent',
+    [26, 55],
+    { itemId: 'rune_shard', weight: 32 },
     { chance: 0.25, items: ['mithril_armor'] },
   ),
 ];
