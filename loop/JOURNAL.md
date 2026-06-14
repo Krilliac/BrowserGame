@@ -75,3 +75,18 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
 - Result: COMMITTED — gate check+build GREEN.
 - Process note: a piped `&& echo GREEN` masked a real typecheck error earlier; switched the gate
   check to inspect actual exit codes. (The error was a wrong ChatChannel literal in the test, fixed.)
+
+## Iteration 8 — base monster gold scales with level (Diablo-feel)
+- Picked: base drop-table monster gold is a FIXED per-template min/max (loot_entry), so a crypt_lord
+  at rift tier 5 (level 25) dropped the same gold as at its template level 15 — deeper ≠ richer.
+  (tier: spec/feature — Diablo-feel.)
+- Did: pure `scaleGoldForLevel(baseQty, mobLevel, templateLevel)` in progression.ts — factor =
+  clamp(mobLevel/templateLevel, 1, 4); wired into the loot loop in world.ts for the 'gold' stack only.
+  SAFE: a tier-0 mob spawns at its template level → factor 1 → table amount unchanged, so the normal
+  game is untouched; only rifts pay more (capped 4×).
+- Tests: +5 (progression.test.ts) — tier-0 unchanged, scales up, 4× cap, floor at 1 / >=1, bad input.
+  973 total.
+- Result: COMMITTED — gate check+build GREEN (a prettier long-line warning blocked it once; --write
+  fixed, re-gated green).
+- Notes for human: pots/chests gold (world.ts ~2183/2197) still uses its own flat amount — a future
+  pass could route it through the same scaler for consistency.

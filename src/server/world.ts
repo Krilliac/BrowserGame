@@ -108,6 +108,7 @@ import {
   levelForXp,
   levelProgress,
   maxHpForLevel,
+  scaleGoldForLevel,
   xpForLevel,
   xpReward,
 } from './progression.js';
@@ -2883,10 +2884,20 @@ export class World {
     const corruptedChance = this.corruptedDropChance(mob, isBoss);
     for (const stack of content.rollLoot(mob.templateId, this.rand)) {
       const id = this.allocId();
+      // Base drop-table gold is fixed per template; scale it by the mob's actual level (i.e. rift
+      // tier) so deeper monsters spill richer hoards. Tier 0 keeps the table amount (factor 1).
+      const qty =
+        stack.item === 'gold'
+          ? scaleGoldForLevel(
+              stack.qty,
+              mob.level,
+              content.mobTemplate(mob.templateId)?.level ?? mob.level,
+            )
+          : stack.qty;
       const item: GroundItem = {
         id,
         itemId: stack.item,
-        qty: stack.qty,
+        qty,
         x: mob.x + (this.rand() - 0.5) * 30,
         y: mob.y + (this.rand() - 0.5) * 30,
         ttl: ITEM_TTL_MS,

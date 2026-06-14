@@ -4,6 +4,7 @@ import {
   levelForXp,
   levelProgress,
   maxHpForLevel,
+  scaleGoldForLevel,
   xpForLevel,
   xpReward,
 } from './progression.js';
@@ -147,5 +148,32 @@ describe('championGoldPile', () => {
     expect(championGoldPile(0, lo)).toBe(base);
     expect(championGoldPile(-5, lo)).toBe(base);
     expect(championGoldPile(NaN, lo)).toBe(base);
+  });
+});
+
+describe('scaleGoldForLevel', () => {
+  it('leaves base gold untouched at the template level (tier 0)', () => {
+    expect(scaleGoldForLevel(100, 15, 15)).toBe(100);
+    expect(scaleGoldForLevel(50, 1, 1)).toBe(50);
+  });
+
+  it('scales up as the mob outlevels its template (rift tier)', () => {
+    // crypt_lord template L15 → at L25 (tier 5): 100 × 25/15 ≈ 167.
+    expect(scaleGoldForLevel(100, 25, 15)).toBe(Math.round(100 * (25 / 15)));
+    expect(scaleGoldForLevel(100, 30, 15)).toBeGreaterThan(scaleGoldForLevel(100, 20, 15));
+  });
+
+  it('caps the multiplier at 4× so deep rifts never run away', () => {
+    expect(scaleGoldForLevel(100, 999, 5)).toBe(400); // 100 × min(4, 199.8)
+  });
+
+  it('never drops below the base (factor floored at 1) and is always >= 1', () => {
+    expect(scaleGoldForLevel(100, 5, 60)).toBe(100); // mobLevel < templateLevel → factor 1
+    expect(scaleGoldForLevel(0, 30, 10)).toBe(1); // never zero gold
+  });
+
+  it('sanitizes bad inputs (NaN / non-positive levels)', () => {
+    expect(scaleGoldForLevel(80, NaN, NaN)).toBe(80); // both → level 1 → factor 1
+    expect(scaleGoldForLevel(80, -3, 0)).toBe(80);
   });
 });

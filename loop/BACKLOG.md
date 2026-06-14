@@ -15,7 +15,7 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 
 ## Diablo-feel — gameplay/content (server-side, unit-testable)
 - [x] D3-style gold magnetism (iter 4).  [x] champion gold scales with level (iter 6).
-- [ ] Scale BASE monster gold by level too (check drop tables for a 'gold' stack; scale qty at the
+- [x] Scale BASE monster gold by level (iter 8) — scaleGoldForLevel, tier-0 unchanged, 4× cap.
       drop site via a pure helper + test). Keep pots/chests consistent.
 - [ ] Party/co-op gold or loot bonus per extra nearby player (D3 "more players = more loot").
 - [ ] Health-globe drops (D3): rare monster drop that instant-heals on pickup (new item kind +
@@ -47,3 +47,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 5: deflaked world-rifts elite-HP test (seeded)
 - iter 6: champion gold scales with level (+3 tests)
 - iter 7: protocol.ts wire-contract coverage (+5 tests) — all shared modules now tested
+- iter 8: base monster gold scales with level (+5 tests)

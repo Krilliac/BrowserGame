@@ -60,6 +60,22 @@ export function championGoldPile(mobLevel: number, rng: () => number = Math.rand
   return Math.round(40 + lvl * 9 + rng() * (30 + lvl * 5));
 }
 
+/**
+ * Scale a monster's base drop-table gold by how far its actual level outpaces its template level —
+ * i.e. by rift tier (a mob spawns at templateLevel + 2·tier). A mob at its base level (tier 0) keeps
+ * the table's amount exactly, so the normal game is unchanged; deeper rifts pay more, capped at 4×
+ * so it never runs away. Always at least 1. Pure.
+ */
+export function scaleGoldForLevel(
+  baseQty: number,
+  mobLevel: number,
+  templateLevel: number,
+): number {
+  const base = Math.max(0, Math.floor(baseQty) || 0);
+  const factor = Math.min(4, Math.max(1, sanitizeLevel(mobLevel) / sanitizeLevel(templateLevel)));
+  return Math.max(1, Math.round(base * factor));
+}
+
 /** Player max HP at a given level (base 100, scaling up per level). */
 export function maxHpForLevel(level: number): number {
   const lvl = sanitizeLevel(level);
