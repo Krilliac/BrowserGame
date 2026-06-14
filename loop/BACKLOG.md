@@ -10,7 +10,7 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - [x] `src/shared/movement.ts` — `moveVector` (diagonal normalization) + `clamp`. **[iter 1]**
 - [x] `src/shared/areas.ts` — `isDungeon`, `areaOf`, `pointInRect`. (iter 2)
 - [x] `src/server/hirelings.ts` — cost/stats/template + stepHireling AI. (iter 3)
-- [ ] `src/shared/protocol.ts` — decode contract (malformed JSON → null; valid → parsed); `encode` round-trip.
+- [x] `src/shared/protocol.ts` — encode/decode round-trip + never-throw. (iter 7)
 - [ ] Thin-coverage branch gaps in existing tested modules (scan as we go).
 
 ## Diablo-feel — gameplay/content (server-side, unit-testable)
@@ -37,3 +37,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 4: gold magnetism (Diablo-feel) + stepToward (+9 tests)
 - iter 5: deflaked world-rifts elite-HP test (seeded)
 - iter 6: champion gold scales with level (+3 tests)
+- iter 7: protocol.ts wire-contract coverage (+5 tests) — all shared modules now tested

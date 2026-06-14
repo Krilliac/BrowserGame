@@ -64,3 +64,14 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
 - Result: COMMITTED — gate check+build GREEN.
 - Notes for human: only the ELITE bonus pile scales here; base monster gold still comes from the DB
   drop tables (a future data pass could scale those too).
+
+## Iteration 7 — protocol.ts wire-contract coverage
+- Picked: last untested shared module `src/shared/protocol.ts` (tier: coverage; the network boundary).
+- Did: `protocol.test.ts` — encode/decode round-trips a representative set of client + server
+  messages exactly; the decoders NEVER throw on malformed/truncated/garbage JSON (return null), the
+  "one dropped frame, not a dropped connection" contract; and a valid-but-unknown JSON parses through
+  (validation is downstream). All `src/shared` modules now have colocated tests.
+- Tests: +5. No production code changed.
+- Result: COMMITTED — gate check+build GREEN.
+- Process note: a piped `&& echo GREEN` masked a real typecheck error earlier; switched the gate
+  check to inspect actual exit codes. (The error was a wrong ChatChannel literal in the test, fixed.)
