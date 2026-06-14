@@ -14,7 +14,7 @@ import {
 import { WEATHER_KINDS } from '../../shared/theme.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
-import { GEMS } from '../../shared/gems.js';
+import { DEFAULT_GEMS } from '../../shared/gems.js';
 import { DEFAULT_RARITY, type Rarity } from '../../shared/items.js';
 import { RUNES } from '../../shared/runewords.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
@@ -326,6 +326,7 @@ export function seed(db: Database): void {
   ensureGameConfig(db); // global game-tuning overlay (seeded from the config.ts defaults)
   ensureDungeons(db); // procedural dungeon pools/bosses (seeded from areas.ts DUNGEONS)
   ensureRarityTiers(db); // item rarity tiers (seeded from items.ts DEFAULT_RARITY)
+  ensureGems(db); // socketable gem catalog (seeded from gems.ts DEFAULT_GEMS)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -443,6 +444,18 @@ function ensureRarityTiers(db: Database): void {
   (Object.entries(DEFAULT_RARITY) as [Rarity, (typeof DEFAULT_RARITY)[Rarity]][]).forEach(
     ([rarity, d], i) => ins.run(rarity, d.name, d.weight, d.statMult, d.variance, d.color, i),
   );
+}
+
+/**
+ * Seed the gem catalog from the code defaults (gems.ts DEFAULT_GEMS). Idempotent: INSERT OR IGNORE
+ * keyed on the gem id, so a designer's added/retuned gems survive a restart.
+ */
+function ensureGems(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO gems (id,name,color,stat,value,tier) VALUES (?,?,?,?,?,?)',
+  );
+  for (const g of Object.values(DEFAULT_GEMS))
+    ins.run(g.id, g.name, g.color, g.stat, g.value, g.tier);
 }
 
 /**
@@ -1013,7 +1026,7 @@ function ensureSpellbookContent(db: Database): void {
   // Gems are content items (kind 'gem') so the client gets their name + color via the content
   // packet. Their stats/socket logic live in shared/gems.ts; here we just register them as items.
   // Sell value scales loosely with tier so a spare gem is still worth a little gold.
-  for (const g of Object.values(GEMS)) {
+  for (const g of Object.values(DEFAULT_GEMS)) {
     insItem.run(g.id, g.name, 'gem', null, null, null, g.color, g.tier * 10, null);
   }
   // Runes (for runewords): socketable like gems, registered as content items so the client gets

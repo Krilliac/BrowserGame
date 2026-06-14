@@ -44,7 +44,11 @@ function gem(
  * The gem catalog: ruby=power, sapphire=hp, topaz=crit across tiers 1/2/3, plus a rare tier-3
  * diamond=multishot. Values scale by tier and stay comparable to gear affixes.
  */
-export const GEMS: Record<string, GemDef> = {
+/**
+ * Code DEFAULTS for the gem catalog — the seed source for the `gems` content table and the fallback
+ * the live {@link GEMS} catalog resets to. Treat as immutable; edit/extend the catalog via the DB.
+ */
+export const DEFAULT_GEMS: Record<string, GemDef> = {
   // Ruby — power: 3 / 6 / 10
   ruby_t1: gem('ruby_t1', 'Ruby', '#ff4d4d', 'power', 3, 1),
   ruby_t2: gem('ruby_t2', 'Ruby', '#ff4d4d', 'power', 6, 2),
@@ -82,6 +86,25 @@ export const GEMS: Record<string, GemDef> = {
   opal_t2: gem('opal_t2', 'Opal', '#d8e0ff', 'vigor', 2, 2),
   opal_t3: gem('opal_t3', 'Opal', '#d8e0ff', 'vigor', 3, 3),
 };
+
+/**
+ * The LIVE gem catalog the game reads (gemDef/gemBonuses/rollGemDrop and the client icons). Starts
+ * as a copy of {@link DEFAULT_GEMS}; the server overlays the `gems` DB rows at load and the client
+ * overlays the catalog shipped in the content packet. Cleared and repopulated in place (stable
+ * reference) so it can gain/lose gems added via SQL without re-importing.
+ */
+export const GEMS: Record<string, GemDef> = { ...DEFAULT_GEMS };
+
+/**
+ * Replace the live {@link GEMS} catalog with `list` (a gem added via SQL appears; one removed
+ * disappears). An empty list RESETS to {@link DEFAULT_GEMS}, so `applyGemOverrides([])` restores the
+ * code defaults. Mutates the existing object in place to preserve its reference for all readers.
+ */
+export function applyGemOverrides(list: GemDef[]): void {
+  for (const id of Object.keys(GEMS)) delete GEMS[id];
+  const src = list.length ? list : Object.values(DEFAULT_GEMS);
+  for (const g of src) GEMS[g.id] = g;
+}
 
 /** True if `id` names a known gem. */
 export function isGem(id: string): boolean {

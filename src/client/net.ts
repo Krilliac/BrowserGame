@@ -28,6 +28,7 @@ import {
   type Rarity,
   type RarityDef,
 } from '../shared/items.js';
+import { applyGemOverrides } from '../shared/gems.js';
 import { type AttributeSet, emptyAttributes } from '../shared/attributes.js';
 
 export interface ChatLine {
@@ -343,6 +344,8 @@ export class Net {
         this.content.load(msg.areas, msg.abilities, msg.items, msg.tints, msg.dungeons);
         // Mirror the server's rarity tuning (weights are server-only, but colors/names drive the UI).
         applyRarityOverrides((msg.rarities ?? {}) as Partial<Record<Rarity, RarityDef>>);
+        // Mirror the gem catalog so client icons recognize gems added/edited via SQL.
+        if (msg.gems) applyGemOverrides(msg.gems);
         this.contentRev++;
         break;
       case 'welcome':

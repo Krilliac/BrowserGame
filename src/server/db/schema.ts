@@ -188,6 +188,18 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Gems: the socketable catalog. Each gem grants a flat bonus to one affix stat. Seeded from
+-- DEFAULT_GEMS (gems.ts); overlaid onto the shared GEMS catalog on both sides (server load + content
+-- packet). Add a row to introduce a new gem; tier drives the combine chain + drop weight (in code).
+CREATE TABLE IF NOT EXISTS gems (
+  id    TEXT PRIMARY KEY,
+  name  TEXT NOT NULL,
+  color TEXT NOT NULL,
+  stat  TEXT NOT NULL,                  -- an AffixStat (power|hp|crit|multishot|lifesteal|swift|move|armor|vigor)
+  value REAL NOT NULL,
+  tier  INTEGER NOT NULL                -- 1..3 (chipped → flawless)
+);
+
 -- Item rarity tiers: drop weight, stat multiplier, roll variance, and display color per rarity.
 -- Seeded from DEFAULT_RARITY (items.ts); the server overlays these onto the shared RARITY table at
 -- load and ships them to the client in the content packet. weight 0 = never weighted-rolled

@@ -8,6 +8,7 @@ import { type MobTemplate, type EliteModifier, DEFAULT_ELITE_MODIFIERS } from '.
 import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
 import type { StatusEffectKind } from './ability-effects.js';
 import { applyRarityOverrides, type Rarity, type RarityDef } from '../shared/items.js';
+import { applyGemOverrides, type GemDef } from '../shared/gems.js';
 import type { StatusId } from './status-effects.js';
 
 /**
@@ -98,6 +99,8 @@ export interface Content {
   dungeonAreaIds(): string[];
   /** Item rarity-tier definitions keyed by rarity (drop weight, stat mult, variance, color). */
   rarityTiers(): Partial<Record<Rarity, RarityDef>>;
+  /** The full socketable gem catalog (overlaid onto the shared GEMS table on both sides). */
+  gems(): GemDef[];
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -442,6 +445,16 @@ export function loadContent(db: GameDatabase): Content {
     };
   }
 
+  // Gem catalog (socketable bonuses). Overlaid onto the shared GEMS table.
+  const gems = (db.prepare('SELECT * FROM gems').all() as GemRow[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    color: r.color,
+    stat: r.stat as GemDef['stat'],
+    value: r.value,
+    tier: r.tier,
+  }));
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -481,6 +494,7 @@ export function loadContent(db: GameDatabase): Content {
     isDungeon: (areaId) => dungeons.has(areaId),
     dungeonAreaIds: () => [...dungeons.keys()],
     rarityTiers: () => rarityTiers,
+    gems: () => gems,
   };
 }
 
@@ -494,6 +508,7 @@ export function initGameDb(file?: string): Content {
   applyConfigOverrides(activeDb); // overlay the game_config tuning rows onto the code defaults
   activeContent = loadContent(activeDb);
   applyRarityOverrides(activeContent.rarityTiers()); // overlay DB rarity tuning onto shared RARITY
+  applyGemOverrides(activeContent.gems()); // overlay the DB gem catalog onto shared GEMS
   return activeContent;
 }
 
@@ -511,6 +526,7 @@ export function reloadContent(): Content {
   applyConfigOverrides(activeDb); // re-overlay tuning so a direct game_config SQL edit takes effect
   activeContent = loadContent(activeDb);
   applyRarityOverrides(activeContent.rarityTiers()); // re-overlay rarity tuning on reload
+  applyGemOverrides(activeContent.gems()); // re-overlay gem catalog on reload
   return activeContent;
 }
 
@@ -733,4 +749,12 @@ interface RarityRow {
   variance: number;
   color: string;
   sort_order: number;
+}
+interface GemRow {
+  id: string;
+  name: string;
+  color: string;
+  stat: string;
+  value: number;
+  tier: number;
 }

@@ -359,6 +359,32 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       sort_order: { type: 'int', min: 0, max: 9999 },
     },
   },
+
+  gems: {
+    pk: 'id',
+    label: 'gem',
+    note: 'socketable gem; /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+      color: { type: 'color' },
+      stat: {
+        type: 'enum',
+        values: [
+          'power',
+          'hp',
+          'crit',
+          'multishot',
+          'lifesteal',
+          'swift',
+          'move',
+          'armor',
+          'vigor',
+        ],
+      },
+      value: { type: 'real', min: 0, max: 100000 },
+      tier: { type: 'int', min: 1, max: 3 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

@@ -364,6 +364,11 @@ describe('tuning tables are live-editable via /set', () => {
   it('rarity_tiers.weight coerces a real', () => {
     expect(coerceColumn('rarity_tiers', 'weight', '480')).toEqual({ ok: true, value: 480 });
   });
+
+  it('gems.stat accepts a valid affix stat and rejects others', () => {
+    expect(coerceColumn('gems', 'stat', 'power')).toEqual({ ok: true, value: 'power' });
+    expect(coerceColumn('gems', 'stat', 'frail').ok).toBe(false);
+  });
 });
 
 describe('EDITABLE_TABLES invariants', () => {

@@ -26,6 +26,7 @@ queries) into in-memory structures the simulation reads. Tables (`src/server/db/
 | `game_config` | **Global game-tuning overlay** (TrinityCore-style world settings) — `<section>.<field> → value` rows that override the gameplay knobs in `config.ts` at load (difficulty, drops, economy, density, …). Server plumbing/secrets are deliberately excluded |
 | `dungeons`, `dungeon_pool` | **Procedural dungeon** definitions — boss/mini-boss/elite-chance/mob-count + the random monster pool. The server populates instances from these; the dungeon id set is shipped to the client so it marks dungeon-bound portals |
 | `rarity_tiers` | **Item rarity tiers** — drop weight, stat multiplier, roll variance, and display color per rarity. Overlaid onto the shared `RARITY` table on both sides (server: load; client: content packet) |
+| `gems` | **Socketable gem catalog** — name/color/stat/value/tier. Overlaid onto the shared `GEMS` catalog on both sides; add a row to introduce a new gem |
 | `weather_modifiers` | Per-`WeatherKind` **gameplay** multipliers (`move_scale`, `aggro_scale`) — how a weather state *plays*, not just looks (seeded from `weather-effects.ts`) |
 | `elite_modifiers` | The elite ("champion") variant roster — flavor prefix + hp/damage/speed multipliers a normal spawn can roll (seeded from `mobs.ts`) |
 | `quests` | Quest definitions (schema seeded with a sample) |
