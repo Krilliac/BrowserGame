@@ -6,6 +6,7 @@ import {
   levelProgress,
   maxHpForLevel,
   scaleGoldForLevel,
+  tierGoldScale,
   xpForLevel,
   xpReward,
 } from './progression.js';
@@ -202,5 +203,28 @@ describe('coopScale', () => {
   it('resolves garbage head-counts to solo (×1)', () => {
     expect(coopScale(NaN, per, cap)).toBe(1);
     expect(coopScale(-3, per, cap)).toBe(1);
+  });
+});
+
+describe('tierGoldScale', () => {
+  it('is 1× in the normal world (tier 0) so nothing changes there', () => {
+    expect(tierGoldScale(0)).toBe(1);
+  });
+
+  it('rises with tier and is monotonic up to the cap', () => {
+    expect(tierGoldScale(1)).toBeCloseTo(1.35, 10);
+    expect(tierGoldScale(5)).toBeCloseTo(2.75, 10);
+    for (let t = 0; t < 8; t++)
+      expect(tierGoldScale(t + 1)).toBeGreaterThanOrEqual(tierGoldScale(t));
+  });
+
+  it('caps the multiplier at 4×', () => {
+    expect(tierGoldScale(100)).toBe(4);
+    for (let t = 0; t <= 50; t++) expect(tierGoldScale(t)).toBeLessThanOrEqual(4);
+  });
+
+  it('resolves a garbage/negative tier to ×1', () => {
+    expect(tierGoldScale(NaN)).toBe(1);
+    expect(tierGoldScale(-3)).toBe(1);
   });
 });

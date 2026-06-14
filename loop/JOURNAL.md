@@ -125,3 +125,13 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
 - Tests: +4 coopScale (solo=1, +per/player, cap, garbage→1); config chances/cap extended for the new
   knobs; world-tagging still green (DRY proven safe). 985 total.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 12 — chest/pot gold scales with rift tier + co-op
+- Picked: chest (25-90) and pot (2-14) gold were flat regardless of rift tier — a tier-5 rift chest
+  paid the same as a town chest, inconsistent with the now-scaled monster gold. (tier: spec/feature.)
+- Did: new pure `tierGoldScale(tier)` in progression.ts (×1 at tier 0, +0.35/tier, cap 4×) for
+  level-less gold sources; routed chest + pot gold through `tierGoldScale(this.tier) * coopGoldScale()`.
+  Tier-0 solo (town) is unchanged.
+- Tests: +4 tierGoldScale (tier-0=1, monotonic, 4× cap, garbage→1); world-pots + world-chests still
+  green (town tier-0/solo unchanged). 989 total.
+- Result: COMMITTED — gate check+build GREEN (missing test import caught + fixed first).

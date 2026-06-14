@@ -110,6 +110,7 @@ import {
   levelProgress,
   maxHpForLevel,
   scaleGoldForLevel,
+  tierGoldScale,
   xpForLevel,
   xpReward,
 } from './progression.js';
@@ -2196,7 +2197,8 @@ export class World {
       if (Math.hypot(player.x - pot.x, player.y - pot.y) > POT_RADIUS) continue;
       pot.broken = true;
       this.events.push({ kind: 'pickup', x: pot.x, y: pot.y });
-      const gold = POT_GOLD_MIN + Math.floor(this.rand() * (POT_GOLD_MAX - POT_GOLD_MIN + 1));
+      const base = POT_GOLD_MIN + Math.floor(this.rand() * (POT_GOLD_MAX - POT_GOLD_MIN + 1));
+      const gold = Math.round(base * tierGoldScale(this.tier) * this.coopGoldScale());
       this.dropGround('gold', gold, pot.x, pot.y);
       if (this.rand() < 0.1) {
         player.potions.health = Math.min(POTION_CAP, player.potions.health + 1);
@@ -2210,7 +2212,8 @@ export class World {
       if (c.opened) continue;
       if (Math.hypot(player.x - c.x, player.y - c.y) > CHEST_RADIUS) continue;
       c.opened = true;
-      const gold = CHEST_GOLD_MIN + Math.floor(this.rand() * (CHEST_GOLD_MAX - CHEST_GOLD_MIN + 1));
+      const base = CHEST_GOLD_MIN + Math.floor(this.rand() * (CHEST_GOLD_MAX - CHEST_GOLD_MIN + 1));
+      const gold = Math.round(base * tierGoldScale(this.tier) * this.coopGoldScale());
       this.dropGround('gold', gold, c.x, c.y);
       const corrupt = this.corruption() * CORRUPT_DROP_MAX;
       this.dropBonusGear(c.x, c.y, 1, corrupt, CHEST_UNIQUE_CHANCE); // one good piece (rare unique)...

@@ -86,6 +86,16 @@ export function coopScale(alive: number, perPlayer: number, cap: number): number
   return Math.min(cap, 1 + perPlayer * Math.max(0, n - 1));
 }
 
+/**
+ * Gold multiplier from an area's rift tier — for level-less gold sources (chests, smashed pots) that
+ * can't use {@link scaleGoldForLevel}. Tier 0 (the normal world) is ×1 so nothing changes there;
+ * deeper rifts pay more, capped at 4×. Pure; a non-positive/garbage tier resolves to ×1.
+ */
+export function tierGoldScale(tier: number): number {
+  const t = Math.max(0, Math.floor(tier) || 0);
+  return Math.min(4, 1 + t * 0.35);
+}
+
 /** Player max HP at a given level (base 100, scaling up per level). */
 export function maxHpForLevel(level: number): number {
   const lvl = sanitizeLevel(level);
