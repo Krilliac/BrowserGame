@@ -31,6 +31,7 @@ import { applyBossScriptOverrides, type BossScript, type BossStep } from './boss
 import type { ProcDef, ProcEffect } from './item-procs.js';
 import type { GameEventDef } from './game-events.js';
 import type { RiftModifierDef } from './rift-modifiers.js';
+import type { CraftRecipe } from './crafting.js';
 import { applySkillTreeOverrides, type SkillNode, type SkillEffects } from '../shared/skilltree.js';
 import { KIND_TO_NPC_FLAG } from '../shared/npc-flags.js';
 import {
@@ -182,6 +183,8 @@ export interface Content {
   gameEvents(): GameEventDef[];
   /** The rift mutator pool (a tiered rift rolls a couple at open; the World applies their effects). */
   riftModifiers(): RiftModifierDef[];
+  /** The crafting recipes (material refinement ladder + sinks; World.craft applies them). */
+  craftingRecipes(): CraftRecipe[];
   /** Affix roll ranges per scalar stat (server-only; overlaid onto the shared AFFIX_RANGES). */
   affixRanges(): Record<string, AffixRange>;
   /** Affix flavor names/tiers per stat (overlaid onto the shared AFFIX_NAMES; shipped to client). */
@@ -693,6 +696,24 @@ export function loadContent(db: GameDatabase): Content {
     return ev;
   });
 
+  // Crafting recipes: header + I/O rows rebuilt into CraftRecipe shape (inputs/outputs in sort order).
+  const ioStmt = db.prepare(
+    'SELECT role, item_id, qty FROM crafting_recipe_io WHERE recipe_id = ? ORDER BY role, sort_order',
+  );
+  const craftingRecipes = (
+    db.prepare('SELECT id, name FROM crafting_recipes').all() as { id: string; name: string }[]
+  ).map((h) => {
+    const io = ioStmt.all(h.id) as { role: string; item_id: string; qty: number }[];
+    return {
+      id: h.id,
+      name: h.name,
+      inputs: io.filter((x) => x.role === 'input').map((x) => ({ itemId: x.item_id, qty: x.qty })),
+      outputs: io
+        .filter((x) => x.role === 'output')
+        .map((x) => ({ itemId: x.item_id, qty: x.qty })),
+    };
+  });
+
   // Rift modifiers: the mutator pool. snake_case → camelCase; all fields present (DB has defaults).
   const riftModifiers = (db.prepare('SELECT * FROM rift_modifiers').all() as RiftModifierRow[]).map(
     (r) => ({
@@ -813,6 +834,7 @@ export function loadContent(db: GameDatabase): Content {
     mobResists: (templateId) => mobResists.get(templateId) ?? {},
     gameEvents: () => gameEvents,
     riftModifiers: () => riftModifiers,
+    craftingRecipes: () => craftingRecipes,
     affixRanges: () => affixRanges,
     affixNames: () => affixNames,
     skillTree: () => skillTree,

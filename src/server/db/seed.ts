@@ -35,6 +35,7 @@ import { DEFAULT_BOSS_SCRIPTS } from '../boss-scripts.js';
 import { DEFAULT_ITEM_PROCS } from '../item-procs.js';
 import { DEFAULT_GAME_EVENTS } from '../game-events.js';
 import { DEFAULT_RIFT_MODIFIERS } from '../rift-modifiers.js';
+import { DEFAULT_RECIPES } from '../crafting.js';
 import { DEFAULT_SKILL_TREE, type SkillEffects } from '../../shared/skilltree.js';
 import { DEFAULT_HIRELING_TEMPLATES } from '../hirelings.js';
 import { AccessLevel, accountCount, createAccount } from '../accounts.js';
@@ -350,6 +351,7 @@ export function seed(db: Database): void {
   ensureMobResists(db); // per-element mob resistances (seeded from mobs.ts MOB_RESISTS)
   ensureGameEvents(db); // timed recurring liveops events (seeded from game-events.ts defaults)
   ensureRiftModifiers(db); // D3-style rift mutators (seeded from rift-modifiers.ts defaults)
+  ensureCrafting(db); // crafting recipes (seeded from crafting.ts DEFAULT_RECIPES)
   ensureAffixes(db); // affix roll ranges + flavor names/tiers (seeded from items.ts defaults)
   ensureSkillTree(db); // passive skill-tree nodes/prereqs/effects (seeded from skilltree.ts)
   ensureHirelings(db); // mercenary roster (seeded from hirelings.ts DEFAULT_HIRELING_TEMPLATES)
@@ -572,6 +574,24 @@ function ensureGameEvents(db: Database): void {
   );
   for (const e of DEFAULT_GAME_EVENTS) {
     ins.run(e.id, e.name, e.periodMin, e.lengthMin, e.xpBonus ?? null, e.announce ?? null);
+  }
+}
+
+/**
+ * Seed the crafting recipes from the code defaults (crafting.ts). Idempotent: skipped once any row
+ * exists. Header + normalized I/O rows (role input|output) in declaration order.
+ */
+function ensureCrafting(db: Database): void {
+  const has = db.prepare('SELECT 1 FROM crafting_recipes LIMIT 1');
+  if (has.get()) return;
+  const insR = db.prepare('INSERT INTO crafting_recipes (id,name) VALUES (?,?)');
+  const insIO = db.prepare(
+    'INSERT INTO crafting_recipe_io (recipe_id,role,item_id,qty,sort_order) VALUES (?,?,?,?,?)',
+  );
+  for (const r of DEFAULT_RECIPES) {
+    insR.run(r.id, r.name);
+    r.inputs.forEach((i, n) => insIO.run(r.id, 'input', i.itemId, i.qty, n));
+    r.outputs.forEach((o, n) => insIO.run(r.id, 'output', o.itemId, o.qty, n));
   }
 }
 

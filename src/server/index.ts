@@ -1363,6 +1363,15 @@ wss.on('connection', (socket) => {
                       })
                       .join('\n');
                   },
+                  recipes: () => {
+                    const rs = getContent().craftingRecipes();
+                    if (rs.length === 0) return 'No crafting recipes configured.';
+                    const fmt = (io: { itemId: string; qty: number }[]): string =>
+                      io.map((x) => `${x.qty} ${x.itemId}`).join(' + ');
+                    return rs
+                      .map((r) => `${r.id} — ${fmt(r.inputs)} → ${fmt(r.outputs)}`)
+                      .join('\n');
+                  },
                 });
               } catch (err) {
                 console.error('[command] failed:', err);

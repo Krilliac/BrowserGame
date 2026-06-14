@@ -543,6 +543,22 @@ CREATE TABLE IF NOT EXISTS rift_modifiers (
   xp_bonus            REAL    NOT NULL DEFAULT 0
 );
 
+-- Crafting recipes: fixed inputs → fixed outputs (the salvage-material refinement ladder + sinks).
+-- Seeded from crafting.ts DEFAULT_RECIPES; the pure applyCraft does the spend. Header + normalized
+-- I/O rows (role = input|output). Gives mat_scrap/dust/essence a sink via /craft.
+CREATE TABLE IF NOT EXISTS crafting_recipes (
+  id   TEXT PRIMARY KEY,
+  name TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS crafting_recipe_io (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  recipe_id  TEXT NOT NULL,
+  role       TEXT NOT NULL,           -- 'input' | 'output'
+  item_id    TEXT NOT NULL,
+  qty        INTEGER NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
 -- Ladder / leaderboard: the best-ever score per character per metric (server is the sole writer;
 -- scores are recorded from the authoritative save on autosave). One row per (name, metric); the
 -- value only ever climbs (recordScore keeps the max). Read by the /ladder command.

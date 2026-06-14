@@ -109,6 +109,7 @@ import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runeword
 import { setBonuses } from '../shared/item-sets.js';
 import { resolveProcs, type ProcDef } from './item-procs.js';
 import { salvageYield, type MaterialKind, type MaterialYield } from './salvage.js';
+import { applyCraft } from './crafting.js';
 import {
   rollRiftModifiers,
   aggregateRiftEffects,
@@ -1326,6 +1327,31 @@ export class World {
       player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + y.qty);
     }
     return { ok: true, yields };
+  }
+
+  /**
+   * Craft a recipe: spend its material inputs from the player's loot for its outputs. The pure
+   * applyCraft validates affordability + does the check-then-mutate spend (never partial/negative).
+   * Returns whether it crafted; notifies the player either way. Recipe set is content-driven.
+   */
+  craft(playerId: number, recipeId: string): boolean {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+    const recipe = getContent()
+      .craftingRecipes()
+      .find((r) => r.id === recipeId);
+    if (!recipe) {
+      this.notify(playerId, `Unknown recipe "${recipeId}".`);
+      return false;
+    }
+    const have: Record<string, number> = Object.fromEntries(player.loot);
+    if (!applyCraft(recipe, have)) {
+      this.notify(playerId, `Not enough materials for ${recipe.name}.`);
+      return false;
+    }
+    player.loot = new Map(Object.entries(have));
+    this.notify(playerId, `Crafted: ${recipe.name}.`);
+    return true;
   }
 
   /**

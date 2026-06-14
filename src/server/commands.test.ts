@@ -47,6 +47,7 @@ function makeCtx(
     setContent: () => 'ok',
     ladder: (metric) => `Top ${metric}:\n1. Tester — 1`,
     events: () => 'Bloodmoon Rising [bloodmoon]: idle (starts in 60s)',
+    recipes: () => 'refine_scrap — 3 mat_scrap → 1 mat_dust',
   };
   return { ctx, cap };
 }

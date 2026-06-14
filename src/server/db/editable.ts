@@ -469,6 +469,28 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
     },
   },
 
+  crafting_recipes: {
+    pk: 'id',
+    label: 'crafting recipe',
+    note: 'a recipe header; edit its inputs/outputs in crafting_recipe_io; /reloadcontent to apply',
+    columns: {
+      name: { type: 'text' },
+    },
+  },
+
+  crafting_recipe_io: {
+    pk: 'id',
+    label: 'crafting recipe i/o',
+    note: 'one input/output line of a recipe; /reloadcontent to apply',
+    columns: {
+      recipe_id: { type: 'text' },
+      role: { type: 'enum', values: ['input', 'output'] },
+      item_id: { type: 'text' },
+      qty: { type: 'int', min: 1, max: 9999 },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
+
   rift_modifiers: {
     pk: 'id',
     label: 'rift modifier',

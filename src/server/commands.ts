@@ -42,6 +42,8 @@ export interface CommandContext {
   ladder: (metric: string) => string;
   /** Render the timed game-events with their active state + time-to-flip (for /event). */
   events: () => string;
+  /** Render the crafting recipes (id — name: inputs → outputs) for /recipes. */
+  recipes: () => string;
 }
 
 interface Command {
@@ -119,6 +121,29 @@ const COMMAND_LIST: Command[] = [
       }
       const mats = (r.yields ?? []).map((y) => `${y.qty} ${y.kind}`).join(', ');
       ctx.reply(`Salvaged → ${mats}.`);
+    },
+  },
+  {
+    name: 'recipes',
+    minLevel: AccessLevel.Player,
+    usage: '/recipes',
+    help: 'List crafting recipes you can make with /craft.',
+    run: (ctx) => {
+      for (const line of ctx.recipes().split('\n')) ctx.reply(line);
+    },
+  },
+  {
+    name: 'craft',
+    minLevel: AccessLevel.Player,
+    usage: '/craft <recipeId>',
+    help: 'Craft a recipe from your materials (see /recipes).',
+    run: (ctx) => {
+      const id = ctx.args[0];
+      if (!id) {
+        ctx.reply('Usage: /craft <recipeId> — see /recipes.');
+        return;
+      }
+      ctx.world.craft(ctx.playerId, id); // the world notifies success/failure
     },
   },
   {
