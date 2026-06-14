@@ -447,6 +447,8 @@ interface Player {
   questsDone: Set<string>;
   /** Unlocked achievement ids (milestone dedupe key; persisted in the save). */
   earnedAchievements: Set<string>;
+  /** Lifetime monster kills credited to this character (persisted; drives achievements + ladder). */
+  kills: number;
   /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
   known: Map<AbilityId, number>;
   /** Area ids this character has visited â€” the waypoint fast-travel list. */
@@ -498,6 +500,8 @@ export interface PlayerSave {
   questsDone: string[];
   /** Unlocked achievement ids (absent on pre-achievement saves — defaults to empty). */
   earnedAchievements?: string[];
+  /** Lifetime monster kills (absent on old saves — defaults to 0). Drives kill achievements + ladder. */
+  kills?: number;
   /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
   known?: [string, number][];
   /** Visited area ids (waypoints). Absent on old saves â€” the current area is added on load. */
@@ -2085,6 +2089,7 @@ export class World {
       quests: new Map(),
       questsDone: new Set(),
       earnedAchievements: new Set(),
+      kills: 0,
       known: new Map(STARTER_ABILITIES.map((a) => [a, 1])),
       discovered: new Set([this.areaId]),
       input: { up: false, down: false, left: false, right: false },
@@ -2124,6 +2129,7 @@ export class World {
       quests: [...p.quests],
       questsDone: [...p.questsDone],
       earnedAchievements: [...p.earnedAchievements],
+      kills: p.kills,
       known: [...p.known],
       discovered: [...p.discovered],
       hireling: p.hireling,
@@ -2168,6 +2174,7 @@ export class World {
     p.quests = new Map(save.quests);
     p.questsDone = new Set(save.questsDone);
     p.earnedAchievements = new Set(save.earnedAchievements ?? []);
+    p.kills = save.kills ?? 0;
     p.known = restoreKnown(save.known);
     // Carry visited areas across the transfer + always mark the area we just arrived in.
     p.discovered = new Set(save.discovered ?? []);
@@ -3592,6 +3599,7 @@ export class World {
       this.events.push({ kind: 'levelup', x: p.x, y: p.y, value: newLevel });
     }
     p.level = newLevel;
+    p.kills += 1; // shared-credit: every tagger/party member who is credited counts the kill
     this.recomputeStats(p);
     this.progressQuests(p, mobTemplateId);
     this.checkAchievements(p);
@@ -3603,7 +3611,7 @@ export class World {
    */
   private checkAchievements(player: Player): void {
     const fresh = newlyEarned(
-      { level: player.level, gold: player.gold },
+      { level: player.level, gold: player.gold, kills: player.kills },
       player.earnedAchievements,
     );
     for (const a of fresh) {
@@ -3616,7 +3624,7 @@ export class World {
   achievementStatus(playerId: number): string[] {
     const p = this.players.get(playerId);
     if (!p) return ['No character.'];
-    const stats: Record<string, number> = { level: p.level, gold: p.gold };
+    const stats: Record<string, number> = { level: p.level, gold: p.gold, kills: p.kills };
     return DEFAULT_ACHIEVEMENTS.map((a) => {
       const cur = stats[a.metric] ?? 0;
       const done = p.earnedAchievements.has(a.id) || cur >= a.threshold;

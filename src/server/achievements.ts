@@ -5,13 +5,13 @@
  * has no hidden state. Persistence (the earned set lives in the player save), the unlock check, and
  * a `/achievements` command are wired by the orchestrator elsewhere — not here.
  *
- * WHY only `level` and `gold`: those are the only metrics actually tracked on a character today.
- * Adding kills/rift-tier achievements now would create *dead* achievements no path ever unlocks, so
- * we deliberately seed only what the simulation can already satisfy.
+ * WHY these metrics: `level`, `gold`, and lifetime `kills` are the stats actually tracked on a
+ * character. We deliberately seed only metrics the simulation can satisfy — no *dead* achievements
+ * for things (rift tier, area completion) nothing currently records.
  */
 
 /** The character stats an achievement can key off — only metrics that already exist on a character. */
-export type AchievementMetric = 'level' | 'gold';
+export type AchievementMetric = 'level' | 'gold' | 'kills';
 
 /**
  * A single milestone. Earned when `stats[metric] >= threshold`. `threshold` is the inclusive bar:
@@ -93,6 +93,35 @@ export const DEFAULT_ACHIEVEMENTS: readonly AchievementDef[] = [
     desc: 'Hold 50,000 gold at once.',
     metric: 'gold',
     threshold: 50000,
+  },
+  // Kill tiers — the body count climbs as you clear the world.
+  {
+    id: 'kills_slayer',
+    name: 'Slayer',
+    desc: 'Slay 100 monsters.',
+    metric: 'kills',
+    threshold: 100,
+  },
+  {
+    id: 'kills_exterminator',
+    name: 'Exterminator',
+    desc: 'Slay 500 monsters.',
+    metric: 'kills',
+    threshold: 500,
+  },
+  {
+    id: 'kills_butcher',
+    name: 'Butcher',
+    desc: 'Slay 2,000 monsters.',
+    metric: 'kills',
+    threshold: 2000,
+  },
+  {
+    id: 'kills_reaper',
+    name: 'Reaper',
+    desc: 'Slay 10,000 monsters.',
+    metric: 'kills',
+    threshold: 10000,
   },
 ];
 

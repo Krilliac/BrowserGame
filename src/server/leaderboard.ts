@@ -11,10 +11,10 @@
 
 import type { GameDatabase } from './db/database.js';
 
-/** The ranked metrics. Both come straight off the persisted character save (no extra tracking). */
-export type LeaderboardMetric = 'level' | 'gold';
+/** The ranked metrics. All come straight off the persisted character save (no extra tracking). */
+export type LeaderboardMetric = 'level' | 'gold' | 'kills';
 
-export const LEADERBOARD_METRICS: LeaderboardMetric[] = ['level', 'gold'];
+export const LEADERBOARD_METRICS: LeaderboardMetric[] = ['level', 'gold', 'kills'];
 
 /** True for a metric the board tracks (guards the `/ladder` arg at the boundary). */
 export function isLeaderboardMetric(s: string): s is LeaderboardMetric {

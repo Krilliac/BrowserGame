@@ -1793,6 +1793,7 @@ setInterval(() => {
           // Record best-ever ladder standings from the authoritative save (server is sole writer).
           recordScore(db, save.name, 'level', save.level, at);
           recordScore(db, save.name, 'gold', save.gold, at);
+          recordScore(db, save.name, 'kills', save.kills ?? 0, at);
         }
       }
     },

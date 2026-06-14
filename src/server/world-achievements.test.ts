@@ -9,7 +9,7 @@ initGameDb(':memory:');
  * in-progress. The unlock math (newlyEarned) is unit-tested in achievements.test.ts; here we cover
  * the save round-trip + the status display the World exposes to the command.
  */
-function save(level: number, gold: number, earned: string[]): PlayerSave {
+function save(level: number, gold: number, earned: string[], kills = 0): PlayerSave {
   return {
     name: 'Hero',
     hue: 0,
@@ -25,6 +25,7 @@ function save(level: number, gold: number, earned: string[]): PlayerSave {
     quests: [],
     questsDone: [],
     earnedAchievements: earned,
+    kills,
   };
 }
 
@@ -52,5 +53,14 @@ describe('world achievements', () => {
     const lines = w.achievementStatus(3);
     expect(lines.some((l) => l.startsWith('✓') && l.includes('Apprentice'))).toBe(true);
     expect(lines.some((l) => l.includes('Adept') && l.includes('10/20'))).toBe(true);
+  });
+
+  it('tracks kills: persists the count and surfaces kill milestones', () => {
+    const w = world();
+    w.importPlayer(4, save(5, 0, [], 150), 100, 100); // 150 lifetime kills → Slayer (100) met
+    expect(w.exportPlayer(4)!.kills).toBe(150);
+    const lines = w.achievementStatus(4);
+    expect(lines.some((l) => l.startsWith('✓') && l.includes('Slayer'))).toBe(true);
+    expect(lines.some((l) => l.includes('Exterminator') && l.includes('150/500'))).toBe(true);
   });
 });
