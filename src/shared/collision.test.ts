@@ -287,6 +287,29 @@ describe('resolveCircleMove with circle blockers', () => {
     const r = resolveCircleMove(100, 200, 200, 200, 13, rects, boulder);
     expect(pointInCircle(r.x, r.y, boulder[0]!)).toBe(false);
   });
+
+  it('blocks a normal bounded-speed step that crosses the rim (no pass-through)', () => {
+    // Start just outside the body's reach (d=65 > 50+13=63), step 5px so the END lands inside the
+    // band — the realistic per-tick case. It must be pushed back out, not allowed through.
+    const r = resolveCircleMove(135, 200, 140, 200, 13, [], boulder);
+    expect(pointInCircle(r.x, r.y, boulder[0]!)).toBe(false);
+    expect(Math.hypot(r.x - 200, r.y - 200)).toBeCloseTo(63, 6); // resting on the surface (r + radius)
+  });
+
+  it('only the relevant circle of several separate ones affects the move', () => {
+    const two = [
+      { cx: 200, cy: 200, r: 50 },
+      { cx: 600, cy: 200, r: 50 }, // far away, must not interfere
+    ];
+    const r = resolveCircleMove(100, 200, 200, 200, 13, [], two);
+    expect(pointInCircle(r.x, r.y, two[0]!)).toBe(false); // pushed out of the near one
+    expect(r.x).toBeCloseTo(137, 5); // exactly as with the near circle alone
+  });
+
+  it('does not spuriously shove a body that is leaving the circle (both ends outside)', () => {
+    const r = resolveCircleMove(135, 200, 130, 200, 13, [], boulder); // moving away, never inside
+    expect(r).toEqual({ x: 130, y: 200 });
+  });
 });
 
 describe('pointInAnyBlocker', () => {

@@ -23,7 +23,7 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - [ ] Audit `mobs.ts`/`items.ts`/`gems.ts` for other small flat-vs-scaled un-Diablo spots.
 
 ## Coverage / robustness — remaining
-- [ ] Edge cases for the NEW circle collision (multi-overlapping circles; circle+rect corner;
+- [x] Circle-collision edge cases (iter 9): bounded-step block, separate circles, clean exit.
       bounded-speed no-tunnel) in `shared/collision.test.ts`.
 - [ ] `src/server/config.ts` invariant test (all multipliers finite + in sane ranges).
 
@@ -48,3 +48,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 6: champion gold scales with level (+3 tests)
 - iter 7: protocol.ts wire-contract coverage (+5 tests) — all shared modules now tested
 - iter 8: base monster gold scales with level (+5 tests)
+- iter 9: circle-collision edge-case coverage (+3 tests)

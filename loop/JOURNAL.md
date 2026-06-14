@@ -90,3 +90,15 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   fixed, re-gated green).
 - Notes for human: pots/chests gold (world.ts ~2183/2197) still uses its own flat amount — a future
   pass could route it through the same scaler for consistency.
+
+## Iteration 9 — circle-collision edge-case coverage
+- Picked: deepen tests for the NEW circle blockers in shared/collision.ts (tier: coverage for risky
+  code — movement/anti-cheat; desync if wrong).
+- Did: +3 edge cases in collision.test.ts matching the resolver's actual guarantees — a normal
+  bounded-speed step that crosses the rim is pushed back out (no pass-through, rests exactly on
+  r+radius); a far separate circle doesn't interfere (result identical to the near circle alone); a
+  body leaving the vicinity (both ends outside) is never spuriously shoved. Deliberately did NOT
+  assert "outside ALL overlapping circles" — sequential push doesn't guarantee that, so testing it
+  would be wrong.
+- Tests: +3 (976 total). No production code changed.
+- Result: COMMITTED — gate check+build GREEN.
