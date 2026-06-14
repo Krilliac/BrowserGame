@@ -8,8 +8,18 @@
  * sheet loads (or if it 404s) and the panels keep their procedural fallback.
  */
 
-import { equipDef, type ItemSlot } from '../shared/equipment.js';
+import type { ItemSlot } from '../shared/equipment.js';
 import { GEMS } from '../shared/gems.js';
+
+/**
+ * Item slot lookup, injected from the DB-driven content store (main.ts wires it to the content
+ * packet) so this module never imports the equipment data const. Defaults to "unknown slot" until
+ * wired, which simply falls the resolver through to the keyword rules / generic icon.
+ */
+let resolveSlot: (id: string) => ItemSlot | undefined = () => undefined;
+export function setItemSlotResolver(fn: (id: string) => ItemSlot | undefined): void {
+  resolveSlot = fn;
+}
 
 export interface IconCell {
   col: number;
@@ -139,8 +149,8 @@ export function resolveIconKey(itemId: string): IconKey {
   if (itemId.startsWith('rune_')) return 'rune';
   if (MATERIAL_IDS.has(itemId)) return 'material';
   for (const [re, key] of KEYWORD_RULES) if (re.test(itemId)) return key;
-  const equip = equipDef(itemId);
-  if (equip) return SLOT_KEY[equip.slot];
+  const slot = resolveSlot(itemId);
+  if (slot) return SLOT_KEY[slot];
   return 'generic';
 }
 

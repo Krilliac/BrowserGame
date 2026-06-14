@@ -12,7 +12,12 @@ import {
   loadItemIcons,
   resolveIconCell,
   resolveIconKey,
+  setItemSlotResolver,
 } from './item-icons.js';
+
+// item-icons no longer imports the equipment data const; the slot fallback is injected. Wire it
+// from EQUIPMENT here so the "every equipment base resolves" check still exercises the fallback.
+setItemSlotResolver((id) => EQUIPMENT[id]?.slot);
 
 /** Non-equip item ids seeded into the content DB (materials, currency, belt potions). */
 const MATERIAL_IDS = [
