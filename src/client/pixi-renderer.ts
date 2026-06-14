@@ -190,6 +190,7 @@ const ITEM_COLORS: Record<string, string> = {
   bone: '#e8e2d0',
   bat_wing: '#7a5a8a',
   rune_shard: '#5fb0e0',
+  healthglobe: '#ff3b4e', // a glowing red life orb (drawn as a pulsing orb, no sheet icon)
 };
 
 interface Sheet {
@@ -2808,6 +2809,20 @@ export class PixiRenderer {
         t.style.fill = '#f2c14e';
         t.alpha = alpha;
         t.position.set(x, y - 40 - age * 24);
+      } else if (ev.kind === 'heal' && ev.value !== undefined) {
+        // HP restored (a health globe): a rising "+N" in life-red, with a soft expanding ring.
+        g.circle(x, y - 16, 6 + age * 22).stroke({
+          width: 2,
+          color: '#ff5d6c',
+          alpha: alpha * 0.7,
+        });
+        const t = this.fxText(ti++);
+        t.visible = true;
+        t.text = `+${ev.value}`;
+        t.style.fontSize = 16;
+        t.style.fill = '#ff6b78';
+        t.alpha = alpha;
+        t.position.set(x, y - 44 - age * 26);
       } else if (ev.kind === 'levelup') {
         // A gold burst ring + a "Level N!" callout rising over the player.
         g.circle(x, y - 16, 14 + age * 46).stroke({ width: 3, color: '#ffe08a', alpha });

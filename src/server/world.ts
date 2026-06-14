@@ -106,9 +106,11 @@ import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runeword
 import {
   championGoldPile,
   coopScale,
+  healthGlobeHeal,
   levelForXp,
   levelProgress,
   maxHpForLevel,
+  scaleDamageForLevel,
   scaleGoldForLevel,
   tierGoldScale,
   xpForLevel,
@@ -270,6 +272,20 @@ let GEM_DROP_NORMAL = config.drops.gemNormal; // 2% per ordinary kill
 let GEM_DROP_ELITE = config.drops.gemElite; // 12% per champion
 let GEM_DROP_BOSS = config.drops.gemBoss; // 60% per area boss
 
+// Health-globe drops (D3): a slain monster may spill a globe that instant-heals on pickup.
+let HEALTH_GLOBE_NORMAL = config.drops.healthGlobeNormal; // 1.5% per ordinary kill
+let HEALTH_GLOBE_ELITE = config.drops.healthGlobeElite; // 10% per champion
+let HEALTH_GLOBE_BOSS = config.drops.healthGlobeBoss; // 50% per area boss
+let GLOBE_HEAL_FRAC = config.globes.healFrac; // fraction of the picker's max HP restored
+let GLOBE_ALLY_HEAL_FRAC = config.globes.allyHealFrac; // fraction nearby allies also get
+let GLOBE_ALLY_RADIUS = config.globes.allyRadius; // how close an ally must be to share the heal
+
+/** Reserved ground-item id for a health globe — handled specially on pickup (heals, never bagged). */
+const HEALTH_GLOBE_ITEM = 'healthglobe';
+
+/** Per-tier monster outgoing-damage cap (deeper rifts hit harder; tier 0 unchanged). */
+let DAMAGE_LEVEL_CAP = config.difficulty.damageLevelCap;
+
 // How often a support-caster monster may re-cast its self-buff/heal (War Cry / Sprint / Renew).
 const MOB_SUPPORT_COOLDOWN_MS = 7000;
 
@@ -334,6 +350,13 @@ export function applyRuntimeConfig(): void {
   GEM_DROP_NORMAL = config.drops.gemNormal;
   GEM_DROP_ELITE = config.drops.gemElite;
   GEM_DROP_BOSS = config.drops.gemBoss;
+  HEALTH_GLOBE_NORMAL = config.drops.healthGlobeNormal;
+  HEALTH_GLOBE_ELITE = config.drops.healthGlobeElite;
+  HEALTH_GLOBE_BOSS = config.drops.healthGlobeBoss;
+  GLOBE_HEAL_FRAC = config.globes.healFrac;
+  GLOBE_ALLY_HEAL_FRAC = config.globes.allyHealFrac;
+  GLOBE_ALLY_RADIUS = config.globes.allyRadius;
+  DAMAGE_LEVEL_CAP = config.difficulty.damageLevelCap;
   VENDOR_PRICE_MULT = config.economy.vendorPriceMult;
   VENDOR_STOCK_CAP = config.economy.vendorStockCap;
   VENDOR_ROTATE_MS = config.economy.vendorRotateMs;
@@ -1603,6 +1626,17 @@ export class World {
     return true;
   }
 
+  /**
+   * Spawn a ground-item stack at an exact world point (no scatter). The public seam over the private
+   * `dropGround` scatter-spawn: lets tests place a drop (e.g. a health globe) at a controlled
+   * distance from a player, and gives GM tooling a way to seed loot. Returns the new item's id.
+   */
+  dropItemAt(itemId: string, qty: number, x: number, y: number): number {
+    const id = this.allocId();
+    this.items.set(id, { id, itemId, qty, x, y, ttl: ITEM_TTL_MS });
+    return id;
+  }
+
   setLevel(id: number, level: number): void {
     const p = this.players.get(id);
     if (!p) return;
@@ -1971,7 +2005,9 @@ export class World {
 
   private mobOutgoing(mob: Mob, template: MobTemplate): number {
     return (
-      template.damage *
+      // Deeper rifts hit harder: scale the base by how far the mob's level outpaces its template
+      // (tier 0 keeps it exactly), capped tight so "deeper = deadlier" never spikes into one-shots.
+      scaleDamageForLevel(template.damage, mob.level, template.level, DAMAGE_LEVEL_CAP) *
       MOB_DMG_TUNING *
       this.coopDamageScale() *
       // Enraged brutes (trait, below 35% HP) hit half again as hard â€” finish them or back off.
@@ -2969,6 +3005,15 @@ export class World {
     const gemChance = isBoss ? GEM_DROP_BOSS : mob.elite ? GEM_DROP_ELITE : GEM_DROP_NORMAL;
     if (this.rand() < gemChance) this.dropGround(rollGemDrop(), 1, mob.x, mob.y);
 
+    // Health globes (D3): an independent roll (champions/bosses far likelier) spills a globe that
+    // instant-heals whoever walks over it — the panic-button reward that keeps a fight flowing.
+    const globeChance = isBoss
+      ? HEALTH_GLOBE_BOSS
+      : mob.elite
+        ? HEALTH_GLOBE_ELITE
+        : HEALTH_GLOBE_NORMAL;
+    if (this.rand() < globeChance) this.dropGround(HEALTH_GLOBE_ITEM, 1, mob.x, mob.y);
+
     // Living loot meta: consume this monster type's accumulated hunting bounty. A long lull since the
     // last kill (or a never-farmed type) means a high chance of a bonus rarity-bumped drop; the kill
     // resets the timer, so farming the same spot quickly depletes it back to base loot.
@@ -3181,7 +3226,12 @@ export class World {
       for (const player of this.players.values()) {
         if (player.dead) continue;
         if (Math.hypot(player.x - item.x, player.y - item.y) <= PICKUP_RADIUS) {
-          if (item.itemId === 'gold') {
+          // Health globe: only a wounded player collects it — a full-HP player walks over it and
+          // leaves it on the ground for an ally who needs it (D3 globes persist until used).
+          if (item.itemId === HEALTH_GLOBE_ITEM) {
+            if (player.hp >= player.maxHp) continue;
+            this.collectHealthGlobe(player);
+          } else if (item.itemId === 'gold') {
             player.gold += item.qty;
             this.events.push({ kind: 'coin', x: item.x, y: item.y, value: item.qty });
           } else if (item.instance) {
@@ -3201,6 +3251,29 @@ export class World {
         }
       }
     }
+  }
+
+  /**
+   * Apply a health globe a `picker` walked over: instant-heal the picker, and every living ally
+   * within {@link GLOBE_ALLY_RADIUS} a smaller share (D3 globes heal the whole group). Each heal is
+   * clamped to that character's missing-HP headroom and emits a 'heal' floater for the client.
+   */
+  private collectHealthGlobe(picker: Player): void {
+    this.healByGlobe(picker, GLOBE_HEAL_FRAC);
+    for (const ally of this.players.values()) {
+      if (ally === picker || ally.dead) continue;
+      if (Math.hypot(ally.x - picker.x, ally.y - picker.y) <= GLOBE_ALLY_RADIUS) {
+        this.healByGlobe(ally, GLOBE_ALLY_HEAL_FRAC);
+      }
+    }
+  }
+
+  /** Heal one player by a fraction of their max HP (clamped to the missing headroom) + a floater. */
+  private healByGlobe(player: Player, frac: number): void {
+    const healed = Math.min(player.maxHp - player.hp, healthGlobeHeal(player.maxHp, frac));
+    if (healed <= 0) return;
+    player.hp += healed;
+    this.events.push({ kind: 'heal', x: player.x, y: player.y, value: Math.round(healed) });
   }
 
   private damagePlayer(player: Player, amount: number, silent = false): void {

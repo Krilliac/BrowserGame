@@ -96,6 +96,39 @@ export function tierGoldScale(tier: number): number {
   return Math.min(4, 1 + t * 0.35);
 }
 
+/**
+ * Scale a monster's outgoing damage by how far its actual level outpaces its template level — i.e.
+ * by rift tier (a mob spawns at templateLevel + 2·tier). Mirrors {@link scaleGoldForLevel} so the
+ * "deeper = deadlier" reward and threat track together, but with a much tighter cap (gold runs to
+ * 4×; lethality only to `cap`, default 1.5×) so deep rifts sting without one-shotting. A mob at its
+ * base level (tier 0) keeps its damage exactly, so the normal game is unchanged. Pure; never below
+ * the base damage.
+ */
+export function scaleDamageForLevel(
+  baseDamage: number,
+  mobLevel: number,
+  templateLevel: number,
+  cap = 1.5,
+): number {
+  const base = Number.isFinite(baseDamage) ? Math.max(0, baseDamage) : 0;
+  const ceiling = Math.max(1, cap);
+  const factor = Math.min(
+    ceiling,
+    Math.max(1, sanitizeLevel(mobLevel) / sanitizeLevel(templateLevel)),
+  );
+  return base * factor;
+}
+
+/**
+ * HP a health globe restores to a character with the given max HP: `frac` of max, rounded, never
+ * negative. Pure (the World clamps the result to the missing-HP headroom on pickup).
+ */
+export function healthGlobeHeal(maxHp: number, frac: number): number {
+  const cap = Number.isFinite(maxHp) ? Math.max(0, maxHp) : 0;
+  const f = Number.isFinite(frac) ? Math.max(0, frac) : 0;
+  return Math.round(cap * f);
+}
+
 /** Player max HP at a given level (base 100, scaling up per level). */
 export function maxHpForLevel(level: number): number {
   const lvl = sanitizeLevel(level);

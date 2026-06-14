@@ -865,12 +865,22 @@ export const MOB_RESPAWN_MS = 8000;
 
 // --- Transient visual effects the server emits and the client renders -----------------
 export interface FxEvent {
-  kind: 'melee' | 'hit' | 'cast' | 'death' | 'pickup' | 'coin' | 'levelup' | 'telegraph' | 'slam';
+  kind:
+    | 'melee'
+    | 'hit'
+    | 'cast'
+    | 'death'
+    | 'pickup'
+    | 'coin'
+    | 'heal'
+    | 'levelup'
+    | 'telegraph'
+    | 'slam';
   x: number;
   y: number;
   /** Facing/direction in radians (melee arcs, cast flashes, telegraph aim). */
   facing?: number;
-  /** 'hit': damage · 'coin': gold · 'levelup': new level · 'telegraph': wind-up duration (ms) · 'slam': radius. */
+  /** 'hit': damage · 'coin': gold · 'heal': HP restored · 'levelup': new level · 'telegraph': wind-up duration (ms) · 'slam': radius. */
   value?: number;
   /** Radius for AoE tells/impacts ('telegraph' slam danger zone, 'slam' impact ring). */
   radius?: number;
