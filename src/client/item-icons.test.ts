@@ -12,12 +12,16 @@ import {
   loadItemIcons,
   resolveIconCell,
   resolveIconKey,
-  setItemSlotResolver,
+  setItemInfoResolver,
 } from './item-icons.js';
 
-// item-icons no longer imports the equipment data const; the slot fallback is injected. Wire it
-// from EQUIPMENT here so the "every equipment base resolves" check still exercises the fallback.
-setItemSlotResolver((id) => EQUIPMENT[id]?.slot);
+// item-icons no longer imports item-data consts; kind/slot are injected. Wire the resolver from
+// EQUIPMENT (equip) + GEMS (gem) so the gem-family + slot-fallback paths still get exercised.
+setItemInfoResolver((id) => {
+  if (EQUIPMENT[id]) return { kind: 'equip', slot: EQUIPMENT[id]!.slot };
+  if (GEMS[id]) return { kind: 'gem' };
+  return undefined;
+});
 
 /** Non-equip item ids seeded into the content DB (materials, currency, belt potions). */
 const MATERIAL_IDS = [

@@ -15,7 +15,7 @@ import { drawSocialPanel, type SocialButton } from './social-panel.js';
 import { drawGamblePanel, type GambleButton } from './gamble-panel.js';
 import { drawHirePanel, type HireButton } from './hire-panel.js';
 import { drawRiftPanel, type RiftButton } from './rift-panel.js';
-import { loadItemIcons, setItemSlotResolver } from './item-icons.js';
+import { loadItemIcons, setItemInfoResolver } from './item-icons.js';
 import type { ItemSlot } from '../shared/equipment.js';
 import { HitRegions } from './hit-regions.js';
 import { drawWaypointPanel, type WaypointButton } from './waypoint-panel.js';
@@ -114,8 +114,12 @@ window.addEventListener('error', (e) => {
 statusEl.textContent = 'loading assets…'; // ~90 curated textures; phones appreciate the heads-up
 await renderer.loadAssets();
 void loadItemIcons(); // HUD item icons (bag/stash/belt) — panels fall back until loaded
-// Icon slot fallback reads the DB-driven content store (the content packet), not a const.
-setItemSlotResolver((id) => (net.content.item(id)?.slot ?? undefined) as ItemSlot | undefined);
+// Icon resolution (gem detection + slot fallback) reads the DB-driven content packet, not a const.
+setItemInfoResolver((id) => {
+  const it = net.content.item(id);
+  if (!it) return undefined;
+  return it.slot ? { kind: it.kind, slot: it.slot as ItemSlot } : { kind: it.kind };
+});
 net.connect();
 
 const sound = new Sound();
