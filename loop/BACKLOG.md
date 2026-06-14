@@ -52,3 +52,4 @@ weight **Diablo-feel** items high inside the spec/feature tier. Every behavior c
 - iter 11: co-op gold bonus + DRY coopScale (+4 tests)
 - iter 12: chest/pot gold scales with tier + co-op (+4 tests)
 - iter 13: DRY crowd-density via coopScale (tech debt, 0-behavior)
+- iter 14: deflaked world-hirelings combat test (seeded)

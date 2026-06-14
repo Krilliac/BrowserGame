@@ -145,3 +145,16 @@ North star: Diablo 1/2/3 look & feel. Green-only, revert-on-red, no test weakeni
   All three co-op-shaped scalings (damage, gold, density) now share one helper.
 - Tests: no new tests (refactor covered by existing world-density + coopScale unit tests). 989 total.
 - Result: COMMITTED — gate check+build GREEN.
+
+## Iteration 14 — deflake world-hirelings combat test (RED on re-anchor)
+- Picked: the re-anchor gate was RED (clean tree, last commit was green) — `world-hirelings.test.ts`
+  › "fights nearby monsters and the kill credits the OWNER with XP" failed (mob still alive).
+  Pre-existing flake, priority #1. (tier: bug — CI reliability.)
+- Diagnosis: passes 6/6 in isolation; the World's default seed is `Date.now()^random`, so the
+  guard↔wolf chase geometry varied. Probed 10 seeds → all kill in 133–287 ticks (budget 600), so a
+  rare worst-case seed occasionally outlasted the budget. Other combat tests stayed green → not a
+  global-state leak, it's this test's RNG.
+- Fix: pin the instance seed (7) — deterministic chase, kills in ~136 ticks (>4× margin, tolerant of
+  any moderate variance). Assertion unchanged; nondeterminism removed (same pattern as iter 5).
+- Tests: same count; verified full check 3/3 green. No production code changed.
+- Result: COMMITTED — gate check+build GREEN.
