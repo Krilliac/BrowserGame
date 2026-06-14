@@ -40,6 +40,12 @@ auto-attack ALREADY worked (moveSample/autoAttackAbility) — only the VISUALS w
 NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via parallel agent
 (achievements module, or #2 reconnect grace, or #15 content-pack discovery). Then another client-UX.
 
+### USER DIRECTIVE (2026-06-14): after the achievements iteration, COMMIT + PUSH everything.
+Push branch loop/autonomous-20260614 to origin (github.com/Krilliac/BrowserGame): `git push -u origin
+loop/autonomous-20260614`. 33 commits ahead of origin base. Iteration 17 = achievements (agent building
+achievements.ts; integrate: schema/seed/content + save earned[] + world unlock check on creditKill +
+/achievements cmd), commit, THEN push.
+
 ### Iteration 16+ candidates
 - Set-bonus display in character panel (ship set membership in content packet → client shows N/M + active bonuses).
 - Crafting panel UI (list /recipes as clickable; needs server restart for crafting tables).
