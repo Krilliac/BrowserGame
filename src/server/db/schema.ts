@@ -86,6 +86,20 @@ CREATE TABLE IF NOT EXISTS items (
   teaches     TEXT                             -- spellbook only: the ability id it teaches
 );
 
+-- Procedural dungeon population: the random pack pool + boss + elite/mini-boss chances for each
+-- dungeon area. DB-driven balance content (mirrors DUNGEONS in shared/areas.ts, which stays as the
+-- structural isDungeon metadata + the seed source). Edit rows to retune a dungeon's roster.
+CREATE TABLE IF NOT EXISTS dungeons (
+  area_id          TEXT PRIMARY KEY,
+  pool             TEXT NOT NULL,              -- JSON array of regular monster template ids
+  boss             TEXT NOT NULL,
+  mini_boss        TEXT,
+  mini_boss_chance REAL NOT NULL DEFAULT 0,
+  elite_chance     REAL NOT NULL DEFAULT 0,
+  min_mobs         INTEGER NOT NULL,
+  max_mobs         INTEGER NOT NULL
+);
+
 -- UNIQUE (named legendary) items: the hand-authored loot chase. Each builds on a real items.id
 -- base (for slot + base power/hp) and carries fixed, build-defining affixes (JSON array of
 -- {stat,value}). DB-driven like the rest of content: edit/add rows to change the legendaries.

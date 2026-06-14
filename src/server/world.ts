@@ -73,7 +73,7 @@ import {
   stepHireling,
   type HirelingTemplate,
 } from './hirelings.js';
-import { DUNGEONS, isDungeon, type DungeonDef, type Rect } from '../shared/areas.js';
+import { isDungeon, type DungeonDef, type Rect } from '../shared/areas.js';
 import {
   blockersForDecor,
   pointInAnyBlocker,
@@ -704,7 +704,7 @@ export class World {
   populateMobs(areaId: string): void {
     // Dungeons are populated procedurally (random pack, elevated elites, a boss) â€” not from the
     // fixed area_mobs roster. Each instance is a fresh roll, so re-entering re-rolls the dungeon.
-    const dungeon = DUNGEONS[areaId];
+    const dungeon = getContent().dungeon(areaId);
     if (dungeon) {
       this.populateDungeon(dungeon);
       return;

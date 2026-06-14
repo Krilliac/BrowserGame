@@ -1,7 +1,7 @@
 import { config } from './config.js';
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
-import type { AreaDef, DecorProp } from '../shared/areas.js';
+import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme } from '../shared/theme.js';
 import type { Ability, AbilityId } from '../shared/combat.js';
 import type { ItemInstance } from '../shared/items.js';
@@ -74,6 +74,8 @@ export interface Content {
   /** Mint a random legendary, resolving its base power/hp from the items table. */
   rollRandomUnique(uid: number, rng?: () => number): ItemInstance | undefined;
   mobTemplate(id: string): MobTemplate | undefined;
+  /** Procedural dungeon population (pool/boss/elite chances) for a dungeon area, or undefined. */
+  dungeon(areaId: string): DungeonDef | undefined;
   areaMobs(areaId: string): { templateId: string; count: number }[];
   npcs(areaId: string): NpcDef[];
   quests(): QuestDef[];
@@ -255,6 +257,20 @@ export function loadContent(db: GameDatabase): Content {
   const uniquesForSlot = (slot: string): UniqueDef[] =>
     uniqueDefs.filter((d) => items.get(d.baseId)?.slot === slot);
 
+  // Procedural dungeon population — DB-driven balance content (pool stored as a JSON array).
+  const dungeons = new Map<string, DungeonDef>();
+  for (const r of db.prepare('SELECT * FROM dungeons').all() as DungeonRow[]) {
+    dungeons.set(r.area_id, {
+      pool: JSON.parse(r.pool) as string[],
+      boss: r.boss,
+      ...(r.mini_boss !== null ? { miniBoss: r.mini_boss } : {}),
+      miniBossChance: r.mini_boss_chance,
+      eliteChance: r.elite_chance,
+      minMobs: r.min_mobs,
+      maxMobs: r.max_mobs,
+    });
+  }
+
   const stock = new Map<string, StockEntry[]>();
   for (const r of db
     .prepare('SELECT * FROM vendor_stock ORDER BY sort_order')
@@ -378,6 +394,7 @@ export function loadContent(db: GameDatabase): Content {
       return rollUnique(uid, def, { power: base?.power ?? 0, hp: base?.hp ?? 0 }, rng);
     },
     mobTemplate: (id) => mobTemplates.get(id),
+    dungeon: (areaId) => dungeons.get(areaId),
     areaMobs: (areaId) => areaMobs.get(areaId) ?? [],
     npcs: (areaId) => npcs.get(areaId) ?? [],
     quests: () => quests,
@@ -543,6 +560,16 @@ interface UniqueRow {
   affixes: string;
   flavor: string | null;
   sort_order: number;
+}
+interface DungeonRow {
+  area_id: string;
+  pool: string;
+  boss: string;
+  mini_boss: string | null;
+  mini_boss_chance: number;
+  elite_chance: number;
+  min_mobs: number;
+  max_mobs: number;
 }
 interface VendorStockRow {
   area_id: string;

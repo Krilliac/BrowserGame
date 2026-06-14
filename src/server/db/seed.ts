@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 import { config } from '../config.js';
-import { AREAS, AREA_THEMES, type DecorProp } from '../../shared/areas.js';
+import { AREAS, AREA_THEMES, DUNGEONS, type DecorProp } from '../../shared/areas.js';
 import { DEFAULT_THEME } from '../../shared/theme.js';
 import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
 import { EQUIPMENT, MATERIALS } from './seed-items.js';
@@ -298,6 +298,7 @@ export function seed(db: Database): void {
   ensureDecor(db); // set-dressing props per area (idempotent: no-op once an area has decor)
   ensureExpansionContent(db); // hand-placed decor, new-monster rosters/loot, sprite tints
   ensureUniquesContent(db); // the legendary (unique) catalogue → the `uniques` table
+  ensureDungeonsContent(db); // procedural dungeon population → the `dungeons` table
   ensureWildsContent(db); // wildlife/vermin rosters + loot spread across the existing zones
   ensureFrontierContent(db); // Duskhaven village + the Abyssal Throne (NPCs, decor, loot, quests)
   ensureActsContent(db); // the Act 2 road + all of Act 3 (Vhalreth, its zones, the Unmade Court)
@@ -713,6 +714,31 @@ function ensureUniquesContent(db: Database): void {
   UNIQUES.forEach((u, i) =>
     ins.run(u.id, u.name, u.baseId, JSON.stringify(u.affixes), u.flavor ?? null, i),
   );
+}
+
+/**
+ * Upsert the procedural dungeon population (DUNGEONS in shared/areas.ts) into the `dungeons` table.
+ * Idempotent: INSERT OR IGNORE on the dungeon area_id; the pool is stored as a JSON array. The const
+ * stays the structural `isDungeon` source + seed default; the server reads population from the DB.
+ */
+function ensureDungeonsContent(db: Database): void {
+  const ins = db.prepare(
+    `INSERT OR IGNORE INTO dungeons
+       (area_id,pool,boss,mini_boss,mini_boss_chance,elite_chance,min_mobs,max_mobs)
+     VALUES (?,?,?,?,?,?,?,?)`,
+  );
+  for (const [areaId, d] of Object.entries(DUNGEONS)) {
+    ins.run(
+      areaId,
+      JSON.stringify(d.pool),
+      d.boss,
+      d.miniBoss ?? null,
+      d.miniBossChance,
+      d.eliteChance,
+      d.minMobs,
+      d.maxMobs,
+    );
+  }
 }
 
 /**
