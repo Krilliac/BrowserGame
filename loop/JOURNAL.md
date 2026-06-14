@@ -25,7 +25,14 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 | 10a | feat | **Timed game-events** (#11) — Bloodmoon/Golden Hour XP bonus | green | 8baeaae; +37 → 1306; agent-built module wired to data+host (sim-clock, /events cmd) |
 | 10b | feat | **Trade** (#13) — secure atomic escrow trading | green | 3d5091e; +24 → 1328; world session+commit revalidation, protocol, index routing; client panel deferred |
 | 12 | feat | **Rift modifiers** (D3 mutators) — 8 tier-gated, applied at spawn+reward | green | bf2f64d; +21 → 1364; world rolls from derived seed; /rift entry announces |
-| 13 | feat | **Salvage/disenchant** — MODULE READY, integrate next | pending | salvage.ts/.test.ts (29 tests, lint-fixed) on disk UNTRACKED |
+| 13 | feat | **Salvage/disenchant** — gear → crafting materials, /salvage cmd | green | 71b8b57; +4 → 1368; 3 new materials; world.salvage |
+
+### Session pause (2026-06-14): user testing with fresh DB
+All 4 parallel-built modules integrated + committed; working tree clean. Deleted game.db for a fresh
+seed; started `npm run dev`. NOTE for follow-up: TRADE has no client panel yet (server+protocol only —
+test via future UI); game-events fire on a 2-6h sim cadence (won't trigger in a short test; /events
+shows schedule). Testable now: item sets, proc weapons, elemental resistances, rift mutators (open a
+rift), /salvage <uid>, /ladder, /events.
 
 ### Iteration 13 plan: integrate salvage.ts (agent guide)
 salvage.ts PURE (salvageYield(inst,rng)→MaterialYield[]; kinds scrap/dust/essence/shard). Wire:
