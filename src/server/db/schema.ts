@@ -188,6 +188,28 @@ CREATE TABLE IF NOT EXISTS ability_status_effects (
   UNIQUE (ability_id, effect)
 );
 
+-- Self-buff a spell grants its caster (player War Cry / Sprint / Renew; mob heal-spells). One buff
+-- per ability. buff is a StatusId ('might'|'haste'|'regen'); magnitude is the buff strength.
+-- Seeded from ability-effects.ts; edit to retune spell utility.
+CREATE TABLE IF NOT EXISTS ability_cast_buffs (
+  ability_id  TEXT PRIMARY KEY,
+  buff        TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  magnitude   REAL NOT NULL
+);
+
+-- Shrine blessing pool: stepping on a charged shrine grants one of these at random (stronger and
+-- longer than a buff spell). buff is a StatusId; label is the player-facing blessing message.
+-- sort_order fixes the deterministic pick order. Seeded from ability-effects.ts.
+CREATE TABLE IF NOT EXISTS shrine_buffs (
+  id          TEXT PRIMARY KEY,
+  buff        TEXT NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  magnitude   REAL NOT NULL,
+  label       TEXT NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
 -- Weather gameplay modifiers: how each WeatherKind affects the simulation (server-authoritative).
 -- move_scale multiplies player movement speed; aggro_scale multiplies monster aggro range
 -- (both 1 = no effect). Seeded from the code defaults in weather-effects.ts; edit a row to retune

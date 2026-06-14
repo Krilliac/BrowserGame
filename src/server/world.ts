@@ -1801,8 +1801,8 @@ export class World {
     // Each spell rank above 1 boosts the effect (the Diablo 1 duplicate-tome rule).
     const rankMult = spellRankMult(rank);
     // Self-buff spells apply their timed buff to the caster (might / haste / regen).
-    const buff = BUFF_ON_CAST[abilityId];
-    if (buff) player.buffs.apply(buff.id, buff.ms, buff.magnitude);
+    const buff = getContent().castBuff(abilityId);
+    if (buff) player.buffs.apply(buff.buff, buff.ms, buff.magnitude);
     // Outgoing damage this cast: boosted by an active MIGHT buff, cut by an enemy WEAKEN debuff.
     const mightMult = player.buffs.damageFactor() * player.debuffs.weakenFactor();
 
@@ -2008,8 +2008,10 @@ export class World {
     for (const s of shrines) {
       if (this.now < s.readyAt) continue;
       if (Math.hypot(player.x - s.x, player.y - s.y) > SHRINE_RADIUS) continue;
-      const buff = SHRINE_BUFFS[Math.floor(this.rand() * SHRINE_BUFFS.length)]!;
-      player.buffs.apply(buff.id, buff.ms, buff.magnitude);
+      const pool = getContent().shrineBuffs();
+      if (pool.length === 0) return;
+      const buff = pool[Math.floor(this.rand() * pool.length)]!;
+      player.buffs.apply(buff.buff, buff.ms, buff.magnitude);
       s.readyAt = this.now + SHRINE_COOLDOWN_MS;
       this.notify(player.id, `A shrine blesses you â€” ${buff.label}.`);
       return; // one blessing per tick
@@ -2622,8 +2624,8 @@ export class World {
     this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing, abilityId });
 
     if (ability.kind === 'heal') {
-      const buff = BUFF_ON_CAST[abilityId];
-      if (buff) mob.statuses.apply(buff.id, buff.ms, buff.magnitude);
+      const buff = getContent().castBuff(abilityId);
+      if (buff) mob.statuses.apply(buff.buff, buff.ms, buff.magnitude);
       else mob.hp = Math.min(mob.maxHp, mob.hp + ability.damage);
       return;
     }
@@ -3460,28 +3462,6 @@ function rollAbilityDamage(
   const half = Math.ceil(baseDamage * 0.5);
   return half + rollDamage(baseDamage - half);
 }
-
-/** Self-buff spells: which timed buff they grant the caster. */
-const BUFF_ON_CAST: Partial<
-  Record<AbilityId, { id: 'might' | 'haste' | 'regen'; ms: number; magnitude: number }>
-> = {
-  warcry: { id: 'might', ms: 8000, magnitude: 0.3 }, // +30% damage
-  sprint: { id: 'haste', ms: 6000, magnitude: 0.35 }, // +35% attack speed & move
-  renew: { id: 'regen', ms: 6000, magnitude: 10 }, // 10 hp/sec
-  battle_trance: { id: 'might', ms: 10_000, magnitude: 0.45 }, // the late-game War Cry
-};
-
-/** Shrine blessings â€” stronger and longer than the buff spells (a found-shrine reward, Diablo-style). */
-const SHRINE_BUFFS: {
-  id: 'might' | 'haste' | 'regen';
-  ms: number;
-  magnitude: number;
-  label: string;
-}[] = [
-  { id: 'might', ms: 30_000, magnitude: 0.4, label: 'Might â€” your blows strike harder' },
-  { id: 'haste', ms: 30_000, magnitude: 0.4, label: 'Haste â€” you move and strike faster' },
-  { id: 'regen', ms: 20_000, magnitude: 15, label: 'Renewal â€” your wounds knit closed' },
-];
 
 /**
  * Map an ability's on-hit effect onto a monster. The effects are data-driven (the

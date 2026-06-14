@@ -21,6 +21,8 @@ queries) into in-memory structures the simulation reads. Tables (`src/server/db/
 | `decor` | Static set-dressing **props** per area (the town's tents, palisade, bonfire, torches…) |
 | `sprite_tints` | **Sprite color overrides** — multiply a #rrggbb over any source so one image spawns many (dark/gritty) variations. Targets: `mob:<template_id>`, `npc:<kind>`, `hireling:<type>`, `decor:<kind>` |
 | `ability_status_effects` | Per-ability **on-hit effects** — `slow` / `burn` (DoT) / `weaken`, with duration + magnitude (seeded from `ability-effects.ts`) |
+| `ability_cast_buffs` | Per-ability **self-buff on cast** — `might` / `haste` / `regen` (player shouts, mob heal-spells) |
+| `shrine_buffs` | The **shrine blessing pool** — the timed buffs a charged shrine grants at random, with player-facing labels |
 | `weather_modifiers` | Per-`WeatherKind` **gameplay** multipliers (`move_scale`, `aggro_scale`) — how a weather state *plays*, not just looks (seeded from `weather-effects.ts`) |
 | `elite_modifiers` | The elite ("champion") variant roster — flavor prefix + hp/damage/speed multipliers a normal spawn can roll (seeded from `mobs.ts`) |
 | `quests` | Quest definitions (schema seeded with a sample) |

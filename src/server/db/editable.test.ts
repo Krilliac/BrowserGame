@@ -334,6 +334,21 @@ describe('tuning tables are live-editable via /set', () => {
   it('ability_status_effects.effect rejects an unknown status kind', () => {
     expect(coerceColumn('ability_status_effects', 'effect', 'stun').ok).toBe(false);
   });
+
+  it('ability_cast_buffs.buff accepts a valid buff id', () => {
+    expect(coerceColumn('ability_cast_buffs', 'buff', 'might')).toEqual({
+      ok: true,
+      value: 'might',
+    });
+  });
+
+  it('ability_cast_buffs.buff rejects a non-buff status', () => {
+    expect(coerceColumn('ability_cast_buffs', 'buff', 'slow').ok).toBe(false);
+  });
+
+  it('shrine_buffs.magnitude coerces a real', () => {
+    expect(coerceColumn('shrine_buffs', 'magnitude', '0.5')).toEqual({ ok: true, value: 0.5 });
+  });
 });
 
 describe('EDITABLE_TABLES invariants', () => {

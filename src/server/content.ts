@@ -7,6 +7,7 @@ import type { Ability, AbilityId } from '../shared/combat.js';
 import { type MobTemplate, type EliteModifier, DEFAULT_ELITE_MODIFIERS } from './mobs.js';
 import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
 import type { StatusEffectKind } from './ability-effects.js';
+import type { StatusId } from './status-effects.js';
 
 /**
  * Runtime game content, loaded from the SQLite database (the source of truth) via parametrized
@@ -84,6 +85,10 @@ export interface Content {
   eliteModifiers(): EliteModifier[];
   /** On-hit status effects (slow/burn/weaken) an ability applies — empty if it has none. */
   abilityStatusEffects(abilityId: string): AbilityStatusEffect[];
+  /** The self-buff an ability grants its caster on cast — undefined if it grants none. */
+  castBuff(abilityId: string): CastBuff | undefined;
+  /** The shrine blessing pool (one is picked at random), in deterministic order. */
+  shrineBuffs(): ShrineBuff[];
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -91,6 +96,21 @@ export interface AbilityStatusEffect {
   effect: StatusEffectKind;
   ms: number;
   magnitude: number;
+}
+
+/** A self-buff granted on cast (runtime view of an ability_cast_buffs row). */
+export interface CastBuff {
+  buff: StatusId;
+  ms: number;
+  magnitude: number;
+}
+
+/** A shrine blessing (runtime view of a shrine_buffs row). */
+export interface ShrineBuff {
+  buff: StatusId;
+  ms: number;
+  magnitude: number;
+  label: string;
 }
 
 interface LootGroup {
@@ -368,6 +388,17 @@ export function loadContent(db: GameDatabase): Content {
     statusEffects.set(r.ability_id, list);
   }
 
+  // Per-ability self-buff granted on cast (one per ability).
+  const castBuffs = new Map<string, CastBuff>();
+  for (const r of db.prepare('SELECT * FROM ability_cast_buffs').all() as CastBuffRow[]) {
+    castBuffs.set(r.ability_id, { buff: r.buff, ms: r.duration_ms, magnitude: r.magnitude });
+  }
+
+  // Shrine blessing pool, ordered so the random pick stays deterministic.
+  const shrineBuffs = (
+    db.prepare('SELECT * FROM shrine_buffs ORDER BY sort_order').all() as ShrineBuffRow[]
+  ).map((r) => ({ buff: r.buff, ms: r.duration_ms, magnitude: r.magnitude, label: r.label }));
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -401,6 +432,8 @@ export function loadContent(db: GameDatabase): Content {
     weatherMods: (weather) => weatherMods.get(weather) ?? weatherModifiers(weather),
     eliteModifiers: () => (eliteMods.length ? eliteMods : DEFAULT_ELITE_MODIFIERS),
     abilityStatusEffects: (abilityId) => statusEffects.get(abilityId) ?? [],
+    castBuff: (abilityId) => castBuffs.get(abilityId),
+    shrineBuffs: () => shrineBuffs,
   };
 }
 
@@ -617,4 +650,18 @@ interface AbilityStatusRow {
   effect: StatusEffectKind;
   duration_ms: number;
   magnitude: number;
+}
+interface CastBuffRow {
+  ability_id: string;
+  buff: StatusId;
+  duration_ms: number;
+  magnitude: number;
+}
+interface ShrineBuffRow {
+  id: string;
+  buff: StatusId;
+  duration_ms: number;
+  magnitude: number;
+  label: string;
+  sort_order: number;
 }

@@ -287,6 +287,30 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       magnitude: { type: 'real', min: 0, max: 100000 },
     },
   },
+
+  ability_cast_buffs: {
+    pk: 'ability_id',
+    label: 'cast buff',
+    note: 'self-buff granted on cast; reload to apply',
+    columns: {
+      buff: { type: 'enum', values: ['might', 'haste', 'regen'] },
+      duration_ms: { type: 'int', min: 0, max: 600000 },
+      magnitude: { type: 'real', min: 0, max: 100000 },
+    },
+  },
+
+  shrine_buffs: {
+    pk: 'id',
+    label: 'shrine buff',
+    note: 'shrine blessing pool; reload to apply',
+    columns: {
+      buff: { type: 'enum', values: ['might', 'haste', 'regen'] },
+      duration_ms: { type: 'int', min: 0, max: 600000 },
+      magnitude: { type: 'real', min: 0, max: 100000 },
+      label: { type: 'text' },
+      sort_order: { type: 'int', min: 0, max: 9999 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

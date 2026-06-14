@@ -1,14 +1,16 @@
 /**
- * On-hit status-effect data for abilities — the CODE DEFAULTS that seed the `ability_status_effects`
- * content table. At runtime the simulation reads the (live-editable) table via
- * `Content.abilityStatusEffects(id)`, so a designer can retune how long a chill snares or how hard a
- * burn ticks with SQL — no recompile.
+ * Ability & buff effect data — the CODE DEFAULTS that seed the effect content tables
+ * (`ability_status_effects`, `ability_cast_buffs`, `shrine_buffs`). At runtime the simulation reads
+ * the (live-editable) tables via the `Content` API, so a designer can retune how long a chill snares,
+ * how hard a burn ticks, or how strong a shrine blessing is with SQL — no recompile.
  *
- * `effect` maps 1:1 onto a {@link StatusId}: 'slow' (movement factor), 'burn' (damage per second),
- * 'weaken' (outgoing-damage reduction factor). An ability may carry several effects (e.g. a curse
- * that both slows and weakens) — one row each. `magnitude` is the factor (slow/weaken) or the
- * per-tick damage (burn).
+ * On-hit `effect` maps 1:1 onto a {@link StatusId}: 'slow' (movement factor), 'burn' (damage per
+ * second), 'weaken' (outgoing-damage reduction factor). An ability may carry several effects (e.g. a
+ * curse that both slows and weakens) — one row each. `magnitude` is the factor (slow/weaken) or the
+ * per-tick damage (burn). Buffs use the same {@link StatusId} space ('might'/'haste'/'regen').
  */
+import type { StatusId } from './status-effects.js';
+
 export type StatusEffectKind = 'slow' | 'burn' | 'weaken';
 
 export interface AbilityStatusEffectDef {
@@ -51,4 +53,52 @@ export const DEFAULT_ABILITY_STATUS_EFFECTS: AbilityStatusEffectDef[] = [
   { abilityId: 'curse_of_decay', effect: 'weaken', ms: 3000, magnitude: 0.4 },
   { abilityId: 'draining_touch', effect: 'weaken', ms: 2500, magnitude: 0.3 },
   { abilityId: 'shadow_nova', effect: 'weaken', ms: 2500, magnitude: 0.3 },
+];
+
+/** A self-buff an ability grants its caster on cast (player War Cry / Sprint / Renew; mob heal-spells). */
+export interface CastBuffDef {
+  abilityId: string;
+  buff: StatusId;
+  ms: number;
+  magnitude: number;
+}
+
+export const DEFAULT_CAST_BUFFS: CastBuffDef[] = [
+  { abilityId: 'warcry', buff: 'might', ms: 8000, magnitude: 0.3 }, // +30% damage
+  { abilityId: 'sprint', buff: 'haste', ms: 6000, magnitude: 0.35 }, // +35% attack speed & move
+  { abilityId: 'renew', buff: 'regen', ms: 6000, magnitude: 10 }, // 10 hp/sec
+  { abilityId: 'battle_trance', buff: 'might', ms: 10_000, magnitude: 0.45 }, // the late-game War Cry
+];
+
+/** A shrine blessing — stronger and longer than the buff spells (a found-shrine reward, Diablo-style). */
+export interface ShrineBuffDef {
+  id: string;
+  buff: StatusId;
+  ms: number;
+  magnitude: number;
+  label: string;
+}
+
+export const DEFAULT_SHRINE_BUFFS: ShrineBuffDef[] = [
+  {
+    id: 'might',
+    buff: 'might',
+    ms: 30_000,
+    magnitude: 0.4,
+    label: 'Might — your blows strike harder',
+  },
+  {
+    id: 'haste',
+    buff: 'haste',
+    ms: 30_000,
+    magnitude: 0.4,
+    label: 'Haste — you move and strike faster',
+  },
+  {
+    id: 'regen',
+    buff: 'regen',
+    ms: 20_000,
+    magnitude: 15,
+    label: 'Renewal — your wounds knit closed',
+  },
 ];

@@ -6,7 +6,11 @@ import { ABILITIES, ABILITY_ORDER } from '../../shared/combat.js';
 import { EQUIPMENT } from '../../shared/equipment.js';
 import { MOB_TEMPLATES, AREA_MOBS, DEFAULT_ELITE_MODIFIERS } from '../mobs.js';
 import { weatherModifiers } from '../weather-effects.js';
-import { DEFAULT_ABILITY_STATUS_EFFECTS } from '../ability-effects.js';
+import {
+  DEFAULT_ABILITY_STATUS_EFFECTS,
+  DEFAULT_CAST_BUFFS,
+  DEFAULT_SHRINE_BUFFS,
+} from '../ability-effects.js';
 import { WEATHER_KINDS } from '../../shared/theme.js';
 import { LOOT_TABLES } from '../loot.js';
 import { SELL_VALUES } from '../vendor.js';
@@ -316,6 +320,8 @@ export function seed(db: Database): void {
   ensureWeatherModifiers(db); // per-WeatherKind gameplay multipliers (seeded from code defaults)
   ensureEliteModifiers(db); // champion stat-modifier roster (seeded from code defaults)
   ensureAbilityStatusEffects(db); // per-ability on-hit slow/burn/weaken (seeded from code defaults)
+  ensureAbilityCastBuffs(db); // per-ability self-buff on cast (seeded from code defaults)
+  ensureShrineBuffs(db); // shrine blessing pool (seeded from code defaults)
   cleanupStrayTerrain(db); // remove any solid-terrain decor that leaked into safe/non-terrain areas
 }
 
@@ -354,6 +360,28 @@ function ensureAbilityStatusEffects(db: Database): void {
     'INSERT OR IGNORE INTO ability_status_effects (ability_id,effect,duration_ms,magnitude) VALUES (?,?,?,?)',
   );
   for (const e of DEFAULT_ABILITY_STATUS_EFFECTS) ins.run(e.abilityId, e.effect, e.ms, e.magnitude);
+}
+
+/**
+ * Seed the per-ability self-buff-on-cast rows from the code defaults (ability-effects.ts).
+ * Idempotent: INSERT OR IGNORE keyed on ability_id, so designer edits survive a restart.
+ */
+function ensureAbilityCastBuffs(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO ability_cast_buffs (ability_id,buff,duration_ms,magnitude) VALUES (?,?,?,?)',
+  );
+  for (const b of DEFAULT_CAST_BUFFS) ins.run(b.abilityId, b.buff, b.ms, b.magnitude);
+}
+
+/**
+ * Seed the shrine blessing pool from the code defaults (ability-effects.ts). Idempotent:
+ * INSERT OR IGNORE keyed on id; sort_order fixes the deterministic pick order.
+ */
+function ensureShrineBuffs(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO shrine_buffs (id,buff,duration_ms,magnitude,label,sort_order) VALUES (?,?,?,?,?,?)',
+  );
+  DEFAULT_SHRINE_BUFFS.forEach((b, i) => ins.run(b.id, b.buff, b.ms, b.magnitude, b.label, i));
 }
 
 /**
