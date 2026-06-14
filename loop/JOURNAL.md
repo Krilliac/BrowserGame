@@ -15,7 +15,7 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 
 | 5 | feat | **Item proc system** (#6) — chance-on-hit/crit gear effects | green | f8761ed; +13 → 1226; resolver+ICD+recursion guard; 2 seeded procs; firing=guarded glue (world test deferred) |
 
-| 6 | feat | **Content expansion** — 3 new proc weapons + Trinketer's Cabal jewelry set | pending | serpentine(poison)/reaper(dmg)/moonsilver(crit) procs; 5th set (neck+2rings+trinket); integrity-guarded |
+| 6 | feat | **Content expansion** — 3 new proc weapons + Trinketer's Cabal jewelry set | green | 27eb389; +1 → 1227; 5 procs + 5 sets total now; integrity-guarded |
 
 ### Iteration 7 plan: **per-element resistances (#14)** — bigger, own turn
 DamageElement type (shared/combat.ts). abilities.element column DEFAULT 'physical' (so existing
