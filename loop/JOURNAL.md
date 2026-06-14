@@ -24,7 +24,17 @@ Backlog sources: engine-mining sweep (workflow wf_b00fbf0a-ece) + roadmap open g
 | 9 | feat | **Leaderboard / ladder** (#12) — best-ever level/gold per character | green | c242f3b; +9 → 1250; autosave write hook; /ladder cmd |
 | 10a | feat | **Timed game-events** (#11) — Bloodmoon/Golden Hour XP bonus | green | 8baeaae; +37 → 1306; agent-built module wired to data+host (sim-clock, /events cmd) |
 | 10b | feat | **Trade** (#13) — secure atomic escrow trading | green | 3d5091e; +24 → 1328; world session+commit revalidation, protocol, index routing; client panel deferred |
-| 11 | feat | **Rift modifiers** (D3 mutators) — MODULE READY, integrate next | pending | rift-modifiers.ts/.test.ts (16 tests) on disk UNTRACKED; agent wiring guide below |
+| 12 | feat | **Rift modifiers** (D3 mutators) — 8 tier-gated, applied at spawn+reward | green | bf2f64d; +21 → 1364; world rolls from derived seed; /rift entry announces |
+| 13 | feat | **Salvage/disenchant** — MODULE READY, integrate next | pending | salvage.ts/.test.ts (29 tests, lint-fixed) on disk UNTRACKED |
+
+### Iteration 13 plan: integrate salvage.ts (agent guide)
+salvage.ts PURE (salvageYield(inst,rng)→MaterialYield[]; kinds scrap/dust/essence/shard). Wire:
+(1) NEW material items mat_scrap/mat_dust/mat_essence (kind 'loot', no power/hp) in seed-items + map
+shard→existing rune_shard: const SALVAGE_ITEM_ID={scrap:'mat_scrap',dust:'mat_dust',essence:'mat_essence',
+shard:'rune_shard'}; (2) world.salvage(playerId,uid): find BAG item (not equipped), salvageYield(inst,
+this.rand), consume gear + add materials to player.loot (mirror rune_shard granting); (3) protocol
+salvage{uid} + index route OR a /salvage <uid> command (simpler, no protocol). Add integrity check
+that material items exist. World stays deterministic (this.rand).
 
 ### Iteration 12 plan: integrate rift-modifiers.ts (agent guide)
 rift-modifiers.ts is PURE (8 mutators: berserk/juggernaut/bountiful/scholarly/frenzied/empowered/
