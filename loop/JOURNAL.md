@@ -101,8 +101,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 47 | test(hardening) | **seed() idempotency** characterization test | green | +2 → 1448; QUALITY iteration (easy features scarce — per directive). Pins the contract all ~35 ensure* depend on: a 2nd/Nth full seed pass adds 0 rows + never throws (generic per-table count). Catches a future non-idempotent seeder. Verified seed pipeline IS fully idempotent today. Rejected: #15 pack-discovery (lateral risk, marginal); decode-validation (already pinned, permissive-by-design). |
 
-NEXT (it.48): client-UX (alternation). Then backend. PUSH now (it.41–it.47).
-NOTE: it.23–38,40,41,42,44,46 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
+| 48 | feat(ui) | **Unspent-points HUD nudge** — green "● N pts (C/K)" | green | client-only; shown on the compact stat panel only when attrPoints+skillPoints>0; reminds players to open Character (C) / Skills (K). Flaky hirelings re-run alone = green. |
+
+NEXT (it.49): backend (alternation). Then client-UX. PUSH now (it.41–it.48).
+NOTE: it.23–38,40,41,42,44,46,48 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).

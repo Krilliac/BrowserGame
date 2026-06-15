@@ -2493,6 +2493,15 @@ function drawInventory(w: number): void {
     px + 8,
     py + 15,
   );
+  // Unspent attribute/skill points are easy to forget — nudge with the keys that open the panels.
+  const unspentPoints = net.you.attrPoints + net.you.skillPoints;
+  if (unspentPoints > 0) {
+    hud.textAlign = 'right';
+    hud.fillStyle = '#7fe07f';
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.fillText(`● ${unspentPoints} pts (C/K)`, px + pw - 8, py + 15);
+    hud.textAlign = 'left';
+  }
   hud.fillStyle = '#9aa3b2';
   hud.font = '10px system-ui, sans-serif';
   hud.fillText('C char·I bag·L quests·P party·F friends·M map', px + 8, py + 30);
