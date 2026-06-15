@@ -17,6 +17,7 @@ function save(
   bestiary: string[] = [],
   deathlessStreak = 0,
   bestDeathlessStreak = deathlessStreak,
+  bossKills = 0,
 ): PlayerSave {
   return {
     name: 'Hero',
@@ -34,6 +35,7 @@ function save(
     questsDone: [],
     earnedAchievements: earned,
     kills,
+    bossKills,
     bestiary,
     deathlessStreak,
     bestDeathlessStreak,
@@ -115,5 +117,14 @@ describe('world achievements', () => {
     delete (legacy as { bestDeathlessStreak?: number }).bestDeathlessStreak; // pre-record save
     w.importPlayer(10, legacy, 100, 100);
     expect(w.exportPlayer(10)!.bestDeathlessStreak).toBe(40);
+  });
+
+  it('tracks boss kills: persists the count and surfaces boss-slayer milestones', () => {
+    const w = world();
+    w.importPlayer(11, save(5, 0, [], 0, [], 0, 0, 8), 100, 100); // 8 boss kills → Boss Hunter (5) met
+    expect(w.exportPlayer(11)!.bossKills).toBe(8);
+    const lines = w.achievementStatus(11);
+    expect(lines.some((l) => l.startsWith('✓') && l.includes('Boss Hunter'))).toBe(true);
+    expect(lines.some((l) => l.includes('Bane of Champions') && l.includes('8/25'))).toBe(true);
   });
 });

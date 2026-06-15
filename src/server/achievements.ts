@@ -5,14 +5,14 @@
  * has no hidden state. Persistence (the earned set lives in the player save), the unlock check, and
  * a `/achievements` command are wired by the orchestrator elsewhere — not here.
  *
- * WHY these metrics: `level`, `gold`, lifetime `kills`, `bestiary` (distinct species slain), and
- * `deathless` (current no-death kill streak) are stats actually tracked on a character. We deliberately
- * seed only metrics the simulation can satisfy — no *dead* achievements for things (rift tier, area
- * completion) nothing currently records.
+ * WHY these metrics: `level`, `gold`, lifetime `kills`, `bossKills` (boss-tier slain), `bestiary`
+ * (distinct species slain), and `deathless` (current no-death kill streak) are stats actually tracked
+ * on a character. We deliberately seed only metrics the simulation can satisfy — no *dead* achievements
+ * for things (rift tier, area completion) nothing currently records.
  */
 
 /** The character stats an achievement can key off — only metrics that already exist on a character. */
-export type AchievementMetric = 'level' | 'gold' | 'kills' | 'bestiary' | 'deathless';
+export type AchievementMetric = 'level' | 'gold' | 'kills' | 'bossKills' | 'bestiary' | 'deathless';
 
 /**
  * A single milestone. Earned when `stats[metric] >= threshold`. `threshold` is the inclusive bar:
@@ -123,6 +123,21 @@ export const DEFAULT_ACHIEVEMENTS: readonly AchievementDef[] = [
     desc: 'Slay 10,000 monsters.',
     metric: 'kills',
     threshold: 10000,
+  },
+  // Boss-slayer tiers — kills of boss-tier monsters (hp >= 200); bosses respawn, so these climb.
+  {
+    id: 'boss_hunter',
+    name: 'Boss Hunter',
+    desc: 'Slay 5 boss-tier monsters.',
+    metric: 'bossKills',
+    threshold: 5,
+  },
+  {
+    id: 'boss_bane',
+    name: 'Bane of Champions',
+    desc: 'Slay 25 boss-tier monsters.',
+    metric: 'bossKills',
+    threshold: 25,
   },
   // Bestiary tiers — collect kills of distinct monster species.
   {

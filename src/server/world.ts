@@ -450,6 +450,8 @@ interface Player {
   earnedAchievements: Set<string>;
   /** Lifetime monster kills credited to this character (persisted; drives achievements + ladder). */
   kills: number;
+  /** Lifetime boss-tier kills (hp >= 200; persisted) — drives the boss-slayer achievements. */
+  bossKills: number;
   /** Distinct monster template ids this character has killed — the bestiary (persisted). */
   bestiary: Set<string>;
   /** Kills since the last death — the current deathless streak (reset to 0 on death; persisted). */
@@ -509,6 +511,8 @@ export interface PlayerSave {
   earnedAchievements?: string[];
   /** Lifetime monster kills (absent on old saves — defaults to 0). Drives kill achievements + ladder. */
   kills?: number;
+  /** Lifetime boss-tier kills (absent on old saves — defaults to 0). */
+  bossKills?: number;
   /** Distinct monster template ids killed — the bestiary (absent on old saves — defaults to empty). */
   bestiary?: string[];
   /** Current deathless streak (kills since last death; absent on old saves — defaults to 0). */
@@ -2105,6 +2109,7 @@ export class World {
       questsDone: new Set(),
       earnedAchievements: new Set(),
       kills: 0,
+      bossKills: 0,
       bestiary: new Set(),
       deathlessStreak: 0,
       bestDeathlessStreak: 0,
@@ -2148,6 +2153,7 @@ export class World {
       questsDone: [...p.questsDone],
       earnedAchievements: [...p.earnedAchievements],
       kills: p.kills,
+      bossKills: p.bossKills,
       bestiary: [...p.bestiary],
       deathlessStreak: p.deathlessStreak,
       bestDeathlessStreak: p.bestDeathlessStreak,
@@ -2196,6 +2202,7 @@ export class World {
     p.questsDone = new Set(save.questsDone);
     p.earnedAchievements = new Set(save.earnedAchievements ?? []);
     p.kills = save.kills ?? 0;
+    p.bossKills = save.bossKills ?? 0;
     p.bestiary = new Set(save.bestiary ?? []);
     p.deathlessStreak = save.deathlessStreak ?? 0;
     // Old saves without a record default it to the current streak so the ladder isn't under-counted.
@@ -3629,6 +3636,8 @@ export class World {
     }
     p.level = newLevel;
     p.kills += 1; // shared-credit: every tagger/party member who is credited counts the kill
+    // Boss-tier templates (hp >= 200, the same threshold the spawner uses) feed the boss-slayer line.
+    if ((getContent().mobTemplate(mobTemplateId)?.hp ?? 0) >= 200) p.bossKills += 1;
     p.bestiary.add(mobTemplateId); // record the species for the bestiary collection
     p.deathlessStreak += 1; // climbs with every kill; a death snaps it back to 0
     if (p.deathlessStreak > p.bestDeathlessStreak) p.bestDeathlessStreak = p.deathlessStreak; // record
@@ -3647,6 +3656,7 @@ export class World {
         level: player.level,
         gold: player.gold,
         kills: player.kills,
+        bossKills: player.bossKills,
         bestiary: player.bestiary.size,
         deathless: player.deathlessStreak,
       },
@@ -3666,6 +3676,7 @@ export class World {
       level: p.level,
       gold: p.gold,
       kills: p.kills,
+      bossKills: p.bossKills,
       bestiary: p.bestiary.size,
       deathless: p.deathlessStreak,
     };

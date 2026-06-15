@@ -63,8 +63,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 28 | feat(ui) | **Live deathless-streak badge** on the HUD | green | client-only; centered Lv↔gold, shown at streak≥5, color heats up (amber→orange→red), hides on death |
 
-NEXT (it.29): backend (alternation). Then client-UX. PUSH now (it.27 + it.28).
-NOTE: it.23–28 all need the dev server to reload its code (no new schema tables, but new server
+| 29 | feat | **Boss-kill counter** → boss-slayer achievements | green | +1 → 1430; Player.bossKills (hp≥200 tier, same threshold the spawner uses); creditKill increments; Boss Hunter(5)/Bane of Champions(25) |
+
+NEXT (it.30): client-UX (alternation). Then backend. PUSH soon (unpushed: it.29).
+NOTE: it.23–29 all need the dev server to reload its code (no new schema tables, but new server
 logic + `you` fields) for the user to see them live.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
