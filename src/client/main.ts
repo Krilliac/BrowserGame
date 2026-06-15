@@ -2494,15 +2494,18 @@ function drawMinimap(w: number): void {
     }
     for (const e of entities) {
       if (e.id === net.selfId) continue;
-      const color =
-        e.kind === 'mob'
-          ? '#e05555'
-          : e.kind === 'player'
-            ? '#5fa8e0'
-            : e.kind === 'item'
-              ? '#f2c14e'
-              : '';
-      if (color) plot(e.x - self.x, e.y - self.y, color, 3, false);
+      // NPCs are squares so they read distinctly from round mob/player blips; quest-givers go gold so
+      // the player can spot where to pick up quests at a glance.
+      let color = '';
+      let square = false;
+      if (e.kind === 'mob') color = '#e05555';
+      else if (e.kind === 'player') color = '#5fa8e0';
+      else if (e.kind === 'item') color = '#f2c14e';
+      else if (e.kind === 'npc') {
+        color = e.npcKind === 'questgiver' ? '#ffd24a' : '#7fe07f';
+        square = true;
+      }
+      if (color) plot(e.x - self.x, e.y - self.y, color, 3, square);
     }
     hud.fillStyle = '#c9a24b';
     hud.beginPath();

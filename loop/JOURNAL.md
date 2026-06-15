@@ -113,8 +113,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 53 | test(hardening) | **Vendor sell/buy** world-boundary test | green | +3 → 1453; QUALITY. Pure sell-VALUE was tested but not the World seam: pins gold conservation (sell credits exactly Σvalue + empties bag), and that BOTH sell & buy are vendor-proximity gated + buy rejects non-stocked items (anti-cheat). Found via grep (vendor.test = pure only). |
 
-NEXT (it.54): client-UX (alternation). Then backend. PUSH now (it.51–it.53).
-NOTE: it.23–38,40,41,42,44,46,48,50,52 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
+| 54 | feat(ui) | **NPC minimap markers** — vendors/banker green, quest-givers gold | green | client-only; NPCs were not plotted at all (color=''). Now square markers (distinct from round mob/player blips); quest-givers gold so you can spot where to grab quests. Uses npcKind already on entity state. |
+
+NEXT (it.55): backend (alternation). Then client-UX. PUSH now (it.53 + it.54).
+NOTE: it.23–38,40,41,42,44,46,48,50,52,54 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
