@@ -281,6 +281,9 @@ const socketRects: { itemId: string; x: number; y: number; w: number; h: number 
 const shopRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
 let shopSellRect: { x: number; y: number; w: number; h: number } | null = null;
 let shopCloseRect: { x: number; y: number; w: number; h: number } | null = null;
+// "Sell all" arms on the first click and only fires on a second click within this window — a guard so
+// a stray tap can't dump unequipped gear to the vendor.
+let sellArmedUntil = 0;
 let shopPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 // Help / keybind overlay: open with H — lists keys, mouse interactions, and chat commands.
 let helpOpen = false;
@@ -691,7 +694,13 @@ function handleShopClick(x: number, y: number): boolean {
     return true;
   }
   if (shopSellRect && inRect(x, y, shopSellRect)) {
-    net.sendSell();
+    const now = performance.now();
+    if (now < sellArmedUntil) {
+      net.sendSell();
+      sellArmedUntil = 0;
+    } else {
+      sellArmedUntil = now + 3000; // first click arms; a second within 3s confirms
+    }
     return true;
   }
   const row = shopRects.find((s) => inRect(x, y, s));
@@ -1850,16 +1859,22 @@ function drawShopPanel(): void {
     hud.fillText(`${entry.price}g`, px + pw - 16, ry + 17);
   });
 
-  // Sell-all button along the bottom (the old E-to-sell behavior, now explicit).
+  // Sell-all button along the bottom (the old E-to-sell behavior, now explicit). Two-click confirm:
+  // the first click arms it (brighter + warning label) so a stray tap can't dump spare gear.
   shopSellRect = { x: px + 14, y: py + ph - 32, w: pw - 28, h: 24 };
-  hud.fillStyle = 'rgba(120,60,60,0.5)';
+  const sellArmed = performance.now() < sellArmedUntil;
+  hud.fillStyle = sellArmed ? 'rgba(200,60,60,0.85)' : 'rgba(120,60,60,0.5)';
   hud.fillRect(shopSellRect.x, shopSellRect.y, shopSellRect.w, shopSellRect.h);
-  hud.strokeStyle = 'rgba(201,162,75,0.5)';
+  hud.strokeStyle = sellArmed ? '#ff8a6a' : 'rgba(201,162,75,0.5)';
   hud.strokeRect(shopSellRect.x, shopSellRect.y, shopSellRect.w, shopSellRect.h);
-  hud.fillStyle = '#e7d9b0';
+  hud.fillStyle = sellArmed ? '#fff' : '#e7d9b0';
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'center';
-  hud.fillText('Sell all loot & spare gear', px + pw / 2, shopSellRect.y + 16);
+  hud.fillText(
+    sellArmed ? 'Click again to confirm sale' : 'Sell all loot & spare gear',
+    px + pw / 2,
+    shopSellRect.y + 16,
+  );
 }
 
 /** Dim the scene and show an animated "Reconnecting…" overlay while the socket is down. */

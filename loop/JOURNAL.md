@@ -125,8 +125,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 59 | test(hardening) | **Stash capacity guards** (deposit-full / withdraw-bag-full) test | green | +2 → 1459; QUALITY. Basic deposit/withdraw + proximity were covered, but not the FULL-destination item-safety: withdraw into a full bag is a no-op (item stays in stash), deposit into a full stash is a no-op (item stays in bag). Caps read from config. Confirmed gap via grep. |
 
-NEXT (it.60): client-UX (alternation). Then backend. PUSH now (it.57–it.59).
-NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
+| 60 | feat(ui) | **Two-click confirm on "Sell all"** — footgun guard | green | client-only; first click arms (red + "Click again to confirm"), a 2nd click within 3s sells. Stops a stray tap from dumping unequipped gear to the vendor. No protocol. |
+
+NEXT (it.61): backend (alternation). Then client-UX. PUSH now (it.59 + it.60).
+NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
