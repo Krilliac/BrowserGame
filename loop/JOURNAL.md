@@ -129,8 +129,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 61 | test(hardening) | **Bag-cap FIFO-eviction** invariant test | green | +1 → 1460; QUALITY. Pinned: addGear caps the bag at maxBagGear and on overflow evicts the OLDEST item (the pickup always lands; bag never grows unbounded). Only a loose ≤10000 bound existed. **DESIGN NOTE for user:** picking up loot with a full bag silently destroys your oldest item — debatable footgun; left as-is (changing loot-pickup is risky unattended), now characterized so a deliberate change is visible. |
 
-NEXT (it.62): client-UX (alternation). Then backend. PUSH now (it.59–it.61).
-NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
+| 62 | feat(ui) | **"BAG FULL" HUD warning** — pairs with the it.61 footgun | green* | client-only; red "BAG FULL" on the gear panel header when gear.length >= cap, so players clear space (sell/salvage) before a pickup evicts their oldest item. *world-party.test flaked under full-suite load (timing) — passes 3/3 alone; add it to the known-flaky set. |
+
+NEXT (it.63): backend (alternation). Then client-UX. PUSH now (it.61 + it.62).
+KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, AND NOW world-party (all timing/load-sensitive).
+NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).

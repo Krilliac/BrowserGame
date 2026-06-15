@@ -2615,6 +2615,16 @@ function drawInventory(w: number): void {
         ? `Gear · +${total - HUD_GEAR_SHOWN} in bag (I)`
         : 'Gear — tap to equip';
     hud.fillText(title, px + 8, py + 15);
+    // Bag-full warning: a new pickup evicts the oldest item server-side, so warn the player to clear
+    // space (sell at a vendor / salvage junk) before they lose something.
+    if (total >= MAX_BAG_GEAR) {
+      hud.textAlign = 'right';
+      hud.fillStyle = '#ff6b6b';
+      hud.font = 'bold 11px system-ui, sans-serif';
+      hud.fillText('BAG FULL', px + pw - 8, py + 15);
+      hud.textAlign = 'left';
+      hud.font = 'bold 12px system-ui, sans-serif';
+    }
     gear.forEach((inst, i) => {
       const ry = py + 22 + i * rowH;
       bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: rowH });
