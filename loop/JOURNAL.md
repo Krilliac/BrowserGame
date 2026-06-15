@@ -103,7 +103,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 48 | feat(ui) | **Unspent-points HUD nudge** — green "● N pts (C/K)" | green | client-only; shown on the compact stat panel only when attrPoints+skillPoints>0; reminds players to open Character (C) / Skills (K). Flaky hirelings re-run alone = green. |
 
-NEXT (it.49): backend (alternation). Then client-UX. PUSH now (it.41–it.48).
+| 49 | test(hardening) | **Transfer carries inventory** characterization test | green | +1 → 1449; QUALITY. Existing transfer test only checked id+name; this pins that gold/gear(uids)/loot/level all survive a cross-area teleport (export→remove→import). A regression dropping inventory on a portal crossing is now caught. |
+
+NEXT (it.50): client-UX (alternation). Then backend. Consider a status PushNotification to the user
+soon (27 green iterations it.23–49, all pushed). PUSH now (it.41–it.49).
 NOTE: it.23–38,40,41,42,44,46,48 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements

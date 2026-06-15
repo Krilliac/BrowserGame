@@ -59,6 +59,29 @@ describe('InstanceManager', () => {
     expect(mgr.get(p.instanceId)).toBeUndefined();
   });
 
+  it('carries the full inventory (gold, gear, loot, level) across a transfer', () => {
+    const mgr = new InstanceManager('auto');
+    const p = mgr.join('Hauler');
+    const origin = mgr.get(p.instanceId)!.world;
+    // Endow the player in the origin instance, then snapshot before crossing.
+    origin.giveItem(p.entityId, 'gold', 250);
+    origin.giveItem(p.entityId, 'iron_sword', 1); // a rolled gear instance in the bag
+    origin.giveItem(p.entityId, 'mat_scrap', 5); // a stackable loot material
+    origin.setLevel(p.entityId, 7);
+    const before = origin.exportPlayer(p.entityId)!;
+
+    const ev = mgr.teleport(p.instanceId, p.entityId, 'wilderness');
+    expect(ev).toBeDefined();
+
+    // The destination instance holds the SAME character state — nothing dropped on the floor.
+    const after = mgr.get(ev!.toInstanceId)!.world.exportPlayer(p.entityId)!;
+    expect(after.gold).toBe(before.gold);
+    expect(after.level).toBe(before.level);
+    expect(after.gear.map((g) => g.baseId)).toEqual(before.gear.map((g) => g.baseId));
+    expect(after.gear.map((g) => g.uid)).toEqual(before.gear.map((g) => g.uid));
+    expect(after.loot).toEqual(before.loot);
+  });
+
   it('garbage-collects an instance once it empties', () => {
     const mgr = new InstanceManager('auto');
     const p = mgr.join('Solo');
