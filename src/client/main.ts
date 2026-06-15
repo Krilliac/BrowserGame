@@ -2112,6 +2112,16 @@ function drawHud(): void {
         const frac = Math.min(1, remaining / ability.cooldownMs);
         hud.fillStyle = 'rgba(0,0,0,0.6)';
         hud.fillRect(x, slotsY + slot * (1 - frac), slot, slot * frac);
+        // Seconds remaining, centered — exact time-to-ready (1 decimal under 10s, whole seconds above).
+        const secs = remaining / 1000;
+        hud.fillStyle = '#fff';
+        hud.font = 'bold 14px system-ui, sans-serif';
+        hud.textAlign = 'center';
+        hud.fillText(
+          secs >= 10 ? String(Math.ceil(secs)) : secs.toFixed(1),
+          x + slot / 2,
+          slotsY + slot / 2 + 5,
+        );
       }
 
       hud.fillStyle = '#fff';
