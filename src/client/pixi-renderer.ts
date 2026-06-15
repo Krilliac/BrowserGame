@@ -67,6 +67,18 @@ import {
   PATTERN_TILES,
 } from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
+import {
+  MOB_ARCHETYPES,
+  MOB_CLIPS,
+  MOB_DIR,
+  MOB_FH,
+  MOB_FRAMES,
+  MOB_FW,
+  mobArchetype,
+  mobSheetKey,
+  mobStripSrc,
+  type MobState,
+} from './mob-sprites.js';
 import { combineTints } from './tint.js';
 import { backOut, cubicOut } from './easing.js';
 import { shadowLift } from './shadow-lift.js';
@@ -288,6 +300,27 @@ const SHEETS: Record<string, Sheet> = {
 };
 
 /**
+ * Original design-system mob roster (the *tail-coverage* tier — see mob-sprites.ts). One virtual
+ * 3-row sheet per archetype (idle/walk/attack), its texture composed at load by {@link composeMobSheets}
+ * from the three single-facing strips and keyed `mob:<arch>`. These cover the long tail the generated
+ * 8/16-direction sheets above don't (demons, golems, vermin, oozes, nagas…) — entities that used to
+ * fall back to the licensed 32rogues static cell or a procedural orb. `src` is informational only
+ * (the texture is composed, not file-loaded); fw/fh/clips are shared via MOB_CLIPS.
+ */
+const MOB_SHEETS: Record<string, Sheet> = Object.fromEntries(
+  Object.entries(MOB_ARCHETYPES).map(([arch, a]) => [
+    mobSheetKey(arch),
+    {
+      src: `${MOB_DIR}/${arch}_idle.png`,
+      fw: MOB_FW,
+      fh: MOB_FH,
+      scale: a.scale,
+      clips: MOB_CLIPS,
+    },
+  ]),
+);
+
+/**
  * Generated combat FX strips (ASSET-FX, `tools/assetgen/fx`) — one-shot animated effects played from
  * `state.fx` events. These are our own procedurally-generated art (no pack licensing), replacing the
  * old `explosion-cuzco.png`. Aliased `fxstrip:<key>` and loaded in loadAssets; frames are a horizontal
@@ -437,12 +470,30 @@ function sheetKey(e: EntityState): string | undefined {
   )
     return 'skeleton';
   if (FLYER_RE.test(n)) return 'bat';
+  // Tail coverage: the original Gloomwood roster for everything the generated sheets above don't
+  // handle (demons, golems, vermin, oozes, nagas…). Composed at load into MOB_SHEETS.
+  const arch = mobArchetype(n);
+  if (arch) return mobSheetKey(arch);
   return undefined;
 }
 
 /** Elevation (px) a flying monster floats above the ground, separating it from its planted shadow. */
 function flyHeight(e: EntityState): number {
-  return e.kind === 'mob' && FLYER_RE.test(e.name) ? 16 : 0;
+  if (e.kind !== 'mob') return 0;
+  if (FLYER_RE.test(e.name)) return 16;
+  // Curated flyers (banshee, imp) aren't in FLYER_RE but hover via their archetype's `flying` flag.
+  const arch = mobArchetype(e.name);
+  return arch && MOB_ARCHETYPES[arch]?.flying ? 12 : 0;
+}
+
+/** Load one image, rejecting on error (used to compose the curated mob strip sheets). Browser-only. */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`failed to load ${src}`));
+    img.src = src;
+  });
 }
 
 export interface RenderState {
@@ -696,6 +747,8 @@ export class PixiRenderer {
       const t = this.tex.get(alias);
       if (t) t.source.scaleMode = 'nearest';
     }
+    // Compose the original mob roster's per-state strips into virtual 3-row sheets (fail-soft).
+    await this.composeMobSheets();
     // Ground tilesets load as plain images: the ground texture is baked on a 2D canvas per area.
     const tileSrcs = new Set(Object.values(GROUND_TILESETS).map((t) => t.src));
     await Promise.all(
@@ -716,6 +769,37 @@ export class PixiRenderer {
     // Per-pixel dynamic lighting (RENDER-01) derives normals from the albedo, so it needs no normal
     // art — enable it on desktop ('high'); touch keeps the cheaper additive-halo-only lighting.
     this.deferred.setEnabled(this.quality === 'high' && !this.heavyGpuFxDisabled);
+  }
+
+  /**
+   * Compose each curated mob archetype's three single-facing strips (idle/walk/attack, 256×64) into
+   * one virtual 3-row sheet texture (256×192) keyed `mob:<arch>`, so the original Gloomwood roster
+   * plugs straight into the animated-actor pipeline (MOB_SHEETS + MOB_CLIPS via resolveAnim). Drawn
+   * with smoothing off so the pixel art stays crisp. Browser-only and fail-soft: a missing or broken
+   * strip just leaves that archetype unsheeted, so its mobs keep the procedural / generated fallback.
+   */
+  private async composeMobSheets(): Promise<void> {
+    if (typeof document === 'undefined') return;
+    const states: MobState[] = ['idle', 'walk', 'attack'];
+    await Promise.all(
+      Object.keys(MOB_ARCHETYPES).map(async (arch) => {
+        try {
+          const imgs = await Promise.all(states.map((st) => loadImage(mobStripSrc(arch, st))));
+          const canvas = document.createElement('canvas');
+          canvas.width = MOB_FW * MOB_FRAMES; // 4 frames wide
+          canvas.height = MOB_FH * states.length; // idle / walk / attack rows
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          ctx.imageSmoothingEnabled = false;
+          imgs.forEach((img, row) => ctx.drawImage(img, 0, row * MOB_FH));
+          const tex = Texture.from(canvas);
+          tex.source.scaleMode = 'nearest';
+          this.tex.set(mobSheetKey(arch), tex);
+        } catch {
+          // strip missing/broken → archetype stays unsheeted; its mobs use the existing fallback
+        }
+      }),
+    );
   }
 
   /**
@@ -2426,7 +2510,7 @@ export class PixiRenderer {
     }
 
     const key = sheetKey(e);
-    const sheet = key ? SHEETS[key] : undefined;
+    const sheet = key ? (SHEETS[key] ?? MOB_SHEETS[key]) : undefined;
     const baseTex = key ? this.tex.get(key) : undefined;
     const anim = newAnimView();
     const view: ActorView = {

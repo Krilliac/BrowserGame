@@ -3,7 +3,16 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'public/**', '.remember/**', '.vs/**'],
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'public/**',
+      '.remember/**',
+      '.vs/**',
+      // Vendored Claude skills (e.g. the browsergame-design bundle's CommonJS asset-gen) — not
+      // project source; they carry their own tooling/lint config and must not gate `npm run check`.
+      '.claude/skills/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
