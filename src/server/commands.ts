@@ -169,6 +169,16 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'sort',
+    minLevel: AccessLevel.Player,
+    usage: '/sort',
+    help: 'Tidy your bag: group gear by slot, best rarity first.',
+    run: (ctx) => {
+      ctx.world.sortBag(ctx.playerId);
+      ctx.reply('Bag sorted.');
+    },
+  },
+  {
     name: 'craft',
     minLevel: AccessLevel.Player,
     usage: '/craft <recipeId>',

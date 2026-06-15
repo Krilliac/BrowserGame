@@ -48,6 +48,7 @@ import {
   type BaseItem,
   type ItemInstance,
 } from '../shared/items.js';
+import { sortBag } from '../shared/bag-sort.js';
 import {
   GEMS,
   GEMS_PER_COMBINE,
@@ -1438,6 +1439,23 @@ export class World {
     }
     player.loot = new Map(Object.entries(have));
     this.notify(playerId, `Crafted: ${recipe.name}.`);
+    return true;
+  }
+
+  /**
+   * Sort the player's bag for display (slot group → best rarity → heavier roll → name). Pure ordering
+   * lives in shared/bag-sort; here we just supply the content slot lookup and write the result back.
+   * The next `you` packet ships the reordered bag, so the client updates with no extra message.
+   */
+  sortBag(playerId: number): boolean {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+    const content = getContent();
+    player.gear = sortBag(
+      player.gear,
+      (baseId) => content.item(baseId)?.slot ?? null,
+      (inst) => content.item(inst.baseId)?.name ?? inst.baseId,
+    );
     return true;
   }
 
