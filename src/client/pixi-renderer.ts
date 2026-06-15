@@ -50,13 +50,6 @@ import {
   type ClipSet,
 } from './animation-controller.js';
 import {
-  ANIMALS_SHEET,
-  MONSTERS_SHEET,
-  ROGUES_SHEET,
-  mobSpriteCell,
-  npcSpriteCell,
-} from './rogues-sprites.js';
-import {
   GROUND_TILESETS,
   groundTilesetFor,
   patchCoverage,
@@ -77,6 +70,7 @@ import {
   MOB_FW,
   mobArchetype,
   mobSheetKey,
+  mobSpriteName,
   mobStripSrc,
   type MobState,
 } from './mob-sprites.js';
@@ -453,14 +447,12 @@ function hash2(x: number, y: number): number {
 
 // Names whose monsters fly — rendered elevated above a planted ground shadow (a 3D height cue).
 const FLYER_RE = /Bat|Sprite|Shade|Wraith|Spectre|Ghost/;
-// Big humanoid/undead bosses get the imposing 1.6× boss sprite.
-const BOSS_NAME_RE = /Lord|King|Warden|Bonecaller|Tyrant|Unmaker|Eternal|Knight|Reaver/;
 
 /**
- * Pick a sprite sheet for an entity by archetype (the LPC sheets are reused across thematically
- * similar monsters): humanoid/undead → skeleton, canine/beast → wolf, flyer → bat, big named undead
- * → boss. Monsters with no good match (oozes, golems, imps, colossi, demons) fall back to procedural
- * shapes, which suit their amorphous forms better than a mismatched sprite.
+ * Pick a sprite sheet for an entity: players/NPCs/hirelings use the generated 16-direction adventurer;
+ * mobs delegate to {@link mobSpriteName} (a generated creature sheet by archetype, else a composed
+ * curated `mob:<arch>` sheet, else undefined → procedural orb). The mob decision is pure + unit-tested
+ * in mob-sprites.ts so the content DB's mob names and the client's sprite tiers stay in lockstep.
  */
 function sheetKey(e: EntityState): string | undefined {
   if (e.kind === 'player' || e.kind === 'npc') return 'hero';
@@ -468,21 +460,7 @@ function sheetKey(e: EntityState): string | undefined {
   // be wrong — use the hero sheet so it visually belongs to the player's side of the fight.
   if (e.kind === 'hireling') return 'hero';
   if (e.kind !== 'mob') return undefined;
-  const n = e.name;
-  if (e.maxHp >= 280 && BOSS_NAME_RE.test(n)) return 'boss';
-  if (/Wolf|Hound|Boar/.test(n)) return 'wolf';
-  if (
-    /Skeleton|Cultist|Revenant|Knight|Warlock|Acolyte|Warden|Runeseer|Seer|Bonecaller|Lord|Pilgrim/.test(
-      n,
-    )
-  )
-    return 'skeleton';
-  if (FLYER_RE.test(n)) return 'bat';
-  // Tail coverage: the original Gloomwood roster for everything the generated sheets above don't
-  // handle (demons, golems, vermin, oozes, nagas…). Composed at load into MOB_SHEETS.
-  const arch = mobArchetype(n);
-  if (arch) return mobSheetKey(arch);
-  return undefined;
+  return mobSpriteName(e.name, e.maxHp);
 }
 
 /** Elevation (px) a flying monster floats above the ground, separating it from its planted shadow. */
@@ -730,9 +708,6 @@ export class PixiRenderer {
       ...Object.fromEntries(Object.entries(FX_STRIPS).map(([k, s]) => [`fxstrip:${k}`, s.src])),
       ...Object.fromEntries(Object.entries(EQUIP_LAYER_SRCS).map(([k, s]) => [`equip:${k}`, s])),
       ...MISC,
-      rogues32: ROGUES_SHEET.src,
-      monsters32: MONSTERS_SHEET.src,
-      animals32: ANIMALS_SHEET.src,
       ...Object.fromEntries([...decorSrcs].map((src) => [src, src])),
     };
     // Load every texture INDEPENDENTLY: a single failed fetch (a dev-server blip, a missing
@@ -750,8 +725,8 @@ export class PixiRenderer {
         }
       }),
     );
-    // The 32px sheets and decor cutouts are pixel art — keep them crisp when scaled.
-    for (const alias of ['rogues32', 'monsters32', 'animals32', ...decorSrcs]) {
+    // Decor cutouts are pixel art — keep them crisp when scaled.
+    for (const alias of decorSrcs) {
       const t = this.tex.get(alias);
       if (t) t.source.scaleMode = 'nearest';
     }
@@ -2534,15 +2509,7 @@ export class PixiRenderer {
       seen: true,
     };
 
-    // Static (single-frame) 32rogues sprites: NPCs prefer them (a distinct figure per role beats
-    // a shared animated hero), and mobs use them when no animated LPC sheet matches — previously
-    // those fell back to procedural orbs.
-    const staticSprite = this.staticActorSprite(e);
-    if (staticSprite && (e.kind === 'npc' || !(sheet && baseTex))) {
-      view.sprite = staticSprite;
-      view.topY = -staticSprite.height * 0.85;
-      container.addChild(staticSprite);
-    } else if (sheet && baseTex) {
+    if (sheet && baseTex) {
       const start = resolveAnim(anim, sheet.clips, e.facing, false, performance.now());
       const sprite = new Sprite(this.frame(key!, sheet.fw, sheet.fh, start.col, start.row));
       sprite.anchor.set(0.5, 0.92);
@@ -2632,33 +2599,6 @@ export class PixiRenderer {
       };
     }
     return view;
-  }
-
-  /**
-   * A static one-frame sprite for an actor from the 32rogues sheets: every monster name maps to a
-   * creature cell (mobSpriteCell) and every service NPC kind to a townsfolk cell (npcSpriteCell).
-   * Returns undefined when no cell matches or the sheet isn't loaded (→ LPC/orb fallback).
-   */
-  private staticActorSprite(e: EntityState): Sprite | undefined {
-    let alias: string | undefined;
-    let cell: { col: number; row: number } | undefined;
-    if (e.kind === 'mob') {
-      const m = mobSpriteCell(e.name);
-      if (m) {
-        alias = m.sheet === 'animals' ? 'animals32' : 'monsters32';
-        cell = m;
-      }
-    } else if (e.kind === 'npc' && e.npcKind) {
-      cell = npcSpriteCell(e.npcKind);
-      alias = 'rogues32';
-    }
-    if (!alias || !cell || !this.tex.has(alias)) return undefined;
-    // Bosses read bigger; everyone else lands near the LPC actors' on-screen height.
-    const scale = e.kind === 'mob' && e.maxHp >= 280 ? 2.1 : 1.4;
-    const sprite = new Sprite(this.frame(alias, 32, 32, cell.col, cell.row));
-    sprite.anchor.set(0.5, 0.92);
-    sprite.scale.set(scale);
-    return sprite;
   }
 
   private frame(alias: string, fw: number, fh: number, col: number, row: number): Texture {

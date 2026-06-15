@@ -10,21 +10,11 @@ the sourcing environment).
 
 ---
 
+> **Note:** combat cast/shoot SFX are now **synthesized at runtime** (`src/client/sound.ts`); the
+> former `shoot_arrow.ogg` (CC-BY-SA 3.0) and `cast_fire.ogg` (CC0) files were removed, so no
+> attribution-required audio remains. Only the CC0 ambient loops + CC0-consistent one-shots ship.
+
 ## Files sourced in this pass
-
-### shoot_arrow.ogg  →  game event: `arrow` (bow / arrow shoot)
-- Source page: https://opengameart.org/content/bow-arrow-shot
-- Direct download: https://opengameart.org/sites/default/files/shoot.ogg
-- Author: dorkster (FLARE project)
-- License: **CC-BY-SA 3.0**  — ATTRIBUTION REQUIRED (see Attribution block below)
-- Format / size: OGG Vorbis, mono 22050 Hz, ~6.4 KB (~1 s)
-
-### cast_fire.ogg  →  game event: `cast` (fireball / spell cast)
-- Source page: https://opengameart.org/content/magic-spell-sfx
-- Direct download: https://opengameart.org/sites/default/files/magical_4.ogg
-- Author: JaggedStone
-- License: **CC0** (public domain, no attribution required)
-- Format / size: OGG Vorbis, stereo 44100 Hz, ~79 KB (~1 s)
 
 ### ambient_forest.mp3  →  game event: `ambient-forest` (wilderness / forest loop)
 - Source page: https://opengameart.org/content/forest-ambience
@@ -62,15 +52,10 @@ audio or jsfxr-generated). Event mapping below is by audible role + filename.
 
 ---
 
-## Required attribution (for CC-BY / CC-BY-SA files)
+## Attribution
 
-`shoot_arrow.ogg` is licensed **CC-BY-SA 3.0** and MUST be attributed in-game
-(e.g. credits screen) and any derivative of it shared alike:
-
-> "Bow & Arrow Shot" by dorkster (FLARE project), CC-BY-SA 3.0 —
-> https://opengameart.org/content/bow-arrow-shot
-
-All other sourced files are CC0 and need no attribution (credit appreciated).
+All shipped audio is **CC0** (or CC0-consistent) and needs no attribution (credit appreciated).
+No CC-BY / CC-BY-SA audio remains after the cast/shoot SFX were synthesized.
 
 ---
 
@@ -80,11 +65,10 @@ All other sourced files are CC0 and need no attribution (credit appreciated).
 |------------------|-----------------------|----------|-------------------------------|
 | swing            | swing.ogg             | one-shot | melee swing / whoosh          |
 | hit              | hit.ogg               | one-shot | melee impact / landed hit     |
-| arrow            | shoot_arrow.ogg       | one-shot | bow / arrow release           |
-| cast             | cast_fire.ogg         | one-shot | fireball / spell cast         |
 | hurt             | hurt.ogg              | one-shot | monster takes damage          |
 | death            | death.ogg             | one-shot | monster death                 |
 | pickup           | pickup_coin.ogg       | one-shot | coin / loot pickup            |
 | levelup          | levelup.ogg           | one-shot | level up                      |
 | ambient-forest   | ambient_forest.mp3    | loop     | wilderness / forest bed       |
 | ambient-dungeon  | ambient_dungeon.ogg   | loop     | dungeon / crypt / cave bed    |
+| arrow / cast     | (synthesized)         | one-shot | generated in src/client/sound.ts |

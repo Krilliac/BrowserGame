@@ -56,6 +56,7 @@ export const MOB_ARCHETYPES: Record<string, MobArchetype> = {
   golem: { scale: 0.92 },
   naga: { scale: 0.8 },
   gorgon: { scale: 0.8 },
+  hellhound: { scale: 0.7 },
   kobold: { scale: 0.6 },
   myconid: { scale: 0.7 },
   slime: { scale: 0.66 },
@@ -73,30 +74,39 @@ export const MOB_ARCHETYPES: Record<string, MobArchetype> = {
 const MOB_ARCHETYPE_RULES: [RegExp, string][] = [
   // --- vermin / beasts (specific bodies before the generic words) ---
   [/centipede|crawler/, 'giant-centipede'],
-  [/worm|grub/, 'giant-worm'],
-  [/spider|brood|arachnid/, 'spider'],
+  [/worm|grub|leech|lamprey/, 'giant-worm'],
+  [/spider|brood|arachnid|swarm|\bant\b/, 'spider'],
   [/\brat\b|vermin|rodent/, 'giant-rat'],
-  // --- amorphous / fungal ---
-  [/ooze|slime|jelly|gel/, 'slime'],
-  [/myconid|fungal|mushroom|spore/, 'myconid'],
-  // --- demons / brutes / constructs ---
+  // --- amorphous / fungal / nature / grasping plants ---
+  [/ooze|slime|jelly|gel|shambler/, 'slime'],
+  [/myconid|fungal|mushroom|spore|dryad|treant|strangler|thornling|vine/, 'myconid'],
+  // --- demons / dragons / brutes / constructs ---
   [/imp\b/, 'imp'],
-  [/demon|devil|fiend|hellspawn/, 'demon'],
+  [
+    /demon|devil|fiend|hellspawn|dragon|drake|wyrm|wyvern|manticore|devourer|athraxis|nyxathor/,
+    'demon',
+  ],
   [/golem|construct|juggernaut|colossus|forge|sentinel/, 'golem'],
-  [/minotaur|brute|ogre/, 'minotaur'],
-  [/troll|hurler|behemoth/, 'troll'],
-  // --- serpentine ---
+  [/minotaur|brute|ogre|centaur|bear|ursine/, 'minotaur'],
+  [/troll|hurler|behemoth|ettin|wendigo|ravager/, 'troll'],
+  // --- canine beasts (Wolf/Hound/Boar are taken by the generated wolf sheet first) ---
+  [/lycan|werewolf|warg\b|worg\b/, 'hellhound'],
+  // --- serpentine / reptilian (incl. the marsh serpents/spitters/lurkers) ---
   [/gorgon|medusa/, 'gorgon'],
-  [/naga|serpentfolk|lamia/, 'naga'],
+  [
+    /naga|serpent|snake|viper|cobra|lamia|basilisk|cockatrice|lizard|reptil|saurian|spitter|lurker|maelgor/,
+    'naga',
+  ],
   // --- humanoids ---
   [/orc\b|orcish/, 'orc'],
   [/goblin|hobgoblin/, 'goblin'],
   [/kobold/, 'kobold'],
+  [/satyr|faun/, 'goblin'],
   // --- undead tail (skeleton/cultist/wraith are handled by the generated sheets first) ---
   [/lich|bonelord|crypt lord/, 'lich'],
-  [/banshee|wailer/, 'banshee'],
+  [/banshee|wailer|harpy/, 'banshee'],
   [/reaper|revenant|executioner/, 'reaper'],
-  [/ghoul|ghast/, 'ghoul'],
+  [/ghoul|ghast|wight/, 'ghoul'],
   [/zombie|thrall|drowned|hulk|corpse/, 'zombie'],
 ];
 
@@ -115,6 +125,35 @@ export function mobArchetype(name: string): string | undefined {
 /** The texture-alias / sheet key the renderer uses for a composed archetype sheet. */
 export function mobSheetKey(arch: string): string {
   return `mob:${arch}`;
+}
+
+/**
+ * Generated 8/16-direction creature sheets (defined in pixi-renderer's SHEETS) are preferred over the
+ * single-facing curated roster for the archetypes they cover well. These name patterns mirror the
+ * renderer's sheet selection so {@link mobSpriteName} is the single, pure source of truth (the seed
+ * tests assert every seeded mob resolves through it). Case-sensitive on the PascalCase display name.
+ */
+const GEN_BOSS = /lord|king|warden|bonecaller|tyrant|unmaker|eternal|knight|reaver|sovereign/;
+const GEN_WOLF = /wolf|hound|boar|tusk/;
+const GEN_SKELETON =
+  /skeleton|cultist|revenant|knight|warlock|acolyte|warden|runeseer|seer|bonecaller|lord|pilgrim|archer|shaman|hexer|witch|hag|crone|caster|magus|oracle/;
+const GEN_FLYER = /bat|sprite|shade|wraith|spectre|ghost/;
+
+/**
+ * The renderer sheet key for a mob — a generated creature sheet ('boss'/'wolf'/'skeleton'/'bat') when
+ * one fits, else a composed curated sheet (`mob:<arch>`), else undefined for the procedural-orb
+ * fallback. Pure (no Pixi/DOM) so it's the testable contract between the content DB's mob names and
+ * the client's sprite tiers. Matched case-insensitively so compound names (Fenwitch, Tidewarden)
+ * resolve. (Big named undead only take the imposing boss sheet past 280 max HP.)
+ */
+export function mobSpriteName(name: string, maxHp: number): string | undefined {
+  const n = name.toLowerCase();
+  if (maxHp >= 280 && GEN_BOSS.test(n)) return 'boss';
+  if (GEN_WOLF.test(n)) return 'wolf';
+  if (GEN_SKELETON.test(n)) return 'skeleton';
+  if (GEN_FLYER.test(n)) return 'bat';
+  const arch = mobArchetype(name);
+  return arch ? mobSheetKey(arch) : undefined;
 }
 
 /** Web path of one animation strip for an archetype + state. */

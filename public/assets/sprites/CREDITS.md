@@ -1,5 +1,9 @@
 # Sprite Credits & Atlas Specs
 
+> **Superseded — see `../CREDITS.md`.** The licensed LPC/OGA sprites (`*_lpc.png`, `bat.png`) were
+> removed; the renderer now uses only the project-generated `*_gen.png` / `adventurer16*` sheets,
+> which are original and license-free. Detail below is retained for historical context.
+
 Character + monster sprites for BrowserGame's top-down 2.5D fantasy look.
 All entries verified as real PNGs (non-HTML). Total folder size: ~276 KB.
 

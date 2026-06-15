@@ -7,6 +7,7 @@ import {
   MOB_STATE_BY_ROW,
   mobArchetype,
   mobSheetKey,
+  mobSpriteName,
   mobStaticSrc,
   mobStripSrc,
 } from './mob-sprites.js';
@@ -28,6 +29,20 @@ describe('mob archetype resolution', () => {
     expect(mobArchetype('Burrowing Worm')).toBe('giant-worm');
     expect(mobArchetype('Goblin Archer')).toBe('goblin');
     expect(mobArchetype('Kobold Digger')).toBe('kobold');
+  });
+
+  it('maps the broader 32rogues bestiary words to their nearest curated analog', () => {
+    expect(mobArchetype('Bloodfang Manticore')).toBe('demon');
+    expect(mobArchetype('Ancient Dragon')).toBe('demon');
+    expect(mobArchetype('Frost Wyrm')).toBe('demon'); // wyrm = dragon, not the giant worm
+    expect(mobArchetype('Plains Centaur')).toBe('minotaur');
+    expect(mobArchetype('Frost Ettin')).toBe('troll');
+    expect(mobArchetype('Scaled Basilisk')).toBe('naga');
+    expect(mobArchetype('Moonlit Harpy')).toBe('banshee');
+    expect(mobArchetype('Cursed Wight')).toBe('ghoul');
+    expect(mobArchetype('Feral Warg')).toBe('hellhound');
+    expect(mobArchetype('Horned Satyr')).toBe('goblin');
+    expect(mobArchetype('Sand Worm')).toBe('giant-worm'); // worm still beats the dragon rule
   });
 
   it('leaves the archetypes the generated 8/16-dir sheets cover better to those sheets', () => {
@@ -70,6 +85,7 @@ describe('mob archetype resolution', () => {
       'golem',
       'naga',
       'gorgon',
+      'hellhound',
       'kobold',
       'myconid',
       'slime',
@@ -79,6 +95,32 @@ describe('mob archetype resolution', () => {
       'giant-centipede',
     ];
     for (const arch of sample) expect(MOB_ARCHETYPES).toHaveProperty(arch);
+  });
+});
+
+describe('mobSpriteName (tiered resolution: generated → curated → orb)', () => {
+  it('prefers the generated creature sheets for the archetypes they cover', () => {
+    expect(mobSpriteName('Skeleton Warrior', 50)).toBe('skeleton');
+    expect(mobSpriteName('Dire Wolf', 50)).toBe('wolf');
+    expect(mobSpriteName('Cave Bat', 30)).toBe('bat');
+    expect(mobSpriteName('Pyre Caster', 50)).toBe('skeleton'); // a robed caster reads as the skeleton sheet
+    expect(mobSpriteName('The Fenwitch', 90)).toBe('skeleton'); // compound name, matched case-insensitively
+  });
+
+  it('gives big named bosses the boss sheet only past 280 max HP', () => {
+    expect(mobSpriteName('Vorzel the Throne-Tyrant', 400)).toBe('boss');
+    expect(mobSpriteName('Vorzel the Throne-Tyrant', 100)).toBeUndefined(); // small → orb
+  });
+
+  it('falls to a composed curated sheet for the long tail', () => {
+    expect(mobSpriteName('Pit Demon', 80)).toBe('mob:demon');
+    expect(mobSpriteName('Mire Serpent', 60)).toBe('mob:naga');
+    expect(mobSpriteName('Shadowmaw Bear', 60)).toBe('mob:minotaur');
+    expect(mobSpriteName('Marsh Leech', 40)).toBe('mob:giant-worm');
+  });
+
+  it('returns undefined (procedural orb) for an unrecognized mob', () => {
+    expect(mobSpriteName('Glittering Whatsit', 50)).toBeUndefined();
   });
 });
 
