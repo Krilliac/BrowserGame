@@ -155,7 +155,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 74 | feat(ui) | **Inventory header red when full** — reinforces it.62 BAG FULL | green | client-only; "Inventory (30/30)" count goes red at cap, confirming the gear-panel BAG FULL warning in the full view. |
 
-NEXT (it.75): backend (alternation). Then client-UX.
+| 75 | test(hardening) | **Account upsert / password-reset** invariant (taper: 1 iteration) | green | +1 → 1464; security-relevant DB gap. accounts.test covered verify/reject + setAccess but NOT createAccount's ON CONFLICT(username) upsert: re-registering resets password + access (old pw stops working, new works) and never creates a duplicate row (accountCount + 1). world-graph already covers area-BFS reachability (checked first). |
+
+NEXT (it.76): client-UX or backend — light cadence, one grep-justified iteration per wake.
 
 === SESSION SUMMARY (it.23–74, 52 green iterations, all pushed to loop/autonomous-20260614) ===
 Built across 7 axes, strictly alternating backend/client, gated green + pushed throughout:

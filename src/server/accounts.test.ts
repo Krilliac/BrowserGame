@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from './db/database.js';
-import { AccessLevel, createAccount, setAccess, verifyLogin } from './accounts.js';
+import { AccessLevel, accountCount, createAccount, setAccess, verifyLogin } from './accounts.js';
 
 describe('accounts', () => {
   it('seeds a default developer account', () => {
@@ -22,5 +22,18 @@ describe('accounts', () => {
     expect(setAccess(db, 'mod', AccessLevel.Admin)).toBe(true);
     expect(verifyLogin(db, 'mod', 'pw')).toBe(AccessLevel.Admin);
     expect(setAccess(db, 'ghost', AccessLevel.Admin)).toBe(false);
+  });
+
+  it('re-registering a username overwrites its credentials + access (upsert, no duplicate row)', () => {
+    const db = openDatabase(':memory:');
+    const before = accountCount(db); // the seeded 'dev' account
+    createAccount(db, 'sam', 'first-pw', AccessLevel.Moderator);
+    expect(verifyLogin(db, 'sam', 'first-pw')).toBe(AccessLevel.Moderator);
+
+    // Same username again: the ON CONFLICT(username) upsert resets the password + access level.
+    createAccount(db, 'sam', 'second-pw', AccessLevel.Admin);
+    expect(verifyLogin(db, 'sam', 'first-pw')).toBeNull(); // the old password no longer works
+    expect(verifyLogin(db, 'sam', 'second-pw')).toBe(AccessLevel.Admin); // new credentials + level
+    expect(accountCount(db)).toBe(before + 1); // exactly one new row, never a duplicate
   });
 });
