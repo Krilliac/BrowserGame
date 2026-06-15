@@ -137,8 +137,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 65 | feat(content) | **"Dragon's Hoard" achievement** (hold 100k gold) | green | tiny additive content. Grepped shrines(incl. recharge)/spellbook×32/weather/runewords/gamble — ALL covered, so per directive added a goal instead of a redundant test. Extends the gold ladder (…/50k → 100k) for end-game. Code-driven achievements (no DB table) → only a code reload needed, auto-covered by achievements.test. |
 
-NEXT (it.66): client-UX (alternation). Then backend. PUSH now (it.63–it.65). Consider a status
-PushNotification to the user (it.23–65 = 43 green iterations).
+| 66 | feat(ui) | **Elite mobs stand out on the minimap** — orange + larger | green | client-only; champions/bosses (e.elite) now plot orange & one px bigger vs normal red mobs, so dangerous foes are spottable at a glance. |
+
+NEXT (it.67): backend (alternation). Then client-UX. PUSH now (it.65 + it.66). Sent user a status
+PushNotification after it.66 (it.23–66 = 44 green iterations).
 KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 

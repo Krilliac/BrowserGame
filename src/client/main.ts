@@ -2544,14 +2544,18 @@ function drawMinimap(w: number): void {
       // the player can spot where to pick up quests at a glance.
       let color = '';
       let square = false;
-      if (e.kind === 'mob') color = '#e05555';
-      else if (e.kind === 'player') color = '#5fa8e0';
+      let r = 3;
+      if (e.kind === 'mob') {
+        // Elites/champions get an orange, slightly larger blip so dangerous foes stand out.
+        color = e.elite ? '#ff9a3c' : '#e05555';
+        if (e.elite) r = 4;
+      } else if (e.kind === 'player') color = '#5fa8e0';
       else if (e.kind === 'item') color = '#f2c14e';
       else if (e.kind === 'npc') {
         color = e.npcKind === 'questgiver' ? '#ffd24a' : '#7fe07f';
         square = true;
       }
-      if (color) plot(e.x - self.x, e.y - self.y, color, 3, square);
+      if (color) plot(e.x - self.x, e.y - self.y, color, r, square);
     }
     hud.fillStyle = '#c9a24b';
     hud.beginPath();
