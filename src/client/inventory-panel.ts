@@ -66,8 +66,8 @@ export function drawInventoryPanel(
   hud.lineWidth = 2;
   hud.strokeRect(px, py, pw, panelH);
 
-  // Header.
-  hud.fillStyle = '#e7d9b0';
+  // Header — the count goes red when the bag is full (a pickup then evicts the oldest item).
+  hud.fillStyle = gear.length >= 30 ? '#ff6b6b' : '#e7d9b0';
   hud.font = 'bold 15px system-ui, sans-serif';
   hud.textAlign = 'left';
   hud.fillText(`Inventory (${gear.length}/30)`, px + 14, py + 24);

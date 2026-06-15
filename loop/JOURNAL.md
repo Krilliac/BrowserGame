@@ -153,8 +153,22 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 73 | test(hardening) | **Friends-list DB persistence** round-trip | green | +2 → 1463; another REAL DB-leg gap (social.test only covers the in-memory SocialRegistry, NOT player-store's addFriend/removeFriend/loadFriends DB fns). Pins: sorted load, idempotent add (PK), per-owner scoping (no cross-leak), case-insensitive remove, no-op on unknown, empty list default. |
 
-NEXT (it.74): client-UX (alternation). Then backend. PUSH now (it.71–it.73).
-META: approaching a natural taper (53 iterations). After it.74, lean toward a session-summary + lighter cadence.
+| 74 | feat(ui) | **Inventory header red when full** — reinforces it.62 BAG FULL | green | client-only; "Inventory (30/30)" count goes red at cap, confirming the gear-panel BAG FULL warning in the full view. |
+
+NEXT (it.75): backend (alternation). Then client-UX.
+
+=== SESSION SUMMARY (it.23–74, 52 green iterations, all pushed to loop/autonomous-20260614) ===
+Built across 7 axes, strictly alternating backend/client, gated green + pushed throughout:
+- KILL-STATS: bestiary(/bestiary)+achievements, kills/bossKills/deathless counters, best-streak ladder, HUD streak badge, char-sheet stats, achievement+legendary toasts.
+- ECONOMY: respec(/respec), stash expansion(/expandstash + Vault button), Dragon's Hoard achievement.
+- QoL: /sort + /salvageall (+ Inventory buttons), unspent-points nudge, hotbar cooldown seconds, XP%.
+- QUESTS: quest achievements, HUD quest tracker.
+- LOOT/CONTENT: 4 new uniques, legendary-drop toast.
+- LIVEOPS: Golden Hour gold bonus + Treasure Tide + Ascendant Hour events (data-driven, schema migration #2), active-event HUD badges (+bonus).
+- HARDENING: characterization tests pinning seed idempotency, cross-area + rift inventory carry, vendor sell/buy, equip round-trip, potion mana/no-waste, stash + bag caps, bag-cap eviction, counter + friends DB persistence.
+- SAFETY/POLISH: sell-all + respec two-click confirms, BAG FULL warnings, low-HP vignette, hit-flash, NPC/elite/target minimap markers, area-name label, Help-overlay refresh.
+Branch is in a strong steady state — clean + mergeable at every commit. Restart needed for it.39/43/45/69 (new seed rows/schema); code reload for the rest.
+TAPERING: from it.75, lighter cadence; pin real DB-leg gaps when grep finds them, else safe dedup/content.
 KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
