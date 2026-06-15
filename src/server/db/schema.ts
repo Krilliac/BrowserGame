@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS abilities (
   melee_half_angle   REAL,
   projectile_speed   REAL,
   projectile_ttl_ms  INTEGER,
+  behaviors_json     TEXT,
   radius             REAL NOT NULL,
   element            TEXT NOT NULL DEFAULT 'physical',  -- damage school (physical|fire|cold|lightning|poison)
   sort_order         INTEGER NOT NULL

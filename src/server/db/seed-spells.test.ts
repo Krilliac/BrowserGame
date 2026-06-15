@@ -70,3 +70,25 @@ describe('ensureSpellTomeContent — DB upsert', () => {
     expect(count.n).toBe(1);
   });
 });
+
+describe('abilities — behaviors_json round-trip', () => {
+  it('abilities round-trip their behaviors_json', () => {
+    const db = openDatabase(':memory:');
+    const c = loadContent(db);
+    const all = c.abilityList();
+    expect(all.length).toBeGreaterThan(0); // sanity: abilities are seeded
+
+    // Verify the column is present and queryable (null or string, never undefined)
+    const row = db.prepare('SELECT behaviors_json FROM abilities LIMIT 1').get() as {
+      behaviors_json: string | null;
+    };
+    expect(row.behaviors_json === null || typeof row.behaviors_json === 'string').toBe(true);
+
+    // Any abilities that already carry behaviors (Task 7 populates these) round-trip correctly
+    const withBehaviors = all.filter((a) => a.behaviors && a.behaviors.length);
+    for (const a of withBehaviors) {
+      expect(Array.isArray(a.behaviors)).toBe(true);
+      expect(a.behaviors![0]).toHaveProperty('type');
+    }
+  });
+});

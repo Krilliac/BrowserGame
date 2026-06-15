@@ -1390,8 +1390,8 @@ function ensureSpellbookContent(db: Database): void {
   const abilityHas = db.prepare('SELECT 1 FROM abilities WHERE id = ?');
   const abilityIns = db.prepare(
     `INSERT INTO abilities
-       (id,name,key,kind,damage,range,cooldown_ms,mana_cost,color,melee_half_angle,projectile_speed,projectile_ttl_ms,radius,sort_order)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (id,name,key,kind,damage,range,cooldown_ms,mana_cost,color,melee_half_angle,projectile_speed,projectile_ttl_ms,behaviors_json,radius,sort_order)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   ABILITY_ORDER.forEach((id, i) => {
     if (abilityHas.get(id)) return;
@@ -1409,6 +1409,7 @@ function ensureSpellbookContent(db: Database): void {
       a.meleeHalfAngle ?? null,
       a.projectileSpeed ?? null,
       a.projectileTtlMs ?? null,
+      a.behaviors ? JSON.stringify(a.behaviors) : null,
       a.radius,
       i,
     );
@@ -1559,8 +1560,8 @@ function seedAreas(db: Database): void {
 function seedAbilities(db: Database): void {
   const ins = db.prepare(
     `INSERT INTO abilities
-       (id,name,key,kind,damage,range,cooldown_ms,mana_cost,color,melee_half_angle,projectile_speed,projectile_ttl_ms,radius,sort_order)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (id,name,key,kind,damage,range,cooldown_ms,mana_cost,color,melee_half_angle,projectile_speed,projectile_ttl_ms,behaviors_json,radius,sort_order)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const id of ABILITY_ORDER) {
     const a = ABILITIES[id];
@@ -1577,6 +1578,7 @@ function seedAbilities(db: Database): void {
       a.meleeHalfAngle ?? null,
       a.projectileSpeed ?? null,
       a.projectileTtlMs ?? null,
+      a.behaviors ? JSON.stringify(a.behaviors) : null,
       a.radius,
       ABILITY_ORDER.indexOf(id),
     );
