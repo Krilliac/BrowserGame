@@ -22,10 +22,12 @@ import {
   STARTER_ABILITIES,
   spellRankMult,
   type AbilityId,
+  type BehaviorSpec,
   type FxEvent,
 } from '../shared/combat.js';
 import { config } from './config.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
+import { initialCharges } from './projectile-behaviors.js';
 import {
   applyCrit,
   attackRoll,
@@ -614,6 +616,19 @@ interface Projectile {
   critChance: number;
   /** True for an enemy (mob) projectile â€” it damages players instead of mobs. */
   hostile: boolean;
+  /** Effective behavior list resolved at spawn (ability behaviors; + player modifiers in Slice 2). */
+  behaviors: BehaviorSpec[];
+  /** Mob ids already damaged — never double-hit on pierce/chain. */
+  hitMobs: Set<number>;
+  bouncesLeft: number;
+  piercesLeft: number;
+  forksLeft: number;
+  /** Running falloff multiplier applied to damage (1 at spawn). */
+  damageScale: number;
+  /** `homing` acquisition (mob id), if any. */
+  homingTargetId?: number;
+  /** `return` latch — set once the projectile has reversed. */
+  returned?: boolean;
 }
 
 interface GroundItem {
@@ -2462,10 +2477,16 @@ export class World {
         }
       }
     } else {
-      // Multishot affixes add extra projectiles, fanned around the aim â€” gear shapes the kit.
       const speed = ability.projectileSpeed ?? 300;
-      const count = 1 + player.multishot;
-      const spread = 0.18; // radians between adjacent shots
+      const behaviors = ability.behaviors ?? [];
+      // Multishot: the ability's `multishot` behavior OR the player's multishot stat (whichever is
+      // larger) fans extra projectiles around the aim. Slice 2 adds gem-driven multishot.
+      const ms = behaviors.find((b) => b.type === 'multishot');
+      const count = Math.max(1 + player.multishot, ms ? ms.count : 1);
+      const spread = ms ? ms.spreadRad : 0.18;
+      // Behaviors carried by each projectile exclude the cast-time `multishot` entry.
+      const carried = behaviors.filter((b) => b.type !== 'multishot');
+      const charges = initialCharges(carried);
       for (let i = 0; i < count; i++) {
         const a = facing + (i - (count - 1) / 2) * spread;
         const pid = this.allocId();
@@ -2483,6 +2504,12 @@ export class World {
           ownerLevel: player.level,
           critChance: player.critChance,
           hostile: false,
+          behaviors: carried,
+          hitMobs: new Set<number>(),
+          bouncesLeft: charges.bouncesLeft,
+          piercesLeft: charges.piercesLeft,
+          forksLeft: charges.forksLeft,
+          damageScale: 1,
         });
       }
     }
@@ -3162,6 +3189,12 @@ export class World {
               ownerLevel: h.level,
               critChance: 0,
               hostile: false,
+              behaviors: [],
+              hitMobs: new Set<number>(),
+              bouncesLeft: 0,
+              piercesLeft: 0,
+              forksLeft: 0,
+              damageScale: 1,
             });
             this.events.push({ kind: 'cast', x: h.x, y: h.y, facing: h.facing });
           } else {
@@ -3232,6 +3265,12 @@ export class World {
         ownerLevel: template.level,
         critChance: 0,
         hostile: true,
+        behaviors: [],
+        hitMobs: new Set<number>(),
+        bouncesLeft: 0,
+        piercesLeft: 0,
+        forksLeft: 0,
+        damageScale: 1,
       });
       this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
       return;
@@ -3338,6 +3377,12 @@ export class World {
       ownerLevel: template.level,
       critChance: 0,
       hostile: true,
+      behaviors: [],
+      hitMobs: new Set<number>(),
+      bouncesLeft: 0,
+      piercesLeft: 0,
+      forksLeft: 0,
+      damageScale: 1,
     });
   }
 
