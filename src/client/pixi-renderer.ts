@@ -67,6 +67,7 @@ import {
   PATTERN_TILES,
 } from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
+import { projectileStrip, type ProjStrip } from './projectile-fx.js';
 import {
   MOB_ARCHETYPES,
   MOB_CLIPS,
@@ -397,8 +398,11 @@ const FX_STRIPS: Record<
 /** Misc single/strip textures (spell FX + item icons). */
 const MISC: Record<string, string> = {
   fx_fireball: '/assets/ui/fx/spell_fireball.png', // 96x16 -> 6 frames
+  fx_firebomb: '/assets/ui/fx/spell_firebomb.png', // 96x16 -> 6 frames
   fx_frost: '/assets/ui/fx/spell_ice_lance.png', // 64x16 -> 4 frames
+  fx_water: '/assets/ui/fx/spell_water_bolt.png', // 96x16 -> 6 frames
   fx_arcane: '/assets/ui/fx/spell_arcane_bolt.png', // 96x16 -> 6 frames
+  fx_rock: '/assets/ui/fx/spell_rock_sling.png', // 16x16 -> 1 frame
   item_gold: '/assets/ui/items/coin_gold.png', // 32x32 — a few coins
   item_gold_stack: '/assets/ui/items/coin_gold_stack.png', // a small stack
   item_gold_pile: '/assets/ui/items/coin_pile_large.png', // a big pile
@@ -408,10 +412,14 @@ const MISC: Record<string, string> = {
   gem_topaz: '/assets/ui/items/gem_amethyst.png', // amethyst icon stands in for topaz
   gem_diamond: '/assets/ui/items/gem_diamond.png',
 };
-const PROJ_STRIP: Record<string, { alias: string; frames: number }> = {
+/** Each animated spell strip (projectile-fx.ts) → its loaded MISC alias + frame count (16px frames). */
+const PROJ_STRIP_DEFS: Record<ProjStrip, { alias: string; frames: number }> = {
   fireball: { alias: 'fx_fireball', frames: 6 },
+  firebomb: { alias: 'fx_firebomb', frames: 6 },
   frost: { alias: 'fx_frost', frames: 4 },
-  lightning: { alias: 'fx_arcane', frames: 6 },
+  water: { alias: 'fx_water', frames: 6 },
+  arcane: { alias: 'fx_arcane', frames: 6 },
+  rock: { alias: 'fx_rock', frames: 1 },
 };
 
 // Screen-shake decay rate (per second, exponential) and the kick a death impact gives.
@@ -2673,7 +2681,10 @@ export class PixiRenderer {
     // Enemy projectiles read as a menacing red regardless of the sprite hint they were given.
     const color = (e.hostile ? '#ff4d4d' : (ability?.color ?? '#ffffff')) as ColorSource;
     const radius = ability?.radius ?? 6;
-    const strip = e.abilityId ? PROJ_STRIP[e.abilityId] : undefined;
+    // Animate the projectile with the element-appropriate spell strip (by ability id, then by the
+    // ability's true color); elements with no strip (poison/holy) keep the correctly-tinted orb.
+    const stripKey = projectileStrip(e.abilityId, ability?.color);
+    const strip = stripKey ? PROJ_STRIP_DEFS[stripKey] : undefined;
     const hasStrip = strip ? this.tex.has(strip.alias) : false;
 
     let view = this.views.get(e.id);
