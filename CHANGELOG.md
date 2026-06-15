@@ -6,6 +6,31 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Added
+
+- **Gloomwood design system adopted; the game is now art-license-clean.** Brought in the original,
+  procedurally-generated Gloomwood art set and wired the pieces the renderer didn't yet have:
+  - **Original art swap (HANDOFF §1):** decor (+ animated braziers/candles), the catacombs / cursed /
+    undead / forest_spring biome sheets, spell-FX strips, item & currency icons, and a new 29-creature
+    top-down mob roster — all byte-compatible drop-ins for the existing renderer data.
+  - **Animated mob sprite layer (§3.1):** `mob-sprites.ts` resolves a mob name → archetype and the
+    renderer composes each archetype's idle/walk/attack strips into a virtual sheet, so mobs the
+    generated 8/16-dir sheets don't cover now animate (idle/walk + fx-driven attack) instead of
+    rendering as a static cell or a procedural orb. Flyers (banshee/imp) hover.
+  - **Elemental projectile strips (§3.2):** projectiles map to a spell strip by ability/element
+    (`projectile-fx.ts`), so frost/arcane/water/etc. bolts animate instead of drawing as a plain orb.
+  - **Generated biome terrain:** original marsh/mine/frost/cave/dungeon/autumn tile sheets
+    (`tools/assetgen/tiles`) replace the last licensed ground sheets.
+  - **`browsergame-design` skill** installed under `.claude/skills/` for on-brand UI/asset work.
+
+### Changed
+
+- **Removed all third-party art (HANDOFF §4).** Deleted the 32rogues / CraftPix / Mana Seed / Szadi /
+  Kenney / OpenGameArt LPC sprites, tiles, UI chrome and item sheets (and the dead CC-BY-SA combat
+  SFX) now that originals/generated art cover everything; `rogues-sprites.ts` is gone and `sheetKey`
+  delegates to the pure, tested `mobSpriteName`. No attribution-required asset remains; `CREDITS.md`
+  rewritten accordingly.
+
 ### Fixed
 
 - **Exception handling + null guards at the runtime boundaries (resilience).** Hardened the spots
