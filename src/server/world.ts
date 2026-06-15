@@ -28,6 +28,7 @@ import {
 import { config } from './config.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
 import { initialCharges, resolveHit, steerHoming, type MobLite } from './projectile-behaviors.js';
+import { applyModifiers } from './spell-modifiers.js';
 import {
   applyCrit,
   attackRoll,
@@ -1993,6 +1994,12 @@ export class World {
     let bonusHp = 0;
     let crit = BASE_CRIT_CHANCE;
     let multishot = 0;
+    let chainAdd = 0,
+      pierceAdd = 0,
+      forkAdd = 0,
+      spellAoe = 0,
+      homingAdd = 0,
+      spellDamageMult = 1;
     let damageTaken = 1;
     let lifesteal = 0; // percent points
     let swift = 0; // percent cooldown reduction
@@ -2026,6 +2033,12 @@ export class World {
       bonusHp += gems.hp;
       crit += gems.crit / 100;
       multishot += gems.multishot;
+      chainAdd += gems.chain;
+      pierceAdd += gems.pierce;
+      forkAdd += gems.fork;
+      spellAoe += gems.spellaoe;
+      homingAdd += gems.homing;
+      spellDamageMult *= gems.mult;
       lifesteal += gems.lifesteal;
       swift += gems.swift;
       move += gems.move;
@@ -2075,6 +2088,12 @@ export class World {
     player.power = power;
     player.critChance = crit;
     player.multishot = multishot;
+    player.chainAdd = chainAdd;
+    player.pierceAdd = pierceAdd;
+    player.forkAdd = forkAdd;
+    player.spellAoe = spellAoe;
+    player.homingAdd = homingAdd;
+    player.spellDamageMult = spellDamageMult;
     player.procs = procs;
     player.lifesteal = Math.min(0.6, lifesteal / 100); // cap life steal at 60% of damage
     player.cooldownMult = Math.max(0.4, 1 - swift / 100); // cap attack speed at +60%
@@ -2503,7 +2522,17 @@ export class World {
       const count = Math.max(1 + player.multishot, ms ? ms.count : 1);
       const spread = ms ? ms.spreadRad : 0.18;
       // Behaviors carried by each projectile exclude the cast-time `multishot` entry.
-      const carried = behaviors.filter((b) => b.type !== 'multishot');
+      // Gem modifier stats (chain/pierce/fork/spellAoe/homing) are merged in here.
+      const carried = applyModifiers(
+        behaviors.filter((b) => b.type !== 'multishot'),
+        {
+          chainAdd: player.chainAdd,
+          pierceAdd: player.pierceAdd,
+          forkAdd: player.forkAdd,
+          spellAoe: player.spellAoe,
+          homingAdd: player.homingAdd,
+        },
+      );
       const charges = initialCharges(carried);
       for (let i = 0; i < count; i++) {
         const a = facing + (i - (count - 1) / 2) * spread;
@@ -2516,7 +2545,7 @@ export class World {
           vx: Math.cos(a) * speed,
           vy: Math.sin(a) * speed,
           ttl: ability.projectileTtlMs ?? 1200,
-          damage: (ability.damage + player.power) * rankMult * mightMult,
+          damage: (ability.damage + player.power) * rankMult * mightMult * player.spellDamageMult,
           radius: ability.radius,
           ownerId: player.id,
           ownerLevel: player.level,
