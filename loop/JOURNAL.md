@@ -139,8 +139,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 66 | feat(ui) | **Elite mobs stand out on the minimap** — orange + larger | green | client-only; champions/bosses (e.elite) now plot orange & one px bigger vs normal red mobs, so dangerous foes are spottable at a glance. |
 
-NEXT (it.67): backend (alternation). Then client-UX. PUSH now (it.65 + it.66). Sent user a status
-PushNotification after it.66 (it.23–66 = 44 green iterations).
+| 67 | refactor | **Extract sanitizeEventMult** — dedup the two event-mult setters | green | zero behavior change (1460). Grepped party×19/social×13/chat-sanitize/content-edit/content-integrity×16 — ALL covered, so per directive a safe dedup: setXpEventMult + setGoldEventMult shared the same finite/>=0 clamp; now one module helper. |
+
+NEXT (it.68): client-UX (alternation). Then backend. PUSH now (it.65–it.67).
 KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 

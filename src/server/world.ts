@@ -178,6 +178,11 @@ const GOLD_MAGNET_RADIUS = 95;
 const GOLD_MAGNET_SPEED = 460;
 let ITEM_TTL_MS = config.items.itemTtlMs;
 
+/** Clamp a host-supplied liveops multiplier to a safe value: finite and >= 0, else 1 (no event). */
+function sanitizeEventMult(mult: number): number {
+  return Number.isFinite(mult) && mult >= 0 ? mult : 1;
+}
+
 /**
  * One gold-magnet step (pure): pull a gold drop toward the NEAREST living player that is within the
  * magnet radius but still outside the pickup radius (inside pickup, the normal pickup collects it —
@@ -1812,12 +1817,12 @@ export class World {
 
   /** Set the liveops XP multiplier (1 = none). Host-driven from active timed game-events; clamped >=0. */
   setXpEventMult(mult: number): void {
-    this.xpEventMult = Number.isFinite(mult) && mult >= 0 ? mult : 1;
+    this.xpEventMult = sanitizeEventMult(mult);
   }
 
   /** Set the liveops GOLD-drop multiplier (1 = none). Host-driven from active events; clamped >=0. */
   setGoldEventMult(mult: number): void {
-    this.goldEventMult = Number.isFinite(mult) && mult >= 0 ? mult : 1;
+    this.goldEventMult = sanitizeEventMult(mult);
   }
 
   // --- Player-to-player trading -----------------------------------------------------------
