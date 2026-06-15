@@ -95,19 +95,19 @@ describe('pickTile', () => {
     expect(share).toBeLessThan(0.13);
   });
 
-  it('lets the plain base tile dominate a real biome (mine ≈ 70% blank floor)', () => {
+  it('lets the plain base tile dominate a real biome (generated mine base ≈ 60/96)', () => {
     const mine = GROUND_TILESETS['mine']!;
     let base = 0;
     const n = 100;
     for (let gx = 0; gx < n; gx++) {
       for (let gy = 0; gy < n; gy++) {
         const t = pickTile(mine, gx, gy);
-        if (t.col === 0 && t.row === 11) base++;
+        if (t.col === 0 && t.row === 0) base++; // the heavy generatedBiome base tile (weight 60)
       }
     }
     const share = base / (n * n);
-    expect(share).toBeGreaterThan(0.65);
-    expect(share).toBeLessThan(0.75);
+    expect(share).toBeGreaterThan(0.55);
+    expect(share).toBeLessThan(0.7);
   });
 });
 
@@ -142,12 +142,13 @@ describe('valueNoise (RENDER-04)', () => {
 
 describe('patchCoverage / patchTileFor (RENDER-04)', () => {
   it('returns 0 coverage and no patch tile for un-annotated tilesets (regression guard)', () => {
-    const mine = GROUND_TILESETS['mine']!;
-    expect(mine.blend).toBeUndefined();
+    // crypt (catacombs) has no blend metadata — the branch must never run for it.
+    const crypt = GROUND_TILESETS['crypt']!;
+    expect(crypt.blend).toBeUndefined();
     for (let gx = 0; gx < 16; gx++) {
       for (let gy = 0; gy < 16; gy++) {
-        expect(patchCoverage(mine, gx, gy)).toBe(0);
-        expect(patchTileFor(mine, gx, gy)).toBeUndefined();
+        expect(patchCoverage(crypt, gx, gy)).toBe(0);
+        expect(patchTileFor(crypt, gx, gy)).toBeUndefined();
       }
     }
   });
