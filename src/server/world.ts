@@ -3500,9 +3500,10 @@ export class World {
           this.applyProjectileDamage(proj, hit, res.primaryDamageScale);
           if (res.splash) {
             for (const m of this.mobs.values()) {
-              if (m.dead || m.id === hit.id) continue;
+              if (m.dead || m.id === hit.id || proj.hitMobs.has(m.id)) continue;
               if (Math.hypot(m.x - hit.x, m.y - hit.y) <= res.splash.radius) {
                 this.applyProjectileDamage(proj, m, res.primaryDamageScale * res.splash.scale);
+                proj.hitMobs.add(m.id);
               }
             }
           }
