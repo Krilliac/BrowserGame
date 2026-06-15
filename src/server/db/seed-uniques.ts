@@ -233,4 +233,51 @@ export const UNIQUES: UniqueDef[] = [
     ],
     flavor: 'It cuts the way moonlight does — before you know it has.',
   },
+
+  // --- A second high-tier weapon/shield/head/neck quartet, built on the mithril & bloodstone bases
+  // so the late-game chase has a few more grails to hunt. ---
+  {
+    id: 'mournblade',
+    name: 'Mournblade',
+    baseId: 'mithril_blade',
+    affixes: [
+      { stat: 'power', value: 21 },
+      { stat: 'crit', value: 18 },
+      { stat: 'lifesteal', value: 8 },
+    ],
+    flavor: 'Forged from a grief that never cooled — it cuts to be felt.',
+  },
+  {
+    id: 'bastion_of_first_light',
+    name: 'Bastion of the First Light',
+    baseId: 'tower_shield',
+    affixes: [
+      { stat: 'armor', value: 14 },
+      { stat: 'hp', value: 68 },
+      { stat: 'vigor', value: 12 },
+    ],
+    flavor: 'Behind it a hundred stood; behind it a hundred lived.',
+  },
+  {
+    id: 'helm_of_the_riven_crown',
+    name: 'Helm of the Riven Crown',
+    baseId: 'mithril_visage',
+    affixes: [
+      { stat: 'hp', value: 66 },
+      { stat: 'armor', value: 12 },
+      { stat: 'vigor', value: 11 },
+    ],
+    flavor: 'It remembers every blow it ever turned, and forgets no enemy.',
+  },
+  {
+    id: 'sanguine_vow',
+    name: 'The Sanguine Vow',
+    baseId: 'bloodstone_amulet',
+    affixes: [
+      { stat: 'lifesteal', value: 10 },
+      { stat: 'power', value: 15 },
+      { stat: 'crit', value: 13 },
+    ],
+    flavor: 'Every wound you give pays a tithe back to your own pulse.',
+  },
 ];

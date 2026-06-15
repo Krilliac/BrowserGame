@@ -83,9 +83,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 38 | feat(ui) | **HUD quest tracker** — active objectives top-left | green | client-only; "▸ Name  prog/target" per active quest (uses `you.quests`, no protocol); turns green when objective met; hidden when the full log (L) is open |
 
-NEXT (it.39): backend (alternation). Then client-UX. PUSH now (it.37 + it.38).
-NOTE: it.23–38 all need the dev server to reload its code (no new schema tables) for the user to see
-them live. (Quest achievements from it.37 also surface live via the it.24 unlock toast.)
+| 39 | feat(content) | **4 new uniques** (Mournblade, Bastion of the First Light, Helm of the Riven Crown, The Sanguine Vow) | green | fresh axis (loot expansion, not save-counters); on free mithril/tower/bloodstone bases; UNIQUES 20→24 (test cap); affixes within bands; flaky hirelings re-run alone = green. NEEDS server restart to drop (seeds into items table at startup) |
+
+NEXT (it.40): client-UX (alternation). Then backend. PUSH now (it.37 + it.38 + it.39).
+NOTE: it.23–38 need a dev-server code reload; it.39 needs a server restart (new seed rows) to appear
+in-game. (Quest achievements from it.37 surface live via the it.24 unlock toast.)
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
