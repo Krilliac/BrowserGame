@@ -2549,9 +2549,14 @@ function drawMinimap(w: number): void {
       let square = false;
       let r = 3;
       if (e.kind === 'mob') {
-        // Elites/champions get an orange, slightly larger blip so dangerous foes stand out.
-        color = e.elite ? '#ff9a3c' : '#e05555';
-        if (e.elite) r = 4;
+        // The current target glows white so you can track it; elites/champions are orange + larger.
+        if (e.id === targetId) {
+          color = '#ffffff';
+          r = 4;
+        } else {
+          color = e.elite ? '#ff9a3c' : '#e05555';
+          if (e.elite) r = 4;
+        }
       } else if (e.kind === 'player') color = '#5fa8e0';
       else if (e.kind === 'item') color = '#f2c14e';
       else if (e.kind === 'npc') {

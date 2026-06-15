@@ -149,7 +149,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 71 | test(hardening) | **Counter persistence through the DB round-trip** | green | +1 → 1461; a REAL gap (not redundant). World-layer export/import was tested, but the player-store DB-serialization leg was NOT tested for the session's new counters (kills/bossKills/bestiary/deathlessStreak/bestDeathlessStreak/stashCap). Verified player-store stores whole-object JSON + normalizeSave mutates in place (no allowlist) → counters survive; pinned it so a future allowlist refactor that drops a field is caught (would silently wipe progression on login). |
 
-NEXT (it.72): client-UX (alternation). Then backend. PUSH now (it.69–it.71).
+| 72 | feat(ui) | **Target glows white on the minimap** | green | client-only; the current target's blip is white + larger so you can track it among the red/orange mobs. Uses targetId already on the client; pairs with the it.66 elite markers. |
+
+NEXT (it.73): backend (alternation). Then client-UX. PUSH now (it.71 + it.72).
 KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
