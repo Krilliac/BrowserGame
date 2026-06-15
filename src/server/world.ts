@@ -215,6 +215,12 @@ const INTERACT_RANGE = 70;
 let MAX_BAG_GEAR = config.items.maxBagGear;
 // Bank stash slots â€” far larger than the bag, so the overflow has somewhere safe to go.
 let STASH_CAP = config.items.stashCap;
+// Stash expansion (banker gold-sink): each purchase adds STASH_EXPAND_STEP slots above the base, up to
+// STASH_MAX_EXPANSIONS purchases. The cost escalates per purchase so a fully-expanded stash is a major
+// gold sink, not a trivial one.
+const STASH_EXPAND_STEP = 10;
+const STASH_MAX_EXPANSIONS = 5;
+const STASH_EXPAND_COST = 1000;
 // Shrines (decor kind 'shrine'): step within this radius to be blessed; the shrine then recharges
 // for the cooldown before it can bless again (shared across players, Diablo-shrine style).
 const SHRINE_RADIUS = 46;
@@ -414,6 +420,8 @@ interface Player {
   gear: ItemInstance[];
   /** Stored gear in the bank stash (deposited at a banker; persisted; far larger than the bag). */
   stash: ItemInstance[];
+  /** This character's stash capacity — starts at the base and grows via banker expansions (persisted). */
+  stashCap: number;
   equipment: Equipment;
   power: number;
   /** Crit chance in [0,1]: base plus the sum of equipped +crit affixes. */
@@ -496,6 +504,8 @@ export interface PlayerSave {
   gear: ItemInstance[];
   /** Banked stash gear (absent on pre-stash saves â€” defaults to empty). */
   stash?: ItemInstance[];
+  /** Stash capacity (absent on pre-expansion saves — defaults to the base cap). */
+  stashCap?: number;
   /** Potion belt counts (absent on pre-potion saves â€” defaults to the starting amount). */
   potions?: { health: number; mana: number };
   /** Allocated attributes (absent on pre-attribute saves â€” granted retroactively on load). */
@@ -1293,7 +1303,10 @@ export class World {
 
   /** Drain pending stash windows for the host to deliver as `stash` packets (with the cap). */
   drainStashOffers(): { playerId: number; items: ItemInstance[]; cap: number }[] {
-    const drained = this.stashOffers.map((o) => ({ ...o, cap: STASH_CAP }));
+    const drained = this.stashOffers.map((o) => ({
+      ...o,
+      cap: this.players.get(o.playerId)?.stashCap ?? STASH_CAP,
+    }));
     this.stashOffers = [];
     return drained;
   }
@@ -1303,7 +1316,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     if (!hasNpcFlag(this.nearbyNpc(player)?.flags ?? 0, NpcFlags.BANKER)) return;
-    if (player.stash.length >= STASH_CAP) {
+    if (player.stash.length >= player.stashCap) {
       this.notify(player.id, 'Your stash is full.');
       return;
     }
@@ -1328,6 +1341,34 @@ export class World {
     const [inst] = player.stash.splice(idx, 1);
     if (inst) player.gear.push(inst);
     this.pushStash(player);
+  }
+
+  /**
+   * Banker: buy another block of stash slots for gold. Requires banker proximity. The cost escalates
+   * with each block already purchased, and the stash can be expanded at most STASH_MAX_EXPANSIONS
+   * times. Server-authoritative: validates proximity, the cap ceiling, and gold before mutating.
+   */
+  expandStash(playerId: number): { ok: boolean; message: string } {
+    const player = this.players.get(playerId);
+    if (!player || player.dead) return { ok: false, message: 'No character.' };
+    if (!hasNpcFlag(this.nearbyNpc(player)?.flags ?? 0, NpcFlags.BANKER)) {
+      return { ok: false, message: 'Visit a Banker to expand your stash.' };
+    }
+    const bought = Math.round((player.stashCap - STASH_CAP) / STASH_EXPAND_STEP);
+    if (bought >= STASH_MAX_EXPANSIONS) {
+      return {
+        ok: false,
+        message: `Your stash is already fully expanded (${player.stashCap} slots).`,
+      };
+    }
+    const cost = (bought + 1) * STASH_EXPAND_COST;
+    if (player.gold < cost) {
+      return { ok: false, message: `Expanding costs ${cost}g — you only have ${player.gold}g.` };
+    }
+    player.gold -= cost;
+    player.stashCap += STASH_EXPAND_STEP;
+    this.pushStash(player); // refresh the open panel with the new cap
+    return { ok: true, message: `Stash expanded to ${player.stashCap} slots for ${cost}g.` };
   }
 
   /** Abstract salvage material kind → the concrete content loot item id it grants. */
@@ -2123,6 +2164,7 @@ export class World {
       loot: new Map(),
       gear: [],
       stash: [],
+      stashCap: STASH_CAP,
       potions: { health: POTION_START, mana: POTION_START },
       potionReadyAt: 0,
       manaRegenBonus: 0,
@@ -2180,6 +2222,7 @@ export class World {
       loot: [...p.loot],
       gear: [...p.gear],
       stash: [...p.stash],
+      stashCap: p.stashCap,
       potions: { ...p.potions },
       attributes: { ...p.attributes },
       attrPoints: p.attrPoints,
@@ -2214,6 +2257,8 @@ export class World {
     p.loot = new Map(save.loot);
     p.gear = [...save.gear];
     p.stash = [...(save.stash ?? [])]; // pre-stash saves start with an empty bank
+    // At least the current base cap; a saved expansion above it is preserved.
+    p.stashCap = Math.max(save.stashCap ?? STASH_CAP, STASH_CAP);
     p.potions = save.potions
       ? { health: save.potions.health, mana: save.potions.mana }
       : { health: POTION_START, mana: POTION_START };

@@ -160,6 +160,15 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'expandstash',
+    minLevel: AccessLevel.Player,
+    usage: '/expandstash',
+    help: 'Buy more stash slots for gold (at a Banker; cost rises each time).',
+    run: (ctx) => {
+      ctx.reply(ctx.world.expandStash(ctx.playerId).message);
+    },
+  },
+  {
     name: 'craft',
     minLevel: AccessLevel.Player,
     usage: '/craft <recipeId>',
