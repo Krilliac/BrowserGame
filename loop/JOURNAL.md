@@ -119,7 +119,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 56 | feat(ui) | **Persistent area-name label** above the minimap | green | client-only; the entry banner fades, so a small gold area name keeps the player oriented. Uses net.content.area(areaId).name. |
 
-NEXT (it.57): backend (alternation). Then client-UX. PUSH now (it.55 + it.56).
+| 57 | test(hardening) | **Potion mana path + no-waste-at-full** test | green | +2 → 1457; QUALITY. world-potions covered health heal/cooldown/persist but NOT the mana potion (restore+consume+cap clamp) nor the no-waste guard (quaffing at full HP/mana keeps the potion). Confirmed gap via grep + reading usePotion. |
+
+NEXT (it.58): client-UX (alternation). Then backend. PUSH now (it.55–it.57).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
