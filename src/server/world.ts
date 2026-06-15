@@ -27,7 +27,7 @@ import {
 } from '../shared/combat.js';
 import { config } from './config.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
-import { initialCharges } from './projectile-behaviors.js';
+import { initialCharges, resolveHit, steerHoming, type MobLite } from './projectile-behaviors.js';
 import {
   applyCrit,
   attackRoll,
@@ -3395,7 +3395,43 @@ export class World {
   }
 
   private tickProjectiles(dt: number): void {
+    // Fork children are buffered here and inserted AFTER the iteration to avoid mutating
+    // this.projectiles while we are iterating it (which would process children in the same tick).
+    const spawned: Projectile[] = [];
+
     for (const proj of this.projectiles.values()) {
+      // On-travel behaviors (server-authoritative).
+      const homing = proj.behaviors.find((b) => b.type === 'homing');
+      if (homing && !proj.hostile) {
+        let tgt: MobLite | undefined;
+        let best = homing.acquireRange;
+        for (const m of this.mobs.values()) {
+          if (m.dead || proj.hitMobs.has(m.id)) continue;
+          const d = Math.hypot(m.x - proj.x, m.y - proj.y);
+          if (d <= best) {
+            best = d;
+            tgt = { id: m.id, x: m.x, y: m.y };
+          }
+        }
+        if (tgt) {
+          const v = steerHoming(proj.x, proj.y, proj.vx, proj.vy, tgt, homing.turnRate, dt * 1000);
+          proj.vx = v.vx;
+          proj.vy = v.vy;
+        }
+      }
+      const ret = proj.behaviors.find((b) => b.type === 'return');
+      if (
+        ret &&
+        !proj.returned &&
+        proj.ttl <= (getContent().ability(proj.abilityId)?.projectileTtlMs ?? 1200) / 2
+      ) {
+        proj.vx = -proj.vx;
+        proj.vy = -proj.vy;
+        proj.returned = true;
+        proj.hitMobs.clear();
+        proj.damageScale *= ret.falloff;
+      }
+
       proj.x += proj.vx * dt;
       proj.y += proj.vy * dt;
       proj.ttl -= dt * 1000;
@@ -3430,28 +3466,112 @@ export class World {
           }
         }
       } else {
+        let hit: Mob | undefined;
         for (const mob of this.mobs.values()) {
-          if (mob.dead) continue;
+          if (mob.dead || proj.hitMobs.has(mob.id)) continue;
           if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
-            const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
-            const crit = base > 0 && rollCrit(this.rand, proj.critChance);
-            const dmg = applyCrit(base, crit);
-            const finalDmg = resistedDamage(
-              dmg,
-              getContent().ability(proj.abilityId)?.element ?? 'physical',
-              getContent().mobResists(mob.templateId),
-            );
-            this.damageMob(mob, finalDmg, proj.abilityId, proj.ownerId, crit);
-            if (finalDmg > 0) applyStatus(mob, proj.abilityId);
-            consumed = true;
+            hit = mob;
             break;
           }
+        }
+        if (hit) {
+          proj.hitMobs.add(hit.id);
+          const candidates: MobLite[] = [];
+          for (const m of this.mobs.values()) {
+            if (m.dead || proj.hitMobs.has(m.id)) continue;
+            candidates.push({ id: m.id, x: m.x, y: m.y });
+          }
+          const res = resolveHit({
+            x: proj.x,
+            y: proj.y,
+            vx: proj.vx,
+            vy: proj.vy,
+            damageScale: proj.damageScale,
+            behaviors: proj.behaviors,
+            charges: {
+              bouncesLeft: proj.bouncesLeft,
+              piercesLeft: proj.piercesLeft,
+              forksLeft: proj.forksLeft,
+            },
+            hitMobs: proj.hitMobs,
+            hitMob: { id: hit.id, x: hit.x, y: hit.y },
+            candidates,
+          });
+          this.applyProjectileDamage(proj, hit, res.primaryDamageScale);
+          if (res.splash) {
+            for (const m of this.mobs.values()) {
+              if (m.dead || m.id === hit.id) continue;
+              if (Math.hypot(m.x - hit.x, m.y - hit.y) <= res.splash.radius) {
+                this.applyProjectileDamage(proj, m, res.primaryDamageScale * res.splash.scale);
+              }
+            }
+          }
+          for (const f of res.forks) {
+            const cid = this.allocId();
+            spawned.push({
+              id: cid,
+              abilityId: proj.abilityId,
+              x: proj.x,
+              y: proj.y,
+              vx: f.vx,
+              vy: f.vy,
+              ttl: getContent().ability(proj.abilityId)?.projectileTtlMs ?? 1200,
+              damage: proj.damage,
+              radius: proj.radius,
+              ownerId: proj.ownerId,
+              ownerLevel: proj.ownerLevel,
+              critChance: proj.critChance,
+              hostile: false,
+              behaviors: [],
+              hitMobs: new Set<number>(),
+              bouncesLeft: 0,
+              piercesLeft: 0,
+              forksLeft: 0,
+              damageScale: f.damageScale,
+            });
+          }
+          proj.bouncesLeft = res.charges.bouncesLeft;
+          proj.piercesLeft = res.charges.piercesLeft;
+          proj.forksLeft = res.charges.forksLeft;
+          proj.damageScale = res.damageScaleAfter;
+          if (res.redirect) {
+            proj.vx = res.redirect.vx;
+            proj.vy = res.redirect.vy;
+            if (res.arcTo) {
+              this.events.push({
+                kind: 'arc',
+                x: hit.x,
+                y: hit.y,
+                x2: res.arcTo.x,
+                y2: res.arcTo.y,
+                element: getContent().ability(proj.abilityId)?.element ?? 'physical',
+              });
+            }
+          }
+          consumed = res.consume;
         }
       }
       if (consumed || proj.ttl <= 0 || this.outOfBounds(proj.x, proj.y)) {
         this.projectiles.delete(proj.id);
       }
     }
+
+    // Insert fork children now that iteration is complete.
+    for (const p of spawned) this.projectiles.set(p.id, p);
+  }
+
+  /** Roll + apply one projectile damage instance to a mob (crit, element resist, status), scaled. */
+  private applyProjectileDamage(proj: Projectile, mob: Mob, scale: number): void {
+    const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage * scale);
+    const crit = base > 0 && rollCrit(this.rand, proj.critChance);
+    const dmg = applyCrit(base, crit);
+    const finalDmg = resistedDamage(
+      dmg,
+      getContent().ability(proj.abilityId)?.element ?? 'physical',
+      getContent().mobResists(mob.templateId),
+    );
+    this.damageMob(mob, finalDmg, proj.abilityId, proj.ownerId, crit);
+    if (finalDmg > 0) applyStatus(mob, proj.abilityId);
   }
 
   private wander(mob: Mob, dt: number, speed: number): void {
