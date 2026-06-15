@@ -107,8 +107,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 50 | feat(ui) | **Low-HP danger vignette** — red edge-pulse below 30% HP | green | client-only; intensifies as HP drops with a faint heartbeat pulse; from authoritative hp/maxHp; hidden while dead. Classic ARPG threat cue. |
 
-NEXT (it.51): backend (alternation). Then client-UX. PUSH now (it.49 + it.50). Sent user a status
-PushNotification after it.50 (28 green iterations it.23–50).
+| 51 | test(hardening) | **Rift inventory round-trip** characterization test | green | +1 → 1450; QUALITY. openRift privacy/exit were tested but not that gear+gold SURVIVE entering a rift and returning to town. Pins the endgame carry both ways (a lost-gear regression on rift entry/exit would be caught). Trade re-validation already well-covered (checked first). |
+
+NEXT (it.52): client-UX (alternation). Then backend. PUSH now (it.49–it.51).
 NOTE: it.23–38,40,41,42,44,46,48,50 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
