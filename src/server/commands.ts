@@ -38,7 +38,7 @@ export interface CommandContext {
   contentRows: (table: string) => string;
   contentRow: (table: string, id: string) => string;
   setContent: (table: string, id: string, column: string, value: string) => string;
-  /** Render the top of the ladder for a metric ('level' | 'gold'); unknown metrics fall back to level. */
+  /** Render the top of the ladder for a metric (level/gold/kills/streak); unknown metrics fall back to level. */
   ladder: (metric: string) => string;
   /** Render the timed game-events with their active state + time-to-flip (for /event). */
   events: () => string;
@@ -90,8 +90,8 @@ const COMMAND_LIST: Command[] = [
   {
     name: 'ladder',
     minLevel: AccessLevel.Player,
-    usage: '/ladder [level|gold]',
-    help: 'Show the top characters by level (default) or gold.',
+    usage: '/ladder [level|gold|kills|streak]',
+    help: 'Show the top characters by level (default), gold, kills, or best deathless streak.',
     run: (ctx) => {
       const metric = (ctx.args[0] ?? 'level').toLowerCase();
       // The accessor renders + clamps; it falls back to 'level' for an unknown metric.

@@ -16,6 +16,7 @@ function save(
   kills = 0,
   bestiary: string[] = [],
   deathlessStreak = 0,
+  bestDeathlessStreak = deathlessStreak,
 ): PlayerSave {
   return {
     name: 'Hero',
@@ -35,6 +36,7 @@ function save(
     kills,
     bestiary,
     deathlessStreak,
+    bestDeathlessStreak,
   };
 }
 
@@ -98,5 +100,20 @@ describe('world achievements', () => {
     const lines = w.achievementStatus(8);
     expect(lines.some((l) => l.startsWith('✓') && l.includes('Untouchable'))).toBe(true);
     expect(lines.some((l) => l.includes('Immortal') && l.includes('60/200'))).toBe(true);
+  });
+
+  it('persists the best (record) deathless streak for the ladder', () => {
+    const w = world();
+    // Current streak 5 but a recorded best of 120 — the record survives the round-trip.
+    w.importPlayer(9, save(5, 0, [], 0, [], 5, 120), 100, 100);
+    expect(w.exportPlayer(9)!.bestDeathlessStreak).toBe(120);
+  });
+
+  it('floors the record to the current streak on an old save that lacks one', () => {
+    const w = world();
+    const legacy = save(5, 0, [], 0, [], 40);
+    delete (legacy as { bestDeathlessStreak?: number }).bestDeathlessStreak; // pre-record save
+    w.importPlayer(10, legacy, 100, 100);
+    expect(w.exportPlayer(10)!.bestDeathlessStreak).toBe(40);
   });
 });

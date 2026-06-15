@@ -454,6 +454,8 @@ interface Player {
   bestiary: Set<string>;
   /** Kills since the last death — the current deathless streak (reset to 0 on death; persisted). */
   deathlessStreak: number;
+  /** The best deathless streak ever reached (a permanent record; drives the streak ladder). */
+  bestDeathlessStreak: number;
   /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
   known: Map<AbilityId, number>;
   /** Area ids this character has visited â€” the waypoint fast-travel list. */
@@ -511,6 +513,8 @@ export interface PlayerSave {
   bestiary?: string[];
   /** Current deathless streak (kills since last death; absent on old saves — defaults to 0). */
   deathlessStreak?: number;
+  /** Best deathless streak ever reached (absent on old saves — defaults to the current streak). */
+  bestDeathlessStreak?: number;
   /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
   known?: [string, number][];
   /** Visited area ids (waypoints). Absent on old saves â€” the current area is added on load. */
@@ -2103,6 +2107,7 @@ export class World {
       kills: 0,
       bestiary: new Set(),
       deathlessStreak: 0,
+      bestDeathlessStreak: 0,
       known: new Map(STARTER_ABILITIES.map((a) => [a, 1])),
       discovered: new Set([this.areaId]),
       input: { up: false, down: false, left: false, right: false },
@@ -2145,6 +2150,7 @@ export class World {
       kills: p.kills,
       bestiary: [...p.bestiary],
       deathlessStreak: p.deathlessStreak,
+      bestDeathlessStreak: p.bestDeathlessStreak,
       known: [...p.known],
       discovered: [...p.discovered],
       hireling: p.hireling,
@@ -2192,6 +2198,8 @@ export class World {
     p.kills = save.kills ?? 0;
     p.bestiary = new Set(save.bestiary ?? []);
     p.deathlessStreak = save.deathlessStreak ?? 0;
+    // Old saves without a record default it to the current streak so the ladder isn't under-counted.
+    p.bestDeathlessStreak = Math.max(save.bestDeathlessStreak ?? 0, p.deathlessStreak);
     p.known = restoreKnown(save.known);
     // Carry visited areas across the transfer + always mark the area we just arrived in.
     p.discovered = new Set(save.discovered ?? []);
@@ -3623,6 +3631,7 @@ export class World {
     p.kills += 1; // shared-credit: every tagger/party member who is credited counts the kill
     p.bestiary.add(mobTemplateId); // record the species for the bestiary collection
     p.deathlessStreak += 1; // climbs with every kill; a death snaps it back to 0
+    if (p.deathlessStreak > p.bestDeathlessStreak) p.bestDeathlessStreak = p.deathlessStreak; // record
     this.recomputeStats(p);
     this.progressQuests(p, mobTemplateId);
     this.checkAchievements(p);

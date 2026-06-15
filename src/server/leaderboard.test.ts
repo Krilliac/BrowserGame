@@ -62,7 +62,8 @@ describe('leaderboard', () => {
     expect(isLeaderboardMetric('level')).toBe(true);
     expect(isLeaderboardMetric('gold')).toBe(true);
     expect(isLeaderboardMetric('kills')).toBe(true);
+    expect(isLeaderboardMetric('streak')).toBe(true);
     expect(isLeaderboardMetric('deaths')).toBe(false);
-    expect(LEADERBOARD_METRICS).toEqual(['level', 'gold', 'kills']);
+    expect(LEADERBOARD_METRICS).toEqual(['level', 'gold', 'kills', 'streak']);
   });
 });

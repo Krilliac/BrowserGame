@@ -1794,6 +1794,7 @@ setInterval(() => {
           recordScore(db, save.name, 'level', save.level, at);
           recordScore(db, save.name, 'gold', save.gold, at);
           recordScore(db, save.name, 'kills', save.kills ?? 0, at);
+          recordScore(db, save.name, 'streak', save.bestDeathlessStreak ?? 0, at);
         }
       }
     },
