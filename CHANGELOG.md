@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Spell-behavior engine (slice 1).** Spells now carry composable, data-driven behaviors
+  (chain / pierce / fork / splash / homing / multishot / return) resolved by a pure, unit-tested
+  module (`src/server/projectile-behaviors.ts`) — lightning fires one bolt that chains between
+  enemies (with an additive arc VFX), arrows pierce, fireballs/meteors splash, frost/poison detonate,
+  homing missiles seek, the chakram returns. Behaviors are SQL-tunable via `abilities.behaviors_json`
+  (with a forward migration for existing DBs). Multishot is now one behavior among many rather than
+  the universal default. A projectile never damages the same mob twice (chain/pierce/splash dedupe).
+  Foundation for the modifier-gem, ailment, and stat slices that follow.
+
 - **Gloomwood design system adopted; the game is now art-license-clean.** Brought in the original,
   procedurally-generated Gloomwood art set and wired the pieces the renderer didn't yet have:
   - **Original art swap (HANDOFF §1):** decor (+ animated braziers/candles), the catacombs / cursed /
