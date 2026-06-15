@@ -899,6 +899,15 @@ wss.on('connection', (socket) => {
               instanceId: placement.instanceId,
               token,
             });
+            // Hand the newcomer the currently-active liveops events so their HUD badge is correct now,
+            // not only after the next change.
+            send(socket, {
+              t: 'events',
+              active: activeEvents(getContent().gameEvents(), simMs()).map((e) => ({
+                id: e.id,
+                name: e.name,
+              })),
+            });
             // Register social presence so friends see this player come online, and hand them their list.
             const joinName = save?.name ?? msg.name;
             social.setOnline({
@@ -1630,13 +1639,23 @@ setInterval(() => {
         instance.world.setXpEventMult(eventMult);
         instance.world.setGoldEventMult(goldMult);
       }
-      const nowActiveEventIds = new Set<string>();
-      for (const e of activeEvents(events, evNow)) {
-        nowActiveEventIds.add(e.id);
+      const active = activeEvents(events, evNow);
+      const nowActiveEventIds = new Set(active.map((e) => e.id));
+      for (const e of active) {
         if (!lastActiveEventIds.has(e.id) && e.announce) {
           for (const instance of manager.list()) {
             broadcastToInstance(instance.id, { t: 'chat', from: 'System', text: e.announce });
           }
+        }
+      }
+      // Push the active-event set to every client whenever it changes, so the HUD badge stays current.
+      const eventsChanged =
+        nowActiveEventIds.size !== lastActiveEventIds.size ||
+        [...nowActiveEventIds].some((id) => !lastActiveEventIds.has(id));
+      if (eventsChanged) {
+        const payload = active.map((e) => ({ id: e.id, name: e.name }));
+        for (const instance of manager.list()) {
+          broadcastToInstance(instance.id, { t: 'events', active: payload });
         }
       }
       lastActiveEventIds = nowActiveEventIds;

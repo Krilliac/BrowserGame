@@ -1559,6 +1559,26 @@ function drawCharacterPanel(): void {
   hud.textAlign = 'left';
 }
 
+/** Top-center badges for active timed liveops events (Golden Hour, Bloodmoon, …). Hidden when none. */
+function drawEventBadges(w: number): void {
+  const evs = net.activeEvents;
+  if (evs.length === 0) return;
+  hud.save();
+  hud.textAlign = 'center';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  let y = 20;
+  for (const e of evs) {
+    const label = `★ ${e.name}`;
+    const tw = hud.measureText(label).width;
+    hud.fillStyle = 'rgba(40,30,8,0.7)';
+    hud.fillRect(w / 2 - tw / 2 - 8, y - 12, tw + 16, 18);
+    hud.fillStyle = '#f2c14e';
+    hud.fillText(label, w / 2, y + 1);
+    y += 22;
+  }
+  hud.restore();
+}
+
 /**
  * Always-on HUD tracker for active quests (top-left): a compact "▸ Name  progress/target" line per
  * active objective, so the player sees what to do without opening the full log (L). Hidden when no
@@ -1970,6 +1990,7 @@ function drawHud(): void {
   hud.clearRect(0, 0, w, h);
   drawTargetFrame();
   drawQuestTracker();
+  drawEventBadges(w);
   // Always-visible discoverability hint for the help overlay.
   hud.font = '10px system-ui, sans-serif';
   hud.fillStyle = 'rgba(180,170,140,0.5)';

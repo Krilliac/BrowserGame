@@ -157,6 +157,8 @@ export class Net {
   artificer: { rerollCost: number; unsocketCost: number } | null = null;
   /** Open banker stash (stored items + capacity + next expand cost), or null when closed. */
   stash: { items: ItemInstance[]; cap: number; expandCost: number } | null = null;
+  /** Currently-active timed liveops events (for the HUD badge); updated by 'events' packets. */
+  activeEvents: { id: string; name: string }[] = [];
   /** Set when the server rejected our protocol version — show "refresh", stop reconnecting. */
   outdated = false;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
@@ -448,6 +450,9 @@ export class Net {
         if (Array.isArray(msg.stock)) {
           this.shop = { vendor: String(msg.vendor ?? 'Vendor'), stock: msg.stock.slice(0, 60) };
         }
+        break;
+      case 'events':
+        this.activeEvents = Array.isArray(msg.active) ? msg.active.slice(0, 8) : [];
         break;
       case 'stash':
         // Defensive: a malformed/hostile 'stash' message can't crash the panel.

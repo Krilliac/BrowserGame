@@ -395,6 +395,8 @@ export type ServerMessage =
       /** Current deathless streak — kills since the last death (0 right after dying). */
       deathlessStreak: number;
     }
+  /** Currently-active timed liveops events (for the HUD badge). Sent on join and whenever the set changes. */
+  | { t: 'events'; active: { id: string; name: string }[] }
   /** A nearby vendor's shop contents (sent when the player interacts with a vendor NPC). */
   | { t: 'shop'; vendor: string; stock: { itemId: string; price: number }[] }
   /** The player's stash (bank) contents — sent on opening a banker and after each deposit/withdraw. */

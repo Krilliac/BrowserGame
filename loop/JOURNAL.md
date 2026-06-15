@@ -93,8 +93,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 43 | feat | **Golden Hour gold bonus** — events now boost gold drops, not just XP | green | +3 → 1446; fresh axis (liveops). goldBonus on GameEventDef + totalGoldBonus + world goldEventMult applied at both kill gold-drop sites; Golden Hour gets +50% gold (was XP-only despite its name). Schema column gold_bonus + seed + loader + **migration #2** (existing DBs ALTER-add the column). NEEDS server restart (schema). |
 
-NEXT (it.44): client-UX (alternation). Then backend. PUSH now (it.41–it.43).
-NOTE: it.23–38,40,41,42 need a dev-server code reload; it.39 + it.43 need a server RESTART (it.43 also
+| 44 | feat(ui) | **Active-event HUD badges** — show live liveops events | green | new `events` packet (broadcast on change + sent on join); top-center "★ Golden Hour" badges; net.activeEvents + drawEventBadges. Pairs with it.43 — players now SEE when the gold/XP window is live |
+
+NEXT (it.45): backend (alternation). Then client-UX. PUSH now (it.41–it.44).
+NOTE: it.23–38,40,41,42,44 need a dev-server code reload; it.39 + it.43 need a server RESTART (it.43
 migrates existing game.db via migration #2). (Quest achievements it.37 surface via the it.24 toast.)
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
