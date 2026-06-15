@@ -105,9 +105,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 49 | test(hardening) | **Transfer carries inventory** characterization test | green | +1 → 1449; QUALITY. Existing transfer test only checked id+name; this pins that gold/gear(uids)/loot/level all survive a cross-area teleport (export→remove→import). A regression dropping inventory on a portal crossing is now caught. |
 
-NEXT (it.50): client-UX (alternation). Then backend. Consider a status PushNotification to the user
-soon (27 green iterations it.23–49, all pushed). PUSH now (it.41–it.49).
-NOTE: it.23–38,40,41,42,44,46,48 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
+| 50 | feat(ui) | **Low-HP danger vignette** — red edge-pulse below 30% HP | green | client-only; intensifies as HP drops with a faint heartbeat pulse; from authoritative hp/maxHp; hidden while dead. Classic ARPG threat cue. |
+
+NEXT (it.51): backend (alternation). Then client-UX. PUSH now (it.49 + it.50). Sent user a status
+PushNotification after it.50 (28 green iterations it.23–50).
+NOTE: it.23–38,40,41,42,44,46,48,50 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).

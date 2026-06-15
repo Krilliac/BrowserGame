@@ -1559,6 +1559,32 @@ function drawCharacterPanel(): void {
   hud.textAlign = 'left';
 }
 
+/**
+ * Danger vignette: a red edge-darkening that fades in below 30% HP and intensifies (with a faint
+ * heartbeat pulse) as health drops, so the player feels the threat without watching the HP bar.
+ * Purely client-side from the authoritative hp/maxHp; hidden while dead (the death overlay takes over).
+ */
+function drawLowHpVignette(w: number, h: number): void {
+  if (net.you.dead || net.you.maxHp <= 0) return;
+  const frac = net.you.hp / net.you.maxHp;
+  if (frac >= 0.3) return;
+  const t = 1 - frac / 0.3; // 0 at the 30% threshold → 1 at empty
+  const pulse = 0.85 + 0.15 * Math.sin(performance.now() / 180);
+  const alpha = Math.min(0.5, 0.12 + t * 0.38) * pulse;
+  const grad = hud.createRadialGradient(
+    w / 2,
+    h / 2,
+    Math.min(w, h) * 0.32,
+    w / 2,
+    h / 2,
+    Math.max(w, h) * 0.62,
+  );
+  grad.addColorStop(0, 'rgba(120,0,0,0)');
+  grad.addColorStop(1, `rgba(120,0,0,${alpha.toFixed(3)})`);
+  hud.fillStyle = grad;
+  hud.fillRect(0, 0, w, h);
+}
+
 /** Top-center badges for active timed liveops events (Golden Hour, Bloodmoon, …). Hidden when none. */
 function drawEventBadges(w: number): void {
   const evs = net.activeEvents;
@@ -1991,6 +2017,7 @@ function drawHud(): void {
   const w = hudCanvas.width;
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
+  drawLowHpVignette(w, h);
   drawTargetFrame();
   drawQuestTracker();
   drawEventBadges(w);
