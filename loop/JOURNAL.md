@@ -131,8 +131,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 62 | feat(ui) | **"BAG FULL" HUD warning** — pairs with the it.61 footgun | green* | client-only; red "BAG FULL" on the gear panel header when gear.length >= cap, so players clear space (sell/salvage) before a pickup evicts their oldest item. *world-party.test flaked under full-suite load (timing) — passes 3/3 alone; add it to the known-flaky set. |
 
-NEXT (it.63): backend (alternation). Then client-UX. PUSH now (it.61 + it.62).
-KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, AND NOW world-party (all timing/load-sensitive).
+| 63 | refactor | **Extract grantMaterials helper** — dedup salvage/salvageAll | green | zero behavior change (1460, salvage tests cover it). Grepped status/buff/rift/accounts/hireling/rate-limit candidates — ALL already covered, so per directive did a safe dedup instead of a redundant test: the identical "credit yields → loot" loop in salvage() + salvageAll() now share World.grantMaterials. |
+
+NEXT (it.64): client-UX (alternation). Then backend. PUSH now (it.61–it.63).
+KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements

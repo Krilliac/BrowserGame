@@ -1413,11 +1413,16 @@ export class World {
     const [inst] = player.gear.splice(idx, 1);
     if (!inst) return { ok: false, reason: 'No such item.' };
     const yields = salvageYield(inst, this.rand);
+    this.grantMaterials(player, yields);
+    return { ok: true, yields };
+  }
+
+  /** Credit a bundle of salvage-material yields into a player's loot (the shared tail of both salvages). */
+  private grantMaterials(player: Player, yields: readonly MaterialYield[]): void {
     for (const y of yields) {
       const itemId = World.SALVAGE_ITEM_ID[y.kind];
       player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + y.qty);
     }
-    return { ok: true, yields };
   }
 
   /**
@@ -1450,10 +1455,7 @@ export class World {
     if (count === 0) return { ok: false, reason: 'No common or magic gear to salvage.' };
     player.gear = keep;
     const yields: MaterialYield[] = [...totals].map(([kind, qty]) => ({ kind, qty }));
-    for (const y of yields) {
-      const itemId = World.SALVAGE_ITEM_ID[y.kind];
-      player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + y.qty);
-    }
+    this.grantMaterials(player, yields);
     return { ok: true, count, yields };
   }
 
