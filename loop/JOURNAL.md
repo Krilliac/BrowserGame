@@ -115,7 +115,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 54 | feat(ui) | **NPC minimap markers** — vendors/banker green, quest-givers gold | green | client-only; NPCs were not plotted at all (color=''). Now square markers (distinct from round mob/player blips); quest-givers gold so you can spot where to grab quests. Uses npcKind already on entity state. |
 
-NEXT (it.55): backend (alternation). Then client-UX. PUSH now (it.53 + it.54).
+| 55 | test(hardening) | **Equip/unequip round-trip** + swap-preserves-previous test | green | +2 → 1455; QUALITY. Sets/gems/persistence were pinned but not the plain weapon swap: power rises on equip & restores on unequip, and equipping over an OCCUPIED slot returns the previous piece to the bag (item-loss guard). Confirmed gap via grep. |
+
+NEXT (it.56): client-UX (alternation). Then backend. PUSH now (it.53–it.55).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
