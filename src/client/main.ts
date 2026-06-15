@@ -33,7 +33,12 @@ import { createEnginePanel } from './engine-panel.js';
 import { Predictor } from './predictor.js';
 import { blockersForDecor } from '../shared/collision.js';
 import { drawBelt } from './belt.js';
-import { ATTRIBUTE_KEYS, ATTRIBUTE_LABELS, ATTRIBUTE_EFFECTS } from '../shared/attributes.js';
+import {
+  ATTRIBUTE_KEYS,
+  ATTRIBUTE_LABELS,
+  ATTRIBUTE_EFFECTS,
+  BASE_ATTRIBUTE,
+} from '../shared/attributes.js';
 import { drawSkillTree, type SkillTreeButton } from './skilltree-panel.js';
 import { installErrorTrap, getLatestError } from './error-trap.js';
 import { clampPanelRect } from './ui-guard.js';
@@ -284,6 +289,7 @@ let charOpen = false;
 const charSlotRects: { slot: string; x: number; y: number; w: number; h: number }[] = [];
 const attrButtonRects: { attr: string; x: number; y: number; w: number; h: number }[] = [];
 let charPanelRect: { x: number; y: number; w: number; h: number } | null = null;
+let respecButtonRect: { x: number; y: number; w: number; h: number } | null = null;
 
 // Quest log panel: open with L; available quests have an "Accept" click target.
 let questOpen = false;
@@ -466,6 +472,10 @@ window.addEventListener('pointerdown', (e) => {
     const ab = attrButtonRects.find((b) => inRect(e.clientX, e.clientY, b));
     if (ab) {
       net.sendAllocateAttr(ab.attr);
+      return;
+    }
+    if (respecButtonRect && inRect(e.clientX, e.clientY, respecButtonRect)) {
+      net.sendChat('/respec');
       return;
     }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
@@ -744,6 +754,10 @@ gameCanvas.addEventListener('pointerdown', (e) => {
     const ab = attrButtonRects.find((b) => inRect(e.clientX, e.clientY, b));
     if (ab) {
       net.sendAllocateAttr(ab.attr);
+      return;
+    }
+    if (respecButtonRect && inRect(e.clientX, e.clientY, respecButtonRect)) {
+      net.sendChat('/respec');
       return;
     }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
@@ -1398,6 +1412,7 @@ function drawCharSlot(slot: string, bx: number, by: number, bw: number, bh: numb
 function drawCharacterPanel(): void {
   charSlotRects.length = 0;
   attrButtonRects.length = 0;
+  respecButtonRect = null;
   const pw = 384;
   const ph = 566;
   const px = 20;
@@ -1480,6 +1495,27 @@ function drawCharacterPanel(): void {
     hud.textAlign = 'center';
     hud.fillText('+', btn.x + 12, btn.y + 15);
   });
+
+  // Respec button — refund every allocated attribute + skill point for gold. Enabled (clickable) only
+  // when there's something to refund AND the player can afford it; otherwise it's drawn dimmed.
+  const allocated =
+    ATTRIBUTE_KEYS.some((k) => net.you.attributes[k] > BASE_ATTRIBUTE) || net.you.skills.length > 0;
+  const respecCost = net.you.level * 50; // mirrors RESPEC_COST_PER_LEVEL on the server
+  const canRespec = allocated && net.you.gold >= respecCost;
+  const rbW = 160;
+  const rbH = 24;
+  const rbX = px + pw / 2 - rbW / 2;
+  const rbY = py + ph - 44;
+  if (canRespec) respecButtonRect = { x: rbX, y: rbY, w: rbW, h: rbH };
+  hud.fillStyle = canRespec ? 'rgba(201,162,75,0.18)' : 'rgba(255,255,255,0.04)';
+  hud.fillRect(rbX, rbY, rbW, rbH);
+  hud.strokeStyle = canRespec ? '#c9a24b' : 'rgba(201,162,75,0.25)';
+  hud.lineWidth = 1;
+  hud.strokeRect(rbX, rbY, rbW, rbH);
+  hud.fillStyle = canRespec ? '#e7d9b0' : '#6b707a';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.textAlign = 'center';
+  hud.fillText(`Respec  ${respecCost}g`, rbX + rbW / 2, rbY + 16);
 
   // Active item-set progress — the bonuses themselves already fold into the Power/Crit/Max HP totals
   // above; this line surfaces WHICH sets you're building and how close they are to the next threshold.

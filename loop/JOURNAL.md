@@ -69,10 +69,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 31 | feat | **Respec** — refund all attribute+skill points for level-scaled gold (/respec) | green | +3 → 1433; fresh axis (not a kill-stat); World.respec conserves points (counts allocated above BASE_ATTRIBUTE + node-set size), charges level×50g, validates gold+something-to-refund; no combat-tick change (low-risk while unattended) |
 
-NEXT (it.32): client-UX (alternation) — candidate: a /respec button on the character panel (server
-done; panel already shows attributes+points). Then backend. PUSH soon (unpushed: it.31).
-NOTE: it.23–31 all need the dev server to reload its code (no new schema tables) for the user to see
-them live; /respec is usable immediately after reload via chat.
+| 32 | feat(ui) | **Respec button** on the character panel | green | client-only; sends /respec via chat; enabled only when something's allocated AND affordable, else dimmed; shows level×50g cost; both click handlers |
+
+NEXT (it.33): backend (alternation). Then client-UX. PUSH now (it.31 + it.32).
+NOTE: it.23–32 all need the dev server to reload its code (no new schema tables) for the user to see
+them live.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
