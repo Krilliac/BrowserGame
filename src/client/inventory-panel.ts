@@ -11,7 +11,7 @@ import { RARITY } from '../shared/items.js';
 import { drawItemIcon } from './item-icons.js';
 
 export interface InventoryButton {
-  action: 'equip' | 'close' | 'sort';
+  action: 'equip' | 'close' | 'sort' | 'salvageJunk';
   uid?: number; // for 'equip'
   x: number;
   y: number;
@@ -93,6 +93,28 @@ export function drawInventoryPanel(
     hud.font = 'bold 11px system-ui, sans-serif';
     hud.textAlign = 'center';
     hud.fillText('Sort', sortRect.x + sortRect.w / 2, sortRect.y + 14);
+  }
+
+  // Salvage-junk button (left of Sort) — break down common/magic gear; shown only when some is held.
+  const hasJunk = gear.some((g) => g.rarity === 'common' || g.rarity === 'magic');
+  if (hasJunk) {
+    const r: InventoryButton = {
+      action: 'salvageJunk',
+      x: px + pw - 92 - 104,
+      y: py + 6,
+      w: 98,
+      h: 20,
+    };
+    buttons.push(r);
+    hud.fillStyle = 'rgba(120,150,90,0.2)';
+    hud.fillRect(r.x, r.y, r.w, r.h);
+    hud.strokeStyle = '#9bbf6a';
+    hud.lineWidth = 1;
+    hud.strokeRect(r.x, r.y, r.w, r.h);
+    hud.fillStyle = '#cfe0b0';
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.textAlign = 'center';
+    hud.fillText('Salvage junk', r.x + r.w / 2, r.y + 14);
   }
 
   hud.fillStyle = '#8a8f99';

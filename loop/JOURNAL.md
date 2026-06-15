@@ -89,9 +89,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 41 | feat | **Bulk salvage** — /salvageall breaks down common+magic, keeps rare+ | green | +2 → 1443; World.salvageAll reuses salvageYield; protects rare/epic/legendary/unique from accidental shred; no-op when only rare+ held. (Considered+rejected: skill-tree expansion = client-layout collision risk; town-recall = already covered by waypoint travel; reforge = dup'd Artificer) |
 
-NEXT (it.42): client-UX (alternation) — candidate: a "Salvage junk" button on the Inventory panel
-(next to Sort; server done). Then backend. PUSH now (it.37–it.41).
-NOTE: it.23–38,40,41 need a dev-server code reload; it.39 needs a server restart (new seed rows).
+| 42 | feat(ui) | **Salvage-junk button** on the Inventory panel | green | client-only; green button left of Sort (shown only when common/magic gear held) → /salvageall; bag updates live via `you` |
+
+NEXT (it.43): backend (alternation). Then client-UX. PUSH now (it.41 + it.42).
+NOTE: it.23–38,40,41,42 need a dev-server code reload; it.39 needs a server restart (new seed rows).
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
