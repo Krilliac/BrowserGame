@@ -133,7 +133,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 63 | refactor | **Extract grantMaterials helper** — dedup salvage/salvageAll | green | zero behavior change (1460, salvage tests cover it). Grepped status/buff/rift/accounts/hireling/rate-limit candidates — ALL already covered, so per directive did a safe dedup instead of a redundant test: the identical "credit yields → loot" loop in salvage() + salvageAll() now share World.grantMaterials. |
 
-NEXT (it.64): client-UX (alternation). Then backend. PUSH now (it.61–it.63).
+| 64 | feat(ui) | **Two-click confirm on Respec** — footgun guard | green | client-only; mirrors the it.60 sell-all confirm. Respec wipes the whole build for gold, so first click arms (red "Confirm respec?"), 2nd within 3s fires; disarms if unaffordable. Both char-panel click handlers. |
+
+NEXT (it.65): backend (alternation). Then client-UX. PUSH now (it.63 + it.64).
 KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 

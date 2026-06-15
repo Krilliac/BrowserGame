@@ -293,6 +293,9 @@ const charSlotRects: { slot: string; x: number; y: number; w: number; h: number 
 const attrButtonRects: { attr: string; x: number; y: number; w: number; h: number }[] = [];
 let charPanelRect: { x: number; y: number; w: number; h: number } | null = null;
 let respecButtonRect: { x: number; y: number; w: number; h: number } | null = null;
+// Respec wipes the whole build for gold, so (like Sell-all) it arms on the first click and only fires
+// on a second click within this window.
+let respecArmedUntil = 0;
 
 // Quest log panel: open with L; available quests have an "Accept" click target.
 let questOpen = false;
@@ -492,7 +495,13 @@ window.addEventListener('pointerdown', (e) => {
       return;
     }
     if (respecButtonRect && inRect(e.clientX, e.clientY, respecButtonRect)) {
-      net.sendChat('/respec');
+      const now = performance.now();
+      if (now < respecArmedUntil) {
+        net.sendChat('/respec');
+        respecArmedUntil = 0;
+      } else {
+        respecArmedUntil = now + 3000; // first click arms; a second within 3s confirms
+      }
       return;
     }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
@@ -783,7 +792,13 @@ gameCanvas.addEventListener('pointerdown', (e) => {
       return;
     }
     if (respecButtonRect && inRect(e.clientX, e.clientY, respecButtonRect)) {
-      net.sendChat('/respec');
+      const now = performance.now();
+      if (now < respecArmedUntil) {
+        net.sendChat('/respec');
+        respecArmedUntil = 0;
+      } else {
+        respecArmedUntil = now + 3000; // first click arms; a second within 3s confirms
+      }
       return;
     }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
@@ -1534,15 +1549,21 @@ function drawCharacterPanel(): void {
   const rbX = px + pw / 2 - rbW / 2;
   const rbY = py + ph - 44;
   if (canRespec) respecButtonRect = { x: rbX, y: rbY, w: rbW, h: rbH };
-  hud.fillStyle = canRespec ? 'rgba(201,162,75,0.18)' : 'rgba(255,255,255,0.04)';
+  else respecArmedUntil = 0; // can't confirm a respec you can't afford
+  const respecArmed = canRespec && performance.now() < respecArmedUntil;
+  hud.fillStyle = respecArmed
+    ? 'rgba(200,60,60,0.85)'
+    : canRespec
+      ? 'rgba(201,162,75,0.18)'
+      : 'rgba(255,255,255,0.04)';
   hud.fillRect(rbX, rbY, rbW, rbH);
-  hud.strokeStyle = canRespec ? '#c9a24b' : 'rgba(201,162,75,0.25)';
+  hud.strokeStyle = respecArmed ? '#ff8a6a' : canRespec ? '#c9a24b' : 'rgba(201,162,75,0.25)';
   hud.lineWidth = 1;
   hud.strokeRect(rbX, rbY, rbW, rbH);
-  hud.fillStyle = canRespec ? '#e7d9b0' : '#6b707a';
+  hud.fillStyle = respecArmed ? '#fff' : canRespec ? '#e7d9b0' : '#6b707a';
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'center';
-  hud.fillText(`Respec  ${respecCost}g`, rbX + rbW / 2, rbY + 16);
+  hud.fillText(respecArmed ? 'Confirm respec?' : `Respec  ${respecCost}g`, rbX + rbW / 2, rbY + 16);
 
   // Active item-set progress — the bonuses themselves already fold into the Power/Crit/Max HP totals
   // above; this line surfaces WHICH sets you're building and how close they are to the next threshold.
