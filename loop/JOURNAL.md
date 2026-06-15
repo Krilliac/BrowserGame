@@ -61,8 +61,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 27 | feat | **Best deathless-streak ladder axis** — `/ladder streak` | green | +2 → 1429; Player.bestDeathlessStreak record (max at each kill, persisted); leaderboard 'streak' metric + autosave recordScore; /ladder usage refreshed (now lists kills+streak too) |
 
-NEXT (it.28): client-UX (alternation). Then backend. PUSH soon (unpushed: it.27).
-NOTE: it.23–27 all need the dev server to reload its code (no new schema tables, but new server
+| 28 | feat(ui) | **Live deathless-streak badge** on the HUD | green | client-only; centered Lv↔gold, shown at streak≥5, color heats up (amber→orange→red), hides on death |
+
+NEXT (it.29): backend (alternation). Then client-UX. PUSH now (it.27 + it.28).
+NOTE: it.23–28 all need the dev server to reload its code (no new schema tables, but new server
 logic + `you` fields) for the user to see them live.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements

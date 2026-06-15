@@ -1906,6 +1906,16 @@ function drawHud(): void {
   hud.textAlign = 'right';
   hud.fillStyle = '#f2c14e';
   hud.fillText(`${net.you.gold} gold`, panelX + panelW, h - 98);
+
+  // Deathless-streak badge — centered between Lv and gold, only once the streak is worth bragging
+  // about (≥5). The color heats up as it climbs, and it vanishes the instant a death resets it.
+  const streak = net.you.deathlessStreak;
+  if (streak >= 5 && !net.you.dead) {
+    const color = streak >= 50 ? '#ff5640' : streak >= 20 ? '#ff9a3c' : '#ffd24a';
+    hud.textAlign = 'center';
+    hud.fillStyle = color;
+    hud.fillText(`Streak ${streak}`, panelX + panelW / 2, h - 98);
+  }
   hud.textAlign = 'left';
 
   drawBar(panelX, h - 92, panelW, 9, net.you.hp / net.you.maxHp, '#b33', `HP ${net.you.hp}`);
