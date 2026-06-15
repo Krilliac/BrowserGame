@@ -124,6 +124,21 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'salvageall',
+    minLevel: AccessLevel.Player,
+    usage: '/salvageall',
+    help: 'Salvage every common and magic item in your bag into materials (keeps rare+).',
+    run: (ctx) => {
+      const r = ctx.world.salvageAll(ctx.playerId);
+      if (!r.ok) {
+        ctx.reply(r.reason ?? 'Nothing to salvage.');
+        return;
+      }
+      const mats = (r.yields ?? []).map((y) => `${y.qty} ${y.kind}`).join(', ');
+      ctx.reply(`Salvaged ${r.count} items → ${mats}.`);
+    },
+  },
+  {
     name: 'recipes',
     minLevel: AccessLevel.Player,
     usage: '/recipes',

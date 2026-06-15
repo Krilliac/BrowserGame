@@ -1418,6 +1418,43 @@ export class World {
   }
 
   /**
+   * Bulk-salvage every common/magic piece in the bag into materials, KEEPING rare and better gear so
+   * the player can never accidentally shred a good drop. Returns the count salvaged and the combined
+   * material yield. Server-authoritative; a no-op (ok:false) when there's no junk to break down.
+   */
+  salvageAll(playerId: number): {
+    ok: boolean;
+    reason?: string;
+    count?: number;
+    yields?: MaterialYield[];
+  } {
+    const player = this.players.get(playerId);
+    if (!player) return { ok: false, reason: 'No such player.' };
+    const JUNK = new Set(['common', 'magic']); // protect rare/epic/legendary/unique from bulk salvage
+    const keep: ItemInstance[] = [];
+    const totals = new Map<MaterialKind, number>();
+    let count = 0;
+    for (const inst of player.gear) {
+      if (!JUNK.has(inst.rarity)) {
+        keep.push(inst);
+        continue;
+      }
+      for (const y of salvageYield(inst, this.rand)) {
+        totals.set(y.kind, (totals.get(y.kind) ?? 0) + y.qty);
+      }
+      count += 1;
+    }
+    if (count === 0) return { ok: false, reason: 'No common or magic gear to salvage.' };
+    player.gear = keep;
+    const yields: MaterialYield[] = [...totals].map(([kind, qty]) => ({ kind, qty }));
+    for (const y of yields) {
+      const itemId = World.SALVAGE_ITEM_ID[y.kind];
+      player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + y.qty);
+    }
+    return { ok: true, count, yields };
+  }
+
+  /**
    * Craft a recipe: spend its material inputs from the player's loot for its outputs. The pure
    * applyCraft validates affordability + does the check-then-mutate spend (never partial/negative).
    * Returns whether it crafted; notifies the player either way. Recipe set is content-driven.

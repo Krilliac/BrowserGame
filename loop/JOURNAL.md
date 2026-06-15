@@ -87,9 +87,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 40 | feat(ui) | **Legendary-drop toast** — celebrate unique/legendary drops | green | client-only; bag-diff by uid (first pass learns existing uids, no false toast); "✦ Legendary Drop" card below the achievement toast, in the item's rarity color; pairs with it.39's new uniques |
 
-NEXT (it.41): backend (alternation). Then client-UX. PUSH now (it.37–it.40).
-NOTE: it.23–38,40 need a dev-server code reload; it.39 needs a server restart (new seed rows) to
-appear in-game. (Quest achievements from it.37 surface live via the it.24 unlock toast.)
+| 41 | feat | **Bulk salvage** — /salvageall breaks down common+magic, keeps rare+ | green | +2 → 1443; World.salvageAll reuses salvageYield; protects rare/epic/legendary/unique from accidental shred; no-op when only rare+ held. (Considered+rejected: skill-tree expansion = client-layout collision risk; town-recall = already covered by waypoint travel; reforge = dup'd Artificer) |
+
+NEXT (it.42): client-UX (alternation) — candidate: a "Salvage junk" button on the Inventory panel
+(next to Sort; server done). Then backend. PUSH now (it.37–it.41).
+NOTE: it.23–38,40,41 need a dev-server code reload; it.39 needs a server restart (new seed rows).
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
