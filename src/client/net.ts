@@ -158,7 +158,7 @@ export class Net {
   /** Open banker stash (stored items + capacity + next expand cost), or null when closed. */
   stash: { items: ItemInstance[]; cap: number; expandCost: number } | null = null;
   /** Currently-active timed liveops events (for the HUD badge); updated by 'events' packets. */
-  activeEvents: { id: string; name: string }[] = [];
+  activeEvents: { id: string; name: string; xpBonus?: number; goldBonus?: number }[] = [];
   /** Set when the server rejected our protocol version — show "refresh", stop reconnecting. */
   outdated = false;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */

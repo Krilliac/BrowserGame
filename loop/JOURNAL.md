@@ -97,8 +97,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 45 | feat(content) | **Treasure Tide** event (+100% gold, rare 8h/10min) + idempotent event seed | green | leverages it.43 goldBonus; 3rd liveops event; also fixed ensureGameEvents → INSERT OR IGNORE per row so NEW default events backfill existing DBs on restart (was seed-only-if-empty). NEEDS restart (new seed row). |
 
-NEXT (it.46): client-UX (alternation). Then backend. PUSH now (it.41–it.45).
-NOTE: it.23–38,40,41,42,44 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART
+| 46 | feat(ui) | **Event badges show the bonus** — "★ Treasure Tide +100% gold" | green | events packet now carries xpBonus/goldBonus (eventBadge helper, both send sites); badge renders the bonus suffix so players know what's live |
+
+NEXT (it.47): backend (alternation). Then client-UX. PUSH now (it.41–it.46).
+NOTE: it.23–38,40,41,42,44,46 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART
 (it.43 migrates existing game.db; it.45 backfills the new event). (Quest achiev it.37 via it.24 toast.)
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements

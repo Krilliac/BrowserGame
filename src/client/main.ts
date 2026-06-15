@@ -1568,7 +1568,10 @@ function drawEventBadges(w: number): void {
   hud.font = 'bold 12px system-ui, sans-serif';
   let y = 20;
   for (const e of evs) {
-    const label = `★ ${e.name}`;
+    const bonuses: string[] = [];
+    if (e.goldBonus) bonuses.push(`+${Math.round(e.goldBonus * 100)}% gold`);
+    if (e.xpBonus) bonuses.push(`+${Math.round(e.xpBonus * 100)}% XP`);
+    const label = bonuses.length > 0 ? `★ ${e.name}  ${bonuses.join(' · ')}` : `★ ${e.name}`;
     const tw = hud.measureText(label).width;
     hud.fillStyle = 'rgba(40,30,8,0.7)';
     hud.fillRect(w / 2 - tw / 2 - 8, y - 12, tw + 16, 18);

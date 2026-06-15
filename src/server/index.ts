@@ -287,6 +287,21 @@ const metricsSampleAt = new Map<number, number>();
 function simMs(): number {
   return tick * (1000 / TICK_RATE);
 }
+
+/** Shape an active event for the `events` packet, omitting absent bonus fields (exactOptionalProps). */
+function eventBadge(e: { id: string; name: string; xpBonus?: number; goldBonus?: number }): {
+  id: string;
+  name: string;
+  xpBonus?: number;
+  goldBonus?: number;
+} {
+  return {
+    id: e.id,
+    name: e.name,
+    ...(e.xpBonus !== undefined ? { xpBonus: e.xpBonus } : {}),
+    ...(e.goldBonus !== undefined ? { goldBonus: e.goldBonus } : {}),
+  };
+}
 const BOT_NAMES = [
   'Roan',
   'Mira',
@@ -903,10 +918,7 @@ wss.on('connection', (socket) => {
             // not only after the next change.
             send(socket, {
               t: 'events',
-              active: activeEvents(getContent().gameEvents(), simMs()).map((e) => ({
-                id: e.id,
-                name: e.name,
-              })),
+              active: activeEvents(getContent().gameEvents(), simMs()).map(eventBadge),
             });
             // Register social presence so friends see this player come online, and hand them their list.
             const joinName = save?.name ?? msg.name;
@@ -1653,7 +1665,7 @@ setInterval(() => {
         nowActiveEventIds.size !== lastActiveEventIds.size ||
         [...nowActiveEventIds].some((id) => !lastActiveEventIds.has(id));
       if (eventsChanged) {
-        const payload = active.map((e) => ({ id: e.id, name: e.name }));
+        const payload = active.map(eventBadge);
         for (const instance of manager.list()) {
           broadcastToInstance(instance.id, { t: 'events', active: payload });
         }
