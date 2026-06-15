@@ -151,6 +151,15 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'respec',
+    minLevel: AccessLevel.Player,
+    usage: '/respec',
+    help: 'Refund all allocated attribute + skill points for gold (cost scales with level).',
+    run: (ctx) => {
+      ctx.reply(ctx.world.respec(ctx.playerId).message);
+    },
+  },
+  {
     name: 'craft',
     minLevel: AccessLevel.Player,
     usage: '/craft <recipeId>',

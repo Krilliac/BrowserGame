@@ -67,9 +67,12 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 30 | feat(ui) | **Bosses on character sheet** — Kills/Bosses/Streak trio | green | ship bossKills in `you` packet (protocol+world+net); sheet line now Kills · Bosses · Streak |
 
-NEXT (it.31): backend (alternation). Then client-UX. PUSH now (it.29 + it.30).
-NOTE: it.23–30 all need the dev server to reload its code (no new schema tables, but new server
-logic + `you` fields) for the user to see them live.
+| 31 | feat | **Respec** — refund all attribute+skill points for level-scaled gold (/respec) | green | +3 → 1433; fresh axis (not a kill-stat); World.respec conserves points (counts allocated above BASE_ATTRIBUTE + node-set size), charges level×50g, validates gold+something-to-refund; no combat-tick change (low-risk while unattended) |
+
+NEXT (it.32): client-UX (alternation) — candidate: a /respec button on the character panel (server
+done; panel already shows attributes+points). Then backend. PUSH soon (unpushed: it.31).
+NOTE: it.23–31 all need the dev server to reload its code (no new schema tables) for the user to see
+them live; /respec is usable immediately after reload via chat.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).

@@ -104,6 +104,7 @@ import {
   toAttributeSet,
   ATTRIBUTE_KEYS,
   ATTR_POINTS_PER_LEVEL,
+  BASE_ATTRIBUTE,
 } from '../shared/attributes.js';
 import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
@@ -265,6 +266,9 @@ let POTION_MANA = config.potions.mana; // mana restored by a mana potion
 let POTION_COOLDOWN_MS = config.potions.cooldownMs;
 // Passive skill-tree points earned per level (separate pool from attribute points).
 let SKILL_POINTS_PER_LEVEL = config.progression.skillPointsPerLevel;
+// Cost (gold) to refund all allocated attribute + skill points, scaled by level so a respec stays a
+// meaningful sink for a geared character. A fresh build is cheap to undo; a level-50 one is not.
+const RESPEC_COST_PER_LEVEL = 50;
 // Unique (named legendary) drop chances: the loot chase. A slim base chance on any gear drop, better
 // from a chest. Elites/bosses already drop more gear, so they roll the base chance more often.
 let UNIQUE_DROP_CHANCE = config.drops.unique;
@@ -2036,6 +2040,40 @@ export class World {
     p.skills.add(nodeId);
     p.skillPoints--;
     this.recomputeStats(p);
+  }
+
+  /**
+   * Refund every allocated attribute and skill point for gold, resetting the build to a blank slate.
+   * Points are CONSERVED by counting what's actually allocated (attributes above {@link BASE_ATTRIBUTE},
+   * plus the size of the passive-node set), so the refund never invents or loses points regardless of
+   * level math. The gold cost scales with level. Server-authoritative: validates gold + that there is
+   * something to refund before touching anything.
+   */
+  respec(playerId: number): { ok: boolean; message: string } {
+    const p = this.players.get(playerId);
+    if (!p) return { ok: false, message: 'No character.' };
+    const spentAttr = ATTRIBUTE_KEYS.reduce(
+      (sum, k) => sum + (p.attributes[k] - BASE_ATTRIBUTE),
+      0,
+    );
+    const spentSkill = p.skills.size;
+    if (spentAttr <= 0 && spentSkill <= 0) {
+      return { ok: false, message: 'Nothing to respec — you have no points allocated.' };
+    }
+    const cost = p.level * RESPEC_COST_PER_LEVEL;
+    if (p.gold < cost) {
+      return { ok: false, message: `Respec costs ${cost}g — you only have ${p.gold}g.` };
+    }
+    p.gold -= cost;
+    p.attributes = emptyAttributes();
+    p.attrPoints += spentAttr;
+    p.skills.clear();
+    p.skillPoints += spentSkill;
+    this.recomputeStats(p);
+    return {
+      ok: true,
+      message: `Respec done — refunded ${spentAttr} attribute and ${spentSkill} skill points for ${cost}g.`,
+    };
   }
 
   toggleGod(id: number): boolean {
