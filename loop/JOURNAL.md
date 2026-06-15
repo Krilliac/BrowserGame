@@ -143,7 +143,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 68 | feat(ui) | **Refresh the Help (H) command list** — surface the session's new commands | green | client-only; the H overlay listed a stale command set. Now includes /ladder streak, /bestiary, /events, /salvageall, /sort, /respec, /expandstash — real discoverability (players can't use commands they don't know exist). |
 
-NEXT (it.69): backend (alternation). Then client-UX. PUSH now (it.67 + it.68).
+| 69 | feat(content) | **"Ascendant Hour" event** (+100% XP, rare 8h/10min) | green | tiny additive content (fallback rotation: dedup→content→dedup→content). Grepped loot/drop-table/density/dungeon/coopScale — all covered. The XP twin of Treasure Tide (which is +100% gold) — gives XP-grinders a jackpot too. Idempotent seed backfills on restart; surfaces via the it.44/46 event badge. NEEDS restart. |
+
+NEXT (it.70): client-UX (alternation). Then backend. PUSH now (it.67–it.69).
 KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 

@@ -69,6 +69,15 @@ export const DEFAULT_GAME_EVENTS: GameEventDef[] = [
     goldBonus: 1.0, // +100% gold: the richest haul on the calendar
     announce: 'A Treasure Tide surges in — gold pours from the slain for the next 10 minutes.',
   },
+  {
+    id: 'ascendant-hour',
+    name: 'Ascendant Hour',
+    periodMin: 480, // every 8 hours — the XP twin of the Treasure Tide
+    lengthMin: 10,
+    xpBonus: 1.0, // +100% XP: the fastest leveling window on the calendar
+    announce:
+      'An Ascendant Hour begins — every kill grants double experience for the next 10 minutes.',
+  },
 ];
 
 /**

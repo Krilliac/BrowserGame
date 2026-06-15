@@ -213,18 +213,20 @@ describe('totalGoldBonus', () => {
 
 describe('DEFAULT_GAME_EVENTS', () => {
   it('exposes the thematic seed events with unique ids', () => {
-    expect(DEFAULT_GAME_EVENTS).toHaveLength(3);
+    expect(DEFAULT_GAME_EVENTS).toHaveLength(4);
     const ids = DEFAULT_GAME_EVENTS.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('has the Bloodmoon, Golden Hour, and Treasure Tide as designed', () => {
+  it('has the Bloodmoon, Golden Hour, Treasure Tide, and Ascendant Hour as designed', () => {
     const bloodmoon = DEFAULT_GAME_EVENTS.find((e) => e.id === 'bloodmoon');
     const golden = DEFAULT_GAME_EVENTS.find((e) => e.id === 'golden-hour');
     const tide = DEFAULT_GAME_EVENTS.find((e) => e.id === 'treasure-tide');
+    const ascendant = DEFAULT_GAME_EVENTS.find((e) => e.id === 'ascendant-hour');
     expect(bloodmoon).toMatchObject({ periodMin: 360, lengthMin: 30, xpBonus: 0.5 });
     expect(golden).toMatchObject({ periodMin: 120, lengthMin: 15, goldBonus: 0.5 });
     expect(tide).toMatchObject({ periodMin: 480, lengthMin: 10, goldBonus: 1.0 });
+    expect(ascendant).toMatchObject({ periodMin: 480, lengthMin: 10, xpBonus: 1.0 });
   });
 
   it('every seed event has a valid (firing) schedule', () => {
