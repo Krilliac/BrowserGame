@@ -2514,6 +2514,16 @@ function drawMinimap(w: number): void {
   }
   hud.restore();
 
+  // Persistent area name above the minimap — the entry banner fades, so this keeps the player oriented.
+  const areaName = net.content.area(net.areaId)?.name;
+  if (areaName) {
+    hud.textAlign = 'center';
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.fillStyle = '#c9a24b';
+    hud.fillText(areaName, cx, 40);
+    hud.textAlign = 'left';
+  }
+
   hud.strokeStyle = 'rgba(201,162,75,0.7)';
   hud.lineWidth = 2;
   hud.beginPath();
