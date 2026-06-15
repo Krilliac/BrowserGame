@@ -6,13 +6,20 @@
  * a `/achievements` command are wired by the orchestrator elsewhere — not here.
  *
  * WHY these metrics: `level`, `gold`, lifetime `kills`, `bossKills` (boss-tier slain), `bestiary`
- * (distinct species slain), and `deathless` (current no-death kill streak) are stats actually tracked
- * on a character. We deliberately seed only metrics the simulation can satisfy — no *dead* achievements
- * for things (rift tier, area completion) nothing currently records.
+ * (distinct species slain), `deathless` (current no-death kill streak), and `quests` (non-repeatable
+ * quests completed) are stats actually tracked on a character. We deliberately seed only metrics the
+ * simulation can satisfy — no *dead* achievements for things (rift tier, area completion) nothing records.
  */
 
 /** The character stats an achievement can key off — only metrics that already exist on a character. */
-export type AchievementMetric = 'level' | 'gold' | 'kills' | 'bossKills' | 'bestiary' | 'deathless';
+export type AchievementMetric =
+  | 'level'
+  | 'gold'
+  | 'kills'
+  | 'bossKills'
+  | 'bestiary'
+  | 'deathless'
+  | 'quests';
 
 /**
  * A single milestone. Earned when `stats[metric] >= threshold`. `threshold` is the inclusive bar:
@@ -153,6 +160,21 @@ export const DEFAULT_ACHIEVEMENTS: readonly AchievementDef[] = [
     desc: 'Slay 30 different kinds of monster.',
     metric: 'bestiary',
     threshold: 30,
+  },
+  // Quest tiers — non-repeatable quests completed (the world's story/bounty board).
+  {
+    id: 'quests_adventurer',
+    name: 'Adventurer',
+    desc: 'Complete 3 quests.',
+    metric: 'quests',
+    threshold: 3,
+  },
+  {
+    id: 'quests_questmaster',
+    name: 'Questmaster',
+    desc: 'Complete 12 quests.',
+    metric: 'quests',
+    threshold: 12,
   },
   // Deathless tiers — the current kill streak since the last death; dying resets it to zero.
   {

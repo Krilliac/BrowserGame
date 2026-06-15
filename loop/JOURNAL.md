@@ -79,8 +79,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 36 | feat(ui) | **Sort button** on the Inventory panel | green | client-only; header button (left of ✕, shown at 2+ items) → /sort; bag reorders live via `you` |
 
-NEXT (it.37): backend (alternation). Then client-UX. PUSH now (it.35 + it.36).
-NOTE: it.23–36 all need the dev server to reload its code (no new schema tables) for the user to see
+| 37 | feat | **Quest achievements** — questsDone milestone axis | green | +1 → 1441; fresh axis (quests, not kills/economy/QoL); Adventurer(3)/Questmaster(12) — thresholds verified achievable (22 quests seeded); checkAchievements now also fires on completeQuest |
+
+NEXT (it.38): client-UX (alternation). Then backend. PUSH soon (unpushed: it.37).
+NOTE: it.23–37 all need the dev server to reload its code (no new schema tables) for the user to see
 them live.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements

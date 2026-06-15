@@ -18,6 +18,7 @@ function save(
   deathlessStreak = 0,
   bestDeathlessStreak = deathlessStreak,
   bossKills = 0,
+  questsDone: string[] = [],
 ): PlayerSave {
   return {
     name: 'Hero',
@@ -32,7 +33,7 @@ function save(
     equipment: {},
     god: false,
     quests: [],
-    questsDone: [],
+    questsDone,
     earnedAchievements: earned,
     kills,
     bossKills,
@@ -117,6 +118,15 @@ describe('world achievements', () => {
     delete (legacy as { bestDeathlessStreak?: number }).bestDeathlessStreak; // pre-record save
     w.importPlayer(10, legacy, 100, 100);
     expect(w.exportPlayer(10)!.bestDeathlessStreak).toBe(40);
+  });
+
+  it('tracks completed quests: surfaces quest milestones from questsDone', () => {
+    const w = world();
+    const done = ['q1', 'q2', 'q3', 'q4']; // 4 quests done → Adventurer (3) met
+    w.importPlayer(12, save(5, 0, [], 0, [], 0, 0, 0, done), 100, 100);
+    const lines = w.achievementStatus(12);
+    expect(lines.some((l) => l.startsWith('✓') && l.includes('Adventurer'))).toBe(true);
+    expect(lines.some((l) => l.includes('Questmaster') && l.includes('4/12'))).toBe(true);
   });
 
   it('tracks boss kills: persists the count and surfaces boss-slayer milestones', () => {

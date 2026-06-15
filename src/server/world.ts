@@ -1730,6 +1730,8 @@ export class World {
       player.id,
       `Quest complete: ${quest.name}! +${quest.rewardGold}g +${quest.rewardXp}xp${extra}`,
     );
+    // A completion can cross a quest milestone (and the gold/xp reward a gold/level one).
+    this.checkAchievements(player);
   }
 
   /** Equip a gear instance (by uid) from the player's bag, returning any displaced gear to the bag. */
@@ -3774,6 +3776,7 @@ export class World {
         bossKills: player.bossKills,
         bestiary: player.bestiary.size,
         deathless: player.deathlessStreak,
+        quests: player.questsDone.size,
       },
       player.earnedAchievements,
     );
@@ -3794,6 +3797,7 @@ export class World {
       bossKills: p.bossKills,
       bestiary: p.bestiary.size,
       deathless: p.deathlessStreak,
+      quests: p.questsDone.size,
     };
     return DEFAULT_ACHIEVEMENTS.map((a) => {
       const cur = stats[a.metric] ?? 0;
