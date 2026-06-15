@@ -335,6 +335,12 @@ let toastTitle = '';
 let toastUntil = 0;
 let toastScanLen = 0;
 
+// Damage flash — a brief red wash when the local player's HP drops (a hit landed), distinct from the
+// sustained low-HP vignette. Tracked by diffing the authoritative hp frame-over-frame.
+let lastHpSeen = -1;
+let hitFlashUntil = 0;
+const HIT_FLASH_MS = 160;
+
 // Legendary-drop toast — celebrate the moment a unique/legendary first lands in the bag. We diff the
 // bag by uid; the first scan just learns the existing uids (no toast for gear you already had).
 const seenGearUids = new Set<number>();
@@ -1559,6 +1565,21 @@ function drawCharacterPanel(): void {
   hud.textAlign = 'left';
 }
 
+/** Brief full-screen red flash the instant the local player takes damage (HP dropped since last frame). */
+function drawHitFlash(w: number, h: number): void {
+  const now = performance.now();
+  const hp = net.you.hp;
+  // Arm the flash on any HP decrease (but not on the first frame, respawn, or while dead).
+  if (lastHpSeen >= 0 && hp < lastHpSeen && !net.you.dead) hitFlashUntil = now + HIT_FLASH_MS;
+  lastHpSeen = hp;
+
+  const left = hitFlashUntil - now;
+  if (left <= 0) return;
+  const alpha = 0.18 * (left / HIT_FLASH_MS); // fade out over the window
+  hud.fillStyle = `rgba(200,30,30,${alpha.toFixed(3)})`;
+  hud.fillRect(0, 0, w, h);
+}
+
 /**
  * Danger vignette: a red edge-darkening that fades in below 30% HP and intensifies (with a faint
  * heartbeat pulse) as health drops, so the player feels the threat without watching the HP bar.
@@ -2017,6 +2038,7 @@ function drawHud(): void {
   const w = hudCanvas.width;
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
+  drawHitFlash(w, h);
   drawLowHpVignette(w, h);
   drawTargetFrame();
   drawQuestTracker();

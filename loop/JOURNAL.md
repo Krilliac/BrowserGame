@@ -109,8 +109,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 51 | test(hardening) | **Rift inventory round-trip** characterization test | green | +1 → 1450; QUALITY. openRift privacy/exit were tested but not that gear+gold SURVIVE entering a rift and returning to town. Pins the endgame carry both ways (a lost-gear regression on rift entry/exit would be caught). Trade re-validation already well-covered (checked first). |
 
-NEXT (it.52): client-UX (alternation). Then backend. PUSH now (it.49–it.51).
-NOTE: it.23–38,40,41,42,44,46,48,50 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
+| 52 | feat(ui) | **Damage hit-flash** — brief red wash when the player is hit | green | client-only; HP-decrease frame-diff (skips first frame/respawn/dead); 160ms fade. Pairs with the it.50 low-HP vignette (momentary hit vs sustained danger). |
+
+NEXT (it.53): backend (alternation). Then client-UX. PUSH now (it.51 + it.52).
+NOTE: it.23–38,40,41,42,44,46,48,50,52 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
