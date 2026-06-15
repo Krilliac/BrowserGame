@@ -1768,7 +1768,12 @@ setInterval(() => {
         for (const offer of world.drainStashOffers()) {
           const socket = players.get(offer.playerId)?.socket;
           if (socket && socket.readyState === socket.OPEN) {
-            send(socket, { t: 'stash', items: offer.items, cap: offer.cap });
+            send(socket, {
+              t: 'stash',
+              items: offer.items,
+              cap: offer.cap,
+              expandCost: offer.expandCost,
+            });
           }
         }
       }

@@ -73,9 +73,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 33 | feat | **Stash expansion** — buy more bank slots for gold at a Banker (/expandstash) | green | +3 → 1436; per-character stashCap (was global STASH_CAP); +10 slots/buy, escalating cost (1k×n), max 5 buys; banker-gated; checked enchant/salvage first to avoid dup (reforge would've duplicated Artificer) |
 
-NEXT (it.34): client-UX (alternation) — candidate: an "Expand (Ng)" button on the stash/bank panel
-(server done; stash packet already carries the per-char cap). Then backend. PUSH soon (unpushed: it.33).
-NOTE: it.23–33 all need the dev server to reload its code (no new schema tables) for the user to see
+| 34 | feat(ui) | **Expand button** on the Vault panel | green | ship server-authoritative expandCost in the stash packet (0=maxed); footer button "Expand +10 slots · Ng" → /expandstash; nextStashExpandCost helper dedups cost math |
+
+NEXT (it.35): backend (alternation). Then client-UX. PUSH now (it.33 + it.34).
+NOTE: it.23–34 all need the dev server to reload its code (no new schema tables) for the user to see
 them live.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements

@@ -1301,12 +1301,27 @@ export class World {
     this.stashOffers.push({ playerId: player.id, items: player.stash });
   }
 
-  /** Drain pending stash windows for the host to deliver as `stash` packets (with the cap). */
-  drainStashOffers(): { playerId: number; items: ItemInstance[]; cap: number }[] {
-    const drained = this.stashOffers.map((o) => ({
-      ...o,
-      cap: this.players.get(o.playerId)?.stashCap ?? STASH_CAP,
-    }));
+  /** Gold to buy the NEXT stash expansion for this character, or 0 once fully expanded. */
+  private nextStashExpandCost(p: Player): number {
+    const bought = Math.round((p.stashCap - STASH_CAP) / STASH_EXPAND_STEP);
+    return bought >= STASH_MAX_EXPANSIONS ? 0 : (bought + 1) * STASH_EXPAND_COST;
+  }
+
+  /** Drain pending stash windows for the host to deliver as `stash` packets (cap + next expand cost). */
+  drainStashOffers(): {
+    playerId: number;
+    items: ItemInstance[];
+    cap: number;
+    expandCost: number;
+  }[] {
+    const drained = this.stashOffers.map((o) => {
+      const p = this.players.get(o.playerId);
+      return {
+        ...o,
+        cap: p?.stashCap ?? STASH_CAP,
+        expandCost: p ? this.nextStashExpandCost(p) : 0,
+      };
+    });
     this.stashOffers = [];
     return drained;
   }
@@ -1354,14 +1369,13 @@ export class World {
     if (!hasNpcFlag(this.nearbyNpc(player)?.flags ?? 0, NpcFlags.BANKER)) {
       return { ok: false, message: 'Visit a Banker to expand your stash.' };
     }
-    const bought = Math.round((player.stashCap - STASH_CAP) / STASH_EXPAND_STEP);
-    if (bought >= STASH_MAX_EXPANSIONS) {
+    const cost = this.nextStashExpandCost(player);
+    if (cost === 0) {
       return {
         ok: false,
         message: `Your stash is already fully expanded (${player.stashCap} slots).`,
       };
     }
-    const cost = (bought + 1) * STASH_EXPAND_COST;
     if (player.gold < cost) {
       return { ok: false, message: `Expanding costs ${cost}g — you only have ${player.gold}g.` };
     }

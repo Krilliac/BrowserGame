@@ -155,8 +155,8 @@ export class Net {
   rift: { maxTier: number; costBase: number } | null = null;
   /** Open Artificer window (service costs), or null when no artificer panel is open. */
   artificer: { rerollCost: number; unsocketCost: number } | null = null;
-  /** Open banker stash (stored items + capacity), or null when no stash panel is open. */
-  stash: { items: ItemInstance[]; cap: number } | null = null;
+  /** Open banker stash (stored items + capacity + next expand cost), or null when closed. */
+  stash: { items: ItemInstance[]; cap: number; expandCost: number } | null = null;
   /** Set when the server rejected our protocol version — show "refresh", stop reconnecting. */
   outdated = false;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
@@ -454,6 +454,7 @@ export class Net {
         this.stash = {
           items: Array.isArray(msg.items) ? msg.items.slice(0, 200) : [],
           cap: typeof msg.cap === 'number' ? msg.cap : 0,
+          expandCost: typeof msg.expandCost === 'number' ? msg.expandCost : 0,
         };
         break;
       case 'party':

@@ -616,6 +616,7 @@ function handleStashClick(x: number, y: number): boolean {
   if (btn.action === 'close') net.stash = null;
   else if (btn.action === 'deposit' && btn.uid !== undefined) net.sendStashDeposit(btn.uid);
   else if (btn.action === 'withdraw' && btn.uid !== undefined) net.sendStashWithdraw(btn.uid);
+  else if (btn.action === 'expand') net.sendChat('/expandstash');
   return true;
 }
 
@@ -1261,6 +1262,7 @@ function frame(): void {
         stash: net.stash.items,
         cap: net.stash.cap,
         bagCap: MAX_BAG_GEAR,
+        expandCost: net.stash.expandCost,
         nameOf: instLabel,
       },
     );

@@ -398,7 +398,7 @@ export type ServerMessage =
   /** A nearby vendor's shop contents (sent when the player interacts with a vendor NPC). */
   | { t: 'shop'; vendor: string; stock: { itemId: string; price: number }[] }
   /** The player's stash (bank) contents — sent on opening a banker and after each deposit/withdraw. */
-  | { t: 'stash'; items: ItemInstance[]; cap: number }
+  | { t: 'stash'; items: ItemInstance[]; cap: number; expandCost: number }
   /**
    * The receiving player's full party state. `members` is empty when not in a party;
    * `inviteFrom` is set when an unanswered invite is pending (so the client can prompt).

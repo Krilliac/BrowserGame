@@ -11,7 +11,7 @@ import { RARITY } from '../shared/items.js';
 import { drawItemIcon } from './item-icons.js';
 
 export interface StashButton {
-  action: 'deposit' | 'withdraw' | 'close';
+  action: 'deposit' | 'withdraw' | 'close' | 'expand';
   uid?: number; // deposit/withdraw: the gear instance uid
   x: number;
   y: number;
@@ -32,6 +32,8 @@ export function drawStashPanel(
     stash: ItemInstance[];
     cap: number;
     bagCap: number;
+    /** Gold for the next stash expansion, or 0 when fully expanded (hides the Expand button). */
+    expandCost: number;
     nameOf: (inst: ItemInstance) => string;
   },
 ): StashButton[] {
@@ -42,7 +44,7 @@ export function drawStashPanel(
   const rowH = 30;
   const headerH = 58;
   const sectionH = 22;
-  const footerH = 14;
+  const footerH = 26; // holds the Expand-stash button
 
   // Clamp total height to the viewport, capping how many rows each column draws.
   const maxPh = Math.min(view.h - 16, 640);
@@ -126,6 +128,24 @@ export function drawStashPanel(
     nameOf: data.nameOf,
     buttons,
   });
+
+  // Expand-stash button in the footer band — only while the stash can still grow (cost > 0).
+  if (data.expandCost > 0) {
+    const bw = Math.min(180, pw - 28);
+    const bh = 18;
+    const bx = px + pw / 2 - bw / 2;
+    const by = py + panelH - footerH + 4;
+    buttons.push({ action: 'expand', x: bx, y: by, w: bw, h: bh });
+    hud.fillStyle = 'rgba(201,162,75,0.18)';
+    hud.fillRect(bx, by, bw, bh);
+    hud.strokeStyle = '#c9a24b';
+    hud.lineWidth = 1;
+    hud.strokeRect(bx, by, bw, bh);
+    hud.fillStyle = '#e7d9b0';
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.textAlign = 'center';
+    hud.fillText(`Expand +10 slots · ${data.expandCost}g`, bx + bw / 2, by + 13);
+  }
 
   hud.textAlign = 'left';
   return buttons;
