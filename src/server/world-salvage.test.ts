@@ -66,3 +66,37 @@ describe('world salvage', () => {
     }
   });
 });
+
+describe('world salvageAll (bulk)', () => {
+  it('salvages only common+magic gear and keeps rare and better', () => {
+    const w = world();
+    w.importPlayer(
+      10,
+      save([
+        item(1, 'iron_sword', 'common'),
+        item(2, 'iron_sword', 'magic'),
+        item(3, 'iron_sword', 'rare'),
+        item(4, 'mithril_blade', 'legendary'),
+      ]),
+      100,
+      100,
+    );
+    const r = w.salvageAll(10);
+    expect(r.ok).toBe(true);
+    expect(r.count).toBe(2); // the common + magic pieces
+    const kept = w
+      .playerStats(10)!
+      .gear.map((g) => g.uid)
+      .sort();
+    expect(kept).toEqual([3, 4]); // rare + legendary survive
+    expect(w.playerStats(10)!.loot.mat_scrap).toBeGreaterThanOrEqual(1); // materials granted
+  });
+
+  it('is a no-op when the bag holds only rare+ gear', () => {
+    const w = world();
+    w.importPlayer(11, save([item(5, 'iron_sword', 'rare')]), 100, 100);
+    const r = w.salvageAll(11);
+    expect(r.ok).toBe(false);
+    expect(w.playerStats(11)!.gear).toHaveLength(1); // untouched
+  });
+});

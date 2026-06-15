@@ -59,4 +59,26 @@ describe('potion belt', () => {
     const save = w.exportPlayer(3)!;
     expect(save.potions).toEqual({ health: 4, mana: 1 });
   });
+
+  it('a mana potion restores mana, consumes one, and never exceeds the cap', () => {
+    const w = new World(1600, 1200, { x: 800, y: 600 }, undefined, 'town');
+    w.importPlayer(4, woundedSave({ health: 1, mana: 2 }), 100, 100);
+    const before = w.playerStats(4)!;
+    w.usePotion(4, 'mana');
+    const after = w.playerStats(4)!;
+    expect(after.potions.mana).toBe(1); // one consumed
+    expect(after.mana).toBeGreaterThan(before.mana); // restored
+    expect(after.mana).toBeLessThanOrEqual(after.maxMana); // clamped at the cap
+  });
+
+  it('quaffing at full HP or full mana is a no-op — no potion wasted', () => {
+    const w = new World(1600, 1200, { x: 800, y: 600 }, undefined, 'town');
+    w.importPlayer(5, woundedSave({ health: 3, mana: 3 }), 100, 100);
+    w.devHeal(5); // top off both bars
+
+    w.usePotion(5, 'health');
+    expect(w.playerStats(5)!.potions.health).toBe(3); // full HP → not consumed
+    w.usePotion(5, 'mana');
+    expect(w.playerStats(5)!.potions.mana).toBe(3); // full mana → not consumed
+  });
 });

@@ -40,7 +40,7 @@ import {
   removeFriend as dbRemoveFriend,
 } from './player-store.js';
 import { recordScore, formatLadder, isLeaderboardMetric } from './leaderboard.js';
-import { activeEvents, totalXpBonus, msUntilNextChange } from './game-events.js';
+import { activeEvents, totalXpBonus, totalGoldBonus, msUntilNextChange } from './game-events.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
 import {
@@ -286,6 +286,21 @@ const metricsSampleAt = new Map<number, number>();
 /** The current sim clock in ms (tick × ms/tick) — reproducible regardless of wall-clock / tick rate. */
 function simMs(): number {
   return tick * (1000 / TICK_RATE);
+}
+
+/** Shape an active event for the `events` packet, omitting absent bonus fields (exactOptionalProps). */
+function eventBadge(e: { id: string; name: string; xpBonus?: number; goldBonus?: number }): {
+  id: string;
+  name: string;
+  xpBonus?: number;
+  goldBonus?: number;
+} {
+  return {
+    id: e.id,
+    name: e.name,
+    ...(e.xpBonus !== undefined ? { xpBonus: e.xpBonus } : {}),
+    ...(e.goldBonus !== undefined ? { goldBonus: e.goldBonus } : {}),
+  };
 }
 const BOT_NAMES = [
   'Roan',
@@ -898,6 +913,12 @@ wss.on('connection', (socket) => {
               areaId: placement.areaId,
               instanceId: placement.instanceId,
               token,
+            });
+            // Hand the newcomer the currently-active liveops events so their HUD badge is correct now,
+            // not only after the next change.
+            send(socket, {
+              t: 'events',
+              active: activeEvents(getContent().gameEvents(), simMs()).map(eventBadge),
             });
             // Register social presence so friends see this player come online, and hand them their list.
             const joinName = save?.name ?? msg.name;
@@ -1625,14 +1646,28 @@ setInterval(() => {
       const evNow = simMs();
       const events = getContent().gameEvents();
       const eventMult = 1 + totalXpBonus(events, evNow);
-      for (const instance of manager.list()) instance.world.setXpEventMult(eventMult);
-      const nowActiveEventIds = new Set<string>();
-      for (const e of activeEvents(events, evNow)) {
-        nowActiveEventIds.add(e.id);
+      const goldMult = 1 + totalGoldBonus(events, evNow);
+      for (const instance of manager.list()) {
+        instance.world.setXpEventMult(eventMult);
+        instance.world.setGoldEventMult(goldMult);
+      }
+      const active = activeEvents(events, evNow);
+      const nowActiveEventIds = new Set(active.map((e) => e.id));
+      for (const e of active) {
         if (!lastActiveEventIds.has(e.id) && e.announce) {
           for (const instance of manager.list()) {
             broadcastToInstance(instance.id, { t: 'chat', from: 'System', text: e.announce });
           }
+        }
+      }
+      // Push the active-event set to every client whenever it changes, so the HUD badge stays current.
+      const eventsChanged =
+        nowActiveEventIds.size !== lastActiveEventIds.size ||
+        [...nowActiveEventIds].some((id) => !lastActiveEventIds.has(id));
+      if (eventsChanged) {
+        const payload = active.map(eventBadge);
+        for (const instance of manager.list()) {
+          broadcastToInstance(instance.id, { t: 'events', active: payload });
         }
       }
       lastActiveEventIds = nowActiveEventIds;
@@ -1768,7 +1803,12 @@ setInterval(() => {
         for (const offer of world.drainStashOffers()) {
           const socket = players.get(offer.playerId)?.socket;
           if (socket && socket.readyState === socket.OPEN) {
-            send(socket, { t: 'stash', items: offer.items, cap: offer.cap });
+            send(socket, {
+              t: 'stash',
+              items: offer.items,
+              cap: offer.cap,
+              expandCost: offer.expandCost,
+            });
           }
         }
       }
@@ -1793,6 +1833,8 @@ setInterval(() => {
           // Record best-ever ladder standings from the authoritative save (server is sole writer).
           recordScore(db, save.name, 'level', save.level, at);
           recordScore(db, save.name, 'gold', save.gold, at);
+          recordScore(db, save.name, 'kills', save.kills ?? 0, at);
+          recordScore(db, save.name, 'streak', save.bestDeathlessStreak ?? 0, at);
         }
       }
     },

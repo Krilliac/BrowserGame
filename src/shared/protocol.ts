@@ -388,11 +388,22 @@ export type ServerMessage =
       ackSeq: number;
       /** Effective move multiplier (weather × affix × haste × slow) for the client predictor. */
       moveMul: number;
+      /** Lifetime monster kills credited to this character (shown on the character sheet). */
+      kills: number;
+      /** Lifetime boss-tier kills (hp >= 200) — shown on the character sheet. */
+      bossKills: number;
+      /** Current deathless streak — kills since the last death (0 right after dying). */
+      deathlessStreak: number;
+    }
+  /** Currently-active timed liveops events (for the HUD badge). Sent on join and whenever the set changes. */
+  | {
+      t: 'events';
+      active: { id: string; name: string; xpBonus?: number; goldBonus?: number }[];
     }
   /** A nearby vendor's shop contents (sent when the player interacts with a vendor NPC). */
   | { t: 'shop'; vendor: string; stock: { itemId: string; price: number }[] }
   /** The player's stash (bank) contents — sent on opening a banker and after each deposit/withdraw. */
-  | { t: 'stash'; items: ItemInstance[]; cap: number }
+  | { t: 'stash'; items: ItemInstance[]; cap: number; expandCost: number }
   /**
    * The receiving player's full party state. `members` is empty when not in a party;
    * `inviteFrom` is set when an unanswered invite is pending (so the client can prompt).

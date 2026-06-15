@@ -11,7 +11,7 @@ import { RARITY } from '../shared/items.js';
 import { drawItemIcon } from './item-icons.js';
 
 export interface InventoryButton {
-  action: 'equip' | 'close';
+  action: 'equip' | 'close' | 'sort' | 'salvageJunk';
   uid?: number; // for 'equip'
   x: number;
   y: number;
@@ -66,8 +66,8 @@ export function drawInventoryPanel(
   hud.lineWidth = 2;
   hud.strokeRect(px, py, pw, panelH);
 
-  // Header.
-  hud.fillStyle = '#e7d9b0';
+  // Header — the count goes red when the bag is full (a pickup then evicts the oldest item).
+  hud.fillStyle = gear.length >= 30 ? '#ff6b6b' : '#e7d9b0';
   hud.font = 'bold 15px system-ui, sans-serif';
   hud.textAlign = 'left';
   hud.fillText(`Inventory (${gear.length}/30)`, px + 14, py + 24);
@@ -79,6 +79,43 @@ export function drawInventoryPanel(
   hud.font = 'bold 14px system-ui, sans-serif';
   hud.textAlign = 'center';
   hud.fillText('✕', closeRect.x + 10, closeRect.y + 15);
+
+  // Sort button (left of the ✕) — tidies the bag by slot/rarity. Only worth showing with 2+ items.
+  if (gear.length > 1) {
+    const sortRect: InventoryButton = { action: 'sort', x: px + pw - 92, y: py + 6, w: 56, h: 20 };
+    buttons.push(sortRect);
+    hud.fillStyle = 'rgba(201,162,75,0.18)';
+    hud.fillRect(sortRect.x, sortRect.y, sortRect.w, sortRect.h);
+    hud.strokeStyle = '#c9a24b';
+    hud.lineWidth = 1;
+    hud.strokeRect(sortRect.x, sortRect.y, sortRect.w, sortRect.h);
+    hud.fillStyle = '#e7d9b0';
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.textAlign = 'center';
+    hud.fillText('Sort', sortRect.x + sortRect.w / 2, sortRect.y + 14);
+  }
+
+  // Salvage-junk button (left of Sort) — break down common/magic gear; shown only when some is held.
+  const hasJunk = gear.some((g) => g.rarity === 'common' || g.rarity === 'magic');
+  if (hasJunk) {
+    const r: InventoryButton = {
+      action: 'salvageJunk',
+      x: px + pw - 92 - 104,
+      y: py + 6,
+      w: 98,
+      h: 20,
+    };
+    buttons.push(r);
+    hud.fillStyle = 'rgba(120,150,90,0.2)';
+    hud.fillRect(r.x, r.y, r.w, r.h);
+    hud.strokeStyle = '#9bbf6a';
+    hud.lineWidth = 1;
+    hud.strokeRect(r.x, r.y, r.w, r.h);
+    hud.fillStyle = '#cfe0b0';
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.textAlign = 'center';
+    hud.fillText('Salvage junk', r.x + r.w / 2, r.y + 14);
+  }
 
   hud.fillStyle = '#8a8f99';
   hud.font = '11px system-ui, sans-serif';

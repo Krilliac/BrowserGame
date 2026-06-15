@@ -38,7 +38,7 @@ export interface CommandContext {
   contentRows: (table: string) => string;
   contentRow: (table: string, id: string) => string;
   setContent: (table: string, id: string, column: string, value: string) => string;
-  /** Render the top of the ladder for a metric ('level' | 'gold'); unknown metrics fall back to level. */
+  /** Render the top of the ladder for a metric (level/gold/kills/streak); unknown metrics fall back to level. */
   ladder: (metric: string) => string;
   /** Render the timed game-events with their active state + time-to-flip (for /event). */
   events: () => string;
@@ -90,8 +90,8 @@ const COMMAND_LIST: Command[] = [
   {
     name: 'ladder',
     minLevel: AccessLevel.Player,
-    usage: '/ladder [level|gold]',
-    help: 'Show the top characters by level (default) or gold.',
+    usage: '/ladder [level|gold|kills|streak]',
+    help: 'Show the top characters by level (default), gold, kills, or best deathless streak.',
     run: (ctx) => {
       const metric = (ctx.args[0] ?? 'level').toLowerCase();
       // The accessor renders + clamps; it falls back to 'level' for an unknown metric.
@@ -124,6 +124,21 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'salvageall',
+    minLevel: AccessLevel.Player,
+    usage: '/salvageall',
+    help: 'Salvage every common and magic item in your bag into materials (keeps rare+).',
+    run: (ctx) => {
+      const r = ctx.world.salvageAll(ctx.playerId);
+      if (!r.ok) {
+        ctx.reply(r.reason ?? 'Nothing to salvage.');
+        return;
+      }
+      const mats = (r.yields ?? []).map((y) => `${y.qty} ${y.kind}`).join(', ');
+      ctx.reply(`Salvaged ${r.count} items → ${mats}.`);
+    },
+  },
+  {
     name: 'recipes',
     minLevel: AccessLevel.Player,
     usage: '/recipes',
@@ -139,6 +154,43 @@ const COMMAND_LIST: Command[] = [
     help: 'Show your achievements and progress.',
     run: (ctx) => {
       for (const line of ctx.world.achievementStatus(ctx.playerId)) ctx.reply(line);
+    },
+  },
+  {
+    name: 'bestiary',
+    minLevel: AccessLevel.Player,
+    usage: '/bestiary',
+    help: 'List the monster species you have slain.',
+    run: (ctx) => {
+      for (const line of ctx.world.bestiaryStatus(ctx.playerId)) ctx.reply(line);
+    },
+  },
+  {
+    name: 'respec',
+    minLevel: AccessLevel.Player,
+    usage: '/respec',
+    help: 'Refund all allocated attribute + skill points for gold (cost scales with level).',
+    run: (ctx) => {
+      ctx.reply(ctx.world.respec(ctx.playerId).message);
+    },
+  },
+  {
+    name: 'expandstash',
+    minLevel: AccessLevel.Player,
+    usage: '/expandstash',
+    help: 'Buy more stash slots for gold (at a Banker; cost rises each time).',
+    run: (ctx) => {
+      ctx.reply(ctx.world.expandStash(ctx.playerId).message);
+    },
+  },
+  {
+    name: 'sort',
+    minLevel: AccessLevel.Player,
+    usage: '/sort',
+    help: 'Tidy your bag: group gear by slot, best rarity first.',
+    run: (ctx) => {
+      ctx.world.sortBag(ctx.playerId);
+      ctx.reply('Bag sorted.');
     },
   },
   {

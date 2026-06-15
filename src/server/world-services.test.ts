@@ -175,3 +175,54 @@ describe('banker stash', () => {
     expect(stashOf(w, 3)).toHaveLength(0);
   });
 });
+
+describe('stash expansion', () => {
+  /** Read a player's current stash capacity via the host drain path. */
+  const capOf = (w: World, playerId: number): number | undefined =>
+    w.drainStashOffers().find((o) => o.playerId === playerId)?.cap;
+
+  const richSave: PlayerSave = { ...BASE_SAVE, gold: 5000, loot: [], gear: [], equipment: {} };
+
+  it('expands the stash for escalating gold at a banker', () => {
+    const w = areaWorld('town');
+    w.populateNpcs('town');
+    const banker = npcPos('town', 'banker');
+    w.importPlayer(1, richSave, banker.x, banker.y);
+
+    const r1 = w.expandStash(1);
+    expect(r1.ok).toBe(true);
+    const cap1 = capOf(w, 1)!;
+    expect(w.playerStats(1)!.gold).toBe(5000 - 1000); // first purchase costs 1000
+
+    const r2 = w.expandStash(1);
+    expect(r2.ok).toBe(true);
+    expect(capOf(w, 1)).toBe(cap1 + 10); // +STASH_EXPAND_STEP slots
+    expect(w.playerStats(1)!.gold).toBe(5000 - 1000 - 2000); // second purchase escalates to 2000
+  });
+
+  it('refuses away from a banker and when the player cannot afford it', () => {
+    const w = areaWorld('town');
+    w.populateNpcs('town');
+    const banker = npcPos('town', 'banker');
+
+    w.importPlayer(2, richSave, 50, 50); // nowhere near the Vault Keeper
+    expect(w.expandStash(2).ok).toBe(false);
+    expect(w.playerStats(2)!.gold).toBe(5000);
+
+    const broke: PlayerSave = { ...BASE_SAVE, gold: 10, loot: [], gear: [], equipment: {} };
+    w.importPlayer(3, broke, banker.x, banker.y);
+    expect(w.expandStash(3).ok).toBe(false);
+    expect(w.playerStats(3)!.gold).toBe(10);
+  });
+
+  it('caps the number of expansions', () => {
+    const w = areaWorld('town');
+    w.populateNpcs('town');
+    const banker = npcPos('town', 'banker');
+    const loaded: PlayerSave = { ...BASE_SAVE, gold: 1_000_000, loot: [], gear: [], equipment: {} };
+    w.importPlayer(4, loaded, banker.x, banker.y);
+
+    for (let i = 0; i < 5; i++) expect(w.expandStash(4).ok).toBe(true); // STASH_MAX_EXPANSIONS
+    expect(w.expandStash(4).ok).toBe(false); // the sixth is refused
+  });
+});

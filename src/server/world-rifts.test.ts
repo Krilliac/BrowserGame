@@ -114,6 +114,33 @@ describe('opening and leaving rifts', () => {
     expect(m.get(ev1!.toInstanceId)).toBeUndefined();
   });
 
+  it('carries inventory into a rift and safely back out to town', () => {
+    const m = new InstanceManager('auto');
+    const p = m.join('Richling');
+    const origin = m.get(p.instanceId)!.world;
+    origin.giveItem(p.entityId, 'gold', 300);
+    origin.giveItem(p.entityId, 'iron_sword', 1); // a rolled gear instance in the bag
+    const before = origin.exportPlayer(p.entityId)!;
+
+    // Into the rift: the fresh private instance holds the same character state.
+    const ev = m.openRift(p.instanceId, p.entityId, 2);
+    expect(ev).not.toBeNull();
+    const rift = m.get(ev!.toInstanceId)!.world;
+    const inRift = rift.exportPlayer(p.entityId)!;
+    expect(inRift.gold).toBe(before.gold);
+    expect(inRift.gear.map((g) => g.uid)).toEqual(before.gear.map((g) => g.uid));
+
+    // Out via the exit portal: back in town with the inventory intact (nothing lost on the round-trip).
+    const exit = getContent().area('rift')!.portals[0]!;
+    rift.teleport(p.entityId, exit.rect.x + exit.rect.w / 2, exit.rect.y + exit.rect.h / 2);
+    const transfers = m.tick(0);
+    const back = transfers.find((t) => t.entityId === p.entityId && t.toAreaId === 'town');
+    expect(back).toBeDefined();
+    const after = m.get(back!.toInstanceId)!.world.exportPlayer(p.entityId)!;
+    expect(after.gold).toBe(before.gold);
+    expect(after.gear.map((g) => g.uid)).toEqual(before.gear.map((g) => g.uid));
+  });
+
   it('portals transfer only players — a hireling on the pad never ghost-transfers', () => {
     const m = new InstanceManager('single');
     const town = getContent().area('town')!;

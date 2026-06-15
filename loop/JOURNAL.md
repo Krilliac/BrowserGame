@@ -41,6 +41,146 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 (achievements module, or #2 reconnect grace, or #15 content-pack discovery). Then another client-UX.
 
 | 17 | feat | **Achievements** — level/gold milestone unlocks; /achievements | green | 4165ce5; +23 → 1420; earned[] in save; checkAchievements in creditKill; code-driven |
+| 18 | feat(ui) | **Target status badges** — Slow/Burn/Weak on target frame | green | 78bc12c; client-only; surfaces proc/elemental statuses; refresh-live |
+
+| 19 | feat | **Kill counter** → kill achievements + /ladder kills metric | green | e47fee7; +1 → 1421; Player.kills+save; creditKill increments; Slayer→Reaper tiers |
+
+| 20 | feat(ui) | **Set-piece tags on items** — green ◆ SetName in stat lines | green | bb45ea3; client-only ITEM_SETS; helps spot set pieces while looting |
+
+| 21 | feat | **Boss soft-enrage** — bosses ramp damage past 90s | green | fe3e8d1; +3 → 1424; pure bossEnrageMultiplier; engagedAt clock; mobOutgoing hook |
+
+| 22 | feat(ui) | **H help/keybind overlay** + hint — discoverability | green | (pushed); lists keys+mouse+commands; "H Help" hint |
+
+| 23 | feat | **Monster bestiary** — track distinct species killed → collection achievements + /bestiary | green | +5 → 1426; Player.bestiary Set persists in save; creditKill records template; Naturalist(10)/Zoologist(30) achievements; world.bestiaryStatus |
+
+| 24 | feat(ui) | **Achievement unlock toast** — celebratory on-screen card | green | client-only; piggybacks System "Achievement unlocked:" chat line (no protocol); fades in/out near top |
+
+| 25 | feat | **Deathless streak** — kills since last death → no-death achievements | green | +1 → 1427; Player.deathlessStreak persists; creditKill++, death resets to 0; Untouchable(50)/Immortal(200) |
+
+| 26 | feat(ui) | **Kills + deathless-streak on character sheet** — ship in `you` packet | green | protocol+world playerStats+net SelfStats+main bottom-right line; needs server reload to surface |
+
+| 27 | feat | **Best deathless-streak ladder axis** — `/ladder streak` | green | +2 → 1429; Player.bestDeathlessStreak record (max at each kill, persisted); leaderboard 'streak' metric + autosave recordScore; /ladder usage refreshed (now lists kills+streak too) |
+
+| 28 | feat(ui) | **Live deathless-streak badge** on the HUD | green | client-only; centered Lv↔gold, shown at streak≥5, color heats up (amber→orange→red), hides on death |
+
+| 29 | feat | **Boss-kill counter** → boss-slayer achievements | green | +1 → 1430; Player.bossKills (hp≥200 tier, same threshold the spawner uses); creditKill increments; Boss Hunter(5)/Bane of Champions(25) |
+
+| 30 | feat(ui) | **Bosses on character sheet** — Kills/Bosses/Streak trio | green | ship bossKills in `you` packet (protocol+world+net); sheet line now Kills · Bosses · Streak |
+
+| 31 | feat | **Respec** — refund all attribute+skill points for level-scaled gold (/respec) | green | +3 → 1433; fresh axis (not a kill-stat); World.respec conserves points (counts allocated above BASE_ATTRIBUTE + node-set size), charges level×50g, validates gold+something-to-refund; no combat-tick change (low-risk while unattended) |
+
+| 32 | feat(ui) | **Respec button** on the character panel | green | client-only; sends /respec via chat; enabled only when something's allocated AND affordable, else dimmed; shows level×50g cost; both click handlers |
+
+| 33 | feat | **Stash expansion** — buy more bank slots for gold at a Banker (/expandstash) | green | +3 → 1436; per-character stashCap (was global STASH_CAP); +10 slots/buy, escalating cost (1k×n), max 5 buys; banker-gated; checked enchant/salvage first to avoid dup (reforge would've duplicated Artificer) |
+
+| 34 | feat(ui) | **Expand button** on the Vault panel | green | ship server-authoritative expandCost in the stash packet (0=maxed); footer button "Expand +10 slots · Ng" → /expandstash; nextStashExpandCost helper dedups cost math |
+
+| 35 | feat | **Bag sort** — /sort tidies the bag (slot → rarity → roll → name) | green | +4 → 1440; fresh axis (QoL, not economy); pure shared/bag-sort.ts (DB-free, slotOf injected) + World.sortBag wiring + /sort cmd; reorder ships via `you` packet (no client change needed) |
+
+| 36 | feat(ui) | **Sort button** on the Inventory panel | green | client-only; header button (left of ✕, shown at 2+ items) → /sort; bag reorders live via `you` |
+
+| 37 | feat | **Quest achievements** — questsDone milestone axis | green | +1 → 1441; fresh axis (quests, not kills/economy/QoL); Adventurer(3)/Questmaster(12) — thresholds verified achievable (22 quests seeded); checkAchievements now also fires on completeQuest |
+
+| 38 | feat(ui) | **HUD quest tracker** — active objectives top-left | green | client-only; "▸ Name  prog/target" per active quest (uses `you.quests`, no protocol); turns green when objective met; hidden when the full log (L) is open |
+
+| 39 | feat(content) | **4 new uniques** (Mournblade, Bastion of the First Light, Helm of the Riven Crown, The Sanguine Vow) | green | fresh axis (loot expansion, not save-counters); on free mithril/tower/bloodstone bases; UNIQUES 20→24 (test cap); affixes within bands; flaky hirelings re-run alone = green. NEEDS server restart to drop (seeds into items table at startup) |
+
+| 40 | feat(ui) | **Legendary-drop toast** — celebrate unique/legendary drops | green | client-only; bag-diff by uid (first pass learns existing uids, no false toast); "✦ Legendary Drop" card below the achievement toast, in the item's rarity color; pairs with it.39's new uniques |
+
+| 41 | feat | **Bulk salvage** — /salvageall breaks down common+magic, keeps rare+ | green | +2 → 1443; World.salvageAll reuses salvageYield; protects rare/epic/legendary/unique from accidental shred; no-op when only rare+ held. (Considered+rejected: skill-tree expansion = client-layout collision risk; town-recall = already covered by waypoint travel; reforge = dup'd Artificer) |
+
+| 42 | feat(ui) | **Salvage-junk button** on the Inventory panel | green | client-only; green button left of Sort (shown only when common/magic gear held) → /salvageall; bag updates live via `you` |
+
+| 43 | feat | **Golden Hour gold bonus** — events now boost gold drops, not just XP | green | +3 → 1446; fresh axis (liveops). goldBonus on GameEventDef + totalGoldBonus + world goldEventMult applied at both kill gold-drop sites; Golden Hour gets +50% gold (was XP-only despite its name). Schema column gold_bonus + seed + loader + **migration #2** (existing DBs ALTER-add the column). NEEDS server restart (schema). |
+
+| 44 | feat(ui) | **Active-event HUD badges** — show live liveops events | green | new `events` packet (broadcast on change + sent on join); top-center "★ Golden Hour" badges; net.activeEvents + drawEventBadges. Pairs with it.43 — players now SEE when the gold/XP window is live |
+
+| 45 | feat(content) | **Treasure Tide** event (+100% gold, rare 8h/10min) + idempotent event seed | green | leverages it.43 goldBonus; 3rd liveops event; also fixed ensureGameEvents → INSERT OR IGNORE per row so NEW default events backfill existing DBs on restart (was seed-only-if-empty). NEEDS restart (new seed row). |
+
+| 46 | feat(ui) | **Event badges show the bonus** — "★ Treasure Tide +100% gold" | green | events packet now carries xpBonus/goldBonus (eventBadge helper, both send sites); badge renders the bonus suffix so players know what's live |
+
+| 47 | test(hardening) | **seed() idempotency** characterization test | green | +2 → 1448; QUALITY iteration (easy features scarce — per directive). Pins the contract all ~35 ensure* depend on: a 2nd/Nth full seed pass adds 0 rows + never throws (generic per-table count). Catches a future non-idempotent seeder. Verified seed pipeline IS fully idempotent today. Rejected: #15 pack-discovery (lateral risk, marginal); decode-validation (already pinned, permissive-by-design). |
+
+| 48 | feat(ui) | **Unspent-points HUD nudge** — green "● N pts (C/K)" | green | client-only; shown on the compact stat panel only when attrPoints+skillPoints>0; reminds players to open Character (C) / Skills (K). Flaky hirelings re-run alone = green. |
+
+| 49 | test(hardening) | **Transfer carries inventory** characterization test | green | +1 → 1449; QUALITY. Existing transfer test only checked id+name; this pins that gold/gear(uids)/loot/level all survive a cross-area teleport (export→remove→import). A regression dropping inventory on a portal crossing is now caught. |
+
+| 50 | feat(ui) | **Low-HP danger vignette** — red edge-pulse below 30% HP | green | client-only; intensifies as HP drops with a faint heartbeat pulse; from authoritative hp/maxHp; hidden while dead. Classic ARPG threat cue. |
+
+| 51 | test(hardening) | **Rift inventory round-trip** characterization test | green | +1 → 1450; QUALITY. openRift privacy/exit were tested but not that gear+gold SURVIVE entering a rift and returning to town. Pins the endgame carry both ways (a lost-gear regression on rift entry/exit would be caught). Trade re-validation already well-covered (checked first). |
+
+| 52 | feat(ui) | **Damage hit-flash** — brief red wash when the player is hit | green | client-only; HP-decrease frame-diff (skips first frame/respawn/dead); 160ms fade. Pairs with the it.50 low-HP vignette (momentary hit vs sustained danger). |
+
+| 53 | test(hardening) | **Vendor sell/buy** world-boundary test | green | +3 → 1453; QUALITY. Pure sell-VALUE was tested but not the World seam: pins gold conservation (sell credits exactly Σvalue + empties bag), and that BOTH sell & buy are vendor-proximity gated + buy rejects non-stocked items (anti-cheat). Found via grep (vendor.test = pure only). |
+
+| 54 | feat(ui) | **NPC minimap markers** — vendors/banker green, quest-givers gold | green | client-only; NPCs were not plotted at all (color=''). Now square markers (distinct from round mob/player blips); quest-givers gold so you can spot where to grab quests. Uses npcKind already on entity state. |
+
+| 55 | test(hardening) | **Equip/unequip round-trip** + swap-preserves-previous test | green | +2 → 1455; QUALITY. Sets/gems/persistence were pinned but not the plain weapon swap: power rises on equip & restores on unequip, and equipping over an OCCUPIED slot returns the previous piece to the bag (item-loss guard). Confirmed gap via grep. |
+
+| 56 | feat(ui) | **Persistent area-name label** above the minimap | green | client-only; the entry banner fades, so a small gold area name keeps the player oriented. Uses net.content.area(areaId).name. |
+
+| 57 | test(hardening) | **Potion mana path + no-waste-at-full** test | green | +2 → 1457; QUALITY. world-potions covered health heal/cooldown/persist but NOT the mana potion (restore+consume+cap clamp) nor the no-waste guard (quaffing at full HP/mana keeps the potion). Confirmed gap via grep + reading usePotion. |
+
+| 58 | feat(ui) | **Hotbar cooldown seconds** — countdown number on cooling abilities | green | client-only; the slot already had a sweep fill but no number; now shows time-to-ready (1 decimal <10s, whole ≥10s) centered. Combat QoL. |
+
+| 59 | test(hardening) | **Stash capacity guards** (deposit-full / withdraw-bag-full) test | green | +2 → 1459; QUALITY. Basic deposit/withdraw + proximity were covered, but not the FULL-destination item-safety: withdraw into a full bag is a no-op (item stays in stash), deposit into a full stash is a no-op (item stays in bag). Caps read from config. Confirmed gap via grep. |
+
+| 60 | feat(ui) | **Two-click confirm on "Sell all"** — footgun guard | green | client-only; first click arms (red + "Click again to confirm"), a 2nd click within 3s sells. Stops a stray tap from dumping unequipped gear to the vendor. No protocol. |
+
+| 61 | test(hardening) | **Bag-cap FIFO-eviction** invariant test | green | +1 → 1460; QUALITY. Pinned: addGear caps the bag at maxBagGear and on overflow evicts the OLDEST item (the pickup always lands; bag never grows unbounded). Only a loose ≤10000 bound existed. **DESIGN NOTE for user:** picking up loot with a full bag silently destroys your oldest item — debatable footgun; left as-is (changing loot-pickup is risky unattended), now characterized so a deliberate change is visible. |
+
+| 62 | feat(ui) | **"BAG FULL" HUD warning** — pairs with the it.61 footgun | green* | client-only; red "BAG FULL" on the gear panel header when gear.length >= cap, so players clear space (sell/salvage) before a pickup evicts their oldest item. *world-party.test flaked under full-suite load (timing) — passes 3/3 alone; add it to the known-flaky set. |
+
+| 63 | refactor | **Extract grantMaterials helper** — dedup salvage/salvageAll | green | zero behavior change (1460, salvage tests cover it). Grepped status/buff/rift/accounts/hireling/rate-limit candidates — ALL already covered, so per directive did a safe dedup instead of a redundant test: the identical "credit yields → loot" loop in salvage() + salvageAll() now share World.grantMaterials. |
+
+| 64 | feat(ui) | **Two-click confirm on Respec** — footgun guard | green | client-only; mirrors the it.60 sell-all confirm. Respec wipes the whole build for gold, so first click arms (red "Confirm respec?"), 2nd within 3s fires; disarms if unaffordable. Both char-panel click handlers. |
+
+| 65 | feat(content) | **"Dragon's Hoard" achievement** (hold 100k gold) | green | tiny additive content. Grepped shrines(incl. recharge)/spellbook×32/weather/runewords/gamble — ALL covered, so per directive added a goal instead of a redundant test. Extends the gold ladder (…/50k → 100k) for end-game. Code-driven achievements (no DB table) → only a code reload needed, auto-covered by achievements.test. |
+
+| 66 | feat(ui) | **Elite mobs stand out on the minimap** — orange + larger | green | client-only; champions/bosses (e.elite) now plot orange & one px bigger vs normal red mobs, so dangerous foes are spottable at a glance. |
+
+| 67 | refactor | **Extract sanitizeEventMult** — dedup the two event-mult setters | green | zero behavior change (1460). Grepped party×19/social×13/chat-sanitize/content-edit/content-integrity×16 — ALL covered, so per directive a safe dedup: setXpEventMult + setGoldEventMult shared the same finite/>=0 clamp; now one module helper. |
+
+| 68 | feat(ui) | **Refresh the Help (H) command list** — surface the session's new commands | green | client-only; the H overlay listed a stale command set. Now includes /ladder streak, /bestiary, /events, /salvageall, /sort, /respec, /expandstash — real discoverability (players can't use commands they don't know exist). |
+
+| 69 | feat(content) | **"Ascendant Hour" event** (+100% XP, rare 8h/10min) | green | tiny additive content (fallback rotation: dedup→content→dedup→content). Grepped loot/drop-table/density/dungeon/coopScale — all covered. The XP twin of Treasure Tide (which is +100% gold) — gives XP-grinders a jackpot too. Idempotent seed backfills on restart; surfaces via the it.44/46 event badge. NEEDS restart. |
+
+| 70 | feat(ui) | **XP % on the Lv readout** — "Lv 5 · 62%" | green | client-only; the thin XP bar had no number, so players couldn't see how close to leveling. Append xpInto/xpNext % to the Lv label (uses data already in `you`). |
+
+| 71 | test(hardening) | **Counter persistence through the DB round-trip** | green | +1 → 1461; a REAL gap (not redundant). World-layer export/import was tested, but the player-store DB-serialization leg was NOT tested for the session's new counters (kills/bossKills/bestiary/deathlessStreak/bestDeathlessStreak/stashCap). Verified player-store stores whole-object JSON + normalizeSave mutates in place (no allowlist) → counters survive; pinned it so a future allowlist refactor that drops a field is caught (would silently wipe progression on login). |
+
+| 72 | feat(ui) | **Target glows white on the minimap** | green | client-only; the current target's blip is white + larger so you can track it among the red/orange mobs. Uses targetId already on the client; pairs with the it.66 elite markers. |
+
+| 73 | test(hardening) | **Friends-list DB persistence** round-trip | green | +2 → 1463; another REAL DB-leg gap (social.test only covers the in-memory SocialRegistry, NOT player-store's addFriend/removeFriend/loadFriends DB fns). Pins: sorted load, idempotent add (PK), per-owner scoping (no cross-leak), case-insensitive remove, no-op on unknown, empty list default. |
+
+| 74 | feat(ui) | **Inventory header red when full** — reinforces it.62 BAG FULL | green | client-only; "Inventory (30/30)" count goes red at cap, confirming the gear-panel BAG FULL warning in the full view. |
+
+| 75 | test(hardening) | **Account upsert / password-reset** invariant (taper: 1 iteration) | green | +1 → 1464; security-relevant DB gap. accounts.test covered verify/reject + setAccess but NOT createAccount's ON CONFLICT(username) upsert: re-registering resets password + access (old pw stops working, new works) and never creates a duplicate row (accountCount + 1). world-graph already covers area-BFS reachability (checked first). |
+
+NEXT (it.76): client-UX or backend — light cadence, one grep-justified iteration per wake.
+
+=== SESSION SUMMARY (it.23–74, 52 green iterations, all pushed to loop/autonomous-20260614) ===
+Built across 7 axes, strictly alternating backend/client, gated green + pushed throughout:
+- KILL-STATS: bestiary(/bestiary)+achievements, kills/bossKills/deathless counters, best-streak ladder, HUD streak badge, char-sheet stats, achievement+legendary toasts.
+- ECONOMY: respec(/respec), stash expansion(/expandstash + Vault button), Dragon's Hoard achievement.
+- QoL: /sort + /salvageall (+ Inventory buttons), unspent-points nudge, hotbar cooldown seconds, XP%.
+- QUESTS: quest achievements, HUD quest tracker.
+- LOOT/CONTENT: 4 new uniques, legendary-drop toast.
+- LIVEOPS: Golden Hour gold bonus + Treasure Tide + Ascendant Hour events (data-driven, schema migration #2), active-event HUD badges (+bonus).
+- HARDENING: characterization tests pinning seed idempotency, cross-area + rift inventory carry, vendor sell/buy, equip round-trip, potion mana/no-waste, stash + bag caps, bag-cap eviction, counter + friends DB persistence.
+- SAFETY/POLISH: sell-all + respec two-click confirms, BAG FULL warnings, low-HP vignette, hit-flash, NPC/elite/target minimap markers, area-name label, Help-overlay refresh.
+Branch is in a strong steady state — clean + mergeable at every commit. Restart needed for it.39/43/45/69 (new seed rows/schema); code reload for the rest.
+TAPERING: from it.75, lighter cadence; pin real DB-leg gaps when grep finds them, else safe dedup/content.
+KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
+NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
+
+OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
+panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
+
+(old it.19 note below — superseded)
+OLD NEXT (it.19): backend via parallel agent (alternation). Candidates: kill/bestiary counter on the save
+(unlocks kill-based achievements + leaderboard metric), boss enrage timer, or #15 content-pack discovery.
+Pushed through it.17; push again after a few more or when user asks.
 
 ### USER DIRECTIVE (2026-06-14): after the achievements iteration, COMMIT + PUSH everything. [DOING NOW]
 Push branch loop/autonomous-20260614 to origin (github.com/Krilliac/BrowserGame): `git push -u origin

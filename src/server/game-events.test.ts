@@ -6,6 +6,7 @@ import {
   activeEvents,
   msUntilNextChange,
   totalXpBonus,
+  totalGoldBonus,
   type GameEventDef,
 } from './game-events.js';
 
@@ -188,18 +189,44 @@ describe('totalXpBonus', () => {
   });
 });
 
+describe('totalGoldBonus', () => {
+  const gold: GameEventDef = {
+    id: 'g',
+    name: 'G',
+    periodMin: 100,
+    lengthMin: 20,
+    xpBonus: 0.25,
+    goldBonus: 0.5,
+  };
+  const xpOnly: GameEventDef = { id: 'x', name: 'X', periodMin: 100, lengthMin: 20, xpBonus: 0.4 };
+
+  it('sums only the goldBonus of active events (xp-only events contribute 0)', () => {
+    expect(totalGoldBonus([gold, xpOnly], 10 * MIN)).toBe(0.5);
+  });
+
+  it('returns 0 when nothing is active or no event grants gold', () => {
+    expect(totalGoldBonus([gold], 25 * MIN)).toBe(0); // gold event inactive at t=25
+    expect(totalGoldBonus([xpOnly], 10 * MIN)).toBe(0); // active but no goldBonus
+    expect(totalGoldBonus([], 10 * MIN)).toBe(0);
+  });
+});
+
 describe('DEFAULT_GAME_EVENTS', () => {
-  it('exposes two thematic seed events with unique ids', () => {
-    expect(DEFAULT_GAME_EVENTS).toHaveLength(2);
+  it('exposes the thematic seed events with unique ids', () => {
+    expect(DEFAULT_GAME_EVENTS).toHaveLength(4);
     const ids = DEFAULT_GAME_EVENTS.map((e) => e.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('has the Bloodmoon and Golden Hour as designed', () => {
+  it('has the Bloodmoon, Golden Hour, Treasure Tide, and Ascendant Hour as designed', () => {
     const bloodmoon = DEFAULT_GAME_EVENTS.find((e) => e.id === 'bloodmoon');
     const golden = DEFAULT_GAME_EVENTS.find((e) => e.id === 'golden-hour');
+    const tide = DEFAULT_GAME_EVENTS.find((e) => e.id === 'treasure-tide');
+    const ascendant = DEFAULT_GAME_EVENTS.find((e) => e.id === 'ascendant-hour');
     expect(bloodmoon).toMatchObject({ periodMin: 360, lengthMin: 30, xpBonus: 0.5 });
-    expect(golden).toMatchObject({ periodMin: 120, lengthMin: 15, xpBonus: 0.25 });
+    expect(golden).toMatchObject({ periodMin: 120, lengthMin: 15, goldBonus: 0.5 });
+    expect(tide).toMatchObject({ periodMin: 480, lengthMin: 10, goldBonus: 1.0 });
+    expect(ascendant).toMatchObject({ periodMin: 480, lengthMin: 10, xpBonus: 1.0 });
   });
 
   it('every seed event has a valid (firing) schedule', () => {

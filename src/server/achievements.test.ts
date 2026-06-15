@@ -8,7 +8,15 @@ import {
   type AchievementMetric,
 } from './achievements.js';
 
-const VALID_METRICS: ReadonlySet<AchievementMetric> = new Set<AchievementMetric>(['level', 'gold']);
+const VALID_METRICS: ReadonlySet<AchievementMetric> = new Set<AchievementMetric>([
+  'level',
+  'gold',
+  'kills',
+  'bossKills',
+  'bestiary',
+  'deathless',
+  'quests',
+]);
 
 describe('DEFAULT_ACHIEVEMENTS', () => {
   it('is non-empty', () => {

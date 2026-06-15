@@ -48,6 +48,7 @@ import {
   type BaseItem,
   type ItemInstance,
 } from '../shared/items.js';
+import { sortBag } from '../shared/bag-sort.js';
 import {
   GEMS,
   GEMS_PER_COMBINE,
@@ -94,6 +95,7 @@ import {
   BOSS_SCRIPTS,
   newBossScriptState,
   stepBossScript,
+  bossEnrageMultiplier,
   type BossScriptState,
 } from './boss-scripts.js';
 import {
@@ -103,6 +105,7 @@ import {
   toAttributeSet,
   ATTRIBUTE_KEYS,
   ATTR_POINTS_PER_LEVEL,
+  BASE_ATTRIBUTE,
 } from '../shared/attributes.js';
 import { aggregateSkillEffects, canAllocate } from '../shared/skilltree.js';
 import { runewordBonuses, detectRuneword, rune, RUNES } from '../shared/runewords.js';
@@ -175,6 +178,11 @@ const GOLD_MAGNET_RADIUS = 95;
 const GOLD_MAGNET_SPEED = 460;
 let ITEM_TTL_MS = config.items.itemTtlMs;
 
+/** Clamp a host-supplied liveops multiplier to a safe value: finite and >= 0, else 1 (no event). */
+function sanitizeEventMult(mult: number): number {
+  return Number.isFinite(mult) && mult >= 0 ? mult : 1;
+}
+
 /**
  * One gold-magnet step (pure): pull a gold drop toward the NEAREST living player that is within the
  * magnet radius but still outside the pickup radius (inside pickup, the normal pickup collects it —
@@ -213,6 +221,12 @@ const INTERACT_RANGE = 70;
 let MAX_BAG_GEAR = config.items.maxBagGear;
 // Bank stash slots â€” far larger than the bag, so the overflow has somewhere safe to go.
 let STASH_CAP = config.items.stashCap;
+// Stash expansion (banker gold-sink): each purchase adds STASH_EXPAND_STEP slots above the base, up to
+// STASH_MAX_EXPANSIONS purchases. The cost escalates per purchase so a fully-expanded stash is a major
+// gold sink, not a trivial one.
+const STASH_EXPAND_STEP = 10;
+const STASH_MAX_EXPANSIONS = 5;
+const STASH_EXPAND_COST = 1000;
 // Shrines (decor kind 'shrine'): step within this radius to be blessed; the shrine then recharges
 // for the cooldown before it can bless again (shared across players, Diablo-shrine style).
 const SHRINE_RADIUS = 46;
@@ -264,6 +278,9 @@ let POTION_MANA = config.potions.mana; // mana restored by a mana potion
 let POTION_COOLDOWN_MS = config.potions.cooldownMs;
 // Passive skill-tree points earned per level (separate pool from attribute points).
 let SKILL_POINTS_PER_LEVEL = config.progression.skillPointsPerLevel;
+// Cost (gold) to refund all allocated attribute + skill points, scaled by level so a respec stays a
+// meaningful sink for a geared character. A fresh build is cheap to undo; a level-50 one is not.
+const RESPEC_COST_PER_LEVEL = 50;
 // Unique (named legendary) drop chances: the loot chase. A slim base chance on any gear drop, better
 // from a chest. Elites/bosses already drop more gear, so they roll the base chance more often.
 let UNIQUE_DROP_CHANCE = config.drops.unique;
@@ -409,6 +426,8 @@ interface Player {
   gear: ItemInstance[];
   /** Stored gear in the bank stash (deposited at a banker; persisted; far larger than the bag). */
   stash: ItemInstance[];
+  /** This character's stash capacity — starts at the base and grows via banker expansions (persisted). */
+  stashCap: number;
   equipment: Equipment;
   power: number;
   /** Crit chance in [0,1]: base plus the sum of equipped +crit affixes. */
@@ -447,6 +466,16 @@ interface Player {
   questsDone: Set<string>;
   /** Unlocked achievement ids (milestone dedupe key; persisted in the save). */
   earnedAchievements: Set<string>;
+  /** Lifetime monster kills credited to this character (persisted; drives achievements + ladder). */
+  kills: number;
+  /** Lifetime boss-tier kills (hp >= 200; persisted) — drives the boss-slayer achievements. */
+  bossKills: number;
+  /** Distinct monster template ids this character has killed — the bestiary (persisted). */
+  bestiary: Set<string>;
+  /** Kills since the last death — the current deathless streak (reset to 0 on death; persisted). */
+  deathlessStreak: number;
+  /** The best deathless streak ever reached (a permanent record; drives the streak ladder). */
+  bestDeathlessStreak: number;
   /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
   known: Map<AbilityId, number>;
   /** Area ids this character has visited â€” the waypoint fast-travel list. */
@@ -481,6 +510,8 @@ export interface PlayerSave {
   gear: ItemInstance[];
   /** Banked stash gear (absent on pre-stash saves â€” defaults to empty). */
   stash?: ItemInstance[];
+  /** Stash capacity (absent on pre-expansion saves — defaults to the base cap). */
+  stashCap?: number;
   /** Potion belt counts (absent on pre-potion saves â€” defaults to the starting amount). */
   potions?: { health: number; mana: number };
   /** Allocated attributes (absent on pre-attribute saves â€” granted retroactively on load). */
@@ -498,6 +529,16 @@ export interface PlayerSave {
   questsDone: string[];
   /** Unlocked achievement ids (absent on pre-achievement saves — defaults to empty). */
   earnedAchievements?: string[];
+  /** Lifetime monster kills (absent on old saves — defaults to 0). Drives kill achievements + ladder. */
+  kills?: number;
+  /** Lifetime boss-tier kills (absent on old saves — defaults to 0). */
+  bossKills?: number;
+  /** Distinct monster template ids killed — the bestiary (absent on old saves — defaults to empty). */
+  bestiary?: string[];
+  /** Current deathless streak (kills since last death; absent on old saves — defaults to 0). */
+  deathlessStreak?: number;
+  /** Best deathless streak ever reached (absent on old saves — defaults to the current streak). */
+  bestDeathlessStreak?: number;
   /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
   known?: [string, number][];
   /** Visited area ids (waypoints). Absent on old saves â€” the current area is added on load. */
@@ -553,6 +594,8 @@ interface Mob {
   alertUntil: number;
   /** Apex-boss phase-script cursor (only set for templates in BOSS_SCRIPTS). */
   bossScript?: BossScriptState;
+  /** Sim time (ms) a scripted boss's current fight began (first player hit), for soft-enrage. */
+  engagedAt?: number;
 }
 
 interface Projectile {
@@ -634,6 +677,9 @@ export class World {
   // Liveops XP multiplier from active timed game-events. Injected by the host each tick (the schedule
   // is wall-clock-ish and computed OUTSIDE the sim to keep the World deterministic); 1 = no event.
   private xpEventMult = 1;
+  // Liveops GOLD-drop multiplier from active timed game-events (e.g. Golden Hour). Host-injected like
+  // xpEventMult; folded into every gold drop. 1 = no event.
+  private goldEventMult = 1;
   // Active player-to-player trades, keyed by EACH participant's id (both map to the same session).
   // One trade per player. The negotiation logic is the pure trade.ts state machine; the World owns
   // the inventory transfer + re-validation at commit (security-critical).
@@ -1264,9 +1310,27 @@ export class World {
     this.stashOffers.push({ playerId: player.id, items: player.stash });
   }
 
-  /** Drain pending stash windows for the host to deliver as `stash` packets (with the cap). */
-  drainStashOffers(): { playerId: number; items: ItemInstance[]; cap: number }[] {
-    const drained = this.stashOffers.map((o) => ({ ...o, cap: STASH_CAP }));
+  /** Gold to buy the NEXT stash expansion for this character, or 0 once fully expanded. */
+  private nextStashExpandCost(p: Player): number {
+    const bought = Math.round((p.stashCap - STASH_CAP) / STASH_EXPAND_STEP);
+    return bought >= STASH_MAX_EXPANSIONS ? 0 : (bought + 1) * STASH_EXPAND_COST;
+  }
+
+  /** Drain pending stash windows for the host to deliver as `stash` packets (cap + next expand cost). */
+  drainStashOffers(): {
+    playerId: number;
+    items: ItemInstance[];
+    cap: number;
+    expandCost: number;
+  }[] {
+    const drained = this.stashOffers.map((o) => {
+      const p = this.players.get(o.playerId);
+      return {
+        ...o,
+        cap: p?.stashCap ?? STASH_CAP,
+        expandCost: p ? this.nextStashExpandCost(p) : 0,
+      };
+    });
     this.stashOffers = [];
     return drained;
   }
@@ -1276,7 +1340,7 @@ export class World {
     const player = this.players.get(id);
     if (!player || player.dead) return;
     if (!hasNpcFlag(this.nearbyNpc(player)?.flags ?? 0, NpcFlags.BANKER)) return;
-    if (player.stash.length >= STASH_CAP) {
+    if (player.stash.length >= player.stashCap) {
       this.notify(player.id, 'Your stash is full.');
       return;
     }
@@ -1303,6 +1367,33 @@ export class World {
     this.pushStash(player);
   }
 
+  /**
+   * Banker: buy another block of stash slots for gold. Requires banker proximity. The cost escalates
+   * with each block already purchased, and the stash can be expanded at most STASH_MAX_EXPANSIONS
+   * times. Server-authoritative: validates proximity, the cap ceiling, and gold before mutating.
+   */
+  expandStash(playerId: number): { ok: boolean; message: string } {
+    const player = this.players.get(playerId);
+    if (!player || player.dead) return { ok: false, message: 'No character.' };
+    if (!hasNpcFlag(this.nearbyNpc(player)?.flags ?? 0, NpcFlags.BANKER)) {
+      return { ok: false, message: 'Visit a Banker to expand your stash.' };
+    }
+    const cost = this.nextStashExpandCost(player);
+    if (cost === 0) {
+      return {
+        ok: false,
+        message: `Your stash is already fully expanded (${player.stashCap} slots).`,
+      };
+    }
+    if (player.gold < cost) {
+      return { ok: false, message: `Expanding costs ${cost}g — you only have ${player.gold}g.` };
+    }
+    player.gold -= cost;
+    player.stashCap += STASH_EXPAND_STEP;
+    this.pushStash(player); // refresh the open panel with the new cap
+    return { ok: true, message: `Stash expanded to ${player.stashCap} slots for ${cost}g.` };
+  }
+
   /** Abstract salvage material kind → the concrete content loot item id it grants. */
   private static readonly SALVAGE_ITEM_ID: Record<MaterialKind, string> = {
     scrap: 'mat_scrap',
@@ -1327,11 +1418,50 @@ export class World {
     const [inst] = player.gear.splice(idx, 1);
     if (!inst) return { ok: false, reason: 'No such item.' };
     const yields = salvageYield(inst, this.rand);
+    this.grantMaterials(player, yields);
+    return { ok: true, yields };
+  }
+
+  /** Credit a bundle of salvage-material yields into a player's loot (the shared tail of both salvages). */
+  private grantMaterials(player: Player, yields: readonly MaterialYield[]): void {
     for (const y of yields) {
       const itemId = World.SALVAGE_ITEM_ID[y.kind];
       player.loot.set(itemId, (player.loot.get(itemId) ?? 0) + y.qty);
     }
-    return { ok: true, yields };
+  }
+
+  /**
+   * Bulk-salvage every common/magic piece in the bag into materials, KEEPING rare and better gear so
+   * the player can never accidentally shred a good drop. Returns the count salvaged and the combined
+   * material yield. Server-authoritative; a no-op (ok:false) when there's no junk to break down.
+   */
+  salvageAll(playerId: number): {
+    ok: boolean;
+    reason?: string;
+    count?: number;
+    yields?: MaterialYield[];
+  } {
+    const player = this.players.get(playerId);
+    if (!player) return { ok: false, reason: 'No such player.' };
+    const JUNK = new Set(['common', 'magic']); // protect rare/epic/legendary/unique from bulk salvage
+    const keep: ItemInstance[] = [];
+    const totals = new Map<MaterialKind, number>();
+    let count = 0;
+    for (const inst of player.gear) {
+      if (!JUNK.has(inst.rarity)) {
+        keep.push(inst);
+        continue;
+      }
+      for (const y of salvageYield(inst, this.rand)) {
+        totals.set(y.kind, (totals.get(y.kind) ?? 0) + y.qty);
+      }
+      count += 1;
+    }
+    if (count === 0) return { ok: false, reason: 'No common or magic gear to salvage.' };
+    player.gear = keep;
+    const yields: MaterialYield[] = [...totals].map(([kind, qty]) => ({ kind, qty }));
+    this.grantMaterials(player, yields);
+    return { ok: true, count, yields };
   }
 
   /**
@@ -1356,6 +1486,23 @@ export class World {
     }
     player.loot = new Map(Object.entries(have));
     this.notify(playerId, `Crafted: ${recipe.name}.`);
+    return true;
+  }
+
+  /**
+   * Sort the player's bag for display (slot group → best rarity → heavier roll → name). Pure ordering
+   * lives in shared/bag-sort; here we just supply the content slot lookup and write the result back.
+   * The next `you` packet ships the reordered bag, so the client updates with no extra message.
+   */
+  sortBag(playerId: number): boolean {
+    const player = this.players.get(playerId);
+    if (!player) return false;
+    const content = getContent();
+    player.gear = sortBag(
+      player.gear,
+      (baseId) => content.item(baseId)?.slot ?? null,
+      (inst) => content.item(inst.baseId)?.name ?? inst.baseId,
+    );
     return true;
   }
 
@@ -1630,6 +1777,8 @@ export class World {
       player.id,
       `Quest complete: ${quest.name}! +${quest.rewardGold}g +${quest.rewardXp}xp${extra}`,
     );
+    // A completion can cross a quest milestone (and the gold/xp reward a gold/level one).
+    this.checkAchievements(player);
   }
 
   /** Equip a gear instance (by uid) from the player's bag, returning any displaced gear to the bag. */
@@ -1668,7 +1817,12 @@ export class World {
 
   /** Set the liveops XP multiplier (1 = none). Host-driven from active timed game-events; clamped >=0. */
   setXpEventMult(mult: number): void {
-    this.xpEventMult = Number.isFinite(mult) && mult >= 0 ? mult : 1;
+    this.xpEventMult = sanitizeEventMult(mult);
+  }
+
+  /** Set the liveops GOLD-drop multiplier (1 = none). Host-driven from active events; clamped >=0. */
+  setGoldEventMult(mult: number): void {
+    this.goldEventMult = sanitizeEventMult(mult);
   }
 
   // --- Player-to-player trading -----------------------------------------------------------
@@ -2015,6 +2169,40 @@ export class World {
     this.recomputeStats(p);
   }
 
+  /**
+   * Refund every allocated attribute and skill point for gold, resetting the build to a blank slate.
+   * Points are CONSERVED by counting what's actually allocated (attributes above {@link BASE_ATTRIBUTE},
+   * plus the size of the passive-node set), so the refund never invents or loses points regardless of
+   * level math. The gold cost scales with level. Server-authoritative: validates gold + that there is
+   * something to refund before touching anything.
+   */
+  respec(playerId: number): { ok: boolean; message: string } {
+    const p = this.players.get(playerId);
+    if (!p) return { ok: false, message: 'No character.' };
+    const spentAttr = ATTRIBUTE_KEYS.reduce(
+      (sum, k) => sum + (p.attributes[k] - BASE_ATTRIBUTE),
+      0,
+    );
+    const spentSkill = p.skills.size;
+    if (spentAttr <= 0 && spentSkill <= 0) {
+      return { ok: false, message: 'Nothing to respec — you have no points allocated.' };
+    }
+    const cost = p.level * RESPEC_COST_PER_LEVEL;
+    if (p.gold < cost) {
+      return { ok: false, message: `Respec costs ${cost}g — you only have ${p.gold}g.` };
+    }
+    p.gold -= cost;
+    p.attributes = emptyAttributes();
+    p.attrPoints += spentAttr;
+    p.skills.clear();
+    p.skillPoints += spentSkill;
+    this.recomputeStats(p);
+    return {
+      ok: true,
+      message: `Respec done — refunded ${spentAttr} attribute and ${spentSkill} skill points for ${cost}g.`,
+    };
+  }
+
   toggleGod(id: number): boolean {
     const p = this.players.get(id);
     if (!p) return false;
@@ -2062,6 +2250,7 @@ export class World {
       loot: new Map(),
       gear: [],
       stash: [],
+      stashCap: STASH_CAP,
       potions: { health: POTION_START, mana: POTION_START },
       potionReadyAt: 0,
       manaRegenBonus: 0,
@@ -2085,6 +2274,11 @@ export class World {
       quests: new Map(),
       questsDone: new Set(),
       earnedAchievements: new Set(),
+      kills: 0,
+      bossKills: 0,
+      bestiary: new Set(),
+      deathlessStreak: 0,
+      bestDeathlessStreak: 0,
       known: new Map(STARTER_ABILITIES.map((a) => [a, 1])),
       discovered: new Set([this.areaId]),
       input: { up: false, down: false, left: false, right: false },
@@ -2114,6 +2308,7 @@ export class World {
       loot: [...p.loot],
       gear: [...p.gear],
       stash: [...p.stash],
+      stashCap: p.stashCap,
       potions: { ...p.potions },
       attributes: { ...p.attributes },
       attrPoints: p.attrPoints,
@@ -2124,6 +2319,11 @@ export class World {
       quests: [...p.quests],
       questsDone: [...p.questsDone],
       earnedAchievements: [...p.earnedAchievements],
+      kills: p.kills,
+      bossKills: p.bossKills,
+      bestiary: [...p.bestiary],
+      deathlessStreak: p.deathlessStreak,
+      bestDeathlessStreak: p.bestDeathlessStreak,
       known: [...p.known],
       discovered: [...p.discovered],
       hireling: p.hireling,
@@ -2143,6 +2343,8 @@ export class World {
     p.loot = new Map(save.loot);
     p.gear = [...save.gear];
     p.stash = [...(save.stash ?? [])]; // pre-stash saves start with an empty bank
+    // At least the current base cap; a saved expansion above it is preserved.
+    p.stashCap = Math.max(save.stashCap ?? STASH_CAP, STASH_CAP);
     p.potions = save.potions
       ? { health: save.potions.health, mana: save.potions.mana }
       : { health: POTION_START, mana: POTION_START };
@@ -2168,6 +2370,12 @@ export class World {
     p.quests = new Map(save.quests);
     p.questsDone = new Set(save.questsDone);
     p.earnedAchievements = new Set(save.earnedAchievements ?? []);
+    p.kills = save.kills ?? 0;
+    p.bossKills = save.bossKills ?? 0;
+    p.bestiary = new Set(save.bestiary ?? []);
+    p.deathlessStreak = save.deathlessStreak ?? 0;
+    // Old saves without a record default it to the current streak so the ladder isn't under-counted.
+    p.bestDeathlessStreak = Math.max(save.bestDeathlessStreak ?? 0, p.deathlessStreak);
     p.known = restoreKnown(save.known);
     // Carry visited areas across the transfer + always mark the area we just arrived in.
     p.discovered = new Set(save.discovered ?? []);
@@ -2362,7 +2570,9 @@ export class World {
       mob.dmgMult *
       this.corruptionDmg() *
       mob.statuses.weakenFactor() *
-      mob.statuses.damageFactor()
+      mob.statuses.damageFactor() *
+      // Scripted-boss soft-enrage: damage climbs the longer a fight drags (engagedAt set on first hit).
+      (mob.engagedAt !== undefined ? bossEnrageMultiplier(this.now - mob.engagedAt) : 1)
     );
   }
 
@@ -3233,6 +3443,8 @@ export class World {
       mob.lastAttacker = attackerId;
       // Anyone who lands a hit is a TAGGER — they share the kill (no last-hit stealing).
       if (this.players.has(attackerId)) mob.taggers.add(attackerId);
+      // Start the soft-enrage clock the first time a scripted boss is engaged.
+      if (mob.engagedAt === undefined && BOSS_SCRIPTS[mob.templateId]) mob.engagedAt = this.now;
     }
     mob.hp -= amount;
     // A hurt monster is ALERTED (extended aggro reach â€” it hunts rather than idles), and a
@@ -3334,7 +3546,9 @@ export class World {
                 stack.qty,
                 mob.level,
                 content.mobTemplate(mob.templateId)?.level ?? mob.level,
-              ) * this.coopGoldScale(),
+              ) *
+                this.coopGoldScale() *
+                this.goldEventMult, // Golden Hour & friends spill richer hoards
             )
           : // Rift "Bountiful"-style mutators boost material stack sizes (0 outside a rift).
             Math.max(1, Math.round(stack.qty * (1 + this.riftEffects.lootQuantityBonus)));
@@ -3372,7 +3586,9 @@ export class World {
     if (mob.elite) {
       this.dropGround(
         'gold',
-        Math.round(championGoldPile(mob.level, this.rand) * this.coopGoldScale()),
+        Math.round(
+          championGoldPile(mob.level, this.rand) * this.coopGoldScale() * this.goldEventMult,
+        ),
         mob.x,
         mob.y,
       );
@@ -3592,6 +3808,12 @@ export class World {
       this.events.push({ kind: 'levelup', x: p.x, y: p.y, value: newLevel });
     }
     p.level = newLevel;
+    p.kills += 1; // shared-credit: every tagger/party member who is credited counts the kill
+    // Boss-tier templates (hp >= 200, the same threshold the spawner uses) feed the boss-slayer line.
+    if ((getContent().mobTemplate(mobTemplateId)?.hp ?? 0) >= 200) p.bossKills += 1;
+    p.bestiary.add(mobTemplateId); // record the species for the bestiary collection
+    p.deathlessStreak += 1; // climbs with every kill; a death snaps it back to 0
+    if (p.deathlessStreak > p.bestDeathlessStreak) p.bestDeathlessStreak = p.deathlessStreak; // record
     this.recomputeStats(p);
     this.progressQuests(p, mobTemplateId);
     this.checkAchievements(p);
@@ -3603,7 +3825,15 @@ export class World {
    */
   private checkAchievements(player: Player): void {
     const fresh = newlyEarned(
-      { level: player.level, gold: player.gold },
+      {
+        level: player.level,
+        gold: player.gold,
+        kills: player.kills,
+        bossKills: player.bossKills,
+        bestiary: player.bestiary.size,
+        deathless: player.deathlessStreak,
+        quests: player.questsDone.size,
+      },
       player.earnedAchievements,
     );
     for (const a of fresh) {
@@ -3616,12 +3846,31 @@ export class World {
   achievementStatus(playerId: number): string[] {
     const p = this.players.get(playerId);
     if (!p) return ['No character.'];
-    const stats: Record<string, number> = { level: p.level, gold: p.gold };
+    const stats: Record<string, number> = {
+      level: p.level,
+      gold: p.gold,
+      kills: p.kills,
+      bossKills: p.bossKills,
+      bestiary: p.bestiary.size,
+      deathless: p.deathlessStreak,
+      quests: p.questsDone.size,
+    };
     return DEFAULT_ACHIEVEMENTS.map((a) => {
       const cur = stats[a.metric] ?? 0;
       const done = p.earnedAchievements.has(a.id) || cur >= a.threshold;
       return done ? `✓ ${a.name} — ${a.desc}` : `· ${a.name} (${cur}/${a.threshold} ${a.metric})`;
     });
+  }
+
+  /** Bestiary summary for /bestiary: the distinct species this character has slain, by name. */
+  bestiaryStatus(playerId: number): string[] {
+    const p = this.players.get(playerId);
+    if (!p) return ['No character.'];
+    if (p.bestiary.size === 0) return ['Bestiary: no monsters slain yet.'];
+    const names = [...p.bestiary]
+      .map((id) => getContent().mobTemplate(id)?.name ?? id)
+      .sort((a, b) => a.localeCompare(b));
+    return [`Bestiary: ${names.length} species discovered`, names.join(', ')];
   }
 
   private progressQuests(player: Player, mobTemplateId: string): void {
@@ -3714,6 +3963,7 @@ export class World {
     if (player.hp <= 0) {
       player.hp = 0;
       player.dead = true;
+      player.deathlessStreak = 0; // a death ends the streak
       player.respawnAt = this.now + PLAYER_RESPAWN_MS;
       this.events.push({ kind: 'death', x: player.x, y: player.y });
       // Every player's death feeds the shared area-wide corruption â€” darker and deadlier for all.
@@ -3745,6 +3995,7 @@ export class World {
     mob.attackCd = 0;
     mob.taggers.clear(); // a respawned mob is un-claimed again
     delete mob.bossScript; // a fresh fight starts the phase loop from the top
+    delete mob.engagedAt; // and resets the soft-enrage clock
   }
 
   private outOfBounds(x: number, y: number): boolean {
@@ -3978,6 +4229,9 @@ export class World {
         ackSeq: number;
         /** Effective move multiplier â€” the client predictor integrates with this to stay in sync. */
         moveMul: number;
+        kills: number;
+        bossKills: number;
+        deathlessStreak: number;
       }
     | undefined {
     const p = this.players.get(id);
@@ -4013,6 +4267,9 @@ export class World {
       y: p.y,
       ackSeq: p.lastSeq,
       moveMul: this.playerMoveMul(p),
+      kills: p.kills,
+      bossKills: p.bossKills,
+      deathlessStreak: p.deathlessStreak,
     };
   }
 

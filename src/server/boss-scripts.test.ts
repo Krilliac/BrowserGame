@@ -3,6 +3,8 @@ import {
   BOSS_SCRIPTS,
   newBossScriptState,
   stepBossScript,
+  bossEnrageMultiplier,
+  ENRAGE_AFTER_MS,
   type BossScript,
   type BossScriptState,
 } from './boss-scripts.js';
@@ -10,6 +12,25 @@ import { ABILITIES } from '../shared/combat.js';
 import { MOB_TEMPLATES } from './mobs.js';
 
 const ARENA = 1000; // square test arena, so 0.5/0.5 is (500, 500)
+
+describe('bossEnrageMultiplier', () => {
+  it('is neutral (1.0) before the soft-enrage time', () => {
+    expect(bossEnrageMultiplier(0)).toBe(1);
+    expect(bossEnrageMultiplier(ENRAGE_AFTER_MS)).toBe(1);
+    expect(bossEnrageMultiplier(ENRAGE_AFTER_MS - 1)).toBe(1);
+  });
+
+  it('ramps up after soft-enrage and is monotonic', () => {
+    const a = bossEnrageMultiplier(ENRAGE_AFTER_MS + 10_000); // +10s
+    const b = bossEnrageMultiplier(ENRAGE_AFTER_MS + 20_000); // +20s
+    expect(a).toBeGreaterThan(1);
+    expect(b).toBeGreaterThan(a);
+  });
+
+  it('is capped (never spikes into a one-shot)', () => {
+    expect(bossEnrageMultiplier(ENRAGE_AFTER_MS + 10_000_000)).toBe(3);
+  });
+});
 
 /** A small fixture exercising every step kind across two phases. */
 const fixture: BossScript = {

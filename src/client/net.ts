@@ -79,6 +79,12 @@ export interface SelfStats {
   ackSeq: number;
   /** Effective move multiplier — fed to the predictor so prediction matches the server. */
   moveMul: number;
+  /** Lifetime monster kills (shown on the character sheet). */
+  kills: number;
+  /** Lifetime boss-tier kills (hp >= 200). */
+  bossKills: number;
+  /** Current deathless streak — kills since the last death. */
+  deathlessStreak: number;
 }
 
 /** A vendor's shop contents, set when a `shop` packet arrives and cleared when the panel closes. */
@@ -131,6 +137,9 @@ export class Net {
     y: 0,
     ackSeq: 0,
     moveMul: 1,
+    kills: 0,
+    bossKills: 0,
+    deathlessStreak: 0,
   };
   /** The currently-open vendor shop (null when no shop panel is open). */
   shop: ShopState | null = null;
@@ -146,8 +155,10 @@ export class Net {
   rift: { maxTier: number; costBase: number } | null = null;
   /** Open Artificer window (service costs), or null when no artificer panel is open. */
   artificer: { rerollCost: number; unsocketCost: number } | null = null;
-  /** Open banker stash (stored items + capacity), or null when no stash panel is open. */
-  stash: { items: ItemInstance[]; cap: number } | null = null;
+  /** Open banker stash (stored items + capacity + next expand cost), or null when closed. */
+  stash: { items: ItemInstance[]; cap: number; expandCost: number } | null = null;
+  /** Currently-active timed liveops events (for the HUD badge); updated by 'events' packets. */
+  activeEvents: { id: string; name: string; xpBonus?: number; goldBonus?: number }[] = [];
   /** Set when the server rejected our protocol version — show "refresh", stop reconnecting. */
   outdated = false;
   /** Bumped whenever a new authoritative 'you' arrives — drives client reconciliation. */
@@ -427,6 +438,9 @@ export class Net {
           y: msg.y,
           ackSeq: msg.ackSeq,
           moveMul: msg.moveMul,
+          kills: msg.kills,
+          bossKills: msg.bossKills,
+          deathlessStreak: msg.deathlessStreak,
         };
         this.authRev++;
         break;
@@ -437,11 +451,15 @@ export class Net {
           this.shop = { vendor: String(msg.vendor ?? 'Vendor'), stock: msg.stock.slice(0, 60) };
         }
         break;
+      case 'events':
+        this.activeEvents = Array.isArray(msg.active) ? msg.active.slice(0, 8) : [];
+        break;
       case 'stash':
         // Defensive: a malformed/hostile 'stash' message can't crash the panel.
         this.stash = {
           items: Array.isArray(msg.items) ? msg.items.slice(0, 200) : [],
           cap: typeof msg.cap === 'number' ? msg.cap : 0,
+          expandCost: typeof msg.expandCost === 'number' ? msg.expandCost : 0,
         };
         break;
       case 'party':

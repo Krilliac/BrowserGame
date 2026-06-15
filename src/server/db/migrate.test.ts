@@ -28,6 +28,19 @@ describe('content DB migration', () => {
     expect(row.sprite_tint).toBe('#ffffff');
   });
 
+  it('adds the game_events gold_bonus column to an older table (migration #2)', () => {
+    const db = new BetterSqlite3(':memory:');
+    // Simulate a pre-gold-bonus game_events table.
+    db.exec(`CREATE TABLE game_events (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, period_min INTEGER NOT NULL,
+      length_min INTEGER NOT NULL, xp_bonus REAL, announce TEXT);`);
+    migrate(db);
+    const cols = new Set(
+      (db.prepare('PRAGMA table_info(game_events)').all() as { name: string }[]).map((r) => r.name),
+    );
+    expect(cols.has('gold_bonus')).toBe(true);
+  });
+
   it('is a no-op when the table is absent', () => {
     const db = new BetterSqlite3(':memory:');
     expect(() => migrate(db)).not.toThrow();

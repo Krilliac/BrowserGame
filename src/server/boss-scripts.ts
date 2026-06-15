@@ -28,6 +28,25 @@ export type BossStep =
 
 export type SummonStep = Extract<BossStep, { kind: 'summon' }>;
 
+/** A scripted boss enters soft-enrage after this long in a single fight (ms). */
+export const ENRAGE_AFTER_MS = 90_000;
+/** Past soft-enrage, the boss's outgoing damage climbs this much per second… */
+const ENRAGE_RAMP_PER_SEC = 0.05;
+/** …up to this hard multiplier, so a dragged-out fight becomes a real threat (no infinite kiting). */
+const ENRAGE_MAX = 3;
+
+/**
+ * A scripted boss's outgoing-damage multiplier given how long the current fight has lasted. 1.0 until
+ * {@link ENRAGE_AFTER_MS}, then ramps linearly to {@link ENRAGE_MAX}. Pure — the World tracks the
+ * per-boss fight clock and applies this in mobOutgoing. WHY: apex bosses with big HP pools could
+ * otherwise be safely out-ranged forever; soft-enrage forces a kill window.
+ */
+export function bossEnrageMultiplier(elapsedMs: number): number {
+  const pastSec = (elapsedMs - ENRAGE_AFTER_MS) / 1000;
+  if (pastSec <= 0) return 1;
+  return Math.min(ENRAGE_MAX, 1 + pastSec * ENRAGE_RAMP_PER_SEC);
+}
+
 export interface BossPhase {
   /** The phase is active while hp/maxHp < hpBelow (strict — at exactly full HP, nothing is). */
   hpBelow: number;

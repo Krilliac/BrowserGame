@@ -525,6 +525,7 @@ CREATE TABLE IF NOT EXISTS game_events (
   period_min  INTEGER NOT NULL,        -- recurrence cadence (minutes)
   length_min  INTEGER NOT NULL,        -- occurrence duration (minutes)
   xp_bonus    REAL,                    -- nullable; fractional XP boost while active (0.5 = +50%)
+  gold_bonus  REAL,                    -- nullable; fractional gold-drop boost while active (0.5 = +50%)
   announce    TEXT                     -- nullable; chat line broadcast when an occurrence begins
 );
 

@@ -33,7 +33,12 @@ import { createEnginePanel } from './engine-panel.js';
 import { Predictor } from './predictor.js';
 import { blockersForDecor } from '../shared/collision.js';
 import { drawBelt } from './belt.js';
-import { ATTRIBUTE_KEYS, ATTRIBUTE_LABELS, ATTRIBUTE_EFFECTS } from '../shared/attributes.js';
+import {
+  ATTRIBUTE_KEYS,
+  ATTRIBUTE_LABELS,
+  ATTRIBUTE_EFFECTS,
+  BASE_ATTRIBUTE,
+} from '../shared/attributes.js';
 import { drawSkillTree, type SkillTreeButton } from './skilltree-panel.js';
 import { installErrorTrap, getLatestError } from './error-trap.js';
 import { clampPanelRect } from './ui-guard.js';
@@ -276,12 +281,21 @@ const socketRects: { itemId: string; x: number; y: number; w: number; h: number 
 const shopRects: { itemId: string; x: number; y: number; w: number; h: number }[] = [];
 let shopSellRect: { x: number; y: number; w: number; h: number } | null = null;
 let shopCloseRect: { x: number; y: number; w: number; h: number } | null = null;
+// "Sell all" arms on the first click and only fires on a second click within this window — a guard so
+// a stray tap can't dump unequipped gear to the vendor.
+let sellArmedUntil = 0;
 let shopPanelRect: { x: number; y: number; w: number; h: number } | null = null;
+// Help / keybind overlay: open with H — lists keys, mouse interactions, and chat commands.
+let helpOpen = false;
 // Character panel (paper doll): open with C; each slot box is a click target to unequip.
 let charOpen = false;
 const charSlotRects: { slot: string; x: number; y: number; w: number; h: number }[] = [];
 const attrButtonRects: { attr: string; x: number; y: number; w: number; h: number }[] = [];
 let charPanelRect: { x: number; y: number; w: number; h: number } | null = null;
+let respecButtonRect: { x: number; y: number; w: number; h: number } | null = null;
+// Respec wipes the whole build for gold, so (like Sell-all) it arms on the first click and only fires
+// on a second click within this window.
+let respecArmedUntil = 0;
 
 // Quest log panel: open with L; available quests have an "Accept" click target.
 let questOpen = false;
@@ -319,6 +333,27 @@ let bannerArea = '';
 let bannerName = '';
 let bannerUntil = 0;
 let lastContentRev = 0;
+
+// Achievement toast — a celebratory on-screen card when the server announces an unlock. We piggyback
+// on the System chat line ("Achievement unlocked: <Name> — <desc>") so no new protocol is needed.
+const TOAST_MS = 4500;
+let toastTitle = '';
+let toastUntil = 0;
+let toastScanLen = 0;
+
+// Damage flash — a brief red wash when the local player's HP drops (a hit landed), distinct from the
+// sustained low-HP vignette. Tracked by diffing the authoritative hp frame-over-frame.
+let lastHpSeen = -1;
+let hitFlashUntil = 0;
+const HIT_FLASH_MS = 160;
+
+// Legendary-drop toast — celebrate the moment a unique/legendary first lands in the bag. We diff the
+// bag by uid; the first scan just learns the existing uids (no toast for gear you already had).
+const seenGearUids = new Set<number>();
+let seenGearInit = false;
+let dropTitle = '';
+let dropColor = '#ff9a3c';
+let dropUntil = 0;
 
 window.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') {
@@ -372,6 +407,10 @@ window.addEventListener('keydown', (e) => {
     questOpen = false;
     return;
   }
+  if (e.key === 'Escape' && helpOpen) {
+    helpOpen = false;
+    return;
+  }
   if (e.key === 'Escape' && (partyOpen || socialOpen || waypointOpen || inventoryOpen)) {
     partyOpen = false;
     socialOpen = false;
@@ -400,6 +439,8 @@ window.addEventListener('keydown', (e) => {
     waypointOpen = !waypointOpen; // toggle the waypoint / fast-travel map
   } else if (e.key.toLowerCase() === 'i') {
     inventoryOpen = !inventoryOpen; // toggle the full inventory
+  } else if (e.key.toLowerCase() === 'h') {
+    helpOpen = !helpOpen; // toggle the help / keybind overlay
   } else if (e.key.toLowerCase() === 'k') {
     skillOpen = !skillOpen; // toggle the passive skill tree
   } else if (e.key === '=' || e.key === '+') {
@@ -451,6 +492,16 @@ window.addEventListener('pointerdown', (e) => {
     const ab = attrButtonRects.find((b) => inRect(e.clientX, e.clientY, b));
     if (ab) {
       net.sendAllocateAttr(ab.attr);
+      return;
+    }
+    if (respecButtonRect && inRect(e.clientX, e.clientY, respecButtonRect)) {
+      const now = performance.now();
+      if (now < respecArmedUntil) {
+        net.sendChat('/respec');
+        respecArmedUntil = 0;
+      } else {
+        respecArmedUntil = now + 3000; // first click arms; a second within 3s confirms
+      }
       return;
     }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
@@ -560,6 +611,8 @@ function handleInventoryClick(x: number, y: number): boolean {
   if (!btn) return false;
   if (btn.action === 'close') inventoryOpen = false;
   else if (btn.action === 'equip' && btn.uid !== undefined) net.sendEquip(btn.uid);
+  else if (btn.action === 'sort') net.sendChat('/sort');
+  else if (btn.action === 'salvageJunk') net.sendChat('/salvageall');
   return true;
 }
 
@@ -591,6 +644,7 @@ function handleStashClick(x: number, y: number): boolean {
   if (btn.action === 'close') net.stash = null;
   else if (btn.action === 'deposit' && btn.uid !== undefined) net.sendStashDeposit(btn.uid);
   else if (btn.action === 'withdraw' && btn.uid !== undefined) net.sendStashWithdraw(btn.uid);
+  else if (btn.action === 'expand') net.sendChat('/expandstash');
   return true;
 }
 
@@ -649,7 +703,13 @@ function handleShopClick(x: number, y: number): boolean {
     return true;
   }
   if (shopSellRect && inRect(x, y, shopSellRect)) {
-    net.sendSell();
+    const now = performance.now();
+    if (now < sellArmedUntil) {
+      net.sendSell();
+      sellArmedUntil = 0;
+    } else {
+      sellArmedUntil = now + 3000; // first click arms; a second within 3s confirms
+    }
     return true;
   }
   const row = shopRects.find((s) => inRect(x, y, s));
@@ -729,6 +789,16 @@ gameCanvas.addEventListener('pointerdown', (e) => {
     const ab = attrButtonRects.find((b) => inRect(e.clientX, e.clientY, b));
     if (ab) {
       net.sendAllocateAttr(ab.attr);
+      return;
+    }
+    if (respecButtonRect && inRect(e.clientX, e.clientY, respecButtonRect)) {
+      const now = performance.now();
+      if (now < respecArmedUntil) {
+        net.sendChat('/respec');
+        respecArmedUntil = 0;
+      } else {
+        respecArmedUntil = now + 3000; // first click arms; a second within 3s confirms
+      }
       return;
     }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
@@ -1160,6 +1230,7 @@ function frame(): void {
   hudDirty = false;
   lastHudDrawAt = now;
   drawHud();
+  if (helpOpen) drawHelpPanel();
   if (charOpen) drawCharacterPanel();
   if (questOpen) drawQuestPanel();
   else {
@@ -1231,6 +1302,7 @@ function frame(): void {
         stash: net.stash.items,
         cap: net.stash.cap,
         bagCap: MAX_BAG_GEAR,
+        expandCost: net.stash.expandCost,
         nameOf: instLabel,
       },
     );
@@ -1382,6 +1454,7 @@ function drawCharSlot(slot: string, bx: number, by: number, bw: number, bh: numb
 function drawCharacterPanel(): void {
   charSlotRects.length = 0;
   attrButtonRects.length = 0;
+  respecButtonRect = null;
   const pw = 384;
   const ph = 566;
   const px = 20;
@@ -1465,6 +1538,33 @@ function drawCharacterPanel(): void {
     hud.fillText('+', btn.x + 12, btn.y + 15);
   });
 
+  // Respec button — refund every allocated attribute + skill point for gold. Enabled (clickable) only
+  // when there's something to refund AND the player can afford it; otherwise it's drawn dimmed.
+  const allocated =
+    ATTRIBUTE_KEYS.some((k) => net.you.attributes[k] > BASE_ATTRIBUTE) || net.you.skills.length > 0;
+  const respecCost = net.you.level * 50; // mirrors RESPEC_COST_PER_LEVEL on the server
+  const canRespec = allocated && net.you.gold >= respecCost;
+  const rbW = 160;
+  const rbH = 24;
+  const rbX = px + pw / 2 - rbW / 2;
+  const rbY = py + ph - 44;
+  if (canRespec) respecButtonRect = { x: rbX, y: rbY, w: rbW, h: rbH };
+  else respecArmedUntil = 0; // can't confirm a respec you can't afford
+  const respecArmed = canRespec && performance.now() < respecArmedUntil;
+  hud.fillStyle = respecArmed
+    ? 'rgba(200,60,60,0.85)'
+    : canRespec
+      ? 'rgba(201,162,75,0.18)'
+      : 'rgba(255,255,255,0.04)';
+  hud.fillRect(rbX, rbY, rbW, rbH);
+  hud.strokeStyle = respecArmed ? '#ff8a6a' : canRespec ? '#c9a24b' : 'rgba(201,162,75,0.25)';
+  hud.lineWidth = 1;
+  hud.strokeRect(rbX, rbY, rbW, rbH);
+  hud.fillStyle = respecArmed ? '#fff' : canRespec ? '#e7d9b0' : '#6b707a';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  hud.textAlign = 'center';
+  hud.fillText(respecArmed ? 'Confirm respec?' : `Respec  ${respecCost}g`, rbX + rbW / 2, rbY + 16);
+
   // Active item-set progress — the bonuses themselves already fold into the Power/Crit/Max HP totals
   // above; this line surfaces WHICH sets you're building and how close they are to the next threshold.
   const eqBaseIds = new Set(
@@ -1482,7 +1582,118 @@ function drawCharacterPanel(): void {
     hud.fillText(`Sets: ${sets.join(' · ')}`, px + 14, py + ph - 12);
   }
 
+  // Lifetime kills + the current deathless streak — bragging rights, bottom-right of the sheet.
+  hud.textAlign = 'right';
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillStyle = '#cfd3da';
+  hud.fillText(
+    `Kills ${net.you.kills}   Bosses ${net.you.bossKills}   Streak ${net.you.deathlessStreak}`,
+    px + pw - 14,
+    py + ph - 12,
+  );
+
   hud.textAlign = 'left';
+}
+
+/** Brief full-screen red flash the instant the local player takes damage (HP dropped since last frame). */
+function drawHitFlash(w: number, h: number): void {
+  const now = performance.now();
+  const hp = net.you.hp;
+  // Arm the flash on any HP decrease (but not on the first frame, respawn, or while dead).
+  if (lastHpSeen >= 0 && hp < lastHpSeen && !net.you.dead) hitFlashUntil = now + HIT_FLASH_MS;
+  lastHpSeen = hp;
+
+  const left = hitFlashUntil - now;
+  if (left <= 0) return;
+  const alpha = 0.18 * (left / HIT_FLASH_MS); // fade out over the window
+  hud.fillStyle = `rgba(200,30,30,${alpha.toFixed(3)})`;
+  hud.fillRect(0, 0, w, h);
+}
+
+/**
+ * Danger vignette: a red edge-darkening that fades in below 30% HP and intensifies (with a faint
+ * heartbeat pulse) as health drops, so the player feels the threat without watching the HP bar.
+ * Purely client-side from the authoritative hp/maxHp; hidden while dead (the death overlay takes over).
+ */
+function drawLowHpVignette(w: number, h: number): void {
+  if (net.you.dead || net.you.maxHp <= 0) return;
+  const frac = net.you.hp / net.you.maxHp;
+  if (frac >= 0.3) return;
+  const t = 1 - frac / 0.3; // 0 at the 30% threshold → 1 at empty
+  const pulse = 0.85 + 0.15 * Math.sin(performance.now() / 180);
+  const alpha = Math.min(0.5, 0.12 + t * 0.38) * pulse;
+  const grad = hud.createRadialGradient(
+    w / 2,
+    h / 2,
+    Math.min(w, h) * 0.32,
+    w / 2,
+    h / 2,
+    Math.max(w, h) * 0.62,
+  );
+  grad.addColorStop(0, 'rgba(120,0,0,0)');
+  grad.addColorStop(1, `rgba(120,0,0,${alpha.toFixed(3)})`);
+  hud.fillStyle = grad;
+  hud.fillRect(0, 0, w, h);
+}
+
+/** Top-center badges for active timed liveops events (Golden Hour, Bloodmoon, …). Hidden when none. */
+function drawEventBadges(w: number): void {
+  const evs = net.activeEvents;
+  if (evs.length === 0) return;
+  hud.save();
+  hud.textAlign = 'center';
+  hud.font = 'bold 12px system-ui, sans-serif';
+  let y = 20;
+  for (const e of evs) {
+    const bonuses: string[] = [];
+    if (e.goldBonus) bonuses.push(`+${Math.round(e.goldBonus * 100)}% gold`);
+    if (e.xpBonus) bonuses.push(`+${Math.round(e.xpBonus * 100)}% XP`);
+    const label = bonuses.length > 0 ? `★ ${e.name}  ${bonuses.join(' · ')}` : `★ ${e.name}`;
+    const tw = hud.measureText(label).width;
+    hud.fillStyle = 'rgba(40,30,8,0.7)';
+    hud.fillRect(w / 2 - tw / 2 - 8, y - 12, tw + 16, 18);
+    hud.fillStyle = '#f2c14e';
+    hud.fillText(label, w / 2, y + 1);
+    y += 22;
+  }
+  hud.restore();
+}
+
+/**
+ * Always-on HUD tracker for active quests (top-left): a compact "▸ Name  progress/target" line per
+ * active objective, so the player sees what to do without opening the full log (L). Hidden when no
+ * quest is active; never shown while the full quest panel is open (avoids doubling up).
+ */
+function drawQuestTracker(): void {
+  if (questOpen) return;
+  const active = (net.you.quests ?? []).filter((q) => q.status === 'active').slice(0, 3);
+  if (active.length === 0) return;
+
+  const x = 12;
+  let y = 86;
+  const lineH = 16;
+  const boxW = 188;
+  const boxH = 16 + active.length * lineH + 6;
+  hud.fillStyle = 'rgba(8,9,13,0.55)';
+  hud.fillRect(x - 6, y - 12, boxW, boxH);
+
+  hud.textAlign = 'left';
+  hud.font = 'bold 11px system-ui, sans-serif';
+  hud.fillStyle = '#c9a24b';
+  hud.fillText('Quests', x, y);
+  y += lineH;
+  for (const q of active) {
+    const name = q.name.length > 22 ? q.name.slice(0, 21) + '…' : q.name;
+    const prog = `${Math.min(q.progress, q.targetCount)}/${q.targetCount}`;
+    hud.font = '11px system-ui, sans-serif';
+    const done = q.progress >= q.targetCount;
+    hud.fillStyle = done ? '#9be09b' : '#e7d9b0'; // green once the objective is met (go turn it in)
+    hud.fillText(`▸ ${name}`, x, y);
+    hud.textAlign = 'right';
+    hud.fillText(prog, x + boxW - 12, y);
+    hud.textAlign = 'left';
+    y += lineH;
+  }
 }
 
 /** The quest log (toggle with L). Active quests show progress bars; available ones an Accept button. */
@@ -1669,16 +1880,22 @@ function drawShopPanel(): void {
     hud.fillText(`${entry.price}g`, px + pw - 16, ry + 17);
   });
 
-  // Sell-all button along the bottom (the old E-to-sell behavior, now explicit).
+  // Sell-all button along the bottom (the old E-to-sell behavior, now explicit). Two-click confirm:
+  // the first click arms it (brighter + warning label) so a stray tap can't dump spare gear.
   shopSellRect = { x: px + 14, y: py + ph - 32, w: pw - 28, h: 24 };
-  hud.fillStyle = 'rgba(120,60,60,0.5)';
+  const sellArmed = performance.now() < sellArmedUntil;
+  hud.fillStyle = sellArmed ? 'rgba(200,60,60,0.85)' : 'rgba(120,60,60,0.5)';
   hud.fillRect(shopSellRect.x, shopSellRect.y, shopSellRect.w, shopSellRect.h);
-  hud.strokeStyle = 'rgba(201,162,75,0.5)';
+  hud.strokeStyle = sellArmed ? '#ff8a6a' : 'rgba(201,162,75,0.5)';
   hud.strokeRect(shopSellRect.x, shopSellRect.y, shopSellRect.w, shopSellRect.h);
-  hud.fillStyle = '#e7d9b0';
+  hud.fillStyle = sellArmed ? '#fff' : '#e7d9b0';
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'center';
-  hud.fillText('Sell all loot & spare gear', px + pw / 2, shopSellRect.y + 16);
+  hud.fillText(
+    sellArmed ? 'Click again to confirm sale' : 'Sell all loot & spare gear',
+    px + pw / 2,
+    shopSellRect.y + 16,
+  );
 }
 
 /** Dim the scene and show an animated "Reconnecting…" overlay while the socket is down. */
@@ -1728,6 +1945,66 @@ function drawErrorBadge(): void {
  * MMO-style portrait up top — name, level, and a live health bar — so the selection is visible.
  * `targetMob()` self-clears when the target dies or leaves, so the frame disappears with it.
  */
+/** Help / keybind overlay (toggle H): keys, mouse interactions, and chat commands in one place. */
+function drawHelpPanel(): void {
+  const lines: { head?: string; text?: string }[] = [
+    { head: 'Move & fight' },
+    { text: 'Left-click ground — walk there' },
+    { text: 'Left-click an enemy — target it (auto-walk + auto-attack)' },
+    { text: '1–6 — cast hotbar spell · scroll the bar to rotate spells' },
+    { text: 'Q — health potion · R — mana potion' },
+    { head: 'Panels' },
+    { text: 'C Character · I Inventory · L Quests · K Skills' },
+    { text: 'P Party · F Friends · M Map/Waypoints · E Interact' },
+    { text: '+ / − Zoom · H this help · Esc close' },
+    { head: 'Loot & crafting' },
+    { text: 'Bag: click = equip · Shift-click = salvage into materials' },
+    { text: 'Set pieces show a green ◆ tag; set progress is in Character (C)' },
+    { head: 'Chat commands (press Enter, then type)' },
+    { text: '/ladder [level|gold|kills|streak] · /achievements · /bestiary · /events' },
+    { text: '/recipes · /craft <id> · /salvageall · /sort · /respec · /expandstash' },
+    { text: '/who · /friend <name> · /w <name> <msg> · /help' },
+  ];
+  const pw = 470;
+  const lh = 17;
+  const headPad = 9;
+  let ph = 56;
+  for (const l of lines) ph += l.head ? lh + headPad : lh;
+  const px = Math.round(hudCanvas.width / 2 - pw / 2);
+  const py = Math.round(hudCanvas.height / 2 - ph / 2);
+
+  hud.fillStyle = 'rgba(8,9,13,0.95)';
+  hud.fillRect(px, py, pw, ph);
+  hud.strokeStyle = '#c9a24b';
+  hud.lineWidth = 2;
+  hud.strokeRect(px, py, pw, ph);
+
+  hud.textAlign = 'left';
+  hud.fillStyle = '#e7d9b0';
+  hud.font = 'bold 15px system-ui, sans-serif';
+  hud.fillText('Help & Controls', px + 16, py + 26);
+  hud.textAlign = 'right';
+  hud.fillStyle = '#8a8f99';
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillText('H or Esc to close', px + pw - 16, py + 26);
+
+  let y = py + 50;
+  hud.textAlign = 'left';
+  for (const l of lines) {
+    if (l.head) {
+      y += headPad;
+      hud.font = 'bold 12px system-ui, sans-serif';
+      hud.fillStyle = '#c9a24b';
+      hud.fillText(l.head, px + 16, y);
+    } else {
+      hud.font = '12px system-ui, sans-serif';
+      hud.fillStyle = '#cfd3da';
+      hud.fillText(l.text ?? '', px + 22, y);
+    }
+    y += lh;
+  }
+}
+
 function drawTargetFrame(): void {
   const t = targetMob();
   if (!t) return;
@@ -1769,13 +2046,45 @@ function drawTargetFrame(): void {
     '#b33',
     `${Math.ceil(t.hp)} / ${t.maxHp}`,
   );
+
+  // Status badges (top-right): the slows/burns/weakens your spells + procs apply, made visible on
+  // the target. Flag bits match the snapshot's monster-debuff bits (1=slow, 2=burn, 4=weaken).
+  const flags = t.flags ?? 0;
+  const badges = [
+    { on: (flags & 1) !== 0, label: 'Slow', color: '#6fb4ff' },
+    { on: (flags & 2) !== 0, label: 'Burn', color: '#ff8a3a' },
+    { on: (flags & 4) !== 0, label: 'Weak', color: '#c77dff' },
+  ];
+  hud.font = 'bold 9px system-ui, sans-serif';
+  hud.textAlign = 'right';
+  let bx = fx + fw - 8;
+  for (const b of badges) {
+    if (!b.on) continue;
+    const bwid = hud.measureText(b.label).width + 8;
+    bx -= bwid;
+    hud.fillStyle = 'rgba(0,0,0,0.45)';
+    hud.fillRect(bx, fy + 6, bwid, 13);
+    hud.fillStyle = b.color;
+    hud.fillText(b.label, bx + bwid - 4, fy + 16);
+    bx -= 4;
+  }
+  hud.textAlign = 'left';
 }
 
 function drawHud(): void {
   const w = hudCanvas.width;
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
+  drawHitFlash(w, h);
+  drawLowHpVignette(w, h);
   drawTargetFrame();
+  drawQuestTracker();
+  drawEventBadges(w);
+  // Always-visible discoverability hint for the help overlay.
+  hud.font = '10px system-ui, sans-serif';
+  hud.fillStyle = 'rgba(180,170,140,0.5)';
+  hud.textAlign = 'left';
+  hud.fillText('H Help', 10, h - 10);
 
   const slot = 52;
   const gap = 10;
@@ -1789,10 +2098,22 @@ function drawHud(): void {
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'left';
   hud.fillStyle = '#e7d9b0';
-  hud.fillText(`Lv ${net.you.level}`, panelX, h - 98);
+  // Lv + XP progress to the next level (the thin XP bar below has no room for a number).
+  const xpPct = net.you.xpNext > 0 ? Math.floor((net.you.xpInto / net.you.xpNext) * 100) : 100;
+  hud.fillText(`Lv ${net.you.level} · ${xpPct}%`, panelX, h - 98);
   hud.textAlign = 'right';
   hud.fillStyle = '#f2c14e';
   hud.fillText(`${net.you.gold} gold`, panelX + panelW, h - 98);
+
+  // Deathless-streak badge — centered between Lv and gold, only once the streak is worth bragging
+  // about (≥5). The color heats up as it climbs, and it vanishes the instant a death resets it.
+  const streak = net.you.deathlessStreak;
+  if (streak >= 5 && !net.you.dead) {
+    const color = streak >= 50 ? '#ff5640' : streak >= 20 ? '#ff9a3c' : '#ffd24a';
+    hud.textAlign = 'center';
+    hud.fillStyle = color;
+    hud.fillText(`Streak ${streak}`, panelX + panelW / 2, h - 98);
+  }
   hud.textAlign = 'left';
 
   drawBar(panelX, h - 92, panelW, 9, net.you.hp / net.you.maxHp, '#b33', `HP ${net.you.hp}`);
@@ -1830,6 +2151,16 @@ function drawHud(): void {
         const frac = Math.min(1, remaining / ability.cooldownMs);
         hud.fillStyle = 'rgba(0,0,0,0.6)';
         hud.fillRect(x, slotsY + slot * (1 - frac), slot, slot * frac);
+        // Seconds remaining, centered — exact time-to-ready (1 decimal under 10s, whole seconds above).
+        const secs = remaining / 1000;
+        hud.fillStyle = '#fff';
+        hud.font = 'bold 14px system-ui, sans-serif';
+        hud.textAlign = 'center';
+        hud.fillText(
+          secs >= 10 ? String(Math.ceil(secs)) : secs.toFixed(1),
+          x + slot / 2,
+          slotsY + slot / 2 + 5,
+        );
       }
 
       hud.fillStyle = '#fff';
@@ -1951,6 +2282,10 @@ function drawHud(): void {
   }
 
   drawAreaBanner(w, h);
+  scanAchievementToasts(performance.now());
+  drawAchievementToast(w, h);
+  scanLegendaryDrops(performance.now());
+  drawLegendaryToast(w, h);
 
   if (net.you.dead) {
     hud.fillStyle = 'rgba(0,0,0,0.55)';
@@ -1961,6 +2296,111 @@ function drawHud(): void {
     const secs = Math.max(0, net.you.respawnIn / 1000).toFixed(1);
     hud.fillText(`You died — respawning in ${secs}s`, w / 2, h / 2);
   }
+}
+
+const ACHIEVEMENT_PREFIX = 'Achievement unlocked:';
+
+/** Watch new System chat lines for achievement unlocks and arm a toast for the most recent one. */
+function scanAchievementToasts(now: number): void {
+  // chat may have shifted off old lines (capped buffer); if it shrank, just resync the cursor.
+  if (net.chat.length < toastScanLen) toastScanLen = net.chat.length;
+  for (let i = toastScanLen; i < net.chat.length; i++) {
+    const line = net.chat[i];
+    if (line && line.from === 'System' && line.text.startsWith(ACHIEVEMENT_PREFIX)) {
+      // "Achievement unlocked: <Name> — <desc>" → keep just the name for the card.
+      const rest = line.text.slice(ACHIEVEMENT_PREFIX.length).trim();
+      toastTitle = rest.split(' — ')[0] ?? rest;
+      toastUntil = now + TOAST_MS;
+    }
+  }
+  toastScanLen = net.chat.length;
+}
+
+function drawAchievementToast(w: number, h: number): void {
+  const now = performance.now();
+  const left = toastUntil - now;
+  if (left <= 0 || !toastTitle) return;
+  // Ease in over 300ms, hold, ease out over the last 800ms.
+  const elapsed = TOAST_MS - left;
+  const alpha = Math.min(1, Math.min(elapsed / 300, left / 800));
+  const cx = w / 2;
+  const y = h * 0.12;
+
+  hud.save();
+  hud.globalAlpha = alpha;
+  hud.textAlign = 'center';
+
+  const header = '★ Achievement Unlocked';
+  hud.font = 'bold 26px system-ui, sans-serif';
+  const titleW = hud.measureText(toastTitle).width;
+  hud.font = '13px system-ui, sans-serif';
+  const headW = hud.measureText(header).width;
+  const boxW = Math.max(titleW, headW) + 48;
+  const boxH = 60;
+
+  hud.fillStyle = 'rgba(20,16,8,0.82)';
+  hud.fillRect(cx - boxW / 2, y - 22, boxW, boxH);
+  hud.strokeStyle = 'rgba(201,162,75,0.9)';
+  hud.lineWidth = 2;
+  hud.strokeRect(cx - boxW / 2, y - 22, boxW, boxH);
+
+  hud.fillStyle = '#c9a24b';
+  hud.font = '13px system-ui, sans-serif';
+  hud.fillText(header, cx, y - 4);
+  hud.fillStyle = '#f3e6bf';
+  hud.font = 'bold 26px system-ui, sans-serif';
+  hud.fillText(toastTitle, cx, y + 24);
+  hud.restore();
+}
+
+/** Watch the bag for a newly-arrived unique/legendary and arm the drop toast for it. */
+function scanLegendaryDrops(now: number): void {
+  for (const inst of net.you.gear) {
+    if (seenGearUids.has(inst.uid)) continue;
+    seenGearUids.add(inst.uid);
+    // First pass only learns what's already in the bag — don't toast gear you logged in holding.
+    if (seenGearInit && (inst.rarity === 'unique' || inst.rarity === 'legendary')) {
+      dropTitle = instLabel(inst);
+      dropColor = rarityColor(inst.rarity);
+      dropUntil = now + TOAST_MS;
+    }
+  }
+  seenGearInit = true;
+}
+
+function drawLegendaryToast(w: number, h: number): void {
+  const now = performance.now();
+  const left = dropUntil - now;
+  if (left <= 0 || !dropTitle) return;
+  const elapsed = TOAST_MS - left;
+  const alpha = Math.min(1, Math.min(elapsed / 300, left / 800));
+  const cx = w / 2;
+  const y = h * 0.2; // below the achievement toast (0.12) so both can show at once
+
+  hud.save();
+  hud.globalAlpha = alpha;
+  hud.textAlign = 'center';
+
+  const header = '✦ Legendary Drop';
+  hud.font = 'bold 24px system-ui, sans-serif';
+  const titleW = hud.measureText(dropTitle).width;
+  hud.font = '13px system-ui, sans-serif';
+  const headW = hud.measureText(header).width;
+  const boxW = Math.max(titleW, headW) + 48;
+  const boxH = 58;
+
+  hud.fillStyle = 'rgba(22,12,4,0.84)';
+  hud.fillRect(cx - boxW / 2, y - 22, boxW, boxH);
+  hud.strokeStyle = dropColor;
+  hud.lineWidth = 2;
+  hud.strokeRect(cx - boxW / 2, y - 22, boxW, boxH);
+
+  hud.fillStyle = dropColor;
+  hud.font = '13px system-ui, sans-serif';
+  hud.fillText(header, cx, y - 4);
+  hud.font = 'bold 24px system-ui, sans-serif';
+  hud.fillText(dropTitle, cx, y + 24);
+  hud.restore();
 }
 
 function drawAreaBanner(w: number, h: number): void {
@@ -2002,12 +2442,15 @@ function instLabel(inst: ItemInstance): string {
   return instanceTitle(inst, net.content.item(inst.baseId)?.name ?? prettyItem(inst.baseId));
 }
 
-/** Stat segments for a gear instance: base stat(s) then affixes, flagging debuffs for red text. */
-function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean }[] {
-  const segs: { text: string; debuff: boolean }[] = [];
+/** Stat segments for a gear instance: base stat(s), affixes (debuffs in red), then a set tag if any. */
+function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean; color?: string }[] {
+  const segs: { text: string; debuff: boolean; color?: string }[] = [];
   if (inst.power > 0) segs.push({ text: `+${inst.power} pow`, debuff: false });
   if (inst.hp > 0) segs.push({ text: `+${inst.hp} hp`, debuff: false });
   for (const a of inst.affixes) segs.push({ text: affixLabel(a as Affix), debuff: isDebuff(a) });
+  // Set tag: mark items that belong to an item set (green), so you can spot set pieces while looting.
+  const set = ITEM_SETS.find((s) => s.pieces.includes(inst.baseId));
+  if (set) segs.push({ text: `◆ ${set.name}`, debuff: false, color: '#9be09b' });
   return segs;
 }
 
@@ -2100,15 +2543,27 @@ function drawMinimap(w: number): void {
     }
     for (const e of entities) {
       if (e.id === net.selfId) continue;
-      const color =
-        e.kind === 'mob'
-          ? '#e05555'
-          : e.kind === 'player'
-            ? '#5fa8e0'
-            : e.kind === 'item'
-              ? '#f2c14e'
-              : '';
-      if (color) plot(e.x - self.x, e.y - self.y, color, 3, false);
+      // NPCs are squares so they read distinctly from round mob/player blips; quest-givers go gold so
+      // the player can spot where to pick up quests at a glance.
+      let color = '';
+      let square = false;
+      let r = 3;
+      if (e.kind === 'mob') {
+        // The current target glows white so you can track it; elites/champions are orange + larger.
+        if (e.id === targetId) {
+          color = '#ffffff';
+          r = 4;
+        } else {
+          color = e.elite ? '#ff9a3c' : '#e05555';
+          if (e.elite) r = 4;
+        }
+      } else if (e.kind === 'player') color = '#5fa8e0';
+      else if (e.kind === 'item') color = '#f2c14e';
+      else if (e.kind === 'npc') {
+        color = e.npcKind === 'questgiver' ? '#ffd24a' : '#7fe07f';
+        square = true;
+      }
+      if (color) plot(e.x - self.x, e.y - self.y, color, r, square);
     }
     hud.fillStyle = '#c9a24b';
     hud.beginPath();
@@ -2116,6 +2571,16 @@ function drawMinimap(w: number): void {
     hud.fill();
   }
   hud.restore();
+
+  // Persistent area name above the minimap — the entry banner fades, so this keeps the player oriented.
+  const areaName = net.content.area(net.areaId)?.name;
+  if (areaName) {
+    hud.textAlign = 'center';
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.fillStyle = '#c9a24b';
+    hud.fillText(areaName, cx, 40);
+    hud.textAlign = 'left';
+  }
 
   hud.strokeStyle = 'rgba(201,162,75,0.7)';
   hud.lineWidth = 2;
@@ -2148,6 +2613,15 @@ function drawInventory(w: number): void {
     px + 8,
     py + 15,
   );
+  // Unspent attribute/skill points are easy to forget — nudge with the keys that open the panels.
+  const unspentPoints = net.you.attrPoints + net.you.skillPoints;
+  if (unspentPoints > 0) {
+    hud.textAlign = 'right';
+    hud.fillStyle = '#7fe07f';
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.fillText(`● ${unspentPoints} pts (C/K)`, px + pw - 8, py + 15);
+    hud.textAlign = 'left';
+  }
   hud.fillStyle = '#9aa3b2';
   hud.font = '10px system-ui, sans-serif';
   hud.fillText('C char·I bag·L quests·P party·F friends·M map', px + 8, py + 30);
@@ -2174,6 +2648,16 @@ function drawInventory(w: number): void {
         ? `Gear · +${total - HUD_GEAR_SHOWN} in bag (I)`
         : 'Gear — tap to equip';
     hud.fillText(title, px + 8, py + 15);
+    // Bag-full warning: a new pickup evicts the oldest item server-side, so warn the player to clear
+    // space (sell at a vendor / salvage junk) before they lose something.
+    if (total >= MAX_BAG_GEAR) {
+      hud.textAlign = 'right';
+      hud.fillStyle = '#ff6b6b';
+      hud.font = 'bold 11px system-ui, sans-serif';
+      hud.fillText('BAG FULL', px + pw - 8, py + 15);
+      hud.textAlign = 'left';
+      hud.font = 'bold 12px system-ui, sans-serif';
+    }
     gear.forEach((inst, i) => {
       const ry = py + 22 + i * rowH;
       bagRects.push({ uid: inst.uid, x: px, y: ry, w: pw, h: rowH });
@@ -2186,7 +2670,7 @@ function drawInventory(w: number): void {
       hud.font = '10px system-ui, sans-serif';
       let sx = px + 8;
       for (const seg of instStatSegments(inst)) {
-        hud.fillStyle = seg.debuff ? '#ff6b6b' : '#9fb0c0';
+        hud.fillStyle = seg.color ?? (seg.debuff ? '#ff6b6b' : '#9fb0c0');
         hud.fillText(seg.text, sx, ry + 23);
         sx += hud.measureText(seg.text).width + 7;
       }
