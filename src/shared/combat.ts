@@ -98,6 +98,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 320,
     projectileTtlMs: 1500,
     radius: 12,
+    behaviors: [{ type: 'splash', radius: 70, scale: 0.5 }],
   },
   arrow: {
     id: 'arrow',
@@ -112,6 +113,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 560,
     projectileTtlMs: 1100,
     radius: 5,
+    behaviors: [{ type: 'pierce', count: 2, falloff: 0.9 }],
   },
   frost: {
     id: 'frost',
@@ -126,6 +128,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 300,
     projectileTtlMs: 1400,
     radius: 10,
+    behaviors: [{ type: 'splash', radius: 50, scale: 0.4 }],
   },
   heal: {
     id: 'heal',
@@ -152,6 +155,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 640,
     projectileTtlMs: 900,
     radius: 8,
+    behaviors: [{ type: 'chain', count: 3, range: 150, falloff: 0.75 }],
   },
   // A heavy sweeping melee — wide arc, big hit, slow swing. The two-hander fantasy.
   cleave: {
@@ -181,6 +185,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 340,
     projectileTtlMs: 1300,
     radius: 9,
+    behaviors: [{ type: 'splash', radius: 60, scale: 0.5 }],
   },
   // The big nuke: slow, expensive, hits hard and sets the target ablaze.
   meteor: {
@@ -196,6 +201,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 300,
     projectileTtlMs: 1500,
     radius: 14,
+    behaviors: [{ type: 'splash', radius: 70, scale: 0.5 }],
   },
 
   // --- Expanded spellbook: elemental (fire / ice / lightning) ---
@@ -226,6 +232,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 500,
     projectileTtlMs: 1100,
     radius: 7,
+    behaviors: [{ type: 'splash', radius: 50, scale: 0.4 }],
   },
   sparkjolt: {
     id: 'sparkjolt',
@@ -254,6 +261,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 440,
     projectileTtlMs: 1300,
     radius: 9,
+    behaviors: [{ type: 'pierce', count: 2, falloff: 0.9 }],
   },
   flamewave: {
     id: 'flamewave',
@@ -307,6 +315,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 760,
     projectileTtlMs: 880,
     radius: 8,
+    behaviors: [{ type: 'chain', count: 3, range: 150, falloff: 0.75 }],
   },
   cinderorb: {
     id: 'cinderorb',
@@ -335,6 +344,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 300,
     projectileTtlMs: 1500,
     radius: 14,
+    behaviors: [{ type: 'splash', radius: 50, scale: 0.4 }],
   },
   thunderlance: {
     id: 'thunderlance',
@@ -349,6 +359,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 820,
     projectileTtlMs: 820,
     radius: 9,
+    behaviors: [{ type: 'chain', count: 3, range: 150, falloff: 0.75 }],
   },
   infernonova: {
     id: 'infernonova',
@@ -378,6 +389,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 340,
     projectileTtlMs: 1500,
     radius: 10,
+    behaviors: [{ type: 'splash', radius: 60, scale: 0.5 }],
   },
   shadow_bolt: {
     id: 'shadow_bolt',
@@ -729,6 +741,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 600,
     projectileTtlMs: 950,
     radius: 12,
+    behaviors: [{ type: 'return', falloff: 0.8 }],
   },
   // Mire Mortar: a slow, heavy glob lobbed in a lazy arc — big splat, mid-game crowd softener.
   mire_mortar: {
@@ -814,6 +827,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 860,
     projectileTtlMs: 780,
     radius: 10,
+    behaviors: [{ type: 'pierce', count: 2, falloff: 0.9 }],
   },
   // Starfall: a shard of falling sky — big, bright, and worth the wait.
   starfall: {
