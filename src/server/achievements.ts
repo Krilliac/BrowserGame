@@ -5,13 +5,14 @@
  * has no hidden state. Persistence (the earned set lives in the player save), the unlock check, and
  * a `/achievements` command are wired by the orchestrator elsewhere — not here.
  *
- * WHY these metrics: `level`, `gold`, lifetime `kills`, and `bestiary` (distinct species slain) are
- * stats actually tracked on a character. We deliberately seed only metrics the simulation can satisfy
- * — no *dead* achievements for things (rift tier, area completion) nothing currently records.
+ * WHY these metrics: `level`, `gold`, lifetime `kills`, `bestiary` (distinct species slain), and
+ * `deathless` (current no-death kill streak) are stats actually tracked on a character. We deliberately
+ * seed only metrics the simulation can satisfy — no *dead* achievements for things (rift tier, area
+ * completion) nothing currently records.
  */
 
 /** The character stats an achievement can key off — only metrics that already exist on a character. */
-export type AchievementMetric = 'level' | 'gold' | 'kills' | 'bestiary';
+export type AchievementMetric = 'level' | 'gold' | 'kills' | 'bestiary' | 'deathless';
 
 /**
  * A single milestone. Earned when `stats[metric] >= threshold`. `threshold` is the inclusive bar:
@@ -137,6 +138,21 @@ export const DEFAULT_ACHIEVEMENTS: readonly AchievementDef[] = [
     desc: 'Slay 30 different kinds of monster.',
     metric: 'bestiary',
     threshold: 30,
+  },
+  // Deathless tiers — the current kill streak since the last death; dying resets it to zero.
+  {
+    id: 'deathless_untouchable',
+    name: 'Untouchable',
+    desc: 'Slay 50 monsters without dying.',
+    metric: 'deathless',
+    threshold: 50,
+  },
+  {
+    id: 'deathless_immortal',
+    name: 'Immortal',
+    desc: 'Slay 200 monsters without dying.',
+    metric: 'deathless',
+    threshold: 200,
   },
 ];
 

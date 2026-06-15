@@ -452,6 +452,8 @@ interface Player {
   kills: number;
   /** Distinct monster template ids this character has killed — the bestiary (persisted). */
   bestiary: Set<string>;
+  /** Kills since the last death — the current deathless streak (reset to 0 on death; persisted). */
+  deathlessStreak: number;
   /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
   known: Map<AbilityId, number>;
   /** Area ids this character has visited â€” the waypoint fast-travel list. */
@@ -507,6 +509,8 @@ export interface PlayerSave {
   kills?: number;
   /** Distinct monster template ids killed — the bestiary (absent on old saves — defaults to empty). */
   bestiary?: string[];
+  /** Current deathless streak (kills since last death; absent on old saves — defaults to 0). */
+  deathlessStreak?: number;
   /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
   known?: [string, number][];
   /** Visited area ids (waypoints). Absent on old saves â€” the current area is added on load. */
@@ -2098,6 +2102,7 @@ export class World {
       earnedAchievements: new Set(),
       kills: 0,
       bestiary: new Set(),
+      deathlessStreak: 0,
       known: new Map(STARTER_ABILITIES.map((a) => [a, 1])),
       discovered: new Set([this.areaId]),
       input: { up: false, down: false, left: false, right: false },
@@ -2139,6 +2144,7 @@ export class World {
       earnedAchievements: [...p.earnedAchievements],
       kills: p.kills,
       bestiary: [...p.bestiary],
+      deathlessStreak: p.deathlessStreak,
       known: [...p.known],
       discovered: [...p.discovered],
       hireling: p.hireling,
@@ -2185,6 +2191,7 @@ export class World {
     p.earnedAchievements = new Set(save.earnedAchievements ?? []);
     p.kills = save.kills ?? 0;
     p.bestiary = new Set(save.bestiary ?? []);
+    p.deathlessStreak = save.deathlessStreak ?? 0;
     p.known = restoreKnown(save.known);
     // Carry visited areas across the transfer + always mark the area we just arrived in.
     p.discovered = new Set(save.discovered ?? []);
@@ -3615,6 +3622,7 @@ export class World {
     p.level = newLevel;
     p.kills += 1; // shared-credit: every tagger/party member who is credited counts the kill
     p.bestiary.add(mobTemplateId); // record the species for the bestiary collection
+    p.deathlessStreak += 1; // climbs with every kill; a death snaps it back to 0
     this.recomputeStats(p);
     this.progressQuests(p, mobTemplateId);
     this.checkAchievements(p);
@@ -3631,6 +3639,7 @@ export class World {
         gold: player.gold,
         kills: player.kills,
         bestiary: player.bestiary.size,
+        deathless: player.deathlessStreak,
       },
       player.earnedAchievements,
     );
@@ -3649,6 +3658,7 @@ export class World {
       gold: p.gold,
       kills: p.kills,
       bestiary: p.bestiary.size,
+      deathless: p.deathlessStreak,
     };
     return DEFAULT_ACHIEVEMENTS.map((a) => {
       const cur = stats[a.metric] ?? 0;
@@ -3758,6 +3768,7 @@ export class World {
     if (player.hp <= 0) {
       player.hp = 0;
       player.dead = true;
+      player.deathlessStreak = 0; // a death ends the streak
       player.respawnAt = this.now + PLAYER_RESPAWN_MS;
       this.events.push({ kind: 'death', x: player.x, y: player.y });
       // Every player's death feeds the shared area-wide corruption â€” darker and deadlier for all.

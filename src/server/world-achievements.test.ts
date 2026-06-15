@@ -15,6 +15,7 @@ function save(
   earned: string[],
   kills = 0,
   bestiary: string[] = [],
+  deathlessStreak = 0,
 ): PlayerSave {
   return {
     name: 'Hero',
@@ -33,6 +34,7 @@ function save(
     earnedAchievements: earned,
     kills,
     bestiary,
+    deathlessStreak,
   };
 }
 
@@ -87,5 +89,14 @@ describe('world achievements', () => {
     expect(w.bestiaryStatus(6)[0]).toMatch(/no monsters slain/i);
     w.importPlayer(7, save(5, 0, [], 0, ['goblin', 'skeleton']), 100, 100);
     expect(w.bestiaryStatus(7)[0]).toContain('2 species');
+  });
+
+  it('tracks the deathless streak: persists it and surfaces no-death milestones', () => {
+    const w = world();
+    w.importPlayer(8, save(5, 0, [], 0, [], 60), 100, 100); // 60-kill streak → Untouchable (50) met
+    expect(w.exportPlayer(8)!.deathlessStreak).toBe(60);
+    const lines = w.achievementStatus(8);
+    expect(lines.some((l) => l.startsWith('✓') && l.includes('Untouchable'))).toBe(true);
+    expect(lines.some((l) => l.includes('Immortal') && l.includes('60/200'))).toBe(true);
   });
 });

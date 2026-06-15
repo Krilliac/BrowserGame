@@ -55,8 +55,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 24 | feat(ui) | **Achievement unlock toast** — celebratory on-screen card | green | client-only; piggybacks System "Achievement unlocked:" chat line (no protocol); fades in/out near top |
 
-NEXT (it.25): backend (alternation) — e.g. death/deathless-streak stat, #2 reconnect grace, or
-#15 content-pack discovery. Then client-UX. PUSH soon (commits since it.22 push: it.23 + it.24).
+| 25 | feat | **Deathless streak** — kills since last death → no-death achievements | green | +1 → 1427; Player.deathlessStreak persists; creditKill++, death resets to 0; Untouchable(50)/Immortal(200) |
+
+NEXT (it.26): client-UX (alternation) — e.g. show deathless-streak/kills on the HUD or character
+panel, or a buff/timer strip. Then backend. PUSH after it.25 (it.23/24 already pushed).
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
