@@ -11,7 +11,7 @@ import { RARITY } from '../shared/items.js';
 import { drawItemIcon } from './item-icons.js';
 
 export interface InventoryButton {
-  action: 'equip' | 'close';
+  action: 'equip' | 'close' | 'sort';
   uid?: number; // for 'equip'
   x: number;
   y: number;
@@ -79,6 +79,21 @@ export function drawInventoryPanel(
   hud.font = 'bold 14px system-ui, sans-serif';
   hud.textAlign = 'center';
   hud.fillText('✕', closeRect.x + 10, closeRect.y + 15);
+
+  // Sort button (left of the ✕) — tidies the bag by slot/rarity. Only worth showing with 2+ items.
+  if (gear.length > 1) {
+    const sortRect: InventoryButton = { action: 'sort', x: px + pw - 92, y: py + 6, w: 56, h: 20 };
+    buttons.push(sortRect);
+    hud.fillStyle = 'rgba(201,162,75,0.18)';
+    hud.fillRect(sortRect.x, sortRect.y, sortRect.w, sortRect.h);
+    hud.strokeStyle = '#c9a24b';
+    hud.lineWidth = 1;
+    hud.strokeRect(sortRect.x, sortRect.y, sortRect.w, sortRect.h);
+    hud.fillStyle = '#e7d9b0';
+    hud.font = 'bold 11px system-ui, sans-serif';
+    hud.textAlign = 'center';
+    hud.fillText('Sort', sortRect.x + sortRect.w / 2, sortRect.y + 14);
+  }
 
   hud.fillStyle = '#8a8f99';
   hud.font = '11px system-ui, sans-serif';

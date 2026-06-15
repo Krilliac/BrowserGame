@@ -585,6 +585,7 @@ function handleInventoryClick(x: number, y: number): boolean {
   if (!btn) return false;
   if (btn.action === 'close') inventoryOpen = false;
   else if (btn.action === 'equip' && btn.uid !== undefined) net.sendEquip(btn.uid);
+  else if (btn.action === 'sort') net.sendChat('/sort');
   return true;
 }
 

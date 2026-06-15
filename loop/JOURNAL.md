@@ -77,9 +77,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 35 | feat | **Bag sort** — /sort tidies the bag (slot → rarity → roll → name) | green | +4 → 1440; fresh axis (QoL, not economy); pure shared/bag-sort.ts (DB-free, slotOf injected) + World.sortBag wiring + /sort cmd; reorder ships via `you` packet (no client change needed) |
 
-NEXT (it.36): client-UX (alternation) — candidate: a "Sort" button on the bag UI (server done; bag
-already reorders live via `you`). Then backend. PUSH soon (unpushed: it.35).
-NOTE: it.23–35 all need the dev server to reload its code (no new schema tables) for the user to see
+| 36 | feat(ui) | **Sort button** on the Inventory panel | green | client-only; header button (left of ✕, shown at 2+ items) → /sort; bag reorders live via `you` |
+
+NEXT (it.37): backend (alternation). Then client-UX. PUSH now (it.35 + it.36).
+NOTE: it.23–36 all need the dev server to reload its code (no new schema tables) for the user to see
 them live.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
