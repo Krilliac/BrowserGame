@@ -1,0 +1,64 @@
+<!-- @dsCard group="Type" viewport="700x250" name="Body & lore" subtitle="system-ui HUD body + Spectral lore italic + mono stats" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--surface-panel-solid);
+        padding: 24px 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .lbl {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 10px;
+        letter-spacing: var(--tracking-label);
+        text-transform: uppercase;
+        color: var(--text-label);
+      }
+      .body {
+        font-family: var(--font-body);
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--text-body);
+        max-width: 560px;
+      }
+      .lore {
+        font-family: var(--font-lore);
+        font-style: italic;
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--text-muted);
+        max-width: 560px;
+      }
+      .stat {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        color: var(--text-stat);
+      }
+      .stat .neg {
+        color: var(--danger);
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <div class="lbl">Body · system-ui</div>
+      <div class="body">Walk into a glowing portal to travel between areas. Move with WASD; press 1–4 to cast. The server is authoritative — your client only sends intent.</div>
+    </div>
+    <div>
+      <div class="lbl">Lore · Spectral italic</div>
+      <div class="lore">“Aldermere keeps its lanterns lit against the dark of Gloomwood. Beyond the treeline, the dead do not stay buried.”</div>
+    </div>
+    <div>
+      <div class="lbl">Stats · mono tabular</div>
+      <div class="stat">+14 power &nbsp; +28 hp &nbsp; +5% crit &nbsp; <span class="neg">−30 hp</span></div>
+    </div>
+  </body>
+</html>

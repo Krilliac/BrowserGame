@@ -1,0 +1,88 @@
+<!-- @dsCard group="Brand" viewport="700x220" name="HUD chrome — frames, bars, buttons" subtitle="Original nine-slice: obsidian panels, gold buttons, blood/mana bars" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--ink-900);
+        font-family: var(--font-body);
+        padding: 20px;
+        display: flex;
+        gap: 22px;
+        align-items: center;
+      }
+      .col {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .lbl {
+        font-family: var(--font-mono);
+        font-size: 9px;
+        color: var(--text-faint);
+        margin-top: 4px;
+      }
+      .panel {
+        width: 150px;
+        height: 96px;
+        border-image: url(../../assets/ui/gw_panel.png) 18 fill stretch;
+        border-width: 18px;
+        border-style: solid;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-display);
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        color: var(--text-display);
+        text-transform: uppercase;
+      }
+      .btn {
+        width: 150px;
+        height: 40px;
+        border-image: url(../../assets/ui/gw_button.png) 16 fill stretch;
+        border-width: 16px 24px;
+        border-style: solid;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-display);
+        font-size: 12px;
+        letter-spacing: 0.1em;
+        color: var(--text-display);
+        text-transform: uppercase;
+      }
+      .bar {
+        display: flex;
+        height: 18px;
+        width: 180px;
+      }
+      .bar img {
+        height: 18px;
+        image-rendering: auto;
+      }
+      .bar .mid {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="col">
+      <div class="panel">Inventory</div>
+      <span class="lbl">gw_panel — 9-slice</span>
+    </div>
+    <div class="col">
+      <div class="btn">Equip</div>
+      <span class="lbl">gw_button — 9-slice</span>
+    </div>
+    <div class="col">
+      <div class="bar"><img src="../../assets/ui/gw_bar_back_left.png" alt="" /><img class="mid" src="../../assets/ui/gw_bar_red_mid.png" alt="" /><img src="../../assets/ui/gw_bar_red_right.png" alt="" /></div>
+      <span class="lbl">health — 3-slice fill</span>
+      <div class="bar"><img src="../../assets/ui/gw_bar_back_left.png" alt="" /><img class="mid" src="../../assets/ui/gw_bar_blue_mid.png" alt="" /><img src="../../assets/ui/gw_bar_blue_right.png" alt="" /></div>
+      <span class="lbl">mana — 3-slice fill</span>
+    </div>
+  </body>
+</html>

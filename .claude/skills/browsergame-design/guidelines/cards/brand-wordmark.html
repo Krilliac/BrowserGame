@@ -1,0 +1,76 @@
+<!-- @dsCard group="Brand" viewport="700x300" name="Wordmark — Gloomwood" subtitle="Title-screen lockup: engraved caps, gold rule, lore tagline" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(120% 90% at 50% 8%, #1a1410 0%, var(--ink-950) 60%),
+          var(--ink-950);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        font-family: var(--font-display);
+      }
+      .kicker {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 11px;
+        letter-spacing: 0.5em;
+        text-transform: uppercase;
+        color: var(--gold-600);
+        padding-left: 0.5em;
+      }
+      .mark {
+        font-weight: 900;
+        font-size: 66px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--gold-300);
+        text-shadow: 0 2px 0 #000, 0 0 30px rgba(201, 162, 75, 0.35);
+        padding-left: 0.14em;
+        line-height: 1;
+      }
+      .rule {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--gold-600);
+      }
+      .rule .l {
+        width: 120px;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--gold-600));
+      }
+      .rule .r {
+        width: 120px;
+        height: 1px;
+        background: linear-gradient(90deg, var(--gold-600), transparent);
+      }
+      .rule .d {
+        transform: rotate(45deg);
+        width: 7px;
+        height: 7px;
+        background: var(--gold-500);
+      }
+      .tag {
+        font-family: var(--font-lore);
+        font-style: italic;
+        font-size: 15px;
+        color: var(--text-muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="kicker">BrowserGame</div>
+    <div class="mark">Gloomwood</div>
+    <div class="rule"><span class="l"></span><span class="d"></span><span class="r"></span></div>
+    <div class="tag">The dead do not stay buried.</div>
+  </body>
+</html>

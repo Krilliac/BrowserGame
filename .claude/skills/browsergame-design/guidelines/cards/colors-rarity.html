@@ -1,0 +1,70 @@
+<!-- @dsCard group="Colors" viewport="700x250" name="Loot rarity ladder" subtitle="The emotional core — drop colors, verbatim from items.ts" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--bg-app);
+        font-family: var(--font-body);
+        padding: 22px;
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 12px;
+      }
+      .tier {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .gem {
+        width: 46px;
+        height: 46px;
+        border-radius: 9px;
+        transform: rotate(45deg);
+        border: 2px solid currentColor;
+        box-shadow: 0 0 14px currentColor, inset 0 0 10px rgba(255, 255, 255, 0.25);
+        background: color-mix(in srgb, currentColor 30%, #0b0c10);
+      }
+      .name {
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 12px;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: currentColor;
+      }
+      .hex {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--text-faint);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tier" style="color: var(--rarity-common)">
+      <div class="gem"></div><span class="name">Common</span><span class="hex">#c9c9c9</span>
+    </div>
+    <div class="tier" style="color: var(--rarity-magic)">
+      <div class="gem"></div><span class="name">Magic</span><span class="hex">#6ea8ff</span>
+    </div>
+    <div class="tier" style="color: var(--rarity-rare)">
+      <div class="gem"></div><span class="name">Rare</span><span class="hex">#ffd24a</span>
+    </div>
+    <div class="tier" style="color: var(--rarity-epic)">
+      <div class="gem"></div><span class="name">Epic</span><span class="hex">#c06bff</span>
+    </div>
+    <div class="tier" style="color: var(--rarity-legendary)">
+      <div class="gem"></div><span class="name">Legend</span><span class="hex">#ff7a1a</span>
+    </div>
+    <div class="tier" style="color: var(--rarity-corrupted)">
+      <div class="gem"></div><span class="name">Corrupt</span><span class="hex">#ff2d6f</span>
+    </div>
+    <div class="tier" style="color: var(--rarity-unique)">
+      <div class="gem"></div><span class="name">Unique</span><span class="hex">#bfa05a</span>
+    </div>
+  </body>
+</html>

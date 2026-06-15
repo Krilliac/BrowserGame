@@ -1,0 +1,177 @@
+<!-- @dsCard group="Gloomwood HUD" viewport="980x620" name="In-game HUD" subtitle="The live ARPG screen — orbs, hotbar, loot, inventory & merchant" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gloomwood — HUD</title>
+    <link rel="stylesheet" href="../../styles.css" />
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+    <script src="../../_ds_bundle.js"></script>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #07080b; }
+      #root { position: fixed; inset: 0; font-family: var(--font-body); }
+      .scrim { position: absolute; inset: 0; background: rgba(0,0,0,0.55); display: grid; place-items: center; z-index: 50; backdrop-filter: blur(1px); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel" src="./Scene.jsx"></script>
+    <script type="text/babel" src="./Hud.jsx"></script>
+    <script type="text/babel" src="./InventoryView.jsx"></script>
+    <script type="text/babel" src="./MerchantView.jsx"></script>
+    <script type="text/babel">
+      const { useState, useEffect, useRef } = React;
+
+      // --- demo content ----------------------------------------------------
+      const mkTip = (o) => o;
+      const BAG = [
+        { icon: 'gem-ruby', rarity: 'epic', count: null, tip: mkTip({ name: 'Bloodfire Ruby', rarity: 'epic', itemType: 'Gem · Socketable', baseStats: [{ label: '+Power', value: '+8' }], flavor: 'Cut from a heart that would not stop burning.', value: 340 }) },
+        { icon: 'rune-vex', rarity: 'legendary', count: null, tip: mkTip({ name: 'Vex Rune', rarity: 'legendary', itemType: 'Rune · Runeword', affixes: [{ text: '+15% mana' }], flavor: 'The seventeenth name of ruin.', value: 900 }) },
+        { icon: 'material-ember-ore', rarity: 'common', count: 12, tip: mkTip({ name: 'Ember Ore', rarity: 'common', itemType: 'Crafting Material', flavor: 'Still warm from the deep.', value: 4 }) },
+        { icon: 'gem-sapphire', rarity: 'magic', count: null, tip: mkTip({ name: 'Frost Sapphire', rarity: 'magic', itemType: 'Gem · Socketable', baseStats: [{ label: '+Armor', value: '+3%' }], value: 80 }) },
+        { icon: 'gem-onyx', rarity: 'corrupted', count: null, tip: mkTip({ name: 'Heartrot Onyx', rarity: 'corrupted', itemType: 'Gem · Socketable', affixes: [{ text: '+12 power' }, { text: '−18 hp', debuff: true }], flavor: 'Power, paid for in blood.', value: 210 }) },
+        { icon: 'rune-ral', rarity: 'rare', count: null, tip: mkTip({ name: 'Ral Rune', rarity: 'rare', itemType: 'Rune · Runeword', affixes: [{ text: '+9% fire dmg' }], value: 140 }) },
+        { icon: 'material-frost-core', rarity: 'magic', count: 3, tip: mkTip({ name: 'Frost Core', rarity: 'magic', itemType: 'Crafting Material', flavor: 'Cold enough to still a pulse.', value: 22 }) },
+        { icon: 'gem-amethyst', rarity: 'rare', count: null, tip: mkTip({ name: 'Dusk Amethyst', rarity: 'rare', itemType: 'Gem · Socketable', baseStats: [{ label: '+Crit', value: '+4%' }], value: 120 }) },
+      ];
+      const EQUIPPED = {
+        head: { icon: 'gem-diamond', rarity: 'rare', tip: mkTip({ name: 'Sallet of the Fox', rarity: 'rare', itemType: 'Head', baseStats: [{ label: '+Max HP', value: '+24' }], affixes: [{ text: '+3% armor' }], requiredLevel: 10, value: 160 }) },
+        chest: { icon: 'material-rune-shard', rarity: 'epic', tip: mkTip({ name: 'Ironclad Hauberk of Renewal', rarity: 'epic', itemType: 'Chest', baseStats: [{ label: '+Max HP', value: '+58' }], affixes: [{ text: '+6% armor' }, { text: '+2 hp/sec' }], requiredLevel: 16, value: 520 }) },
+        mainhand: { icon: 'rune-zod', rarity: 'legendary', tip: mkTip({ name: 'Doomscar, the Last Verdict', rarity: 'legendary', itemType: 'Two-Handed Sword', baseStats: [{ label: 'Damage', value: '41' }], affixes: [{ text: '+6% crit' }, { text: '+1 projectile' }, { text: '+5% life steal' }], flavor: 'It remembers every throat it has opened.', requiredLevel: 28, value: 1240 }) },
+        offhand: null,
+        ring: { icon: 'gem-jade', rarity: 'magic', tip: mkTip({ name: 'Jade Band of the Wind', rarity: 'magic', itemType: 'Ring', affixes: [{ text: '+5% move speed' }], value: 70 }) },
+        feet: { icon: 'gem-emerald', rarity: 'common', tip: mkTip({ name: 'Worn Treads', rarity: 'common', itemType: 'Boots', baseStats: [{ label: '+Max HP', value: '+6' }], value: 12 }) },
+      };
+      const STOCK = [
+        { icon: 'gem-topaz', rarity: 'common', price: 40, tip: mkTip({ name: 'Topaz Pendant', rarity: 'common', itemType: 'Amulet', baseStats: [{ label: '+Max HP', value: '+10' }], value: 40 }) },
+        { icon: 'gem-opal', rarity: 'common', price: 65, tip: mkTip({ name: 'Opal Charm', rarity: 'common', itemType: 'Trinket', baseStats: [{ label: '+Crit', value: '+2%' }], value: 65 }) },
+        { icon: 'material-ember-ore', rarity: 'common', price: 8, tip: mkTip({ name: 'Ember Ore', rarity: 'common', itemType: 'Crafting Material', value: 8 }) },
+        { icon: 'rune-el', rarity: 'common', price: 25, tip: mkTip({ name: 'El Rune', rarity: 'common', itemType: 'Rune', affixes: [{ text: '+1% light radius' }], value: 25 }) },
+        { icon: 'gem-ruby', rarity: 'common', price: 90, tip: mkTip({ name: 'Chipped Ruby', rarity: 'common', itemType: 'Gem', baseStats: [{ label: '+Power', value: '+2' }], value: 90 }) },
+        { icon: 'gem-sapphire', rarity: 'common', price: 90, tip: mkTip({ name: 'Chipped Sapphire', rarity: 'common', itemType: 'Gem', baseStats: [{ label: '+Mana', value: '+12' }], value: 90 }) },
+        { icon: 'rune-tir', rarity: 'common', price: 30, tip: mkTip({ name: 'Tir Rune', rarity: 'common', itemType: 'Rune', affixes: [{ text: '+2 mana on kill' }], value: 30 }) },
+        { icon: 'material-frost-core', rarity: 'common', price: 14, tip: mkTip({ name: 'Frost Core', rarity: 'common', itemType: 'Crafting Material', value: 14 }) },
+      ];
+
+      const DECOR = [
+        { img: 'dead-tree-1', x: 16, y: 30, scale: 2.4 },
+        { img: 'grave-2', x: 30, y: 64, scale: 2.2 },
+        { img: 'grave-5', x: 38, y: 40, scale: 2 },
+        { img: 'bones-4', x: 58, y: 70, scale: 2 },
+        { img: 'tree-1', x: 78, y: 24, scale: 2.6 },
+        { img: 'crystal-1', x: 24, y: 78, scale: 2 },
+        { img: 'mushroom-3', x: 64, y: 36, scale: 1.8 },
+        { img: 'skull-pile', x: 48, y: 82, scale: 2.2 },
+        { img: 'dead-tree-3', x: 88, y: 60, scale: 2.2 },
+      ];
+
+      function App() {
+        const [player, setPlayer] = useState({ hp: 420, maxHp: 560, mp: 88, maxMp: 120, xp: 3200, xpMax: 5000, gold: 1480 });
+        const [belt, setBelt] = useState({ health: 4, mana: 2 });
+        const [panel, setPanel] = useState(null); // 'inventory' | 'merchant' | null
+        const [abilities, setAbilities] = useState([
+          { icon: 'spell_fireball', key: '1', cd: 0, cdText: '' },
+          { icon: 'spell_ice_lance', key: '2', cd: 0, cdText: '' },
+          { icon: 'spell_arcane_bolt', key: '3', cd: 0, cdText: '' },
+          { icon: 'spell_magic_orb', key: '4', cd: 0, cdText: '' },
+        ]);
+        const timers = useRef({});
+
+        const cast = (i) => {
+          setAbilities((prev) => {
+            if (prev[i].cd > 0) return prev;
+            const next = [...prev];
+            next[i] = { ...next[i], cd: 1, cdText: '3' };
+            return next;
+          });
+          setPlayer((p) => ({ ...p, mp: Math.max(0, p.mp - 14) }));
+          const start = performance.now();
+          const dur = 3000;
+          const tick = () => {
+            const t = (performance.now() - start) / dur;
+            if (t >= 1) {
+              setAbilities((prev) => { const n = [...prev]; n[i] = { ...n[i], cd: 0, cdText: '' }; return n; });
+              return;
+            }
+            setAbilities((prev) => { const n = [...prev]; n[i] = { ...n[i], cd: 1 - t, cdText: String(Math.ceil((1 - t) * 3)) }; return n; });
+            timers.current[i] = requestAnimationFrame(tick);
+          };
+          timers.current[i] = requestAnimationFrame(tick);
+        };
+
+        const drink = (kind) => {
+          setBelt((b) => {
+            if (b[kind] <= 0) return b;
+            setPlayer((p) =>
+              kind === 'health'
+                ? { ...p, hp: Math.min(p.maxHp, p.hp + 180) }
+                : { ...p, mp: Math.min(p.maxMp, p.mp + 60) }
+            );
+            return { ...b, [kind]: b[kind] - 1 };
+          });
+        };
+
+        const buy = (item) => setPlayer((p) => (p.gold < item.price ? p : { ...p, gold: p.gold - item.price }));
+
+        useEffect(() => {
+          const onKey = (e) => {
+            const k = e.key.toLowerCase();
+            if (k === 'i') setPanel((p) => (p === 'inventory' ? null : 'inventory'));
+            else if (k === 'm') setPanel((p) => (p === 'merchant' ? null : 'merchant'));
+            else if (k === 'escape') setPanel(null);
+            else if (k === 'q') drink('health');
+            else if (k === 'e') drink('mana');
+            else if (['1', '2', '3', '4'].includes(k)) cast(Number(k) - 1);
+          };
+          window.addEventListener('keydown', onKey);
+          return () => window.removeEventListener('keydown', onKey);
+        }, []);
+
+        const entities = [
+          { x: 50, y: 56, color: '#3a6b6b', ring: '#6fd0c0', size: 34, light: 160, plate: null },
+          { x: 66, y: 30, color: '#5a7a3a', ring: 'var(--rarity-common)', size: 28, plate: { name: 'Rot Ghoul', level: 6, hp: 48, maxHp: 80 } },
+          { x: 70, y: 64, color: '#7a3a3a', ring: 'var(--rarity-magic)', size: 30, plate: { name: 'Tusk Runner', tier: 'elite', level: 8, hp: 120, maxHp: 140 } },
+          { x: 34, y: 40, color: '#9aa0a8', ring: 'var(--rarity-common)', size: 26, plate: { name: 'Skeleton', level: 5, hp: 30, maxHp: 60 } },
+        ];
+        const loot = [{ x: 44, y: 70, rarity: 'legendary', name: 'Doomscar' }];
+
+        return (
+          <>
+            {window.GloomScene && <window.GloomScene entities={entities} decor={DECOR} loot={loot} />}
+            {window.GloomHud && (
+              <window.GloomHud
+                player={player}
+                abilities={abilities}
+                onCast={cast}
+                belt={belt}
+                onDrink={drink}
+                chat={[
+                  { who: 'Kethra', text: 'boss is up at the crypt', color: 'var(--text-body)' },
+                  { text: 'You found Doomscar, the Last Verdict.', color: 'var(--rarity-legendary)' },
+                  { who: 'Vael', text: 'trading vex rune, pst', color: 'var(--text-body)' },
+                ]}
+                onOpenInventory={() => setPanel('inventory')}
+                onOpenMerchant={() => setPanel('merchant')}
+              />
+            )}
+            {panel === 'inventory' && window.GloomInventory && (
+              <div className="scrim" onClick={(e) => e.target.classList.contains('scrim') && setPanel(null)}>
+                <window.GloomInventory bag={BAG} equipped={EQUIPPED} onClose={() => setPanel(null)} />
+              </div>
+            )}
+            {panel === 'merchant' && window.GloomMerchant && (
+              <div className="scrim" onClick={(e) => e.target.classList.contains('scrim') && setPanel(null)}>
+                <window.GloomMerchant stock={STOCK} gold={player.gold} onClose={() => setPanel(null)} onBuy={buy} />
+              </div>
+            )}
+          </>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+  </body>
+</html>

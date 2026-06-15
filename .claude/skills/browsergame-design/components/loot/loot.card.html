@@ -1,0 +1,120 @@
+<!-- @dsCard group="Components" viewport="700x520" name="Loot — ItemTooltip · RarityName · Badge" subtitle="The loot core: rarity tooltips, named drops, tier tags" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+    <script src="../../_ds_bundle.js"></script>
+    <style>
+      body {
+        margin: 0;
+        background:
+          radial-gradient(130% 110% at 50% 120%, #1a1410 0%, var(--ink-950) 70%);
+        font-family: var(--font-body);
+        padding: 22px;
+      }
+      .lbl {
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--text-label);
+        margin: 0 0 10px;
+      }
+      .tips {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-bottom: 22px;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        margin-bottom: 18px;
+      }
+      .badges {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const NS = window.BrowserGameARPGDesignSystem_aa965c;
+      const { ItemTooltip, RarityName, Badge } = NS;
+      const I = (n) => `../../assets/icons/${n}.png`;
+
+      function Demo() {
+        return (
+          <div>
+            <div className="tips">
+              <ItemTooltip
+                name="Iron Sword"
+                rarity="common"
+                itemType="One-Handed Sword"
+                baseStats={[{ label: 'Damage', value: '12' }]}
+                value={18}
+              />
+              <ItemTooltip
+                name="Savage Iron Sword of the Boar"
+                rarity="rare"
+                itemType="One-Handed Sword"
+                baseStats={[{ label: 'Damage', value: '24' }, { label: '+Max HP', value: '+34' }]}
+                affixes={[{ text: '+9 power' }, { text: 'of the Boar (+34 hp)' }]}
+                sockets={[I('rune-ral'), null]}
+                requiredLevel={14}
+                value={210}
+              />
+              <ItemTooltip
+                name="Doomscar, the Last Verdict"
+                rarity="legendary"
+                itemType="Two-Handed Sword"
+                baseStats={[{ label: 'Damage', value: '41' }, { label: '+Max HP', value: '+24' }]}
+                affixes={[{ text: '+6% crit' }, { text: '+1 projectile' }, { text: '+5% life steal' }]}
+                sockets={[I('rune-vex'), I('gem-ruby'), null]}
+                flavor="It remembers every throat it has opened."
+                requiredLevel={28}
+                value={1240}
+              />
+              <ItemTooltip
+                name="Heartrot Band"
+                rarity="corrupted"
+                itemType="Ring"
+                baseStats={[{ label: '+Max HP', value: '+52' }]}
+                affixes={[{ text: '+12 power' }, { text: '−30 hp', debuff: true }]}
+                sockets={[I('gem-onyx')]}
+                flavor="Power, paid for in blood."
+                value={680}
+              />
+            </div>
+
+            <p className="lbl">RarityName · drop lines</p>
+            <div className="stack">
+              <RarityName rarity="common">Cracked Buckler</RarityName>
+              <RarityName rarity="magic">Quick Hunter's Bow of the Wind</RarityName>
+              <RarityName rarity="epic">Ironclad Aegis of Renewal</RarityName>
+              <RarityName rarity="unique">The Pale King's Crown</RarityName>
+            </div>
+
+            <p className="lbl">Badges</p>
+            <div className="badges">
+              <Badge rarity="legendary">Legendary</Badge>
+              <Badge rarity="corrupted">Corrupted</Badge>
+              <Badge tone="gold">Quest</Badge>
+              <Badge tone="danger">Elite</Badge>
+              <Badge tone="ok" outline>Online</Badge>
+              <Badge tone="neutral">×12</Badge>
+            </div>
+          </div>
+        );
+      }
+      ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+    </script>
+  </body>
+</html>

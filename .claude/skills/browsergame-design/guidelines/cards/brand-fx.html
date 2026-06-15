@@ -1,0 +1,53 @@
+<!-- @dsCard group="Brand" viewport="700x180" name="Spell & projectile FX" subtitle="Original spell strips — fireball, frost, arcane, arrows, impact" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--ink-950);
+        font-family: var(--font-body);
+        padding: 18px 20px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: center;
+      }
+      .fx {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+      }
+      .strip {
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+        padding: 7px 9px;
+        display: flex;
+        align-items: center;
+        height: 40px;
+      }
+      .strip img {
+        height: 26px;
+        image-rendering: pixelated;
+      }
+      .nm {
+        font-family: var(--font-mono);
+        font-size: 9px;
+        color: var(--text-faint);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="fx"><div class="strip" style="border-color:var(--fx-fire)"><img src="../../assets/fx/spell_fireball.png" alt="" /></div><span class="nm">fireball</span></div>
+    <div class="fx"><div class="strip" style="border-color:var(--fx-frost)"><img src="../../assets/fx/spell_ice_lance.png" alt="" /></div><span class="nm">ice lance</span></div>
+    <div class="fx"><div class="strip" style="border-color:var(--fx-arcane)"><img src="../../assets/fx/spell_arcane_bolt.png" alt="" /></div><span class="nm">arcane bolt</span></div>
+    <div class="fx"><div class="strip" style="border-color:var(--fx-arcane)"><img src="../../assets/fx/spell_magic_orb.png" alt="" /></div><span class="nm">magic orb</span></div>
+    <div class="fx"><div class="strip"><img src="../../assets/fx/spell_magic_sparks.png" alt="" /></div><span class="nm">cast spark</span></div>
+    <div class="fx"><div class="strip" style="border-color:var(--fx-frost)"><img src="../../assets/fx/spell_splash.png" alt="" /></div><span class="nm">splash</span></div>
+    <div class="fx"><div class="strip" style="border-color:var(--fx-fire)"><img src="../../assets/fx/explosion-cuzco.png" alt="" style="height:34px" /></div><span class="nm">impact 4×4</span></div>
+  </body>
+</html>

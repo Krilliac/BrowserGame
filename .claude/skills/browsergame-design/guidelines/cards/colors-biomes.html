@@ -1,0 +1,54 @@
+<!-- @dsCard group="Colors" viewport="700x180" name="Biome accents" subtitle="Per-area mood key — minimap, banners, area transitions" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--bg-app);
+        font-family: var(--font-body);
+        padding: 20px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .sw {
+        width: 150px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        background: #0a0b0f;
+      }
+      .dot {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        flex: none;
+        box-shadow: 0 0 10px currentColor;
+      }
+      .nm {
+        font-size: 11px;
+        color: var(--text-body);
+      }
+      .sub {
+        font-size: 9px;
+        color: var(--text-faint);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sw" style="color:var(--biome-town)"><div class="dot" style="background:currentColor"></div><div><div class="nm">Town</div><div class="sub">Aldermere · hearth</div></div></div>
+    <div class="sw" style="color:var(--biome-wild)"><div class="dot" style="background:currentColor"></div><div><div class="nm">Wilds</div><div class="sub">Gloomwood · green</div></div></div>
+    <div class="sw" style="color:var(--biome-crypt)"><div class="dot" style="background:currentColor"></div><div><div class="nm">Crypt</div><div class="sub">cold blue gloom</div></div></div>
+    <div class="sw" style="color:var(--biome-marsh)"><div class="dot" style="background:currentColor"></div><div><div class="nm">Marsh</div><div class="sub">Rotfen · poison</div></div></div>
+    <div class="sw" style="color:var(--biome-mines)"><div class="dot" style="background:currentColor"></div><div><div class="nm">Mines</div><div class="sub">Emberdeep · molten</div></div></div>
+    <div class="sw" style="color:var(--biome-frost)"><div class="dot" style="background:currentColor"></div><div><div class="nm">Frost</div><div class="sub">Frostpeak · ice</div></div></div>
+    <div class="sw" style="color:var(--biome-void)"><div class="dot" style="background:currentColor"></div><div><div class="nm">Void</div><div class="sub">Sundered · violet</div></div></div>
+    <div class="sw" style="color:var(--biome-abyss)"><div class="dot" style="background:currentColor"></div><div><div class="nm">Abyss</div><div class="sub">Throne · hell-red</div></div></div>
+  </body>
+</html>

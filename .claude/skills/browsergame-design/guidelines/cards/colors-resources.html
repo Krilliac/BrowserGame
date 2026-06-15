@@ -1,0 +1,76 @@
+<!-- @dsCard group="Colors" viewport="700x170" name="Resources — blood & mana" subtitle="HP, mana, essence, coin — orb & flask fills" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--bg-app);
+        font-family: var(--font-body);
+        padding: 20px;
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+      }
+      .grp {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .orb {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        border: 2px solid var(--gold-600);
+      }
+      .row {
+        display: flex;
+        gap: 6px;
+      }
+      .mini {
+        flex: 1;
+        height: 14px;
+        border-radius: 3px;
+      }
+      .nm {
+        font-size: 11px;
+        color: var(--text-body);
+      }
+      .hx {
+        font-family: var(--font-mono);
+        font-size: 9px;
+        color: var(--text-faint);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grp">
+      <div class="orb" style="background: radial-gradient(circle at 38% 32%, var(--hp-glow), var(--hp) 45%, var(--hp-deep) 100%); box-shadow: var(--glow-hp)"></div>
+      <div class="row">
+        <div class="mini" style="background:var(--hp-glow)"></div>
+        <div class="mini" style="background:var(--hp)"></div>
+        <div class="mini" style="background:var(--hp-deep)"></div>
+      </div>
+      <div class="nm">Health</div><div class="hx">#f08a8a · #d23b3b · #6e1414</div>
+    </div>
+    <div class="grp">
+      <div class="orb" style="background: radial-gradient(circle at 38% 32%, var(--mana-glow), var(--mana) 45%, var(--mana-deep) 100%); box-shadow: var(--glow-mana)"></div>
+      <div class="row">
+        <div class="mini" style="background:var(--mana-glow)"></div>
+        <div class="mini" style="background:var(--mana)"></div>
+        <div class="mini" style="background:var(--mana-deep)"></div>
+      </div>
+      <div class="nm">Mana</div><div class="hx">#7fa3ec · #3b6fd2 · #14306a</div>
+    </div>
+    <div class="grp">
+      <div class="orb" style="background: radial-gradient(circle at 38% 32%, color-mix(in srgb,var(--essence) 60%,#fff), var(--essence) 60%, #1e4a1a 100%)"></div>
+      <div class="nm">Essence · regen</div><div class="hx">#6fbf5e</div>
+    </div>
+    <div class="grp">
+      <div class="orb" style="background: radial-gradient(circle at 38% 32%, #fff3c4, var(--coin) 55%, #9a6e16 100%)"></div>
+      <div class="nm">Coin · gold</div><div class="hx">#ffcf5c</div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,45 @@
+<!-- @dsCard group="Type" viewport="700x230" name="Type scale" subtitle="10 → 72px — dense HUD up to a grand title" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--bg-app);
+        font-family: var(--font-display);
+        padding: 20px 26px;
+        color: var(--text-display);
+      }
+      .r {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        border-bottom: 1px solid var(--border-subtle);
+        padding: 4px 0;
+      }
+      .r span.k {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--text-faint);
+        width: 96px;
+        flex: none;
+      }
+      .t {
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="r"><span class="k">display 72</span><span class="t" style="font-size:42px;font-weight:900">Gloomwood</span></div>
+    <div class="r"><span class="k">3xl 38</span><span class="t" style="font-size:30px;font-weight:700">Act I — The Crypt</span></div>
+    <div class="r"><span class="k">2xl 28 · xl 22</span><span class="t" style="font-size:22px;font-weight:600">Inventory · Merchant</span></div>
+    <div class="r"><span class="k">md 15 · base 13</span><span class="t" style="font-size:15px;font-weight:500;font-family:var(--font-body)">Tap an item to equip</span></div>
+    <div class="r"><span class="k">sm 12 · 2xs 10</span><span class="t" style="font-size:11px;font-family:var(--font-mono);color:var(--text-stat)">+5% crit · hotkey Q</span></div>
+  </body>
+</html>

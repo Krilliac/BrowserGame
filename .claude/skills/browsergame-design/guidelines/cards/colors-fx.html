@@ -1,0 +1,49 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Elemental FX glows" subtitle="Projectile & spell tints — fire, frost, arcane, poison, holy, blood" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--bg-app);
+        font-family: var(--font-body);
+        padding: 22px;
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+      }
+      .fx {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+      .bolt {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 40% 35%, #fff, currentColor 55%, transparent 78%);
+        box-shadow: 0 0 22px currentColor, 0 0 42px currentColor;
+      }
+      .nm {
+        font-size: 11px;
+        color: var(--text-body);
+      }
+      .hx {
+        font-family: var(--font-mono);
+        font-size: 9px;
+        color: var(--text-faint);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="fx" style="color:var(--fx-fire)"><div class="bolt"></div><span class="nm">Fire</span><span class="hx">#ff8a3a</span></div>
+    <div class="fx" style="color:var(--fx-frost)"><div class="bolt"></div><span class="nm">Frost</span><span class="hx">#7fc4ff</span></div>
+    <div class="fx" style="color:var(--fx-arcane)"><div class="bolt"></div><span class="nm">Arcane</span><span class="hx">#b07ae8</span></div>
+    <div class="fx" style="color:var(--fx-poison)"><div class="bolt"></div><span class="nm">Poison</span><span class="hx">#aef07a</span></div>
+    <div class="fx" style="color:var(--fx-holy)"><div class="bolt"></div><span class="nm">Holy</span><span class="hx">#ffe9a8</span></div>
+    <div class="fx" style="color:var(--fx-blood)"><div class="bolt"></div><span class="nm">Blood</span><span class="hx">#ff2d6f</span></div>
+  </body>
+</html>
