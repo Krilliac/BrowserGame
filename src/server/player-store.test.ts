@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { openDatabase } from './db/database.js';
-import { isValidToken, loadSave, newPlayerToken, storeSave } from './player-store.js';
+import {
+  addFriend,
+  isValidToken,
+  loadFriends,
+  loadSave,
+  newPlayerToken,
+  removeFriend,
+  storeSave,
+} from './player-store.js';
 import type { PlayerSave } from './world.js';
 
 function sampleSave(name = 'Hero'): PlayerSave {
@@ -121,5 +129,32 @@ describe('player save store', () => {
     expect(loaded.equipment.mainhand?.baseId).toBe('iron_sword');
     expect(loaded.equipment.mainhand?.affixes).toEqual([]);
     expect(loaded.gear[0]?.affixes).toEqual([]);
+  });
+});
+
+describe('friends list persistence', () => {
+  it('round-trips add/load/remove: sorted, deduped, per-owner, case-insensitive remove', () => {
+    const db = openDatabase(':memory:');
+    const a = newPlayerToken();
+    const b = newPlayerToken();
+
+    addFriend(db, a, 'Bob');
+    addFriend(db, a, 'Bob'); // idempotent (PK) — no duplicate
+    addFriend(db, a, 'Alice');
+    addFriend(db, b, 'Carol'); // a different owner's list
+
+    expect(loadFriends(db, a)).toEqual(['Alice', 'Bob']); // sorted, deduped, scoped to a
+    expect(loadFriends(db, b)).toEqual(['Carol']); // not leaked across owners
+
+    removeFriend(db, a, 'bob'); // case-insensitive match on the stored 'Bob'
+    expect(loadFriends(db, a)).toEqual(['Alice']);
+
+    removeFriend(db, a, 'Nobody'); // unknown name → no-op, no throw
+    expect(loadFriends(db, a)).toEqual(['Alice']);
+  });
+
+  it('returns an empty list for a token with no friends', () => {
+    const db = openDatabase(':memory:');
+    expect(loadFriends(db, newPlayerToken())).toEqual([]);
   });
 });

@@ -151,7 +151,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 72 | feat(ui) | **Target glows white on the minimap** | green | client-only; the current target's blip is white + larger so you can track it among the red/orange mobs. Uses targetId already on the client; pairs with the it.66 elite markers. |
 
-NEXT (it.73): backend (alternation). Then client-UX. PUSH now (it.71 + it.72).
+| 73 | test(hardening) | **Friends-list DB persistence** round-trip | green | +2 → 1463; another REAL DB-leg gap (social.test only covers the in-memory SocialRegistry, NOT player-store's addFriend/removeFriend/loadFriends DB fns). Pins: sorted load, idempotent add (PK), per-owner scoping (no cross-leak), case-insensitive remove, no-op on unknown, empty list default. |
+
+NEXT (it.74): client-UX (alternation). Then backend. PUSH now (it.71–it.73).
+META: approaching a natural taper (53 iterations). After it.74, lean toward a session-summary + lighter cadence.
 KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
