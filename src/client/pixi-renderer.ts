@@ -597,6 +597,7 @@ export class PixiRenderer {
   private readonly grade = new ColorMatrixFilter(); // per-area color grading (one pass on the world)
   private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
+  private readonly arcGfx = new Graphics();
   private readonly fxTexts: Text[] = [];
   private readonly explosionPool: Sprite[] = [];
   private readonly views = new Map<number, ActorView>();
@@ -673,6 +674,8 @@ export class PixiRenderer {
       this.roofLayer,
     );
     this.fxLayer.addChild(this.fxGfx);
+    this.arcGfx.blendMode = 'add';
+    this.fxLayer.addChild(this.arcGfx);
     this.fxLayer.addChild(this.particles.layer); // world-space particle bursts (RENDER-03)
     this.fade.eventMode = 'none';
     // Draw order (back→front): ground, world, ambient motes, weather, the screen wash (day/night +
@@ -2962,6 +2965,7 @@ export class PixiRenderer {
   private updateFx(fx: TimedFx[]): void {
     const g = this.fxGfx;
     g.clear();
+    this.arcGfx.clear();
     const now = performance.now();
     let ti = 0;
     let ei = 0; // FX-strip pool index
@@ -3078,10 +3082,10 @@ export class PixiRenderer {
         if (this.playStrip('explosion', x, ev.y * PITCH, t0, now, ei)) ei++;
         else g.circle(x, y - 10, 10 + age * 40).stroke({ width: 3, color: '#ccaaaa', alpha });
       } else if (ev.kind === 'arc' && ev.x2 !== undefined && ev.y2 !== undefined) {
-        g.moveTo(ev.x, ev.y * PITCH)
+        this.arcGfx
+          .moveTo(ev.x, ev.y * PITCH)
           .lineTo(ev.x2, ev.y2 * PITCH)
           .stroke({ width: 2, color: arcColor(ev.element), alpha: 0.9 });
-        g.blendMode = 'add';
       }
     }
     for (let i = ti; i < this.fxTexts.length; i++) this.fxTexts[i]!.visible = false;

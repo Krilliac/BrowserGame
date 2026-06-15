@@ -46,6 +46,7 @@ describe('arcColor', () => {
     expect(arcColor('lightning')).toBe('#b07ae8');
     expect(arcColor('cold')).toBe('#7fc4ff');
     expect(arcColor('fire')).toBe('#ff8a3a');
+    expect(arcColor('poison')).toBe('#aef07a');
     expect(arcColor(undefined)).toBe('#ffffff');
   });
 });
