@@ -335,6 +335,14 @@ let toastTitle = '';
 let toastUntil = 0;
 let toastScanLen = 0;
 
+// Legendary-drop toast — celebrate the moment a unique/legendary first lands in the bag. We diff the
+// bag by uid; the first scan just learns the existing uids (no toast for gear you already had).
+const seenGearUids = new Set<number>();
+let seenGearInit = false;
+let dropTitle = '';
+let dropColor = '#ff9a3c';
+let dropUntil = 0;
+
 window.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'mouse') {
     mouseX = e.clientX;
@@ -2153,6 +2161,8 @@ function drawHud(): void {
   drawAreaBanner(w, h);
   scanAchievementToasts(performance.now());
   drawAchievementToast(w, h);
+  scanLegendaryDrops(performance.now());
+  drawLegendaryToast(w, h);
 
   if (net.you.dead) {
     hud.fillStyle = 'rgba(0,0,0,0.55)';
@@ -2217,6 +2227,56 @@ function drawAchievementToast(w: number, h: number): void {
   hud.fillStyle = '#f3e6bf';
   hud.font = 'bold 26px system-ui, sans-serif';
   hud.fillText(toastTitle, cx, y + 24);
+  hud.restore();
+}
+
+/** Watch the bag for a newly-arrived unique/legendary and arm the drop toast for it. */
+function scanLegendaryDrops(now: number): void {
+  for (const inst of net.you.gear) {
+    if (seenGearUids.has(inst.uid)) continue;
+    seenGearUids.add(inst.uid);
+    // First pass only learns what's already in the bag — don't toast gear you logged in holding.
+    if (seenGearInit && (inst.rarity === 'unique' || inst.rarity === 'legendary')) {
+      dropTitle = instLabel(inst);
+      dropColor = rarityColor(inst.rarity);
+      dropUntil = now + TOAST_MS;
+    }
+  }
+  seenGearInit = true;
+}
+
+function drawLegendaryToast(w: number, h: number): void {
+  const now = performance.now();
+  const left = dropUntil - now;
+  if (left <= 0 || !dropTitle) return;
+  const elapsed = TOAST_MS - left;
+  const alpha = Math.min(1, Math.min(elapsed / 300, left / 800));
+  const cx = w / 2;
+  const y = h * 0.2; // below the achievement toast (0.12) so both can show at once
+
+  hud.save();
+  hud.globalAlpha = alpha;
+  hud.textAlign = 'center';
+
+  const header = '✦ Legendary Drop';
+  hud.font = 'bold 24px system-ui, sans-serif';
+  const titleW = hud.measureText(dropTitle).width;
+  hud.font = '13px system-ui, sans-serif';
+  const headW = hud.measureText(header).width;
+  const boxW = Math.max(titleW, headW) + 48;
+  const boxH = 58;
+
+  hud.fillStyle = 'rgba(22,12,4,0.84)';
+  hud.fillRect(cx - boxW / 2, y - 22, boxW, boxH);
+  hud.strokeStyle = dropColor;
+  hud.lineWidth = 2;
+  hud.strokeRect(cx - boxW / 2, y - 22, boxW, boxH);
+
+  hud.fillStyle = dropColor;
+  hud.font = '13px system-ui, sans-serif';
+  hud.fillText(header, cx, y - 4);
+  hud.font = 'bold 24px system-ui, sans-serif';
+  hud.fillText(dropTitle, cx, y + 24);
   hud.restore();
 }
 

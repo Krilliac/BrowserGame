@@ -85,9 +85,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 39 | feat(content) | **4 new uniques** (Mournblade, Bastion of the First Light, Helm of the Riven Crown, The Sanguine Vow) | green | fresh axis (loot expansion, not save-counters); on free mithril/tower/bloodstone bases; UNIQUES 20→24 (test cap); affixes within bands; flaky hirelings re-run alone = green. NEEDS server restart to drop (seeds into items table at startup) |
 
-NEXT (it.40): client-UX (alternation). Then backend. PUSH now (it.37 + it.38 + it.39).
-NOTE: it.23–38 need a dev-server code reload; it.39 needs a server restart (new seed rows) to appear
-in-game. (Quest achievements from it.37 surface live via the it.24 unlock toast.)
+| 40 | feat(ui) | **Legendary-drop toast** — celebrate unique/legendary drops | green | client-only; bag-diff by uid (first pass learns existing uids, no false toast); "✦ Legendary Drop" card below the achievement toast, in the item's rarity color; pairs with it.39's new uniques |
+
+NEXT (it.41): backend (alternation). Then client-UX. PUSH now (it.37–it.40).
+NOTE: it.23–38,40 need a dev-server code reload; it.39 needs a server restart (new seed rows) to
+appear in-game. (Quest achievements from it.37 surface live via the it.24 unlock toast.)
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
