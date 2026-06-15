@@ -1,3 +1,5 @@
+import type { DamageElement } from '../shared/combat.js';
+
 /**
  * Maps a projectile to an animated spell strip — pure + framework-free so it stays unit-tested
  * (the renderer owns the textures and just looks up the alias for the key this returns). Lets the
@@ -51,6 +53,22 @@ export function elementStrip(color: string | undefined): ProjStrip | null {
   if (r > 110 && b > 150 && g < r && g < b - 40) return 'arcane'; // violet
   if (r > 170 && r >= g && b < g * 0.7) return 'fireball'; // warm orange/red (not pale gold)
   return null;
+}
+
+/** The --fx-* tint for a chain-arc VFX, by element. */
+export function arcColor(element: DamageElement | undefined): string {
+  switch (element) {
+    case 'fire':
+      return '#ff8a3a';
+    case 'cold':
+      return '#7fc4ff';
+    case 'lightning':
+      return '#b07ae8';
+    case 'poison':
+      return '#aef07a';
+    default:
+      return '#ffffff';
+  }
 }
 
 /**

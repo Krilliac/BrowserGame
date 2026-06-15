@@ -60,7 +60,7 @@ import {
   PATTERN_TILES,
 } from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
-import { projectileStrip, type ProjStrip } from './projectile-fx.js';
+import { arcColor, projectileStrip, type ProjStrip } from './projectile-fx.js';
 import {
   MOB_ARCHETYPES,
   MOB_CLIPS,
@@ -3077,6 +3077,11 @@ export class PixiRenderer {
       } else if (ev.kind === 'death') {
         if (this.playStrip('explosion', x, ev.y * PITCH, t0, now, ei)) ei++;
         else g.circle(x, y - 10, 10 + age * 40).stroke({ width: 3, color: '#ccaaaa', alpha });
+      } else if (ev.kind === 'arc' && ev.x2 !== undefined && ev.y2 !== undefined) {
+        g.moveTo(ev.x, ev.y * PITCH)
+          .lineTo(ev.x2, ev.y2 * PITCH)
+          .stroke({ width: 2, color: arcColor(ev.element), alpha: 0.9 });
+        g.blendMode = 'add';
       }
     }
     for (let i = ti; i < this.fxTexts.length; i++) this.fxTexts[i]!.visible = false;

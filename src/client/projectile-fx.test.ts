@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { elementStrip, projectileStrip } from './projectile-fx.js';
+import { arcColor, elementStrip, projectileStrip } from './projectile-fx.js';
 
 describe('elementStrip (color → spell strip)', () => {
   it('classifies the --fx-* palette colors', () => {
@@ -38,5 +38,14 @@ describe('projectileStrip (ability id + color)', () => {
   it('returns null (orb) for a green/holy projectile with an unknown id', () => {
     expect(projectileStrip('venom', '#aef07a')).toBeNull();
     expect(projectileStrip(undefined, undefined)).toBeNull();
+  });
+});
+
+describe('arcColor', () => {
+  it('maps elements to a hex tint', () => {
+    expect(arcColor('lightning')).toBe('#b07ae8');
+    expect(arcColor('cold')).toBe('#7fc4ff');
+    expect(arcColor('fire')).toBe('#ff8a3a');
+    expect(arcColor(undefined)).toBe('#ffffff');
   });
 });
