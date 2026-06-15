@@ -348,6 +348,7 @@ export function seed(db: Database): void {
   ensureBossScripts(db); // scripted apex-boss phases/steps (seeded from boss-scripts.ts defaults)
   ensureItemProcs(db); // chance-on-hit/crit item procs (seeded from item-procs.ts defaults)
   ensureAbilityElements(db); // tag elemental abilities (fire/cold/...) — only ones still 'physical'
+  ensureAbilityBehaviors(db); // backfill behaviors_json from code defaults (upgrade-path; NULL-only)
   ensureMobResists(db); // per-element mob resistances (seeded from mobs.ts MOB_RESISTS)
   ensureGameEvents(db); // timed recurring liveops events (seeded from game-events.ts defaults)
   ensureRiftModifiers(db); // D3-style rift mutators (seeded from rift-modifiers.ts defaults)
@@ -560,6 +561,18 @@ const ABILITY_ELEMENTS: Record<string, DamageElement> = {
 function ensureAbilityElements(db: Database): void {
   const upd = db.prepare("UPDATE abilities SET element = ? WHERE id = ? AND element = 'physical'");
   for (const [id, element] of Object.entries(ABILITY_ELEMENTS)) upd.run(element, id);
+}
+
+/** Backfill behaviors_json from code defaults onto rows that don't have it yet (idempotent;
+ *  only touches NULL so a designer's SQL edit to behaviors_json survives). */
+function ensureAbilityBehaviors(db: Database): void {
+  const upd = db.prepare(
+    'UPDATE abilities SET behaviors_json = ? WHERE id = ? AND behaviors_json IS NULL',
+  );
+  for (const id of ABILITY_ORDER) {
+    const a = ABILITIES[id];
+    if (a.behaviors) upd.run(JSON.stringify(a.behaviors), id);
+  }
 }
 
 /**

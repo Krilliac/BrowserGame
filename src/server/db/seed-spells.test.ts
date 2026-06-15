@@ -3,6 +3,7 @@ import { openDatabase } from './database.js';
 import { loadContent } from '../content.js';
 import { isAbilityId } from '../../shared/combat.js';
 import { NEW_SPELLBOOKS, NEW_MERCHANT_STOCK, ensureSpellTomeContent } from './seed-spells.js';
+import { seed } from './seed.js';
 
 describe('seed-spells data — internal consistency', () => {
   it('every tome teaches a real ability and follows the tome_<ability> naming', () => {
@@ -90,5 +91,18 @@ describe('abilities — behaviors_json round-trip', () => {
       expect(Array.isArray(a.behaviors)).toBe(true);
       expect(a.behaviors![0]).toHaveProperty('type');
     }
+  });
+
+  it('backfills behaviors_json onto an existing DB missing it (upgrade path)', () => {
+    const db = openDatabase(':memory:');
+    // Simulate an old DB: clear the behaviors the fresh seed just wrote.
+    db.exec('UPDATE abilities SET behaviors_json = NULL');
+    // Re-run seed — the ensureAbilityBehaviors backfill must restore them.
+    seed(db);
+    const c = loadContent(db);
+    const fireball = c.abilityList().find((a) => a.id === 'fireball');
+    expect(fireball?.behaviors?.some((b) => b.type === 'splash')).toBe(true);
+    const lightning = c.abilityList().find((a) => a.id === 'lightning');
+    expect(lightning?.behaviors?.some((b) => b.type === 'chain')).toBe(true);
   });
 });
