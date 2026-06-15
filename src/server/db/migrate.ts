@@ -83,6 +83,14 @@ const MIGRATIONS: Migration[] = [
       if (hasTable(db, 'quests')) ensureColumns(db, 'quests', QUESTS_COLUMNS);
     },
   },
+  {
+    version: 2,
+    name: 'game-events-gold-bonus',
+    up(db) {
+      // Timed events gained a gold-drop bonus (e.g. Golden Hour). Add the nullable column to old DBs.
+      if (hasTable(db, 'game_events')) ensureColumns(db, 'game_events', { gold_bonus: 'REAL' });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */

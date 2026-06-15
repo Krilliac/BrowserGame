@@ -672,6 +672,9 @@ export class World {
   // Liveops XP multiplier from active timed game-events. Injected by the host each tick (the schedule
   // is wall-clock-ish and computed OUTSIDE the sim to keep the World deterministic); 1 = no event.
   private xpEventMult = 1;
+  // Liveops GOLD-drop multiplier from active timed game-events (e.g. Golden Hour). Host-injected like
+  // xpEventMult; folded into every gold drop. 1 = no event.
+  private goldEventMult = 1;
   // Active player-to-player trades, keyed by EACH participant's id (both map to the same session).
   // One trade per player. The negotiation logic is the pure trade.ts state machine; the World owns
   // the inventory transfer + re-validation at commit (security-critical).
@@ -1808,6 +1811,11 @@ export class World {
   /** Set the liveops XP multiplier (1 = none). Host-driven from active timed game-events; clamped >=0. */
   setXpEventMult(mult: number): void {
     this.xpEventMult = Number.isFinite(mult) && mult >= 0 ? mult : 1;
+  }
+
+  /** Set the liveops GOLD-drop multiplier (1 = none). Host-driven from active events; clamped >=0. */
+  setGoldEventMult(mult: number): void {
+    this.goldEventMult = Number.isFinite(mult) && mult >= 0 ? mult : 1;
   }
 
   // --- Player-to-player trading -----------------------------------------------------------
@@ -3531,7 +3539,9 @@ export class World {
                 stack.qty,
                 mob.level,
                 content.mobTemplate(mob.templateId)?.level ?? mob.level,
-              ) * this.coopGoldScale(),
+              ) *
+                this.coopGoldScale() *
+                this.goldEventMult, // Golden Hour & friends spill richer hoards
             )
           : // Rift "Bountiful"-style mutators boost material stack sizes (0 outside a rift).
             Math.max(1, Math.round(stack.qty * (1 + this.riftEffects.lootQuantityBonus)));
@@ -3569,7 +3579,9 @@ export class World {
     if (mob.elite) {
       this.dropGround(
         'gold',
-        Math.round(championGoldPile(mob.level, this.rand) * this.coopGoldScale()),
+        Math.round(
+          championGoldPile(mob.level, this.rand) * this.coopGoldScale() * this.goldEventMult,
+        ),
         mob.x,
         mob.y,
       );

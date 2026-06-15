@@ -6,6 +6,7 @@ import {
   activeEvents,
   msUntilNextChange,
   totalXpBonus,
+  totalGoldBonus,
   type GameEventDef,
 } from './game-events.js';
 
@@ -185,6 +186,28 @@ describe('totalXpBonus', () => {
   it('respects the epoch offset', () => {
     const epoch = 1000 * MIN;
     expect(totalXpBonus(events, epoch + 10 * MIN, epoch)).toBe(0.75);
+  });
+});
+
+describe('totalGoldBonus', () => {
+  const gold: GameEventDef = {
+    id: 'g',
+    name: 'G',
+    periodMin: 100,
+    lengthMin: 20,
+    xpBonus: 0.25,
+    goldBonus: 0.5,
+  };
+  const xpOnly: GameEventDef = { id: 'x', name: 'X', periodMin: 100, lengthMin: 20, xpBonus: 0.4 };
+
+  it('sums only the goldBonus of active events (xp-only events contribute 0)', () => {
+    expect(totalGoldBonus([gold, xpOnly], 10 * MIN)).toBe(0.5);
+  });
+
+  it('returns 0 when nothing is active or no event grants gold', () => {
+    expect(totalGoldBonus([gold], 25 * MIN)).toBe(0); // gold event inactive at t=25
+    expect(totalGoldBonus([xpOnly], 10 * MIN)).toBe(0); // active but no goldBonus
+    expect(totalGoldBonus([], 10 * MIN)).toBe(0);
   });
 });
 

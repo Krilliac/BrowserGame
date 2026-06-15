@@ -91,8 +91,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 42 | feat(ui) | **Salvage-junk button** on the Inventory panel | green | client-only; green button left of Sort (shown only when common/magic gear held) → /salvageall; bag updates live via `you` |
 
-NEXT (it.43): backend (alternation). Then client-UX. PUSH now (it.41 + it.42).
-NOTE: it.23–38,40,41,42 need a dev-server code reload; it.39 needs a server restart (new seed rows).
+| 43 | feat | **Golden Hour gold bonus** — events now boost gold drops, not just XP | green | +3 → 1446; fresh axis (liveops). goldBonus on GameEventDef + totalGoldBonus + world goldEventMult applied at both kill gold-drop sites; Golden Hour gets +50% gold (was XP-only despite its name). Schema column gold_bonus + seed + loader + **migration #2** (existing DBs ALTER-add the column). NEEDS server restart (schema). |
+
+NEXT (it.44): client-UX (alternation). Then backend. PUSH now (it.41–it.43).
+NOTE: it.23–38,40,41,42 need a dev-server code reload; it.39 + it.43 need a server RESTART (it.43 also
+migrates existing game.db via migration #2). (Quest achievements it.37 surface via the it.24 toast.)
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).

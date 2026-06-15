@@ -29,6 +29,8 @@ export interface GameEventDef {
   lengthMin: number;
   /** Optional fractional XP boost while active (0.5 = +50%). Host multiplies XP by (1 + bonus). */
   xpBonus?: number;
+  /** Optional fractional GOLD-drop boost while active (0.5 = +50%). Host scales gold drops by (1 + bonus). */
+  goldBonus?: number;
   /** Optional chat line broadcast when an occurrence begins. */
   announce?: string;
 }
@@ -55,8 +57,9 @@ export const DEFAULT_GAME_EVENTS: GameEventDef[] = [
     name: 'Golden Hour',
     periodMin: 120, // every 2 hours
     lengthMin: 15,
-    xpBonus: 0.25, // gold/loot-themed; modest XP nudge alongside it
-    announce: 'The Golden Hour dawns — fortune favors the bold for the next 15 minutes.',
+    xpBonus: 0.25, // a modest XP nudge alongside the gold rush
+    goldBonus: 0.5, // +50% gold drops — the event finally lives up to its name
+    announce: 'The Golden Hour dawns — slain foes spill richer hoards for the next 15 minutes.',
   },
 ];
 
@@ -139,6 +142,22 @@ export function totalXpBonus(events: readonly GameEventDef[], nowMs: number, epo
   let total = 0;
   for (const ev of events) {
     if (isEventActive(ev, nowMs, epochMs)) total += ev.xpBonus ?? 0;
+  }
+  return total;
+}
+
+/**
+ * Sum of the `goldBonus` of every currently-active event (0 if none). The host scales gold drops by
+ * `(1 + totalGoldBonus(...))`. Events with no `goldBonus` contribute nothing.
+ */
+export function totalGoldBonus(
+  events: readonly GameEventDef[],
+  nowMs: number,
+  epochMs = 0,
+): number {
+  let total = 0;
+  for (const ev of events) {
+    if (isEventActive(ev, nowMs, epochMs)) total += ev.goldBonus ?? 0;
   }
   return total;
 }

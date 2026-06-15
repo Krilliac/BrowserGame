@@ -692,6 +692,7 @@ export function loadContent(db: GameDatabase): Content {
       lengthMin: r.length_min,
     };
     if (r.xp_bonus !== null) ev.xpBonus = r.xp_bonus;
+    if (r.gold_bonus !== null && r.gold_bonus !== undefined) ev.goldBonus = r.gold_bonus;
     if (r.announce !== null) ev.announce = r.announce;
     return ev;
   });
@@ -1158,6 +1159,7 @@ interface GameEventRow {
   period_min: number;
   length_min: number;
   xp_bonus: number | null;
+  gold_bonus: number | null;
   announce: string | null;
 }
 interface RiftModifierRow {

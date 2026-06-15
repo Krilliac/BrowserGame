@@ -40,7 +40,7 @@ import {
   removeFriend as dbRemoveFriend,
 } from './player-store.js';
 import { recordScore, formatLadder, isLeaderboardMetric } from './leaderboard.js';
-import { activeEvents, totalXpBonus, msUntilNextChange } from './game-events.js';
+import { activeEvents, totalXpBonus, totalGoldBonus, msUntilNextChange } from './game-events.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
 import {
@@ -1625,7 +1625,11 @@ setInterval(() => {
       const evNow = simMs();
       const events = getContent().gameEvents();
       const eventMult = 1 + totalXpBonus(events, evNow);
-      for (const instance of manager.list()) instance.world.setXpEventMult(eventMult);
+      const goldMult = 1 + totalGoldBonus(events, evNow);
+      for (const instance of manager.list()) {
+        instance.world.setXpEventMult(eventMult);
+        instance.world.setGoldEventMult(goldMult);
+      }
       const nowActiveEventIds = new Set<string>();
       for (const e of activeEvents(events, evNow)) {
         nowActiveEventIds.add(e.id);

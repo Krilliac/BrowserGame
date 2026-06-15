@@ -570,10 +570,18 @@ function ensureGameEvents(db: Database): void {
   const has = db.prepare('SELECT 1 FROM game_events LIMIT 1');
   if (has.get()) return;
   const ins = db.prepare(
-    'INSERT INTO game_events (id,name,period_min,length_min,xp_bonus,announce) VALUES (?,?,?,?,?,?)',
+    'INSERT INTO game_events (id,name,period_min,length_min,xp_bonus,gold_bonus,announce) VALUES (?,?,?,?,?,?,?)',
   );
   for (const e of DEFAULT_GAME_EVENTS) {
-    ins.run(e.id, e.name, e.periodMin, e.lengthMin, e.xpBonus ?? null, e.announce ?? null);
+    ins.run(
+      e.id,
+      e.name,
+      e.periodMin,
+      e.lengthMin,
+      e.xpBonus ?? null,
+      e.goldBonus ?? null,
+      e.announce ?? null,
+    );
   }
 }
 
