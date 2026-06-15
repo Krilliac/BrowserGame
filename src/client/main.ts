@@ -1498,6 +1498,16 @@ function drawCharacterPanel(): void {
     hud.fillText(`Sets: ${sets.join(' · ')}`, px + 14, py + ph - 12);
   }
 
+  // Lifetime kills + the current deathless streak — bragging rights, bottom-right of the sheet.
+  hud.textAlign = 'right';
+  hud.font = '11px system-ui, sans-serif';
+  hud.fillStyle = '#cfd3da';
+  hud.fillText(
+    `Kills ${net.you.kills}   Streak ${net.you.deathlessStreak}`,
+    px + pw - 14,
+    py + ph - 12,
+  );
+
   hud.textAlign = 'left';
 }
 

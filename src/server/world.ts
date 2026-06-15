@@ -4034,6 +4034,8 @@ export class World {
         ackSeq: number;
         /** Effective move multiplier â€” the client predictor integrates with this to stay in sync. */
         moveMul: number;
+        kills: number;
+        deathlessStreak: number;
       }
     | undefined {
     const p = this.players.get(id);
@@ -4069,6 +4071,8 @@ export class World {
       y: p.y,
       ackSeq: p.lastSeq,
       moveMul: this.playerMoveMul(p),
+      kills: p.kills,
+      deathlessStreak: p.deathlessStreak,
     };
   }
 

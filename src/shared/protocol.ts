@@ -388,6 +388,10 @@ export type ServerMessage =
       ackSeq: number;
       /** Effective move multiplier (weather × affix × haste × slow) for the client predictor. */
       moveMul: number;
+      /** Lifetime monster kills credited to this character (shown on the character sheet). */
+      kills: number;
+      /** Current deathless streak — kills since the last death (0 right after dying). */
+      deathlessStreak: number;
     }
   /** A nearby vendor's shop contents (sent when the player interacts with a vendor NPC). */
   | { t: 'shop'; vendor: string; stock: { itemId: string; price: number }[] }

@@ -57,8 +57,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 25 | feat | **Deathless streak** — kills since last death → no-death achievements | green | +1 → 1427; Player.deathlessStreak persists; creditKill++, death resets to 0; Untouchable(50)/Immortal(200) |
 
-NEXT (it.26): client-UX (alternation) — e.g. show deathless-streak/kills on the HUD or character
-panel, or a buff/timer strip. Then backend. PUSH after it.25 (it.23/24 already pushed).
+| 26 | feat(ui) | **Kills + deathless-streak on character sheet** — ship in `you` packet | green | protocol+world playerStats+net SelfStats+main bottom-right line; needs server reload to surface |
+
+NEXT (it.27): backend (alternation). Then client-UX. PUSH soon (unpushed: it.25 + it.26).
+NOTE: it.23–26 all need the dev server to reload its code (no new schema tables, but new server
+logic + `you` fields) for the user to see them live.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
