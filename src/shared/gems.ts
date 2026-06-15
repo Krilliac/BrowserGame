@@ -24,6 +24,14 @@ export interface GemDef {
   value: number;
   /** Tier 1..3 (chipped → flawed → flawless); higher = bigger value + rarer drop. */
   tier: number;
+  /**
+   * Optional spell-damage multiplier applied when this gem is socketed (default 1.0). Support gems
+   * that grant powerful modifiers (chain/pierce/fork at high counts) carry a value < 1 as a
+   * built-in tradeoff so the benefit isn't free.
+   */
+  mult?: number;
+  /** When true, socketing this gem grants the seeking/homing projectile behaviour. */
+  grantsHoming?: boolean;
 }
 
 /** Tier display prefixes (index 0 unused; tiers are 1-based). */
@@ -38,6 +46,19 @@ function gem(
   tier: number,
 ): GemDef {
   return { id, name: `${TIER_PREFIX[tier]}${family}`, color, stat, value, tier };
+}
+
+/** Like {@link gem} but accepts optional extra fields (mult, grantsHoming) for support gems. */
+function gemExt(
+  id: string,
+  family: string,
+  color: string,
+  stat: AffixStat,
+  value: number,
+  tier: number,
+  extra?: Partial<Pick<GemDef, 'mult' | 'grantsHoming'>>,
+): GemDef {
+  return { id, name: `${TIER_PREFIX[tier]}${family}`, color, stat, value, tier, ...extra };
 }
 
 /**
@@ -85,6 +106,42 @@ export const DEFAULT_GEMS: Record<string, GemDef> = {
   opal_t1: gem('opal_t1', 'Opal', '#d8e0ff', 'vigor', 1, 1),
   opal_t2: gem('opal_t2', 'Opal', '#d8e0ff', 'vigor', 2, 2),
   opal_t3: gem('opal_t3', 'Opal', '#d8e0ff', 'vigor', 3, 3),
+
+  // --- Modifier / support gem families: shape projectile behaviour ---
+  // Voltaic — chain (projectile bounces): 1 / 1 / 2
+  voltaic_t1: gem('voltaic_t1', 'Voltaic Gem', '#9b6bff', 'chain', 1, 1),
+  voltaic_t2: gem('voltaic_t2', 'Voltaic Gem', '#9b6bff', 'chain', 1, 2),
+  voltaic_t3: gem('voltaic_t3', 'Voltaic Gem', '#9b6bff', 'chain', 2, 3),
+  // Lancing — pierce (projectile passes through): 1 / 2 / 2
+  lancing_t1: gem('lancing_t1', 'Lancing Gem', '#cfd6e6', 'pierce', 1, 1),
+  lancing_t2: gem('lancing_t2', 'Lancing Gem', '#cfd6e6', 'pierce', 2, 2),
+  lancing_t3: gem('lancing_t3', 'Lancing Gem', '#cfd6e6', 'pierce', 2, 3),
+  // Splitting — fork (projectile splits on hit): 1 / 1 / 2
+  splitting_t1: gem('splitting_t1', 'Splitting Gem', '#ff9a4d', 'fork', 1, 1),
+  splitting_t2: gem('splitting_t2', 'Splitting Gem', '#ff9a4d', 'fork', 1, 2),
+  splitting_t3: gem('splitting_t3', 'Splitting Gem', '#ff9a4d', 'fork', 2, 3),
+  // Concussive — spell AoE radius bonus (%): 0.2 / 0.35 / 0.5
+  concussive_t1: gem('concussive_t1', 'Concussive Gem', '#ffd24a', 'spellaoe', 0.2, 1),
+  concussive_t2: gem('concussive_t2', 'Concussive Gem', '#ffd24a', 'spellaoe', 0.35, 2),
+  concussive_t3: gem('concussive_t3', 'Concussive Gem', '#ffd24a', 'spellaoe', 0.5, 3),
+  // Seeking — homing projectiles (grantsHoming) + tiny +10% AoE; stat 'spellaoe' value 0.1
+  seeking_t1: gemExt('seeking_t1', 'Seeking Gem', '#5fd0a0', 'spellaoe', 0.1, 1, {
+    grantsHoming: true,
+  }),
+  seeking_t2: gemExt('seeking_t2', 'Seeking Gem', '#5fd0a0', 'spellaoe', 0.1, 2, {
+    grantsHoming: true,
+  }),
+  seeking_t3: gemExt('seeking_t3', 'Seeking Gem', '#5fd0a0', 'spellaoe', 0.1, 3, {
+    grantsHoming: true,
+  }),
+  // Overcharge — rare t3 only: +3 chain at a 20% damage cost (mult 0.8)
+  overcharge_t3: gemExt('overcharge_t3', 'Overcharge Gem', '#ff4d7a', 'chain', 3, 3, {
+    mult: 0.8,
+  }),
+  // Impaler — rare t3 only: +3 pierce at a 15% damage cost (mult 0.85)
+  impaler_t3: gemExt('impaler_t3', 'Impaler Gem', '#b0b0c0', 'pierce', 3, 3, {
+    mult: 0.85,
+  }),
 };
 
 /**
@@ -143,6 +200,18 @@ export interface GemBonuses {
   move: number;
   armor: number;
   vigor: number;
+  // Projectile-modifier stats — sourced from support gems only, never roll as gear affixes.
+  chain: number;
+  pierce: number;
+  fork: number;
+  spellaoe: number;
+  /** Number of seeking/homing gems socketed (each seeking gem contributes 1). */
+  homing: number;
+  /**
+   * Cumulative spell-damage multiplier from all support gems (product of each gem's `mult`; gems
+   * without `mult` contribute 1.0, so pure modifier gems have no damage penalty).
+   */
+  mult: number;
 }
 
 /**
@@ -160,11 +229,24 @@ export function gemBonuses(socketed: (string | null)[]): GemBonuses {
     move: 0,
     armor: 0,
     vigor: 0,
+    chain: 0,
+    pierce: 0,
+    fork: 0,
+    spellaoe: 0,
+    homing: 0,
+    mult: 1,
   };
   for (const id of socketed) {
     if (id === null) continue;
     const def = GEMS[id];
     if (def === undefined) continue;
+
+    // Apply per-gem damage multiplier (support gems carry mult < 1 as a tradeoff).
+    out.mult *= def.mult ?? 1;
+
+    // Grant homing if this gem type flags it (seeking gems use a field, not a stat).
+    if (def.grantsHoming) out.homing += 1;
+
     switch (def.stat) {
       case 'power':
         out.power += def.value;
@@ -192,6 +274,18 @@ export function gemBonuses(socketed: (string | null)[]): GemBonuses {
         break;
       case 'vigor':
         out.vigor += def.value;
+        break;
+      case 'chain':
+        out.chain += def.value;
+        break;
+      case 'pierce':
+        out.pierce += def.value;
+        break;
+      case 'fork':
+        out.fork += def.value;
+        break;
+      case 'spellaoe':
+        out.spellaoe += def.value;
         break;
       default:
         // Gems never grant debuff stats (frail/fragile); ignore defensively.

@@ -453,10 +453,10 @@ function ensureRarityTiers(db: Database): void {
  */
 function ensureGems(db: Database): void {
   const ins = db.prepare(
-    'INSERT OR IGNORE INTO gems (id,name,color,stat,value,tier) VALUES (?,?,?,?,?,?)',
+    'INSERT OR IGNORE INTO gems (id,name,color,stat,value,tier,mult,grants_homing) VALUES (?,?,?,?,?,?,?,?)',
   );
   for (const g of Object.values(DEFAULT_GEMS))
-    ins.run(g.id, g.name, g.color, g.stat, g.value, g.tier);
+    ins.run(g.id, g.name, g.color, g.stat, g.value, g.tier, g.mult ?? 1, g.grantsHoming ? 1 : 0);
 }
 
 /**

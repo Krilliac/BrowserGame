@@ -586,14 +586,19 @@ export function loadContent(db: GameDatabase): Content {
   }
 
   // Gem catalog (socketable bonuses). Overlaid onto the shared GEMS table.
-  const gems = (db.prepare('SELECT * FROM gems').all() as GemRow[]).map((r) => ({
-    id: r.id,
-    name: r.name,
-    color: r.color,
-    stat: r.stat as GemDef['stat'],
-    value: r.value,
-    tier: r.tier,
-  }));
+  const gems = (db.prepare('SELECT * FROM gems').all() as GemRow[]).map((r) => {
+    const def: GemDef = {
+      id: r.id,
+      name: r.name,
+      color: r.color,
+      stat: r.stat as GemDef['stat'],
+      value: r.value,
+      tier: r.tier,
+    };
+    if (r.mult !== 1) def.mult = r.mult;
+    if (r.grants_homing !== 0) def.grantsHoming = true;
+    return def;
+  });
 
   // Rune pool + runeword recipes (server-side runeword detection). Recipe sequence is the
   // comma-joined rune list; bonuses are reassembled from runeword_bonuses in sort order.
@@ -1145,6 +1150,8 @@ interface GemRow {
   stat: string;
   value: number;
   tier: number;
+  mult: number;
+  grants_homing: number;
 }
 interface RuneRow {
   id: string;

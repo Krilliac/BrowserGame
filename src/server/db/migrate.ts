@@ -100,6 +100,19 @@ const MIGRATIONS: Migration[] = [
       if (hasTable(db, 'abilities')) ensureColumns(db, 'abilities', { behaviors_json: 'TEXT' });
     },
   },
+  {
+    version: 4,
+    name: 'gem-modifier-fields',
+    up(db) {
+      // Support gems carry a damage-tradeoff multiplier (mult) and a homing flag (grants_homing).
+      // Both default to their neutral values so all existing gem rows behave identically to before.
+      if (hasTable(db, 'gems'))
+        ensureColumns(db, 'gems', {
+          mult: 'REAL NOT NULL DEFAULT 1',
+          grants_homing: 'INTEGER NOT NULL DEFAULT 0',
+        });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */

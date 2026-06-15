@@ -11,6 +11,10 @@ const VALID_STATS = new Set([
   'move',
   'armor',
   'vigor',
+  'chain',
+  'pierce',
+  'fork',
+  'spellaoe',
 ]);
 
 /** The full zero baseline for a gemBonuses() result (every gem-able stat). */
@@ -24,6 +28,12 @@ const ZERO_BONUSES = {
   move: 0,
   armor: 0,
   vigor: 0,
+  chain: 0,
+  pierce: 0,
+  fork: 0,
+  spellaoe: 0,
+  homing: 0,
+  mult: 1,
 };
 
 describe('GEMS catalog', () => {
@@ -101,6 +111,36 @@ describe('gemBonuses', () => {
       armor: 5,
       vigor: 1,
     });
+  });
+
+  it('sums modifier gem families (chain / pierce / fork / spellaoe)', () => {
+    const result = gemBonuses(['voltaic_t3', 'lancing_t2', 'splitting_t1', 'concussive_t3']);
+    expect(result).toEqual({
+      ...ZERO_BONUSES,
+      chain: 2, // voltaic_t3
+      pierce: 2, // lancing_t2
+      fork: 1, // splitting_t1
+      spellaoe: 0.5, // concussive_t3
+    });
+  });
+
+  it('accumulates homing count from seeking gems and does not double-count spellaoe', () => {
+    const result = gemBonuses(['seeking_t1', 'seeking_t3']);
+    expect(result.homing).toBe(2);
+    // Each seeking gem also contributes 0.1 spellaoe
+    expect(result.spellaoe).toBeCloseTo(0.2);
+  });
+
+  it('multiplies mult from support gems with a damage tradeoff', () => {
+    // overcharge_t3 has mult 0.8, impaler_t3 has mult 0.85
+    const result = gemBonuses(['overcharge_t3', 'impaler_t3']);
+    expect(result.chain).toBe(3);
+    expect(result.pierce).toBe(3);
+    expect(result.mult).toBeCloseTo(0.8 * 0.85);
+  });
+
+  it('mult stays 1.0 when no support gems carry a penalty', () => {
+    expect(gemBonuses(['ruby_t1', 'voltaic_t2']).mult).toBe(1);
   });
 
   it('ignores null (empty) sockets', () => {

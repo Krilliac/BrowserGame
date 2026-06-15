@@ -396,12 +396,14 @@ CREATE TABLE IF NOT EXISTS mob_resists (
 -- DEFAULT_GEMS (gems.ts); overlaid onto the shared GEMS catalog on both sides (server load + content
 -- packet). Add a row to introduce a new gem; tier drives the combine chain + drop weight (in code).
 CREATE TABLE IF NOT EXISTS gems (
-  id    TEXT PRIMARY KEY,
-  name  TEXT NOT NULL,
-  color TEXT NOT NULL,
-  stat  TEXT NOT NULL,                  -- an AffixStat (power|hp|crit|multishot|lifesteal|swift|move|armor|vigor)
-  value REAL NOT NULL,
-  tier  INTEGER NOT NULL                -- 1..3 (chipped → flawless)
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  color        TEXT NOT NULL,
+  stat         TEXT NOT NULL,           -- an AffixStat (power|hp|crit|...|chain|pierce|fork|spellaoe)
+  value        REAL NOT NULL,
+  tier         INTEGER NOT NULL,        -- 1..3 (chipped → flawless)
+  mult         REAL NOT NULL DEFAULT 1, -- spell-damage multiplier (support gems carry < 1 as a tradeoff)
+  grants_homing INTEGER NOT NULL DEFAULT 0  -- 1 = seeking/homing projectile behaviour
 );
 
 -- Item rarity tiers: drop weight, stat multiplier, roll variance, and display color per rarity.
