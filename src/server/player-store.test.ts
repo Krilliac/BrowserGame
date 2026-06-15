@@ -65,6 +65,31 @@ describe('player save store', () => {
     expect(loadSave(db, token)?.name).toBe('Hero2');
   });
 
+  it('preserves the per-character counters through the DB round-trip', () => {
+    // The save is persisted as whole-object JSON (not a column allowlist), so progression counters
+    // added over time survive without per-field plumbing. Pin that — a future switch to an allowlist
+    // that forgot a field would silently wipe a player's kills/bestiary/stash on every login.
+    const db = openDatabase(':memory:');
+    const token = newPlayerToken();
+    const save: PlayerSave = {
+      ...sampleSave('Counter'),
+      kills: 137,
+      bossKills: 9,
+      bestiary: ['goblin', 'skeleton', 'wolf'],
+      deathlessStreak: 22,
+      bestDeathlessStreak: 88,
+      stashCap: 80,
+    };
+    storeSave(db, token, save);
+    const loaded = loadSave(db, token)!;
+    expect(loaded.kills).toBe(137);
+    expect(loaded.bossKills).toBe(9);
+    expect(loaded.bestiary).toEqual(['goblin', 'skeleton', 'wolf']);
+    expect(loaded.deathlessStreak).toBe(22);
+    expect(loaded.bestDeathlessStreak).toBe(88);
+    expect(loaded.stashCap).toBe(80);
+  });
+
   it('tolerates a pre-affix save by defaulting affixes to []', () => {
     const db = openDatabase(':memory:');
     const token = newPlayerToken();
