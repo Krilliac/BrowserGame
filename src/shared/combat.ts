@@ -29,6 +29,21 @@ export type AbilityKind = 'melee' | 'projectile' | 'heal';
  */
 export type DamageElement = 'physical' | 'fire' | 'cold' | 'lightning' | 'poison';
 
+/**
+ * A composable spell behavior (Slice 1 of the spell-behavior engine). Declared as data on an ability
+ * and seeded into the content DB (`abilities.behaviors_json`), so behaviors are SQL-tunable. The
+ * server resolves them via `src/server/projectile-behaviors.ts`. `falloff` is a per-event damage
+ * multiplier (0.7 = each subsequent jump/pierce deals 70% of the prior).
+ */
+export type BehaviorSpec =
+  | { type: 'chain'; count: number; range: number; falloff: number }
+  | { type: 'pierce'; count: number; falloff: number }
+  | { type: 'fork'; count: number; spreadRad: number; falloff: number }
+  | { type: 'splash'; radius: number; scale: number }
+  | { type: 'homing'; turnRate: number; acquireRange: number }
+  | { type: 'multishot'; count: number; spreadRad: number }
+  | { type: 'return'; falloff: number };
+
 export interface Ability {
   id: string;
   name: string;
@@ -52,6 +67,8 @@ export interface Ability {
   radius: number;
   /** Damage school (defaults to 'physical' when the DB column is unset). Drives mob resistances. */
   element?: DamageElement;
+  /** Composable projectile behaviors (chain/pierce/fork/splash/homing/multishot/return). */
+  behaviors?: BehaviorSpec[];
 }
 
 const ABILITY_DEFS = {
@@ -884,7 +901,8 @@ export interface FxEvent {
     | 'heal'
     | 'levelup'
     | 'telegraph'
-    | 'slam';
+    | 'slam'
+    | 'arc';
   x: number;
   y: number;
   /** Facing/direction in radians (melee arcs, cast flashes, telegraph aim). */
@@ -900,4 +918,9 @@ export interface FxEvent {
   /** 'pickup' only: rarity of a picked-up gear instance, so the sparkle matches its color. */
   rarity?: string;
   abilityId?: AbilityId;
+  /** `arc` only: the far endpoint of a chain link (the source is x,y). */
+  x2?: number;
+  y2?: number;
+  /** `arc` only: element tint for the arc color. */
+  element?: DamageElement;
 }
