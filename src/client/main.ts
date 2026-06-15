@@ -1961,7 +1961,8 @@ function drawHelpPanel(): void {
     { text: 'Bag: click = equip · Shift-click = salvage into materials' },
     { text: 'Set pieces show a green ◆ tag; set progress is in Character (C)' },
     { head: 'Chat commands (press Enter, then type)' },
-    { text: '/ladder [level|gold|kills] · /achievements · /recipes · /craft <id>' },
+    { text: '/ladder [level|gold|kills|streak] · /achievements · /bestiary · /events' },
+    { text: '/recipes · /craft <id> · /salvageall · /sort · /respec · /expandstash' },
     { text: '/who · /friend <name> · /w <name> <msg> · /help' },
   ];
   const pw = 470;

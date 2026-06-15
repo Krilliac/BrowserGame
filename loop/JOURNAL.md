@@ -141,7 +141,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 67 | refactor | **Extract sanitizeEventMult** — dedup the two event-mult setters | green | zero behavior change (1460). Grepped party×19/social×13/chat-sanitize/content-edit/content-integrity×16 — ALL covered, so per directive a safe dedup: setXpEventMult + setGoldEventMult shared the same finite/>=0 clamp; now one module helper. |
 
-NEXT (it.68): client-UX (alternation). Then backend. PUSH now (it.65–it.67).
+| 68 | feat(ui) | **Refresh the Help (H) command list** — surface the session's new commands | green | client-only; the H overlay listed a stale command set. Now includes /ladder streak, /bestiary, /events, /salvageall, /sort, /respec, /expandstash — real discoverability (players can't use commands they don't know exist). |
+
+NEXT (it.69): backend (alternation). Then client-UX. PUSH now (it.67 + it.68).
 KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
