@@ -134,7 +134,12 @@ export type AffixStat =
   | 'vigor' // value = bonus HP regenerated per second
   // Debuffs — only appear on corrupted gear, paired with a strong buff:
   | 'frail' // value = max HP removed
-  | 'fragile'; // value = % extra damage taken
+  | 'fragile' // value = % extra damage taken
+  // Behavior-modifier stats — gem-sourced only; never roll as affixes on gear:
+  | 'chain' // projectile bounces to additional targets
+  | 'pierce' // projectile passes through enemies
+  | 'fork' // projectile splits on hit
+  | 'spellaoe'; // area-of-effect radius bonus for spells
 
 /** One rolled affix. `value` is always a positive magnitude; debuff stats apply it as a penalty. */
 export interface Affix {
@@ -383,6 +388,11 @@ export const DEFAULT_AFFIX_NAMES: Record<AffixStat, AffixName> = {
   },
   frail: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Frailty' }] },
   fragile: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Brittleness' }] },
+  // Behavior-modifier gem stats — gem-only; names used in gem tooltips only:
+  chain: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Chaining' }] },
+  pierce: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Piercing' }] },
+  fork: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Forking' }] },
+  spellaoe: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Reach' }] },
 };
 
 /** The LIVE affix flavor names (overlaid from the `affix_names` DB tables; client + server). */

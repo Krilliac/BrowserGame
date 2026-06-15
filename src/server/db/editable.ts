@@ -380,6 +380,11 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
           'move',
           'armor',
           'vigor',
+          // Behavior-modifier stats — gem-sourced only:
+          'chain',
+          'pierce',
+          'fork',
+          'spellaoe',
         ],
       },
       value: { type: 'real', min: 0, max: 100000 },

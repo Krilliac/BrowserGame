@@ -449,6 +449,18 @@ interface Player {
   damageTakenMult: number;
   /** Bonus HP regenerated per second from +vigor affixes (added to base regen). */
   vigor: number;
+  /** Extra projectile chain bounces (from 'chain' gems). */
+  chainAdd: number;
+  /** Extra pierce-through count (from 'pierce' gems). */
+  pierceAdd: number;
+  /** Extra fork splits on projectile hit (from 'fork' gems). */
+  forkAdd: number;
+  /** Spell AoE radius bonus (from 'spellaoe' gems). */
+  spellAoe: number;
+  /** Extra homing projectile count (reserved for future homing gem; init 0). */
+  homingAdd: number;
+  /** Multiplicative spell-damage bonus (1 = no change; increased by spell-damage gems). */
+  spellDamageMult: number;
   /** Bonus mana/sec from the Energy attribute (added to base mana regen). */
   manaRegenBonus: number;
   /** Item procs from equipped gear (rebuilt in recomputeStats; chance-on-hit/crit effects). */
@@ -2285,6 +2297,12 @@ export class World {
       debugSpeed: 1,
       damageTakenMult: 1,
       vigor: 0,
+      chainAdd: 0,
+      pierceAdd: 0,
+      forkAdd: 0,
+      spellAoe: 0,
+      homingAdd: 0,
+      spellDamageMult: 1,
       god: false,
       quests: new Map(),
       questsDone: new Set(),
