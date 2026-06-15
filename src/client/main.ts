@@ -1550,6 +1550,43 @@ function drawCharacterPanel(): void {
   hud.textAlign = 'left';
 }
 
+/**
+ * Always-on HUD tracker for active quests (top-left): a compact "▸ Name  progress/target" line per
+ * active objective, so the player sees what to do without opening the full log (L). Hidden when no
+ * quest is active; never shown while the full quest panel is open (avoids doubling up).
+ */
+function drawQuestTracker(): void {
+  if (questOpen) return;
+  const active = (net.you.quests ?? []).filter((q) => q.status === 'active').slice(0, 3);
+  if (active.length === 0) return;
+
+  const x = 12;
+  let y = 86;
+  const lineH = 16;
+  const boxW = 188;
+  const boxH = 16 + active.length * lineH + 6;
+  hud.fillStyle = 'rgba(8,9,13,0.55)';
+  hud.fillRect(x - 6, y - 12, boxW, boxH);
+
+  hud.textAlign = 'left';
+  hud.font = 'bold 11px system-ui, sans-serif';
+  hud.fillStyle = '#c9a24b';
+  hud.fillText('Quests', x, y);
+  y += lineH;
+  for (const q of active) {
+    const name = q.name.length > 22 ? q.name.slice(0, 21) + '…' : q.name;
+    const prog = `${Math.min(q.progress, q.targetCount)}/${q.targetCount}`;
+    hud.font = '11px system-ui, sans-serif';
+    const done = q.progress >= q.targetCount;
+    hud.fillStyle = done ? '#9be09b' : '#e7d9b0'; // green once the objective is met (go turn it in)
+    hud.fillText(`▸ ${name}`, x, y);
+    hud.textAlign = 'right';
+    hud.fillText(prog, x + boxW - 12, y);
+    hud.textAlign = 'left';
+    y += lineH;
+  }
+}
+
 /** The quest log (toggle with L). Active quests show progress bars; available ones an Accept button. */
 function drawQuestPanel(): void {
   questAcceptRects.length = 0;
@@ -1923,6 +1960,7 @@ function drawHud(): void {
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
   drawTargetFrame();
+  drawQuestTracker();
   // Always-visible discoverability hint for the help overlay.
   hud.font = '10px system-ui, sans-serif';
   hud.fillStyle = 'rgba(180,170,140,0.5)';

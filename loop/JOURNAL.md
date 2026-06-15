@@ -81,9 +81,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 37 | feat | **Quest achievements** — questsDone milestone axis | green | +1 → 1441; fresh axis (quests, not kills/economy/QoL); Adventurer(3)/Questmaster(12) — thresholds verified achievable (22 quests seeded); checkAchievements now also fires on completeQuest |
 
-NEXT (it.38): client-UX (alternation). Then backend. PUSH soon (unpushed: it.37).
-NOTE: it.23–37 all need the dev server to reload its code (no new schema tables) for the user to see
-them live.
+| 38 | feat(ui) | **HUD quest tracker** — active objectives top-left | green | client-only; "▸ Name  prog/target" per active quest (uses `you.quests`, no protocol); turns green when objective met; hidden when the full log (L) is open |
+
+NEXT (it.39): backend (alternation). Then client-UX. PUSH now (it.37 + it.38).
+NOTE: it.23–38 all need the dev server to reload its code (no new schema tables) for the user to see
+them live. (Quest achievements from it.37 also surface live via the it.24 unlock toast.)
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
