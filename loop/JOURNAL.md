@@ -135,7 +135,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 64 | feat(ui) | **Two-click confirm on Respec** — footgun guard | green | client-only; mirrors the it.60 sell-all confirm. Respec wipes the whole build for gold, so first click arms (red "Confirm respec?"), 2nd within 3s fires; disarms if unaffordable. Both char-panel click handlers. |
 
-NEXT (it.65): backend (alternation). Then client-UX. PUSH now (it.63 + it.64).
+| 65 | feat(content) | **"Dragon's Hoard" achievement** (hold 100k gold) | green | tiny additive content. Grepped shrines(incl. recharge)/spellbook×32/weather/runewords/gamble — ALL covered, so per directive added a goal instead of a redundant test. Extends the gold ladder (…/50k → 100k) for end-game. Code-driven achievements (no DB table) → only a code reload needed, auto-covered by achievements.test. |
+
+NEXT (it.66): client-UX (alternation). Then backend. PUSH now (it.63–it.65). Consider a status
+PushNotification to the user (it.23–65 = 43 green iterations).
 KNOWN-FLAKY (treat green if they pass alone): world-hirelings, tools/assetgen, world-party (all timing/load-sensitive).
 NOTE: it.23–38,40,41,42,44,46,48,50,52,54,56,58,60,62 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 

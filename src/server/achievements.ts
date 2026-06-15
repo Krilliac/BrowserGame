@@ -102,6 +102,13 @@ export const DEFAULT_ACHIEVEMENTS: readonly AchievementDef[] = [
     metric: 'gold',
     threshold: 50000,
   },
+  {
+    id: 'gold_dragon_hoard',
+    name: "Dragon's Hoard",
+    desc: 'Hold 100,000 gold at once.',
+    metric: 'gold',
+    threshold: 100000,
+  },
   // Kill tiers — the body count climbs as you clear the world.
   {
     id: 'kills_slayer',
