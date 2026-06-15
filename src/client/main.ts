@@ -2098,7 +2098,9 @@ function drawHud(): void {
   hud.font = 'bold 12px system-ui, sans-serif';
   hud.textAlign = 'left';
   hud.fillStyle = '#e7d9b0';
-  hud.fillText(`Lv ${net.you.level}`, panelX, h - 98);
+  // Lv + XP progress to the next level (the thin XP bar below has no room for a number).
+  const xpPct = net.you.xpNext > 0 ? Math.floor((net.you.xpInto / net.you.xpNext) * 100) : 100;
+  hud.fillText(`Lv ${net.you.level} · ${xpPct}%`, panelX, h - 98);
   hud.textAlign = 'right';
   hud.fillStyle = '#f2c14e';
   hud.fillText(`${net.you.gold} gold`, panelX + panelW, h - 98);
