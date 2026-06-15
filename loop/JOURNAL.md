@@ -95,9 +95,11 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 44 | feat(ui) | **Active-event HUD badges** — show live liveops events | green | new `events` packet (broadcast on change + sent on join); top-center "★ Golden Hour" badges; net.activeEvents + drawEventBadges. Pairs with it.43 — players now SEE when the gold/XP window is live |
 
-NEXT (it.45): backend (alternation). Then client-UX. PUSH now (it.41–it.44).
-NOTE: it.23–38,40,41,42,44 need a dev-server code reload; it.39 + it.43 need a server RESTART (it.43
-migrates existing game.db via migration #2). (Quest achievements it.37 surface via the it.24 toast.)
+| 45 | feat(content) | **Treasure Tide** event (+100% gold, rare 8h/10min) + idempotent event seed | green | leverages it.43 goldBonus; 3rd liveops event; also fixed ensureGameEvents → INSERT OR IGNORE per row so NEW default events backfill existing DBs on restart (was seed-only-if-empty). NEEDS restart (new seed row). |
+
+NEXT (it.46): client-UX (alternation). Then backend. PUSH now (it.41–it.45).
+NOTE: it.23–38,40,41,42,44 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART
+(it.43 migrates existing game.db; it.45 backfills the new event). (Quest achiev it.37 via it.24 toast.)
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).

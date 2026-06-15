@@ -61,6 +61,14 @@ export const DEFAULT_GAME_EVENTS: GameEventDef[] = [
     goldBonus: 0.5, // +50% gold drops — the event finally lives up to its name
     announce: 'The Golden Hour dawns — slain foes spill richer hoards for the next 15 minutes.',
   },
+  {
+    id: 'treasure-tide',
+    name: 'Treasure Tide',
+    periodMin: 480, // every 8 hours — a rare, jackpot window
+    lengthMin: 10,
+    goldBonus: 1.0, // +100% gold: the richest haul on the calendar
+    announce: 'A Treasure Tide surges in — gold pours from the slain for the next 10 minutes.',
+  },
 ];
 
 /**

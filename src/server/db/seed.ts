@@ -567,10 +567,10 @@ function ensureAbilityElements(db: Database): void {
  * any event row exists, so designer edits/additions survive a restart.
  */
 function ensureGameEvents(db: Database): void {
-  const has = db.prepare('SELECT 1 FROM game_events LIMIT 1');
-  if (has.get()) return;
+  // INSERT OR IGNORE on the id PK: idempotent add-if-missing, so a NEW default event added in code
+  // backfills into an existing DB on restart (rather than only seeding a wholly empty table).
   const ins = db.prepare(
-    'INSERT INTO game_events (id,name,period_min,length_min,xp_bonus,gold_bonus,announce) VALUES (?,?,?,?,?,?,?)',
+    'INSERT OR IGNORE INTO game_events (id,name,period_min,length_min,xp_bonus,gold_bonus,announce) VALUES (?,?,?,?,?,?,?)',
   );
   for (const e of DEFAULT_GAME_EVENTS) {
     ins.run(
