@@ -91,6 +91,15 @@ const MIGRATIONS: Migration[] = [
       if (hasTable(db, 'game_events')) ensureColumns(db, 'game_events', { gold_bonus: 'REAL' });
     },
   },
+  {
+    version: 3,
+    name: 'ability-behaviors',
+    up(db) {
+      // Spell-behavior engine: abilities carry a JSON behavior list (chain/pierce/fork/splash/homing/
+      // multishot/return), seeded into behaviors_json. Add the nullable column to old DBs.
+      if (hasTable(db, 'abilities')) ensureColumns(db, 'abilities', { behaviors_json: 'TEXT' });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */
