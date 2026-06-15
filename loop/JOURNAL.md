@@ -111,7 +111,9 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 52 | feat(ui) | **Damage hit-flash** — brief red wash when the player is hit | green | client-only; HP-decrease frame-diff (skips first frame/respawn/dead); 160ms fade. Pairs with the it.50 low-HP vignette (momentary hit vs sustained danger). |
 
-NEXT (it.53): backend (alternation). Then client-UX. PUSH now (it.51 + it.52).
+| 53 | test(hardening) | **Vendor sell/buy** world-boundary test | green | +3 → 1453; QUALITY. Pure sell-VALUE was tested but not the World seam: pins gold conservation (sell credits exactly Σvalue + empties bag), and that BOTH sell & buy are vendor-proximity gated + buy rejects non-stocked items (anti-cheat). Found via grep (vendor.test = pure only). |
+
+NEXT (it.54): client-UX (alternation). Then backend. PUSH now (it.51–it.53).
 NOTE: it.23–38,40,41,42,44,46,48,50,52 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
