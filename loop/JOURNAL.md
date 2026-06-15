@@ -99,9 +99,10 @@ NEXT: alternate — last 2 were client-UX (salvage, sets). Do a BACKEND item via
 
 | 46 | feat(ui) | **Event badges show the bonus** — "★ Treasure Tide +100% gold" | green | events packet now carries xpBonus/goldBonus (eventBadge helper, both send sites); badge renders the bonus suffix so players know what's live |
 
-NEXT (it.47): backend (alternation). Then client-UX. PUSH now (it.41–it.46).
-NOTE: it.23–38,40,41,42,44,46 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART
-(it.43 migrates existing game.db; it.45 backfills the new event). (Quest achiev it.37 via it.24 toast.)
+| 47 | test(hardening) | **seed() idempotency** characterization test | green | +2 → 1448; QUALITY iteration (easy features scarce — per directive). Pins the contract all ~35 ensure* depend on: a 2nd/Nth full seed pass adds 0 rows + never throws (generic per-table count). Catches a future non-idempotent seeder. Verified seed pipeline IS fully idempotent today. Rejected: #15 pack-discovery (lateral risk, marginal); decode-validation (already pinned, permissive-by-design). |
+
+NEXT (it.48): client-UX (alternation). Then backend. PUSH now (it.41–it.47).
+NOTE: it.23–38,40,41,42,44,46 need a dev-server code reload; it.39 + it.43 + it.45 need a server RESTART.
 
 OLD NEXT (it.20): client-UX (alternation). Candidates: crafting panel (needs restart for tables), achievements
 panel, trade panel, or show buffs/timers. Then backend. Consider pushing soon (commits since it.17 push).
