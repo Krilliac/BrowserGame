@@ -81,6 +81,8 @@ export interface SelfStats {
   moveMul: number;
   /** Lifetime monster kills (shown on the character sheet). */
   kills: number;
+  /** Lifetime boss-tier kills (hp >= 200). */
+  bossKills: number;
   /** Current deathless streak — kills since the last death. */
   deathlessStreak: number;
 }
@@ -136,6 +138,7 @@ export class Net {
     ackSeq: 0,
     moveMul: 1,
     kills: 0,
+    bossKills: 0,
     deathlessStreak: 0,
   };
   /** The currently-open vendor shop (null when no shop panel is open). */
@@ -434,6 +437,7 @@ export class Net {
           ackSeq: msg.ackSeq,
           moveMul: msg.moveMul,
           kills: msg.kills,
+          bossKills: msg.bossKills,
           deathlessStreak: msg.deathlessStreak,
         };
         this.authRev++;

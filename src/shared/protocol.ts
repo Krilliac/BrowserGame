@@ -390,6 +390,8 @@ export type ServerMessage =
       moveMul: number;
       /** Lifetime monster kills credited to this character (shown on the character sheet). */
       kills: number;
+      /** Lifetime boss-tier kills (hp >= 200) — shown on the character sheet. */
+      bossKills: number;
       /** Current deathless streak — kills since the last death (0 right after dying). */
       deathlessStreak: number;
     }

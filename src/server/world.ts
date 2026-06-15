@@ -4055,6 +4055,7 @@ export class World {
         /** Effective move multiplier â€” the client predictor integrates with this to stay in sync. */
         moveMul: number;
         kills: number;
+        bossKills: number;
         deathlessStreak: number;
       }
     | undefined {
@@ -4092,6 +4093,7 @@ export class World {
       ackSeq: p.lastSeq,
       moveMul: this.playerMoveMul(p),
       kills: p.kills,
+      bossKills: p.bossKills,
       deathlessStreak: p.deathlessStreak,
     };
   }

@@ -1503,7 +1503,7 @@ function drawCharacterPanel(): void {
   hud.font = '11px system-ui, sans-serif';
   hud.fillStyle = '#cfd3da';
   hud.fillText(
-    `Kills ${net.you.kills}   Streak ${net.you.deathlessStreak}`,
+    `Kills ${net.you.kills}   Bosses ${net.you.bossKills}   Streak ${net.you.deathlessStreak}`,
     px + pw - 14,
     py + ph - 12,
   );
