@@ -44,7 +44,14 @@ export type BehaviorSpec =
   | { type: 'multishot'; count: number; spreadRad: number }
   | { type: 'return'; falloff: number }
   /** Push the primary hit target `px` pixels directly away from the projectile impact point. */
-  | { type: 'knockback'; px: number };
+  | { type: 'knockback'; px: number }
+  /**
+   * Caster-attached orbiting blade. The projectile ignores vx/vy and instead circles its owner
+   * at `radius` pixels, rotating by `angularSpeed` rad/s each tick. It persists for its full TTL,
+   * hitting each mob independently on a per-target re-hit cooldown (ORBIT_REHIT_MS) so a sweeping
+   * ring damages multiple enemies without consuming itself.
+   */
+  | { type: 'orbit'; radius: number; angularSpeed: number };
 
 export interface Ability {
   id: string;
@@ -448,6 +455,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 300,
     projectileTtlMs: 1700,
     radius: 14,
+    behaviors: [{ type: 'orbit', radius: 48, angularSpeed: 3.2 }],
   },
   radiant_smite: {
     id: 'radiant_smite',

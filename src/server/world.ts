@@ -336,6 +336,9 @@ let DAMAGE_LEVEL_CAP = config.difficulty.damageLevelCap;
 // How often a support-caster monster may re-cast its self-buff/heal (War Cry / Sprint / Renew).
 const MOB_SUPPORT_COOLDOWN_MS = 7000;
 
+/** Minimum milliseconds between successive orbit hits on the same mob (prevents per-tick spam). */
+const ORBIT_REHIT_MS = 350;
+
 // Vendor stock: spell prices are scaled up (a gold sink that keeps drops the exciting path), and a
 // vendor shows only a rotating WINDOW of its tomes so the shop never overflows the UI. The window
 // advances on a sim-time bucket, so the spell selection rotates over the session.
@@ -653,6 +656,10 @@ interface Projectile {
   homingTargetId?: number;
   /** `return` latch — set once the projectile has reversed. */
   returned?: boolean;
+  /** Current angle (radians) for orbit projectiles; set at spawn, advanced each tick. */
+  orbitAngle?: number;
+  /** Per-mob re-hit gate for orbit projectiles: mobId → sim-time (ms) it may be hit again. */
+  orbitHits?: Map<number, number>;
 }
 
 interface GroundItem {
@@ -2663,6 +2670,7 @@ export class World {
         },
       );
       const charges = initialCharges(carried);
+      const hasOrbit = carried.some((b) => b.type === 'orbit');
       for (let i = 0; i < count; i++) {
         const a = facing + (i - (count - 1) / 2) * spread;
         const pid = this.allocId();
@@ -2691,6 +2699,8 @@ export class World {
           piercesLeft: charges.piercesLeft,
           forksLeft: charges.forksLeft,
           damageScale: 1,
+          // Orbit projectiles start at the fan angle so multishot spreads evenly around the ring.
+          ...(hasOrbit ? { orbitAngle: a, orbitHits: new Map<number, number>() } : {}),
         });
       }
     }
@@ -3624,12 +3634,26 @@ export class World {
         proj.damageScale *= ret.falloff;
       }
 
-      proj.x += proj.vx * dt;
-      proj.y += proj.vy * dt;
+      // Orbit: position is owner-relative, not velocity-driven. Non-orbit projectiles use vx/vy.
+      const orbitBehavior = proj.behaviors.find((b) => b.type === 'orbit');
+      if (orbitBehavior && orbitBehavior.type === 'orbit') {
+        const owner = this.players.get(proj.ownerId);
+        if (!owner) {
+          this.projectiles.delete(proj.id);
+          continue;
+        }
+        proj.orbitAngle = (proj.orbitAngle ?? 0) + orbitBehavior.angularSpeed * dt;
+        proj.x = owner.x + Math.cos(proj.orbitAngle) * orbitBehavior.radius;
+        proj.y = owner.y + Math.sin(proj.orbitAngle) * orbitBehavior.radius;
+      } else {
+        proj.x += proj.vx * dt;
+        proj.y += proj.vy * dt;
+      }
       proj.ttl -= dt * 1000;
 
-      // Walls stop shots: nobody (player, mob, or hireling) shoots through a house.
-      if (pointInAnyBlocker(proj.x, proj.y, this.blockers())) {
+      // Walls stop normal shots — but orbit projectiles circle the owner (owner-relative position)
+      // so passing through a wall tile is not meaningful; skip the blocker-delete for them.
+      if (!orbitBehavior && pointInAnyBlocker(proj.x, proj.y, this.blockers())) {
         this.projectiles.delete(proj.id);
         continue;
       }
@@ -3657,6 +3681,23 @@ export class World {
             }
           }
         }
+      } else if (orbitBehavior) {
+        // Orbit hit: scan ALL living mobs each tick; hit each one independently when its per-target
+        // cooldown has expired. Never consume the projectile — it lives until TTL.
+        const orbitHits = proj.orbitHits ?? new Map<number, number>();
+        for (const mob of this.mobs.values()) {
+          if (mob.dead) continue;
+          if ((orbitHits.get(mob.id) ?? 0) > this.now) continue; // still on cooldown
+          if (!circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) continue;
+          // Hit this mob and start its re-hit cooldown.
+          orbitHits.set(mob.id, this.now + ORBIT_REHIT_MS);
+          this.applyProjectileDamage(proj, mob, proj.damageScale);
+          // Respect a co-present knockback behavior on orbit projectiles.
+          const kb = proj.behaviors.find((b) => b.type === 'knockback');
+          if (kb && kb.type === 'knockback') this.knockbackMob(mob, proj.x, proj.y, kb.px);
+        }
+        proj.orbitHits = orbitHits;
+        // consumed stays false — orbit persists until TTL.
       } else {
         let hit: Mob | undefined;
         for (const mob of this.mobs.values()) {
