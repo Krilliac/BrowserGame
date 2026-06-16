@@ -15,6 +15,15 @@ const VALID_STATS = new Set([
   'pierce',
   'fork',
   'spellaoe',
+  // Slice 4 elemental and ailment stats:
+  'firedmg',
+  'colddmg',
+  'lightningdmg',
+  'poisondmg',
+  'physdmg',
+  'penetration',
+  'ailmentdur',
+  'ailmentmag',
 ]);
 
 /** The full zero baseline for a gemBonuses() result (every gem-able stat). */

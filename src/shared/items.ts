@@ -139,7 +139,16 @@ export type AffixStat =
   | 'chain' // projectile bounces to additional targets
   | 'pierce' // projectile passes through enemies
   | 'fork' // projectile splits on hit
-  | 'spellaoe'; // area-of-effect radius bonus for spells
+  | 'spellaoe' // area-of-effect radius bonus for spells
+  // Elemental and ailment stats — roll on gear (Slice 4):
+  | 'firedmg' // value = % bonus fire damage
+  | 'colddmg' // value = % bonus cold damage
+  | 'lightningdmg' // value = % bonus lightning damage
+  | 'poisondmg' // value = % bonus poison damage
+  | 'physdmg' // value = % bonus physical damage
+  | 'penetration' // value = % enemy resistance ignored
+  | 'ailmentdur' // value = % bonus ailment duration
+  | 'ailmentmag'; // value = % bonus ailment magnitude
 
 /** One rolled affix. `value` is always a positive magnitude; debuff stats apply it as a penalty. */
 export interface Affix {
@@ -180,7 +189,21 @@ type RollableStat =
   | 'swift'
   | 'move'
   | 'armor'
-  | 'vigor';
+  | 'vigor'
+  // Behavior-modifier stats promoted to rollable in Slice 4 (but still chain/pierce/fork flat-roll):
+  | 'chain'
+  | 'pierce'
+  | 'fork'
+  | 'spellaoe'
+  // Elemental and ailment stats (Slice 4):
+  | 'firedmg'
+  | 'colddmg'
+  | 'lightningdmg'
+  | 'poisondmg'
+  | 'physdmg'
+  | 'penetration'
+  | 'ailmentdur'
+  | 'ailmentmag';
 const AFFIX_STATS: RollableStat[] = [
   'power',
   'hp',
@@ -191,6 +214,18 @@ const AFFIX_STATS: RollableStat[] = [
   'move',
   'armor',
   'vigor',
+  'chain',
+  'pierce',
+  'fork',
+  'spellaoe',
+  'firedmg',
+  'colddmg',
+  'lightningdmg',
+  'poisondmg',
+  'physdmg',
+  'penetration',
+  'ailmentdur',
+  'ailmentmag',
 ];
 
 /** A scalar affix's pre-rarity-scaling base value range. */
@@ -199,8 +234,14 @@ export interface AffixRange {
   max: number;
 }
 
-/** The scalar affix stats that have a rollable range (multishot is handled specially). */
-type RangeStat = Exclude<RollableStat, 'multishot'>;
+/**
+ * Stats handled by a flat special-case in rollAffixes rather than the standard rarity-scaled range.
+ * multishot: 1-2 by rarity tier. chain/pierce/fork: always flat 1 count.
+ */
+type FlatRollStat = 'multishot' | 'chain' | 'pierce' | 'fork';
+
+/** The scalar affix stats that have a rollable range (flat-rolled stats are handled specially). */
+type RangeStat = Exclude<RollableStat, FlatRollStat>;
 
 /**
  * Code DEFAULTS for the affix roll ranges — the seed source for `affix_ranges` and the fallback the
@@ -215,6 +256,16 @@ export const DEFAULT_AFFIX_RANGES: Record<RangeStat, AffixRange> = {
   move: { min: 3, max: 6 },
   armor: { min: 2, max: 5 },
   vigor: { min: 1, max: 3 },
+  // Slice 4 new stats:
+  spellaoe: { min: 8, max: 18 },
+  firedmg: { min: 3, max: 8 },
+  colddmg: { min: 3, max: 8 },
+  lightningdmg: { min: 3, max: 8 },
+  poisondmg: { min: 3, max: 8 },
+  physdmg: { min: 3, max: 8 },
+  penetration: { min: 3, max: 8 },
+  ailmentdur: { min: 5, max: 12 },
+  ailmentmag: { min: 4, max: 10 },
 };
 
 /** The LIVE affix roll ranges (server-only; overlaid from the `affix_ranges` DB table at load). */
@@ -261,6 +312,10 @@ export function rollAffixes(rarity: Rarity, rng: () => number = Math.random): Af
     if (stat === 'multishot') {
       // A bounded, build-defining roll — never mult-scaled into absurdity.
       out.push({ stat, value: rarity === 'epic' || rarity === 'legendary' ? 2 : 1 });
+    } else if (stat === 'chain' || stat === 'pierce' || stat === 'fork') {
+      // Integer projectile-modifier counts — always exactly 1 regardless of rarity.
+      // Scaling these by statMult would produce fractional or inflated counts.
+      out.push({ stat, value: 1 });
     } else {
       const r = AFFIX_RANGES[stat];
       const base = r.min + rng() * (r.max - r.min);
@@ -388,11 +443,79 @@ export const DEFAULT_AFFIX_NAMES: Record<AffixStat, AffixName> = {
   },
   frail: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Frailty' }] },
   fragile: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Brittleness' }] },
-  // Behavior-modifier gem stats — gem-only; names used in gem tooltips only:
+  // Behavior-modifier gem stats — names used in gem tooltips and (now) gear affix titles:
   chain: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Chaining' }] },
   pierce: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Piercing' }] },
   fork: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Forking' }] },
-  spellaoe: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Reach' }] },
+  spellaoe: {
+    kind: 'suffix',
+    tiers: [
+      { upTo: 12, word: 'of Reach' },
+      { upTo: Infinity, word: 'of the Maelstrom' },
+    ],
+  },
+  // Elemental damage stats (Slice 4):
+  firedmg: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 5, word: 'Smoldering' },
+      { upTo: 7, word: 'Burning' },
+      { upTo: Infinity, word: 'Blazing' },
+    ],
+  },
+  colddmg: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 5, word: 'Chilling' },
+      { upTo: 7, word: 'Frosted' },
+      { upTo: Infinity, word: 'Glacial' },
+    ],
+  },
+  lightningdmg: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 5, word: 'Crackling' },
+      { upTo: 7, word: 'Arcing' },
+      { upTo: Infinity, word: 'Thundering' },
+    ],
+  },
+  poisondmg: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 5, word: 'Tainted' },
+      { upTo: 7, word: 'Venomous' },
+      { upTo: Infinity, word: 'Toxic' },
+    ],
+  },
+  physdmg: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 5, word: 'Weighted' },
+      { upTo: 7, word: 'Brutish' },
+      { upTo: Infinity, word: 'Crushing' },
+    ],
+  },
+  penetration: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 5, word: 'Piercing' },
+      { upTo: Infinity, word: 'Sundering' },
+    ],
+  },
+  ailmentdur: {
+    kind: 'suffix',
+    tiers: [
+      { upTo: 8, word: 'of Lingering' },
+      { upTo: Infinity, word: 'of Persistence' },
+    ],
+  },
+  ailmentmag: {
+    kind: 'suffix',
+    tiers: [
+      { upTo: 7, word: 'of Virulence' },
+      { upTo: Infinity, word: 'of Corruption' },
+    ],
+  },
 };
 
 /** The LIVE affix flavor names (overlaid from the `affix_names` DB tables; client + server). */

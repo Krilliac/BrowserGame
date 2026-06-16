@@ -23,6 +23,7 @@ import {
   spellRankMult,
   type AbilityId,
   type BehaviorSpec,
+  type DamageElement,
   type FxEvent,
 } from '../shared/combat.js';
 import { config } from './config.js';
@@ -464,6 +465,14 @@ interface Player {
   homingAdd: number;
   /** Multiplicative spell-damage bonus (1 = no change; increased by spell-damage gems). */
   spellDamageMult: number;
+  /** Per-element bonus damage percent (from elemental-damage affixes; Slice 4). */
+  elemDamage: Record<DamageElement, number>;
+  /** Percent of enemy resistance ignored (from +penetration affixes; Slice 4). */
+  penetration: number;
+  /** Percent bonus to ailment duration (from +ailmentdur affixes; Slice 4). */
+  ailmentDuration: number;
+  /** Percent bonus to ailment magnitude (from +ailmentmag affixes; Slice 4). */
+  ailmentMagnitude: number;
   /** Bonus mana/sec from the Energy attribute (added to base mana regen). */
   manaRegenBonus: number;
   /** Item procs from equipped gear (rebuilt in recomputeStats; chance-on-hit/crit effects). */
@@ -2344,6 +2353,10 @@ export class World {
       spellAoe: 0,
       homingAdd: 0,
       spellDamageMult: 1,
+      elemDamage: { physical: 0, fire: 0, cold: 0, lightning: 0, poison: 0 },
+      penetration: 0,
+      ailmentDuration: 0,
+      ailmentMagnitude: 0,
       god: false,
       quests: new Map(),
       questsDone: new Set(),
