@@ -1243,6 +1243,19 @@ export class PixiRenderer {
       case 'shrine':
         this.drawShrine(c, prop.x, prop.y, prop.color ?? '#7fd0ff');
         break;
+      case 'poison_pool':
+        this.drawHazardPool(c, scale, '#5fbf3a', '#2f6e22');
+        break;
+      case 'lava_crack':
+        this.drawHazardPool(c, scale, '#ff7a1a', '#7a1f08');
+        this.decorLights.push({
+          x: ax,
+          y: ay,
+          radius: 130 * scale,
+          color: FIRE_LIGHT,
+          flicker: true,
+        });
+        break;
       case 'chest':
       case 'pot':
         // Chests + pots are authoritative ENTITIES (live opened/broken state) drawn in the
@@ -1578,6 +1591,20 @@ export class PixiRenderer {
    * and a soft COOL glow is recorded in decorLights so it blooms on the additive light overlay at
    * night, like the torch/bonfire. Purely cosmetic decor — no state.
    */
+  /**
+   * A flat ground hazard pool (poison bog / lava fissure): concentric pitched ellipses from a dark
+   * rim to a bright molten/toxic core, hugging the ground (no raised geometry). `rim`/`core` are the
+   * edge and center fill colors; lava additionally gets a flicker light from the caller.
+   */
+  private drawHazardPool(c: Container, scale: number, core: string, rim: string): void {
+    const g = new Graphics();
+    const rx = 26 * scale;
+    g.ellipse(0, 0, rx, rx * PITCH).fill({ color: hexToNum(rim), alpha: 0.85 });
+    g.ellipse(0, 0, rx * 0.72, rx * 0.72 * PITCH).fill({ color: hexToNum(core), alpha: 0.7 });
+    g.ellipse(0, -1, rx * 0.4, rx * 0.4 * PITCH).fill({ color: hexToNum(core), alpha: 0.95 });
+    c.addChild(g);
+  }
+
   private drawShrine(c: Container, wx: number, wy: number, color: string): void {
     this.propShadow(c, 16, 8);
     const stone = new Graphics();

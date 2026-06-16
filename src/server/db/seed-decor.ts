@@ -184,6 +184,9 @@ export const EXPANSION_DECOR: DecorRow[] = [
     { kind: 'pot', x: 1480, y: 1440 },
     { kind: 'pot', x: 1500, y: 1424 },
     { kind: 'skull_pile', x: 980, y: 1560 },
+    // Toxic bog pools — stand in one and the venom seeps in (hazard zones).
+    { kind: 'poison_pool', x: 1080, y: 900, scale: 1.2 },
+    { kind: 'poison_pool', x: 700, y: 1100 },
   ]),
 
   // --- Emberdeep Mines (1900x1700) — stalagmites along the walls, crystal seams,
@@ -330,6 +333,9 @@ export const EXPANSION_DECOR: DecorRow[] = [
     { kind: 'pot', x: 616, y: 352, scale: 0.9 },
     { kind: 'pot', x: 890, y: 340 },
     { kind: 'pot', x: 906, y: 352 },
+    // Pools of digestive bile in the hive floor — corrosive to stand in (hazard zones).
+    { kind: 'poison_pool', x: 760, y: 820, scale: 1.25 },
+    { kind: 'poison_pool', x: 1050, y: 600 },
   ]),
 
   // --- The Infernal Forge (1500x1300) — stalagmite walls, ember crystal, smashable pot
@@ -363,6 +369,10 @@ export const EXPANSION_DECOR: DecorRow[] = [
     { kind: 'brazier', x: 500, y: 200 },
     { kind: 'brazier', x: 1000, y: 200 },
     { kind: 'brazier', x: 750, y: 640 },
+    // Open lava fissures across the forge floor — searing to cross (hazard zones).
+    { kind: 'lava_crack', x: 720, y: 880, scale: 1.2 },
+    { kind: 'lava_crack', x: 980, y: 1000 },
+    { kind: 'lava_crack', x: 300, y: 460 },
   ]),
 
   // --- The Frozen Vault (1500x1300) — rimed rock and ice crystal, frozen dead,

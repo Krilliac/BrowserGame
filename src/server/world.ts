@@ -241,6 +241,14 @@ const SHRINE_COOLDOWN_MS = 60_000;
 // Volatile elites (the `explode_dmg` modifier) detonate on death, hitting players within this radius
 // — comfortably beyond melee reach, so the blast is a real "back off as it's dying" threat.
 const EXPLODE_RADIUS = 150;
+// Environmental hazard zones (biome decor): standing within a hazard's radius re-applies a short DoT
+// debuff each tick, so it chips you while you linger and lingers ~1s after you step clear. The DoT
+// runs through the normal player-debuff path (so it shows the status tint and respects god mode).
+// Hazards threaten PLAYERS only — monsters ignore them (they path the biome they live in).
+const HAZARDS: Record<string, { effect: StatusId; dps: number; ms: number; radius: number }> = {
+  poison_pool: { effect: 'poison', dps: 8, ms: 1500, radius: 44 },
+  lava_crack: { effect: 'burn', dps: 14, ms: 1200, radius: 42 },
+};
 // Chests (decor kind 'chest'): walk within this radius to pry one open once; it spills gold + gear.
 const CHEST_RADIUS = 52;
 let CHEST_GOLD_MIN = config.economy.chestGoldMin;
@@ -738,6 +746,11 @@ export class World {
   private readonly tradeSessions = new Map<number, TradeSession>();
   // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
+  // Hazard zones (poison pools / lava cracks), lazily built from the area's hazard decor (null = not
+  // yet built). Each carries the resolved {@link HAZARDS} config for its kind.
+  private hazardZones:
+    | { x: number; y: number; effect: StatusId; dps: number; ms: number; radius: number }[]
+    | null = null;
   // Solid colliders for this area — rects (house walls, cliffs, ridges, barriers) AND circles
   // (round terrain: mountains, boulders). Lazily built from decor (null = not yet built).
   private blockerCache: Blockers | null = null;
@@ -2924,6 +2937,7 @@ export class World {
         player.facing = Math.atan2(dy, dx);
       }
       this.checkShrines(player);
+      this.checkHazards(player);
       this.checkChests(player);
       this.checkPots(player);
       this.checkDens(player);
@@ -2954,6 +2968,33 @@ export class World {
         .map((d) => ({ x: d.x, y: d.y, readyAt: 0 }));
     }
     return this.shrines;
+  }
+
+  /** The area's hazard zones, built once from its hazard decor (empty for areas with none). */
+  private hazardList(): {
+    x: number;
+    y: number;
+    effect: StatusId;
+    dps: number;
+    ms: number;
+    radius: number;
+  }[] {
+    if (this.hazardZones === null) {
+      const decor = getContent().area(this.areaId)?.decor ?? [];
+      this.hazardZones = decor
+        .filter((d) => HAZARDS[d.kind])
+        .map((d) => ({ x: d.x, y: d.y, ...HAZARDS[d.kind]! }));
+    }
+    return this.hazardZones;
+  }
+
+  /** Re-apply a short DoT debuff to a player standing in any hazard zone (poison pool / lava crack). */
+  private checkHazards(player: Player): void {
+    for (const h of this.hazardList()) {
+      if (Math.hypot(player.x - h.x, player.y - h.y) <= h.radius) {
+        player.debuffs.apply(h.effect, h.ms, h.dps);
+      }
+    }
   }
 
   /** Bless a player who steps onto a charged shrine with a random timed buff, then recharge it. */

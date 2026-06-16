@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Environmental hazard zones (poison pools / lava cracks).** Two new walkable decor kinds are DoT
+  zones: standing in a `poison_pool` (toxic bog) or `lava_crack` (forge fissure) re-applies a short
+  damage-over-time debuff each tick, so it chips you while you linger and lingers ~1s after you step
+  clear. The DoT runs through the normal player-debuff path — it shows the status tint and respects
+  god mode — and threatens players only (monsters path the biome they live in). Placed in the Marsh
+  and Writhing Hive (poison) and the Infernal Forge (lava); the renderer draws them as flat pitched
+  ground puddles (lava also casts a flicker light). Config lives in `HAZARDS` / `World.checkHazards`.
+  Completes the deferred ARPG biome-hazard gimmicks.
+
 - **Volatile elites (death-explosions).** A new champion modifier — **Volatile** — detonates when the
   elite dies, dealing a burst (4× its normal hit) to every player within ~150px and ringing the blast
   with the existing impact-ring FX. The blast is player-only (it never chains into the mob's own pack),

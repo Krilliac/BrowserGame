@@ -29,6 +29,9 @@ const ALLOWED_KINDS = new Set([
   'brazier',
   'chest',
   'shrine',
+  // Hazard zones: walkable DoT pools the renderer draws as flat ground puddles.
+  'poison_pool',
+  'lava_crack',
   // Solid terrain (RENDER-08): cliffs are blocking rect faces; mountains/boulders are blocking
   // circles. They feed the shared collision blockers and render as tall 2.5D terrain.
   'cliff',
