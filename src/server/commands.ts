@@ -44,6 +44,17 @@ export interface CommandContext {
   events: () => string;
   /** Render the crafting recipes (id — name: inputs → outputs) for /recipes. */
   recipes: () => string;
+  // Guilds (host-level: persistent societies span instances). Each returns a player-facing line.
+  guildCreate: (name: string) => string;
+  guildInvite: (name: string) => string;
+  guildAccept: () => string;
+  guildDecline: () => string;
+  guildLeave: () => string;
+  guildKick: (name: string) => string;
+  guildRank: (name: string, rank: 'officer' | 'member') => string;
+  guildRoster: () => string[];
+  /** Broadcast a guild-chat line to online members; returns '' on success, else an error line. */
+  guildSay: (text: string) => string;
 }
 
 interface Command {
@@ -302,6 +313,54 @@ const COMMAND_LIST: Command[] = [
       const id = ctx.args[0];
       if (!id) return ctx.reply('Usage: /buymount <mountId>');
       ctx.reply(ctx.world.buyMount(ctx.playerId, id));
+    },
+  },
+  {
+    name: 'guild',
+    minLevel: AccessLevel.Player,
+    usage: '/guild <create|invite|accept|decline|leave|kick|promote|demote|roster> [name]',
+    help: 'Manage your guild. /guild with no args shows the roster.',
+    run: (ctx) => {
+      const sub = (ctx.args[0] ?? 'roster').toLowerCase();
+      const rest = ctx.args.slice(1).join(' ').trim();
+      switch (sub) {
+        case 'create':
+          return ctx.reply(rest ? ctx.guildCreate(rest) : 'Usage: /guild create <name>');
+        case 'invite':
+          return ctx.reply(rest ? ctx.guildInvite(rest) : 'Usage: /guild invite <player>');
+        case 'accept':
+          return ctx.reply(ctx.guildAccept());
+        case 'decline':
+          return ctx.reply(ctx.guildDecline());
+        case 'leave':
+          return ctx.reply(ctx.guildLeave());
+        case 'kick':
+          return ctx.reply(rest ? ctx.guildKick(rest) : 'Usage: /guild kick <player>');
+        case 'promote':
+          return ctx.reply(
+            rest ? ctx.guildRank(rest, 'officer') : 'Usage: /guild promote <player>',
+          );
+        case 'demote':
+          return ctx.reply(rest ? ctx.guildRank(rest, 'member') : 'Usage: /guild demote <player>');
+        case 'roster':
+        case 'info':
+          for (const line of ctx.guildRoster()) ctx.reply(line);
+          return;
+        default:
+          return ctx.reply('Unknown subcommand. Try /guild roster, create, invite, accept, leave.');
+      }
+    },
+  },
+  {
+    name: 'g',
+    minLevel: AccessLevel.Player,
+    usage: '/g <message>',
+    help: 'Send a message to your guild chat.',
+    run: (ctx) => {
+      const text = ctx.args.join(' ').trim();
+      if (!text) return ctx.reply('Usage: /g <message>');
+      const err = ctx.guildSay(text);
+      if (err) ctx.reply(err);
     },
   },
 

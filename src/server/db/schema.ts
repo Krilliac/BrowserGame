@@ -533,6 +533,21 @@ CREATE TABLE IF NOT EXISTS friends (
   PRIMARY KEY (owner_token, friend_name)
 );
 
+-- Guilds: persistent player societies (roster + ranks + guild chat). A guild is one row; membership
+-- is one row per player in guild_members (PK = owner_token, so a player is in at most one guild).
+-- Presence (online/area/level) is resolved at runtime; these tables are just the durable roster.
+CREATE TABLE IF NOT EXISTS guilds (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  name  TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+CREATE TABLE IF NOT EXISTS guild_members (
+  owner_token TEXT PRIMARY KEY,                 -- one guild per player
+  guild_id    INTEGER NOT NULL,
+  name        TEXT NOT NULL,                    -- display name (refreshed on join)
+  rank        TEXT NOT NULL DEFAULT 'member'    -- 'leader' | 'officer' | 'member'
+);
+CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members (guild_id);
+
 -- Game events: timed recurring liveops (TrinityCore GameEventMgr, cut down). Each row is a schedule
 -- (recurs every period_min, active for length_min) with an optional XP bonus + announce line. The
 -- schedule math is pure (game-events.ts); the host applies the active XP bonus + announces on start.

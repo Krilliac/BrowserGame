@@ -214,7 +214,9 @@ Skipping survival (hunger/thirst/seasons) + housing as genre-drift from the Diab
 - [~] **Pets & mounts** — **mounts DONE** (owned persistent travel-speed boosts from a Stablemaster;
       `mounts` table, `NpcFlags.STABLE`, `/mount` commands). Pets (tameable combat companions that
       level/evolve) still TODO — likely a `tameable` flag + persistence/leveling on the minion system.
-- [ ] **Guilds** — roster, ranks, guild chat channel, shared guild bank (extends parties/friends).
+- [x] **Guilds** — persistent societies (`guilds`/`guild_members` tables) via a pure `GuildRegistry`:
+      create/invite/accept/leave/kick/promote/demote, leader/officer/member ranks, `/g` guild chat,
+      roster with live presence. Command-driven (no client panel). Shared **guild bank still TODO**.
 - [ ] **Auction house + mail** — player market listings + currency sink + mail with attachments.
 - [ ] **PvP zones** — opt-in/flagged PvP with multiple zone rule types.
 

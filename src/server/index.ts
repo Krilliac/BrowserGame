@@ -38,11 +38,20 @@ import {
   loadFriends,
   addFriend as dbAddFriend,
   removeFriend as dbRemoveFriend,
+  createGuildRow,
+  deleteGuildRow,
+  guildName,
+  guildOf,
+  guildMembers,
+  addGuildMemberRow,
+  removeGuildMemberRow,
+  setGuildRankRow,
 } from './player-store.js';
 import { recordScore, formatLadder, isLeaderboardMetric } from './leaderboard.js';
 import { activeEvents, totalXpBonus, totalGoldBonus, msUntilNextChange } from './game-events.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
+import { GuildRegistry, type GuildStore, type GuildRank } from './guild.js';
 import {
   ARTIFICER_REROLL_GOLD,
   ARTIFICER_UNSOCKET_GOLD,
@@ -167,6 +176,24 @@ const friendStore: FriendStore = {
   remove: (token, name) => dbRemoveFriend(getDb(), token, name),
 };
 const social = new SocialRegistry(friendStore);
+
+// Guilds: persistent societies (roster + ranks + guild chat), DB-backed via the GuildStore.
+const guildStore: GuildStore = {
+  create: (name) => createGuildRow(getDb(), name),
+  delete: (guildId) => deleteGuildRow(getDb(), guildId),
+  name: (guildId) => guildName(getDb(), guildId),
+  guildOf: (token) => guildOf(getDb(), token),
+  members: (guildId) =>
+    guildMembers(getDb(), guildId).map((m) => ({
+      token: m.token,
+      name: m.name,
+      rank: m.rank as GuildRank,
+    })),
+  add: (guildId, token, name, rank) => addGuildMemberRow(getDb(), guildId, token, name, rank),
+  remove: (token) => removeGuildMemberRow(getDb(), token),
+  setRank: (token, rank) => setGuildRankRow(getDb(), token, rank),
+};
+const guilds = new GuildRegistry(guildStore);
 
 // AI bot players — real World player entities with no socket, driven each tick by a pure brain.
 // Spawned via the GM `/bot` command so the world feels alive (and to test co-op solo).
@@ -674,6 +701,26 @@ function findPlayerByName(name: string): number | undefined {
 function idForToken(token: string): number | undefined {
   for (const [id, p] of players) if (p.token === token) return id;
   return undefined;
+}
+
+/** Send one message to the online player holding `token`, if any (guild fan-out helper). */
+function sendToToken(token: string, msg: Parameters<typeof send>[1]): void {
+  const id = idForToken(token);
+  const conn = id !== undefined ? players.get(id) : undefined;
+  if (conn) send(conn.socket, msg);
+}
+
+/** Broadcast a guild chat line to every ONLINE member of the guild that `token` belongs to. */
+function guildBroadcast(token: string, from: string, text: string): void {
+  for (const memberToken of guilds.memberTokens(token)) {
+    sendToToken(memberToken, { t: 'chat', from, text, channel: 'guild' });
+  }
+}
+
+/** Resolve a guild member's token by display name within `byToken`'s guild (works for offline members). */
+function guildMemberTokenByName(byToken: string, name: string): string | undefined {
+  const lower = name.trim().toLowerCase();
+  return guilds.roster(byToken)?.members.find((m) => m.name.toLowerCase() === lower)?.token;
 }
 
 /** Build the roster entry for one party member (members are always connected — see disconnect). */
@@ -1419,6 +1466,92 @@ wss.on('connection', (socket) => {
                       .map((r) => `${r.id} — ${fmt(r.inputs)} → ${fmt(r.outputs)}`)
                       .join('\n');
                   },
+                  guildCreate: (gname) => {
+                    const r = guilds.create(p.token, gname, from);
+                    return r.ok
+                      ? `Guild "${gname.trim()}" founded — you are its leader.`
+                      : r.reason;
+                  },
+                  guildInvite: (tname) => {
+                    const target = social.findOnline(tname);
+                    if (!target) return 'That player must be online to be invited.';
+                    const r = guilds.invite(p.token, target.token);
+                    if (!r.ok) return r.reason;
+                    sendToToken(target.token, {
+                      t: 'chat',
+                      from: 'System',
+                      text: `${from} invited you to "${guilds.guildNameOf(p.token) ?? 'a guild'}" — /guild accept to join.`,
+                      channel: 'guild',
+                    });
+                    return `Invited ${target.name} to the guild.`;
+                  },
+                  guildAccept: () => {
+                    const r = guilds.accept(p.token, from);
+                    if (!r.ok) return r.reason;
+                    guildBroadcast(p.token, 'System', `${from} has joined the guild.`);
+                    return `You joined "${r.guildName}".`;
+                  },
+                  guildDecline: () => {
+                    guilds.decline(p.token);
+                    return 'Guild invite declined.';
+                  },
+                  guildLeave: () => {
+                    const gname = guilds.guildNameOf(p.token);
+                    const r = guilds.leave(p.token);
+                    if (!r.ok) return r.reason ?? 'You are not in a guild.';
+                    for (const tok of r.affected) {
+                      if (tok === p.token) continue;
+                      sendToToken(tok, {
+                        t: 'chat',
+                        from: 'System',
+                        text: `${from} has left the guild.${r.note ? ` ${r.note}` : ''}`,
+                        channel: 'guild',
+                      });
+                    }
+                    return `You left "${gname ?? 'the guild'}".${r.note ? ` ${r.note}` : ''}`;
+                  },
+                  guildKick: (tname) => {
+                    const tok = guildMemberTokenByName(p.token, tname);
+                    if (!tok) return 'They are not in your guild.';
+                    const r = guilds.kick(p.token, tok);
+                    if (!r.ok) return r.reason;
+                    sendToToken(tok, {
+                      t: 'chat',
+                      from: 'System',
+                      text: 'You have been removed from the guild.',
+                      channel: 'guild',
+                    });
+                    return `Removed ${tname} from the guild.`;
+                  },
+                  guildRank: (tname, rank) => {
+                    const tok = guildMemberTokenByName(p.token, tname);
+                    if (!tok) return 'They are not in your guild.';
+                    const r = guilds.setRank(p.token, tok, rank);
+                    if (!r.ok) return r.reason;
+                    sendToToken(tok, {
+                      t: 'chat',
+                      from: 'System',
+                      text: `You are now a guild ${rank}.`,
+                      channel: 'guild',
+                    });
+                    return `${tname} is now a ${rank}.`;
+                  },
+                  guildRoster: () => {
+                    const r = guilds.roster(p.token);
+                    if (!r) return ['You are not in a guild. Found one with /guild create <name>.'];
+                    const lines = [`${r.name} — ${r.members.length} member(s):`];
+                    for (const m of r.members) {
+                      const on = social.findOnline(m.name);
+                      const where = on ? `online (${on.areaId})` : 'offline';
+                      lines.push(`  [${m.rank}] ${m.name} — ${where}`);
+                    }
+                    return lines;
+                  },
+                  guildSay: (text) => {
+                    if (!guilds.guildNameOf(p.token)) return 'You are not in a guild.';
+                    guildBroadcast(p.token, from, text);
+                    return '';
+                  },
                 });
               } catch (err) {
                 console.error('[command] failed:', err);
@@ -1599,6 +1732,7 @@ wss.on('connection', (socket) => {
       // Drop out of any party (promote/disband) and tell the remaining members; go offline so
       // friends see it, then refresh everyone who had this player on their list.
       const affectedParty = parties.remove(entityId);
+      guilds.remove(p.token); // drop any pending guild invite (membership persists in the DB)
       clearBots(entityId); // a disconnecting GM's bots go with them — never orphaned in the world
       manager.remove(p.instanceId, entityId);
       players.delete(entityId);

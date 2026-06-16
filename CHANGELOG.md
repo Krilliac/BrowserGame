@@ -8,6 +8,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Guilds.** Persistent player societies that span instances: found one with `/guild create <name>`,
+  then invite / accept / leave / kick / promote / demote and chat to the whole guild with `/g <msg>`
+  (green guild channel). Three ranks (leader / officer / member) gate the actions — officers+ invite
+  and kick members, only the leader sets ranks; the leader leaving promotes the next officer (else a
+  member), and the last member out disbands the guild. Roster shows live online/area presence
+  (`/guild` or `/guild roster`). DB-persisted (`guilds` + `guild_members` tables — new, no migration)
+  via a pure, unit-tested `GuildRegistry` over an injected store, mirroring the party/friends design;
+  wired host-level through `CommandContext` hooks (no client panel needed). Third slice of the ED5
+  MMO Studio feature port.
+
 - **Mounts.** Owned, persistent travel-speed boosts (the ED5 mount system, ARPG-flavored): buy a
   mount once from the town **Stablemaster** (Hoss) and toggle it on/off for a big move-speed
   multiplier. Three tiers seeded (Dustback Mule +40% / War Courser +70% / Dread Destrier +100%) as a

@@ -86,7 +86,7 @@ export interface FriendInfo {
 }
 
 /** Chat channel a message belongs to, so the client can color/route it. */
-export type ChatChannel = 'say' | 'system' | 'party' | 'whisper';
+export type ChatChannel = 'say' | 'system' | 'party' | 'whisper' | 'guild';
 
 /** Simulation tick rate in Hz. Overridable via the TICK_RATE env var on the server. */
 export const DEFAULT_TICK_RATE = 20;

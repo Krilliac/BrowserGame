@@ -96,3 +96,85 @@ export function removeFriend(db: GameDatabase, token: string, name: string): voi
     name,
   );
 }
+
+// --- Guild persistence (durable roster + ranks for the GuildRegistry) ------------------
+// A guild is one `guilds` row; each member is one `guild_members` row keyed by owner_token (so a
+// player is in at most one guild). All params are bound. The GuildRegistry holds the live logic;
+// these are the dumb persistence primitives it injects.
+
+/** One persisted guild member (identity token + display name + rank). */
+export interface GuildMemberRow {
+  token: string;
+  name: string;
+  rank: string;
+}
+
+/** Create a guild and return its new id, or null if the name is already taken (UNIQUE NOCASE). */
+export function createGuildRow(db: GameDatabase, name: string): number | null {
+  try {
+    const info = db.prepare('INSERT INTO guilds (name) VALUES (?)').run(name);
+    return Number(info.lastInsertRowid);
+  } catch {
+    return null; // UNIQUE violation — name taken
+  }
+}
+
+/** Delete a guild and all its membership rows (called when the last member leaves / it disbands). */
+export function deleteGuildRow(db: GameDatabase, guildId: number): void {
+  db.prepare('DELETE FROM guild_members WHERE guild_id = ?').run(guildId);
+  db.prepare('DELETE FROM guilds WHERE id = ?').run(guildId);
+}
+
+/** A guild's display name by id, or undefined. */
+export function guildName(db: GameDatabase, guildId: number): string | undefined {
+  const row = db.prepare('SELECT name FROM guilds WHERE id = ?').get(guildId) as
+    | { name: string }
+    | undefined;
+  return row?.name;
+}
+
+/** The guild membership for a player by token, or undefined if guildless. */
+export function guildOf(
+  db: GameDatabase,
+  token: string,
+): { guildId: number; rank: string } | undefined {
+  const row = db
+    .prepare('SELECT guild_id, rank FROM guild_members WHERE owner_token = ?')
+    .get(token) as { guild_id: number; rank: string } | undefined;
+  return row ? { guildId: row.guild_id, rank: row.rank } : undefined;
+}
+
+/** All members of a guild (token + name + rank), leader/officer/member order then name. */
+export function guildMembers(db: GameDatabase, guildId: number): GuildMemberRow[] {
+  return db
+    .prepare(
+      `SELECT owner_token AS token, name, rank FROM guild_members WHERE guild_id = ?
+       ORDER BY CASE rank WHEN 'leader' THEN 0 WHEN 'officer' THEN 1 ELSE 2 END, name COLLATE NOCASE`,
+    )
+    .all(guildId) as GuildMemberRow[];
+}
+
+/** Add (or re-add, refreshing name/rank) a member to a guild. */
+export function addGuildMemberRow(
+  db: GameDatabase,
+  guildId: number,
+  token: string,
+  name: string,
+  rank: string,
+): void {
+  db.prepare(
+    `INSERT INTO guild_members (owner_token, guild_id, name, rank) VALUES (?, ?, ?, ?)
+     ON CONFLICT(owner_token) DO UPDATE SET guild_id = excluded.guild_id,
+       name = excluded.name, rank = excluded.rank`,
+  ).run(token, guildId, name, rank);
+}
+
+/** Remove a player from their guild (by token). */
+export function removeGuildMemberRow(db: GameDatabase, token: string): void {
+  db.prepare('DELETE FROM guild_members WHERE owner_token = ?').run(token);
+}
+
+/** Set a member's rank (by token). */
+export function setGuildRankRow(db: GameDatabase, token: string, rank: string): void {
+  db.prepare('UPDATE guild_members SET rank = ? WHERE owner_token = ?').run(rank, token);
+}

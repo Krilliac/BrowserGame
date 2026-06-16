@@ -8,6 +8,14 @@ import {
   newPlayerToken,
   removeFriend,
   storeSave,
+  createGuildRow,
+  deleteGuildRow,
+  guildName,
+  guildOf,
+  guildMembers,
+  addGuildMemberRow,
+  removeGuildMemberRow,
+  setGuildRankRow,
 } from './player-store.js';
 import type { PlayerSave } from './world.js';
 
@@ -156,5 +164,33 @@ describe('friends list persistence', () => {
   it('returns an empty list for a token with no friends', () => {
     const db = openDatabase(':memory:');
     expect(loadFriends(db, newPlayerToken())).toEqual([]);
+  });
+});
+
+describe('guild persistence', () => {
+  it('creates a guild, adds/ranks/removes members, and disbands', () => {
+    const db = openDatabase(':memory:');
+    const a = newPlayerToken();
+    const b = newPlayerToken();
+
+    const gid = createGuildRow(db, 'Ironwolves')!;
+    expect(gid).toBeGreaterThan(0);
+    expect(createGuildRow(db, 'ironwolves')).toBeNull(); // UNIQUE NOCASE — name taken
+    expect(guildName(db, gid)).toBe('Ironwolves');
+
+    addGuildMemberRow(db, gid, a, 'Alice', 'leader');
+    addGuildMemberRow(db, gid, b, 'Bob', 'member');
+    expect(guildOf(db, a)).toEqual({ guildId: gid, rank: 'leader' });
+    expect(guildMembers(db, gid).map((m) => m.name)).toEqual(['Alice', 'Bob']); // leader first
+
+    setGuildRankRow(db, b, 'officer');
+    expect(guildOf(db, b)!.rank).toBe('officer');
+
+    removeGuildMemberRow(db, b);
+    expect(guildOf(db, b)).toBeUndefined();
+
+    deleteGuildRow(db, gid);
+    expect(guildName(db, gid)).toBeUndefined();
+    expect(guildOf(db, a)).toBeUndefined(); // membership rows cascade-removed
   });
 });

@@ -1348,9 +1348,11 @@ function syncChatLog(): void {
         ? '#d6a8ff'
         : line.channel === 'party'
           ? '#7fc4ff'
-          : line.channel === 'system'
-            ? '#e7c869'
-            : '';
+          : line.channel === 'guild'
+            ? '#6fd58a'
+            : line.channel === 'system'
+              ? '#e7c869'
+              : '';
     const who = document.createElement('span');
     who.className = 'chat-who';
     who.textContent = `${line.from}: `;

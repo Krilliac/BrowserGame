@@ -48,6 +48,15 @@ function makeCtx(
     ladder: (metric) => `Top ${metric}:\n1. Tester — 1`,
     events: () => 'Bloodmoon Rising [bloodmoon]: idle (starts in 60s)',
     recipes: () => 'refine_scrap — 3 mat_scrap → 1 mat_dust',
+    guildCreate: () => 'created',
+    guildInvite: () => 'invited',
+    guildAccept: () => 'accepted',
+    guildDecline: () => 'declined',
+    guildLeave: () => 'left',
+    guildKick: () => 'kicked',
+    guildRank: () => 'ranked',
+    guildRoster: () => ['You are not in a guild.'],
+    guildSay: () => '',
   };
   return { ctx, cap };
 }
