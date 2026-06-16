@@ -54,38 +54,57 @@ describe('crowd-control gates (slice 3)', () => {
     // Open world (no collision geometry) so knockback isn't wall-absorbed.
     const w = new World(4000, 4000, { x: 2000, y: 2000 });
     const playerId = w.spawn('Basher');
-    w.setLevel(playerId, 20);
+    // Keep the player at level 1 (low damage) so the boosted mob can't be one-shotted.
     w.teleport(playerId, 2000, 2000);
 
     // Learn crushing_smash (the ability with a 70-px knockback).
     w.giveItem(playerId, 'tome_crushing_smash', 1);
     w.learn(playerId, 'tome_crushing_smash');
 
-    // Spawn a mob near the player.
+    // Spawn a mob near the player and give it enough HP to survive many hits.
     expect(w.spawnMobAt(playerId, 'wolf')).toBe(true);
     w.tick(0.01); // one small tick to settle positions
 
-    const mobBefore = w.snapshot().find((e) => e.kind === 'mob');
-    expect(mobBefore).toBeDefined();
+    const mobSnap0 = w.snapshot().find((e) => e.kind === 'mob');
+    expect(mobSnap0).toBeDefined();
+    const mobId = mobSnap0!.id;
 
-    const distBefore = Math.hypot(mobBefore!.x - 2000, mobBefore!.y - 2000);
+    // Give the mob 10 000 HP so no number of hits from a level-1 caster can kill it.
+    expect(w.boostMobHp(mobId, 10_000)).toBe(true);
 
-    // Stun the mob so it doesn't move back on its own tick this frame.
-    expect(w.injectMobStatus(mobBefore!.id, 'stun', 500, 1)).toBe(true);
+    // The hit-check in rollAbilityDamage uses Math.random (not the seeded world RNG), so a
+    // single cast may miss (~64 % hit rate at level 1 vs wolf). Re-stun before each cast
+    // attempt and check position immediately after cast() (knockback is synchronous — no tick
+    // needed). With 10 attempts, P(all miss) = (0.36)^10 < 0.00004.
+    const COOLDOWN_S = 1.4; // crushing_smash cooldown is 1300 ms; 1.4 s clears it safely
+    let didMove = false;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      // Re-stun long enough to cover this tick cycle so the mob doesn't chase the player.
+      expect(w.injectMobStatus(mobId, 'stun', Math.ceil(COOLDOWN_S * 1000) + 100, 1)).toBe(true);
 
-    // Cast crushing_smash aimed at the mob.
-    const aimX = mobBefore!.x - 2000;
-    const aimY = mobBefore!.y - 2000;
-    w.cast(playerId, 'crushing_smash', aimX, aimY);
+      const snapBefore = w.snapshot().find((e) => e.kind === 'mob');
+      expect(snapBefore).toBeDefined(); // mob must still exist
+      const distBefore = Math.hypot(snapBefore!.x - 2000, snapBefore!.y - 2000);
 
-    const mobAfter = w.snapshot().find((e) => e.kind === 'mob');
-    if (!mobAfter) return; // mob was killed by the hit — inconclusive, skip
+      // Aim directly at the mob and cast.
+      const aimX = snapBefore!.x - 2000;
+      const aimY = snapBefore!.y - 2000;
+      w.cast(playerId, 'crushing_smash', aimX, aimY);
 
-    const distAfter = Math.hypot(mobAfter.x - 2000, mobAfter.y - 2000);
+      // Knockback is applied synchronously inside cast() — check immediately.
+      const snapAfter = w.snapshot().find((e) => e.kind === 'mob');
+      expect(snapAfter).toBeDefined();
+      if (Math.hypot(snapAfter!.x - 2000, snapAfter!.y - 2000) > distBefore) {
+        didMove = true;
+        break;
+      }
 
-    // The mob must be at least as far from the player as before (knockback added distance).
-    // Allow a 1 px tolerance for floating-point rounding.
-    expect(distAfter).toBeGreaterThan(distBefore - 1);
+      // Miss — tick past the cooldown and try again.
+      w.tick(COOLDOWN_S);
+    }
+
+    // At least one cast must have landed and knocked the mob strictly farther from the player.
+    expect(didMove).toBe(true);
   });
 
   // -----------------------------------------------------------------------

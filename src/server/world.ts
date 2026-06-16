@@ -2280,6 +2280,15 @@ export class World {
     return true;
   }
 
+  /** Test seam: override a mob's current and maximum HP so it can absorb hits in test scenarios. */
+  boostMobHp(mobId: number, hp: number): boolean {
+    const mob = this.mobs.get(mobId);
+    if (!mob || mob.dead) return false;
+    mob.hp = hp;
+    mob.maxHp = hp;
+    return true;
+  }
+
   playerPos(id: number): { x: number; y: number } | undefined {
     const p = this.players.get(id);
     return p ? { x: p.x, y: p.y } : undefined;
@@ -2955,7 +2964,10 @@ export class World {
       if (regenHeal > 0) mob.hp = Math.min(mob.maxHp, mob.hp + regenHeal);
       // Hard CC: a stunned or frozen mob cannot move, attack, or cast this tick. DoT and regen
       // above still apply (burning while stunned is intentional). Mirror the telegraphUntil pattern.
-      if (mob.statuses.rooted()) continue;
+      if (mob.statuses.rooted()) {
+        mob.telegraphUntil = 0; // stun/freeze cancels any pending wind-up — no delayed strike post-stun
+        continue;
+      }
       const moveMul = mob.statuses.slowFactor() * mob.statuses.moveFactor();
 
       const template = getContent().mobTemplate(mob.templateId)!;
