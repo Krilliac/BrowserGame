@@ -44,6 +44,8 @@ export interface QuestRow {
   rewardItem: string | null;
   turnInItem?: string;
   turnInCount?: number;
+  /** Explore quests: the area id the player must discover to complete it. */
+  exploreArea?: string;
 }
 
 /**

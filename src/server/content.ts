@@ -97,6 +97,8 @@ export interface QuestDef {
   turnInItem: string | null;
   /** Collect quests: how many of {@link turnInItem} to turn in. */
   turnInCount: number;
+  /** Explore quests: the area id the player must discover to complete (null otherwise). */
+  exploreArea: string | null;
   /** Bitmask of {@link QuestFlags} (e.g. REPEATABLE). */
   flags: number;
 }
@@ -499,6 +501,7 @@ export function loadContent(db: GameDatabase): Content {
     rewardItem: q.reward_item ?? null,
     turnInItem: q.turn_in_item ?? null,
     turnInCount: q.turn_in_count ?? 0,
+    exploreArea: q.explore_area ?? null,
     flags: q.flags ?? 0,
   }));
 
@@ -1089,6 +1092,7 @@ interface QuestRow {
   reward_item: string | null;
   turn_in_item: string | null;
   turn_in_count: number;
+  explore_area: string | null;
   flags: number;
 }
 interface LootRow {

@@ -474,8 +474,9 @@ CREATE TABLE IF NOT EXISTS elite_modifiers (
   sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
--- A quest is either a KILL quest (target_mob + target_count, auto-progresses on kills) or a
--- COLLECT quest (turn_in_item + turn_in_count, completed by turning items in to a quest-giver).
+-- A quest is a KILL quest (target_mob + target_count, auto-progresses on kills), a COLLECT quest
+-- (turn_in_item + turn_in_count, completed by turning items in to a quest-giver), or an EXPLORE
+-- quest (explore_area, completed automatically the moment the player discovers that area).
 CREATE TABLE IF NOT EXISTS quests (
   id            TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
@@ -487,6 +488,7 @@ CREATE TABLE IF NOT EXISTS quests (
   reward_item   TEXT,                          -- optional item granted on completion (e.g. a tome)
   turn_in_item  TEXT,                          -- collect quests: the item id to turn in
   turn_in_count INTEGER NOT NULL DEFAULT 0,    -- collect quests: how many to turn in
+  explore_area  TEXT,                          -- explore quests: the area id to discover
   flags         INTEGER NOT NULL DEFAULT 0     -- bitmask (QuestFlags): REPEATABLE, …
 );
 

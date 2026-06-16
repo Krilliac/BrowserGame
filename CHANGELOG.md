@@ -8,6 +8,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Explore/discover quest type.** A quest can now carry an `explore_area`: it completes automatically
+  the instant the player first sets foot in that area — no kill, no turn-in. Old Wren the Wayfinder
+  hands out three frontier scouting bounties (Chart the Sunken Pass, Brave the Ashveil, The Fraying
+  Edge / Voidmarch) with distance-scaled rewards. Completion hooks the existing waypoint-discovery
+  path, so it fires on area transfer (and immediately if you accept a bounty for somewhere you've
+  already been). New `quests.explore_area` column (schema + migration #5 + editable registry); the
+  quest log shows a 0/1 → 1/1 objective with a "travel there to complete" hint. Content-integrity
+  asserts every explore quest names a real area. (`World.progressExploreQuests`, `QuestState.kind`
+  gains `'explore'`.) Completes the explore-quest item on the roadmap.
+
 - **Item & gem inspect.** Hover an item/gem for a read-only stats tooltip; click/tap it for a pinned
   inspect popup showing the full breakdown — rarity-colored name, type/slot, base stats, every affix
   (now pretty-printed, e.g. `+8% fire damage`, `+1 chain`, `+5% penetration`), set bonus, sockets with

@@ -302,6 +302,10 @@ describe('quest integrity', () => {
         expect(c.item(q.turnInItem), `${q.id} turn-in item ${q.turnInItem}`).toBeDefined();
         expect(q.turnInCount, `${q.id} turnInCount`).toBeGreaterThan(0);
       }
+      // An explore quest must name a REAL area to discover.
+      if (q.exploreArea !== null) {
+        expect(c.area(q.exploreArea), `${q.id} explore area ${q.exploreArea}`).toBeDefined();
+      }
       // A reward item (e.g. a spellbook) must be a real item.
       if (q.rewardItem !== null) {
         expect(c.item(q.rewardItem), `${q.id} reward item ${q.rewardItem}`).toBeDefined();

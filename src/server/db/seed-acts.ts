@@ -456,6 +456,41 @@ export const ACTS_QUESTS: QuestRow[] = [
     rewardXp: 150000,
     rewardItem: null,
   },
+  // Wayfinder bounties — Old Wren pays for charting the road ahead. Explore quests complete the
+  // instant you set foot in the named area (no kill, no turn-in); the reward grows with the distance.
+  {
+    id: 'scout_sunken_pass',
+    name: 'Chart the Sunken Pass',
+    description: 'Push past the Barrens and lay eyes on the drowned gate of the Sunken Pass.',
+    targetMob: null,
+    targetCount: 0,
+    rewardGold: 900,
+    rewardXp: 3000,
+    rewardItem: null,
+    exploreArea: 'sunken_pass',
+  },
+  {
+    id: 'chart_ashveil',
+    name: 'Brave the Ashveil',
+    description: 'Cross into the burning Ashveil Desert and mark a path for those who follow.',
+    targetMob: null,
+    targetCount: 0,
+    rewardGold: 1500,
+    rewardXp: 6000,
+    rewardItem: null,
+    exploreArea: 'ashveil_desert',
+  },
+  {
+    id: 'witness_voidmarch',
+    name: 'The Fraying Edge',
+    description: 'Walk the Voidmarch, where the world unravels, and live to report what you saw.',
+    targetMob: null,
+    targetCount: 0,
+    rewardGold: 2500,
+    rewardXp: 12000,
+    rewardItem: null,
+    exploreArea: 'voidmarch',
+  },
 ];
 
 /**

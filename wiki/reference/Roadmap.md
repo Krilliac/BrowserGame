@@ -99,8 +99,11 @@
 - [x] **Endgame rifts** — the Riftkeeper (Saelis) opens a fresh private rift at a chosen tier
       (level-gated, gold fee); tier scales mob level/HP/damage/density/champions. Cross-act
       roster, Voidmaw Devourer boss, exit portal home. `world-rifts.test.ts`.
-- [ ] **Enchanting NPC (Artificer)** — reroll/add affixes for gold + materials; gem unsocketing.
-- [ ] **Explore/discover quest type**; chain quests.
+- [x] **Enchanting NPC (Artificer)** — Coalhand rerolls a bag item's affixes (gold + rune shard),
+      pops gems out of equipped gear, and fuses 3 gems into the next tier. (Shipped; see CHANGELOG.)
+- [x] **Explore/discover quest type** — quests carry an `explore_area` and auto-complete on first
+      arrival (hooks the waypoint-discovery path). Old Wren hands out frontier scouting bounties.
+      `quests.explore_area` (migration #5); `QuestState.kind` gains `'explore'`. Chain quests: TODO.
 - [ ] Banking; guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.

@@ -1790,16 +1790,28 @@ export class World {
       player.quests.set(next.id, 0);
       const ask = next.turnInItem
         ? `${next.description} (bring ${next.turnInCount} â€” turn in here)`
-        : next.description;
+        : next.exploreArea
+          ? `${next.description} (travel there to complete)`
+          : next.description;
       this.notify(player.id, `Quest accepted: ${next.name} â€” ${ask}`);
+      // An explore quest for an already-visited area completes the instant it is offered.
+      if (next.exploreArea) this.progressExploreQuests(player);
       return;
     }
     const active = quests.find((q) => player.quests.has(q.id));
     if (active) {
       const got = active.turnInItem
         ? (player.loot.get(active.turnInItem) ?? 0)
-        : (player.quests.get(active.id) ?? 0);
-      const need = active.turnInItem ? active.turnInCount : active.targetCount;
+        : active.exploreArea
+          ? player.discovered.has(active.exploreArea)
+            ? 1
+            : 0
+          : (player.quests.get(active.id) ?? 0);
+      const need = active.turnInItem
+        ? active.turnInCount
+        : active.exploreArea
+          ? 1
+          : active.targetCount;
       this.notify(player.id, `In progress: ${active.name} (${Math.min(got, need)}/${need})`);
     } else {
       this.notify(player.id, 'No new quests right now â€” well done, adventurer.');
@@ -2565,6 +2577,7 @@ export class World {
     // Carry visited areas across the transfer + always mark the area we just arrived in.
     p.discovered = new Set(save.discovered ?? []);
     p.discovered.add(this.areaId);
+    this.progressExploreQuests(p); // arriving here may complete an explore quest
     this.recomputeStats(p);
     p.hp = Math.min(save.hp, p.maxHp);
     p.mana = save.mana;
@@ -4248,6 +4261,8 @@ export class World {
     if (player.questsDone.has(questId)) return `Already completed: ${quest.name}`;
     if (player.quests.has(questId)) return `Already on quest: ${quest.name}`;
     player.quests.set(questId, 0);
+    // An explore quest for an area the player has already visited completes the moment it is taken.
+    if (quest.exploreArea) this.progressExploreQuests(player);
     return `Quest accepted: ${quest.name} â€” ${quest.description}`;
   }
 
@@ -4260,7 +4275,13 @@ export class World {
       .map((q) => {
         if (player.questsDone.has(q.id)) return `âœ“ ${q.name} (done)`;
         if (player.quests.has(q.id)) {
-          return `â–¸ ${q.name}: ${player.quests.get(q.id)}/${q.targetCount} â€” ${q.description}`;
+          const got = q.exploreArea
+            ? player.discovered.has(q.exploreArea)
+              ? 1
+              : 0
+            : (player.quests.get(q.id) ?? 0);
+          const need = q.exploreArea ? 1 : q.targetCount;
+          return `â–¸ ${q.name}: ${got}/${need} â€” ${q.description}`;
         }
         return `Â· ${q.name} [${q.id}] â€” /accept ${q.id}`;
       });
@@ -4277,16 +4298,27 @@ export class World {
             ? 'active'
             : 'available';
         const collect = !!q.turnInItem;
-        // Collect quests show how many of the item the player currently holds; kill quests show kills.
-        const progress = collect
-          ? Math.min(player.loot.get(q.turnInItem!) ?? 0, q.turnInCount)
-          : (player.quests.get(q.id) ?? 0);
+        const explore = !!q.exploreArea;
+        const kind = explore
+          ? ('explore' as const)
+          : collect
+            ? ('collect' as const)
+            : ('kill' as const);
+        // Explore quests are a single binary objective (0/1 = arrived); collect quests show how many
+        // of the item the player currently holds; kill quests show kills so far.
+        const progress = explore
+          ? player.discovered.has(q.exploreArea!)
+            ? 1
+            : 0
+          : collect
+            ? Math.min(player.loot.get(q.turnInItem!) ?? 0, q.turnInCount)
+            : (player.quests.get(q.id) ?? 0);
         return {
           id: q.id,
           name: q.name,
           description: q.description,
-          kind: collect ? ('collect' as const) : ('kill' as const),
-          targetCount: collect ? q.turnInCount : q.targetCount,
+          kind,
+          targetCount: explore ? 1 : collect ? q.turnInCount : q.targetCount,
           progress,
           status,
           rewardGold: q.rewardGold,
@@ -4382,11 +4414,27 @@ export class World {
     const content = getContent();
     for (const [questId, kills] of player.quests) {
       const quest = content.quest(questId);
-      // Only kill quests auto-progress here; collect quests are turned in at a quest-giver.
-      if (!quest || quest.turnInItem || quest.targetMob !== mobTemplateId) continue;
+      // Only kill quests auto-progress here; collect/explore quests complete via their own paths.
+      if (!quest || quest.turnInItem || quest.exploreArea || quest.targetMob !== mobTemplateId)
+        continue;
       const next = kills + 1;
       if (next >= quest.targetCount) this.completeQuest(player, quest);
       else player.quests.set(questId, next);
+    }
+  }
+
+  /**
+   * Complete any active explore quest whose target area the player has now discovered. Called when
+   * the discovered set grows (area transfer) and when a quest is accepted (so an explore quest for an
+   * already-visited area resolves at once). Iterates a copy of the keys since completion mutates the
+   * map. Idempotent: a quest already moved to questsDone is no longer in `player.quests`.
+   */
+  private progressExploreQuests(player: Player): void {
+    const content = getContent();
+    for (const questId of [...player.quests.keys()]) {
+      const quest = content.quest(questId);
+      if (!quest?.exploreArea) continue;
+      if (player.discovered.has(quest.exploreArea)) this.completeQuest(player, quest);
     }
   }
 

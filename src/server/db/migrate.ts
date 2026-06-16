@@ -113,6 +113,15 @@ const MIGRATIONS: Migration[] = [
         });
     },
   },
+  {
+    version: 5,
+    name: 'explore-quest-type',
+    up(db) {
+      // Explore/discover quests complete on visiting a target area. Add the nullable column to old
+      // DBs; existing kill/collect quests leave it NULL and behave identically to before.
+      if (hasTable(db, 'quests')) ensureColumns(db, 'quests', { explore_area: 'TEXT' });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */
