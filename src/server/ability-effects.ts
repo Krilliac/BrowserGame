@@ -11,7 +11,22 @@
  */
 import type { StatusId } from './status-effects.js';
 
-export type StatusEffectKind = 'slow' | 'burn' | 'weaken';
+export type StatusEffectKind =
+  | 'slow'
+  | 'burn'
+  | 'weaken'
+  | 'ignite'
+  | 'poison'
+  | 'bleed'
+  | 'chill'
+  | 'shock'
+  | 'brittle'
+  | 'maim'
+  | 'sap'
+  | 'stun'
+  | 'freeze'
+  | 'silence'
+  | 'curse';
 
 export interface AbilityStatusEffectDef {
   abilityId: string;

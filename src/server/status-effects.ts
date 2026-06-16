@@ -8,14 +8,27 @@
  */
 
 export type StatusId =
-  // Monster debuffs:
+  // Monster debuffs (legacy set — do not renumber the wire bits):
   | 'slow' // reduces movement
   | 'burn' // damage over time
   | 'weaken' // reduces the monster's outgoing damage
   // Player buffs:
   | 'might' // increases the player's outgoing damage
   | 'haste' // faster attacks (lower cooldowns) + faster movement
-  | 'regen'; // heal over time
+  | 'regen' // heal over time
+  // Extended ailment / CC suite (slice 3):
+  | 'ignite' // fire DoT (harder tick than burn; stacks with burn)
+  | 'poison' // poison DoT
+  | 'bleed' // physical DoT
+  | 'chill' // moderate snare (lighter than slow)
+  | 'shock' // lightning debuff (amplifies damage taken)
+  | 'brittle' // reduces armor / increases crit taken
+  | 'maim' // heavy movement impair (stacks with slow)
+  | 'sap' // reduces attack speed / cooldown recovery
+  | 'stun' // hard CC: cannot move or act
+  | 'freeze' // hard CC: cannot move or act (cold variant)
+  | 'silence' // prevents ability casts
+  | 'curse'; // magic debuff (amplifies spell damage taken)
 
 /** Lowest movement multiplier slow can ever produce (so a slow can't fully freeze). */
 const SLOW_FACTOR_FLOOR = 0.2;

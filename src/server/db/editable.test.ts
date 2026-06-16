@@ -332,7 +332,7 @@ describe('tuning tables are live-editable via /set', () => {
   });
 
   it('ability_status_effects.effect rejects an unknown status kind', () => {
-    expect(coerceColumn('ability_status_effects', 'effect', 'stun').ok).toBe(false);
+    expect(coerceColumn('ability_status_effects', 'effect', 'fly').ok).toBe(false);
   });
 
   it('ability_cast_buffs.buff accepts a valid buff id', () => {

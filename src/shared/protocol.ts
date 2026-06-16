@@ -93,7 +93,7 @@ export const PLAYER_SPEED = 180;
  * that predates a deploy) is told to refresh instead of hitting confusing decode errors. Bump
  * on any breaking message-shape change.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** World bounds in pixels. The authoritative server clamps every entity to this box. */
 export const WORLD_WIDTH = 2000;
@@ -133,8 +133,9 @@ export interface EntityState {
   /** Gear drops only: rarity tier, so the client can color the ground glint. */
   rarity?: string;
   /**
-   * Status bitflags for rendering tints / buff pips. Monster debuffs: 1 = slowed, 2 = burning,
-   * 4 = weakened. Local-player buffs: 8 = might, 16 = haste, 32 = regen.
+   * Status bitflags for rendering tints / buff pips. Bit meanings are defined in
+   * `src/shared/status-bits.ts` (the full ailment/CC set). Legacy bits (1-64) are stable:
+   * 1 = slow, 2 = burn, 4 = weaken, 8 = might, 16 = haste, 32 = regen, 64 = enrage.
    */
   flags?: number;
   /** Humanoids (players/hirelings): visible-equipment bitfield for the paper-doll overlay —
