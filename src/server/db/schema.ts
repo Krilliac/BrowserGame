@@ -471,6 +471,7 @@ CREATE TABLE IF NOT EXISTS elite_modifiers (
   hp_mult     REAL NOT NULL,           -- max-HP multiplier
   damage_mult REAL NOT NULL,           -- outgoing-damage multiplier
   speed_mult  REAL NOT NULL,           -- movement-speed multiplier
+  explode_dmg REAL NOT NULL DEFAULT 0, -- death-explosion multiple of a normal hit (0 = no blast)
   sort_order  INTEGER NOT NULL DEFAULT 0
 );
 

@@ -79,7 +79,8 @@
 - [ ] **Deferred from the ARPG research** (`wiki/research/arpg-design-research.md`): collect/turn-in
       & named-elite quest *types*; gambler / healer / crafter (Artificer) NPCs + gold sinks;
       area-scoped quest offers; hard portal gates (boss-kill / quest-key); waypoints; biome hazard
-      gimmicks (poison pools, lava cracks, death-explosions); vendor stock rotation + sealed-tome gamble.
+      gimmicks (poison pools, lava cracks — **death-explosions DONE** via the Volatile elite modifier,
+      `elite_modifiers.explode_dmg`); vendor stock rotation + sealed-tome gamble.
 - [x] **Parties** — host-level grouping (invite/accept/leave, leader promotion), shared XP + quest
       credit for co-members in the same instance, roster UI (P). `party.ts` + tests.
 - [x] **Friends + whispers** — persistent friends list with live presence, social panel (F),

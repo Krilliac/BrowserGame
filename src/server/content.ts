@@ -554,7 +554,14 @@ export function loadContent(db: GameDatabase): Content {
   // table falls back to the code defaults.
   const eliteMods = (
     db.prepare('SELECT * FROM elite_modifiers ORDER BY sort_order').all() as EliteModRow[]
-  ).map((r) => ({ id: r.id, name: r.name, hp: r.hp_mult, dmg: r.damage_mult, spd: r.speed_mult }));
+  ).map((r) => ({
+    id: r.id,
+    name: r.name,
+    hp: r.hp_mult,
+    dmg: r.damage_mult,
+    spd: r.speed_mult,
+    explodeDmg: r.explode_dmg ?? 0,
+  }));
 
   // Per-ability on-hit status effects (slow/burn/weaken). An ability with no row carries none.
   const statusEffects = new Map<string, AbilityStatusEffect[]>();
@@ -1120,6 +1127,7 @@ interface EliteModRow {
   hp_mult: number;
   damage_mult: number;
   speed_mult: number;
+  explode_dmg: number;
   sort_order: number;
 }
 interface AbilityStatusRow {

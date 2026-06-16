@@ -131,6 +131,16 @@ const MIGRATIONS: Migration[] = [
       if (hasTable(db, 'quests')) ensureColumns(db, 'quests', { requires: 'TEXT' });
     },
   },
+  {
+    version: 7,
+    name: 'elite-death-explosion',
+    up(db) {
+      // Elite modifiers gain a death-explosion multiplier (the Volatile affix). Defaults to 0 so
+      // every existing modifier keeps behaving exactly as before (no blast).
+      if (hasTable(db, 'elite_modifiers'))
+        ensureColumns(db, 'elite_modifiers', { explode_dmg: 'REAL NOT NULL DEFAULT 0' });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */

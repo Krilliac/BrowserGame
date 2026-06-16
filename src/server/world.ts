@@ -238,6 +238,9 @@ const STASH_EXPAND_COST = 1000;
 // for the cooldown before it can bless again (shared across players, Diablo-shrine style).
 const SHRINE_RADIUS = 46;
 const SHRINE_COOLDOWN_MS = 60_000;
+// Volatile elites (the `explode_dmg` modifier) detonate on death, hitting players within this radius
+// — comfortably beyond melee reach, so the blast is a real "back off as it's dying" threat.
+const EXPLODE_RADIUS = 150;
 // Chests (decor kind 'chest'): walk within this radius to pry one open once; it spills gold + gear.
 const CHEST_RADIUS = 52;
 let CHEST_GOLD_MIN = config.economy.chestGoldMin;
@@ -617,6 +620,8 @@ interface Mob {
   elite: boolean;
   dmgMult: number;
   spdMult: number;
+  /** Death-explosion multiplier from a Volatile modifier (0 = no blast on death). */
+  explodeDmg: number;
   /** Spawned by an invasion event — its drops carry a slim corrupted-gear chance. */
   invader: boolean;
   /** Sim time (ms) until which this mob is ALERTED (hurt, or a packmate called for help) —
@@ -1050,6 +1055,7 @@ export class World {
       elite,
       dmgMult: (mod ? mod.dmg : 1) * tierDmg * this.riftEffects.mobDamageMult,
       spdMult: (mod ? mod.spd : 1) * this.riftEffects.mobSpeedMult,
+      explodeDmg: mod ? mod.explodeDmg : 0,
       invader,
       alertUntil: 0,
     });
@@ -3985,6 +3991,7 @@ export class World {
       mob.dead = true;
       mob.respawnAt = this.now + MOB_RESPAWN_MS;
       this.events.push({ kind: 'death', x: mob.x, y: mob.y });
+      if (mob.explodeDmg > 0) this.detonateMob(mob);
       this.onMobKilled(mob);
     } else if (
       this.procDepth === 0 &&
@@ -4015,6 +4022,32 @@ export class World {
         if (mob.dead) break;
       }
       this.procDepth--;
+    }
+  }
+
+  /**
+   * A Volatile elite detonates on death: every living player within {@link EXPLODE_RADIUS} of the
+   * corpse takes a burst equal to the mob's normal hit times its `explodeDmg` multiplier. A 'slam'
+   * FX rings the blast (reusing the existing impact-ring renderer — no new client art). Players only:
+   * the blast never chains into other mobs, so a Volatile champion can't wipe its own pack.
+   */
+  private detonateMob(mob: Mob): void {
+    const template = getContent().mobTemplate(mob.templateId);
+    if (!template) return;
+    const blast = this.mobOutgoing(mob, template) * mob.explodeDmg;
+    if (blast <= 0) return;
+    this.events.push({
+      kind: 'slam',
+      x: mob.x,
+      y: mob.y,
+      radius: EXPLODE_RADIUS,
+      value: EXPLODE_RADIUS,
+    });
+    for (const player of this.players.values()) {
+      if (player.dead) continue;
+      if (Math.hypot(player.x - mob.x, player.y - mob.y) <= EXPLODE_RADIUS) {
+        this.damagePlayer(player, blast);
+      }
     }
   }
 

@@ -379,9 +379,11 @@ function ensureWeatherModifiers(db: Database): void {
  */
 function ensureEliteModifiers(db: Database): void {
   const ins = db.prepare(
-    'INSERT OR IGNORE INTO elite_modifiers (id,name,hp_mult,damage_mult,speed_mult,sort_order) VALUES (?,?,?,?,?,?)',
+    'INSERT OR IGNORE INTO elite_modifiers (id,name,hp_mult,damage_mult,speed_mult,explode_dmg,sort_order) VALUES (?,?,?,?,?,?,?)',
   );
-  DEFAULT_ELITE_MODIFIERS.forEach((m, i) => ins.run(m.id, m.name, m.hp, m.dmg, m.spd, i));
+  DEFAULT_ELITE_MODIFIERS.forEach((m, i) =>
+    ins.run(m.id, m.name, m.hp, m.dmg, m.spd, m.explodeDmg, i),
+  );
 }
 
 /**

@@ -8,6 +8,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Volatile elites (death-explosions).** A new champion modifier — **Volatile** — detonates when the
+  elite dies, dealing a burst (4× its normal hit) to every player within ~150px and ringing the blast
+  with the existing impact-ring FX. The blast is player-only (it never chains into the mob's own pack),
+  and lands just beyond melee reach, so a dying Volatile champion is a real "back off now" threat. New
+  `elite_modifiers.explode_dmg` column (schema + migration #7 + the `DEFAULT_ELITE_MODIFIERS` default);
+  `World.detonateMob` fires from the single mob-death funnel, so it triggers no matter how the elite
+  died (melee, spell, or DoT). From the deferred ARPG biome-hazard line.
+
 - **Chain quests.** A quest can carry a `requires` (prerequisite quest id); it stays **locked**
   (shown in the log but un-acceptable) until that prerequisite is completed. The three Wayfinder
   explore bounties now form an ordered chain — Chart the Sunken Pass → Brave the Ashveil → The

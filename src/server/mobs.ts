@@ -79,13 +79,22 @@ export interface EliteModifier {
   dmg: number;
   /** Movement-speed multiplier. */
   spd: number;
+  /**
+   * Death-explosion multiplier (0 = none): on death the champion detonates for this multiple of its
+   * normal hit, damaging nearby players. The "Volatile" affix — back off as it's dying.
+   */
+  explodeDmg: number;
 }
 
-/** Default champion variants: fast harasser, hard hitter, damage sponge. Seeds `elite_modifiers`. */
+/**
+ * Default champion variants: fast harasser, hard hitter, damage sponge, and a Volatile bomb that
+ * blasts on death. Seeds `elite_modifiers`.
+ */
 export const DEFAULT_ELITE_MODIFIERS: EliteModifier[] = [
-  { id: 'swift', name: 'Swift', hp: 2.0, dmg: 1.3, spd: 1.6 },
-  { id: 'brutal', name: 'Brutal', hp: 2.4, dmg: 1.9, spd: 1.0 },
-  { id: 'vigorous', name: 'Vigorous', hp: 3.4, dmg: 1.4, spd: 1.0 },
+  { id: 'swift', name: 'Swift', hp: 2.0, dmg: 1.3, spd: 1.6, explodeDmg: 0 },
+  { id: 'brutal', name: 'Brutal', hp: 2.4, dmg: 1.9, spd: 1.0, explodeDmg: 0 },
+  { id: 'vigorous', name: 'Vigorous', hp: 3.4, dmg: 1.4, spd: 1.0, explodeDmg: 0 },
+  { id: 'volatile', name: 'Volatile', hp: 2.2, dmg: 1.2, spd: 1.1, explodeDmg: 4.0 },
 ];
 
 export const MOB_TEMPLATES: Record<string, MobTemplate> = {
