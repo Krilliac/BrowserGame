@@ -82,6 +82,12 @@ import {
   stepHireling,
   type HirelingTemplate,
 } from './hirelings.js';
+import {
+  MAX_MINIONS_PER_OWNER,
+  minionAiTemplate,
+  minionFromTemplate,
+  type MinionProfile,
+} from './minions.js';
 import type { DungeonDef, Rect } from '../shared/areas.js';
 import { NpcFlags, hasNpcFlag } from '../shared/npc-flags.js';
 import { CreatureSpawnFlags, hasSpawnFlag } from '../shared/spawn-flags.js';
@@ -724,6 +730,27 @@ interface Hireling {
 }
 
 /**
+ * A summoned minion (the necromancer pet line). Shares the hireling follow-and-fight AI, but a
+ * player may field several, they cost mana to raise rather than gold to hire, and they crumble when
+ * slain instead of voiding a contract. Its combat profile + render sprite come from a `summonable`
+ * mob template ({@link MinionProfile}), so any flagged creature can be summoned.
+ */
+interface Minion {
+  id: number;
+  ownerId: number;
+  /** Resolved from the source mob template at summon time (re-resolved on the owner's level-up). */
+  profile: MinionProfile;
+  x: number;
+  y: number;
+  facing: number;
+  hp: number;
+  maxHp: number;
+  level: number;
+  power: number;
+  attackCd: number;
+}
+
+/**
  * The authoritative simulation for ONE area instance: players, monsters, projectiles, and
  * combat. Pure of any networking/timers so it is fully testable and could run in its own
  * process (the AreaServer model). Inputs/casts come in, the world advances by a fixed dt,
@@ -769,6 +796,7 @@ export class World {
   private readonly players = new Map<number, Player>();
   private readonly mobs = new Map<number, Mob>();
   private readonly hirelings = new Map<number, Hireling>();
+  private readonly minions = new Map<number, Minion>();
   private readonly projectiles = new Map<number, Projectile>();
   private readonly items = new Map<number, GroundItem>();
   private readonly npcs = new Map<number, Npc>();
@@ -1368,6 +1396,50 @@ export class World {
   private despawnHirelingOf(ownerId: number): void {
     for (const h of this.hirelings.values()) {
       if (h.ownerId === ownerId) this.hirelings.delete(h.id);
+    }
+  }
+
+  /** How many minions a player currently has raised (for the per-owner cap). */
+  private minionCountOf(ownerId: number): number {
+    let n = 0;
+    for (const m of this.minions.values()) if (m.ownerId === ownerId) n++;
+    return n;
+  }
+
+  /**
+   * Raise a minion from the summonable creature `templateId` beside the caster (a `kind:'summon'`
+   * cast). Refused — with a notice — when the template is missing/not flagged `summonable`, or the
+   * owner is already at the minion cap.
+   */
+  private spawnMinion(owner: Player, templateId: string): void {
+    const template = getContent().mobTemplate(templateId);
+    if (!template) return;
+    const profile = minionFromTemplate(template, owner.level);
+    if (!profile) return; // not flagged summonable — bad data or a non-summonable creature id
+    if (this.minionCountOf(owner.id) >= MAX_MINIONS_PER_OWNER) {
+      this.notify(owner.id, `You cannot control more than ${MAX_MINIONS_PER_OWNER} minions.`);
+      return;
+    }
+    const id = this.allocId();
+    this.minions.set(id, {
+      id,
+      ownerId: owner.id,
+      profile,
+      x: clamp(owner.x + (this.rand() * 40 - 20), 0, this.width),
+      y: clamp(owner.y + (this.rand() * 40 - 20), 0, this.height),
+      facing: 0,
+      hp: profile.maxHp,
+      maxHp: profile.maxHp,
+      level: owner.level,
+      power: profile.power,
+      attackCd: 0,
+    });
+  }
+
+  /** Remove every minion owned by a player (on disconnect or area transfer — they don't follow). */
+  private despawnMinionsOf(ownerId: number): void {
+    for (const m of this.minions.values()) {
+      if (m.ownerId === ownerId) this.minions.delete(m.id);
     }
   }
 
@@ -2611,6 +2683,7 @@ export class World {
   remove(id: number): void {
     this.endTradeFor(id); // drop any active trade so the partner isn't stuck "in trade"
     this.despawnHirelingOf(id);
+    this.despawnMinionsOf(id); // summoned skeletons crumble when their master leaves
     this.players.delete(id);
   }
 
@@ -2666,6 +2739,12 @@ export class World {
 
     if (ability.kind === 'heal') {
       player.hp = Math.min(player.maxHp, player.hp + ability.damage * rankMult);
+    } else if (ability.kind === 'summon') {
+      // Raise minion(s) per the ability's summon behavior, up to the per-owner cap.
+      const spec = (ability.behaviors ?? []).find((b) => b.type === 'summon');
+      if (spec && spec.type === 'summon') {
+        for (let i = 0; i < spec.count; i++) this.spawnMinion(player, spec.minion);
+      }
     } else if (ability.kind === 'melee') {
       const halfAngle = ability.meleeHalfAngle ?? 0.6;
       for (const mob of this.mobs.values()) {
@@ -2806,6 +2885,7 @@ export class World {
     this.tickPlayers(dt);
     this.tickMobs(dt);
     this.tickHirelings(dt);
+    this.tickMinions(dt);
     this.tickProjectiles(dt);
     this.tickItems(dt);
   }
@@ -3177,8 +3257,9 @@ export class World {
       y: p.y,
       alive: !p.dead,
     }));
-    // Hirelings are valid monster targets too — a mob fights whoever is closest, ally included.
-    for (const h of this.hirelings.values()) views.push({ id: h.id, x: h.x, y: h.y, alive: true });
+    // Allies (hirelings + summoned minions) are valid monster targets too — a mob fights whoever is
+    // closest, ally included.
+    for (const a of this.allyTargets()) views.push({ id: a.id, x: a.x, y: a.y, alive: true });
 
     // Spatial index of living mobs (positions at tick start) so the per-mob "packmates nearby"
     // check is a local neighborhood query, not an O(mobs²) scan of the whole roster — the single
@@ -3241,11 +3322,11 @@ export class World {
               mob.dashHit.add(player.id);
             }
           }
-          for (const ally of this.hirelings.values()) {
+          for (const ally of this.allyTargets()) {
             if (mob.dashHit.has(ally.id)) continue;
             if (circlesOverlap(mob.x, mob.y, MOB_RADIUS, ally.x, ally.y, PLAYER_RADIUS)) {
-              mob.dashHit.add(ally.id); // mark BEFORE the hit — a kill deletes the hireling
-              this.damageHireling(ally, this.mobOutgoing(mob, template));
+              mob.dashHit.add(ally.id); // mark BEFORE the hit — a kill deletes the ally
+              ally.damage(this.mobOutgoing(mob, template));
             }
           }
           continue;
@@ -3546,6 +3627,120 @@ export class World {
   }
 
   /**
+   * Advance every minion: keep pace with the summoner's level, heel to their side, and fight nearby
+   * monsters — the same pure {@link stepHireling} brain hirelings use. Kill credit (XP, quests,
+   * corruption relief) flows to the OWNER, and a minion whose owner is gone or dead is dismissed.
+   */
+  private tickMinions(dt: number): void {
+    for (const m of this.minions.values()) {
+      const owner = this.players.get(m.ownerId);
+      if (!owner || owner.dead) {
+        // Owner gone (disconnect/transfer) or dead — skeletons crumble. (Dead owner re-raises later.)
+        if (!owner) this.minions.delete(m.id);
+        continue;
+      }
+      if (m.attackCd > 0) m.attackCd -= dt * 1000;
+
+      // Track the summoner's level so a raised minion stays relevant (re-resolve its profile from the
+      // source template at the new level, rescale + heal). Re-resolution keeps a buffed template live.
+      if (owner.level !== m.level) {
+        const template = getContent().mobTemplate(m.profile.templateId);
+        const fresh = template ? minionFromTemplate(template, owner.level) : null;
+        if (fresh) m.profile = fresh;
+        m.level = owner.level;
+        m.maxHp = m.profile.maxHp;
+        m.hp = m.profile.maxHp;
+        m.power = m.profile.power;
+      }
+
+      // Catch up instantly when hopelessly left behind (a respawn / long sprint).
+      if (Math.hypot(owner.x - m.x, owner.y - m.y) > 900) {
+        m.x = clamp(owner.x + 26, 0, this.width);
+        m.y = clamp(owner.y + 10, 0, this.height);
+      }
+
+      const targets = [...this.mobs.values()]
+        .filter((mob) => !mob.dead)
+        .map((mob) => ({ id: mob.id, x: mob.x, y: mob.y, alive: true }));
+      const intent = stepHireling(
+        { x: m.x, y: m.y, template: minionAiTemplate(m.profile), attackReady: m.attackCd <= 0 },
+        owner,
+        targets,
+      );
+      if (intent.facing !== null) m.facing = intent.facing;
+
+      if (intent.attackTargetId !== null) {
+        const mob = this.mobs.get(intent.attackTargetId);
+        if (mob && !mob.dead) {
+          m.attackCd = m.profile.attackCooldownMs;
+          if (m.profile.behavior === 'ranged') {
+            const speed = 360;
+            const pid = this.allocId();
+            this.projectiles.set(pid, {
+              id: pid,
+              abilityId: (m.profile.projectileAbility ?? 'arrow') as AbilityId,
+              x: m.x,
+              y: m.y,
+              vx: Math.cos(m.facing) * speed,
+              vy: Math.sin(m.facing) * speed,
+              ttl: 1600,
+              damage: m.power,
+              radius: 8,
+              ownerId: m.ownerId, // owner gets kill credit (and their lifesteal, if any)
+              ownerLevel: m.level,
+              critChance: 0,
+              hostile: false,
+              behaviors: [],
+              hitMobs: new Set<number>(),
+              bouncesLeft: 0,
+              piercesLeft: 0,
+              forksLeft: 0,
+              damageScale: 1,
+            });
+            this.events.push({ kind: 'cast', x: m.x, y: m.y, facing: m.facing });
+          } else {
+            const dmg = rollAbilityDamage(m.level, mob.level, m.power, this.rand);
+            this.damageMob(mob, dmg, undefined, m.ownerId);
+            this.events.push({ kind: 'melee', x: m.x, y: m.y, facing: m.facing });
+          }
+        }
+      } else if (intent.vx !== 0 || intent.vy !== 0) {
+        m.x = clamp(m.x + intent.vx * dt, 0, this.width);
+        m.y = clamp(m.y + intent.vy * dt, 0, this.height);
+      }
+    }
+  }
+
+  /** Damage a minion; at zero HP it crumbles (freeing a slot in the owner's minion cap). */
+  private damageMinion(m: Minion, amount: number): void {
+    m.hp -= amount;
+    this.events.push({ kind: 'hit', x: m.x, y: m.y, value: Math.ceil(amount) });
+    if (m.hp <= 0) {
+      this.events.push({ kind: 'death', x: m.x, y: m.y });
+      this.minions.delete(m.id);
+    }
+  }
+
+  /**
+   * Every friendly combat ally (hirelings + summoned minions) as a uniform target, so the monster
+   * attack paths (target selection, melee, slam, cone, dash, hostile projectiles) damage both kinds
+   * without duplicating a per-Map loop at each site. `damage` routes to the right per-kind handler.
+   */
+  private *allyTargets(): Generator<{
+    id: number;
+    x: number;
+    y: number;
+    damage: (amount: number) => void;
+  }> {
+    for (const h of this.hirelings.values()) {
+      yield { id: h.id, x: h.x, y: h.y, damage: (a) => this.damageHireling(h, a) };
+    }
+    for (const m of this.minions.values()) {
+      yield { id: m.id, x: m.x, y: m.y, damage: (a) => this.damageMinion(m, a) };
+    }
+  }
+
+  /**
    * Resolve a mob's attack at the moment its wind-up completes. Melee strikes the locked target if
    * it is still in reach (so dodging out of range whiffs it); ranged fires a hostile projectile
    * along the locked aim (so side-stepping the line dodges it).
@@ -3604,9 +3799,9 @@ export class World {
           this.damagePlayer(player, this.mobOutgoing(mob, template));
         }
       }
-      for (const ally of this.hirelings.values()) {
+      for (const ally of this.allyTargets()) {
         if (Math.hypot(ally.x - mob.x, ally.y - mob.y) <= template.slamRadius + PLAYER_RADIUS) {
-          this.damageHireling(ally, this.mobOutgoing(mob, template));
+          ally.damage(this.mobOutgoing(mob, template));
         }
       }
       this.events.push({ kind: 'slam', x: mob.x, y: mob.y, radius: template.slamRadius });
@@ -3617,9 +3812,14 @@ export class World {
     if (target && !target.dead && Math.hypot(target.x - mob.x, target.y - mob.y) <= reach) {
       this.damagePlayer(target, this.mobOutgoing(mob, template));
     } else {
-      const ally = this.hirelings.get(mob.telegraphTargetId);
-      if (ally && Math.hypot(ally.x - mob.x, ally.y - mob.y) <= reach) {
-        this.damageHireling(ally, this.mobOutgoing(mob, template));
+      for (const ally of this.allyTargets()) {
+        if (
+          ally.id === mob.telegraphTargetId &&
+          Math.hypot(ally.x - mob.x, ally.y - mob.y) <= reach
+        ) {
+          ally.damage(this.mobOutgoing(mob, template));
+          break;
+        }
       }
     }
     this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
@@ -3667,7 +3867,7 @@ export class World {
           applyPlayerDebuff(player, abilityId);
         }
       }
-      for (const ally of this.hirelings.values()) {
+      for (const ally of this.allyTargets()) {
         const hit = inMeleeCone(
           mob.x,
           mob.y,
@@ -3677,7 +3877,7 @@ export class World {
           ability.range,
           halfAngle,
         );
-        if (hit) this.damageHireling(ally, dmg);
+        if (hit) ally.damage(dmg);
       }
       this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
       return;
@@ -3794,9 +3994,9 @@ export class World {
           }
         }
         if (!consumed) {
-          for (const ally of this.hirelings.values()) {
+          for (const ally of this.allyTargets()) {
             if (circlesOverlap(proj.x, proj.y, proj.radius, ally.x, ally.y, PLAYER_RADIUS)) {
-              this.damageHireling(ally, proj.damage);
+              ally.damage(proj.damage);
               consumed = true;
               break;
             }
@@ -4698,6 +4898,26 @@ export class World {
       };
       const hTint = getContent().spriteTint(`hireling:${h.template.type}`);
       if (hTint) e.tint = hTint;
+      out.push(e);
+    }
+    // Summoned minions render as their SOURCE creature (kind 'mob' picks the sprite by name) but
+    // carry `friendly: true` so the client draws a green ally health bar instead of the enemy red.
+    for (const m of this.minions.values()) {
+      const e: EntityState = {
+        id: m.id,
+        x: m.x,
+        y: m.y,
+        name: m.profile.name,
+        hue: 40,
+        kind: 'mob',
+        facing: m.facing,
+        hp: Math.ceil(m.hp),
+        maxHp: m.maxHp,
+        level: m.level,
+        friendly: true,
+      };
+      const mTint = getContent().spriteTint(`mob:${m.profile.templateId}`);
+      if (mTint) e.tint = mTint;
       out.push(e);
     }
     for (const m of this.mobs.values()) {

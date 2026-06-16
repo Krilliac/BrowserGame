@@ -201,6 +201,21 @@ renderers. Prioritized, codebase-mapped takeaways (full detail + sources in the 
 (CC-BY-SA 3.0) for characters with attribution + an `ASSETS/CREDITS.md` manifest. Never ship
 Jagex IP. (rendering research)
 
+## ED5 MMO Studio feature port (native reimplementation)
+
+Reimplementing the feature gaps of **ED5 MMO Studio** (a commercial isometric-MMO engine on a near-
+identical stack) natively — its publicly-documented feature list, never its paid closed source.
+Skipping survival (hunger/thirst/seasons) + housing as genre-drift from the Diablo-ARPG identity.
+
+- [x] **Summons (necromancer pet line)** — `kind:'summon'` abilities raise minions from any
+      `summonable`-flagged creature (data-driven, not skeleton-specific); follow-and-fight via the
+      hireling AI, cap 5, render as the source creature with an ally health bar. `summonable` column
+      (migration #8), `minions.ts`, `world-summons.test.ts`.
+- [ ] **Pets & mounts** — tameable combat companions that level/evolve; rideable mounts (move speed).
+- [ ] **Guilds** — roster, ranks, guild chat channel, shared guild bank (extends parties/friends).
+- [ ] **Auction house + mail** — player market listings + currency sink + mail with attachments.
+- [ ] **PvP zones** — opt-in/flagged PvP with multiple zone rule types.
+
 ## Later (systems — reimplement from the SparkGameMMO blueprint)
 
 - [ ] Inventory + loot tables (server-authoritative).

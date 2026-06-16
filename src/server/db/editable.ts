@@ -142,6 +142,7 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       attack_range: { type: 'real', min: 0, max: 1000 },
       damage: { type: 'real', min: 0, max: 99999 },
       attack_cooldown_ms: { type: 'int', min: 0, max: 60000 },
+      summonable: { type: 'int', min: 0, max: 1 },
     },
   },
 

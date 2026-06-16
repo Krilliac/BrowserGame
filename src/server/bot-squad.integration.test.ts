@@ -122,7 +122,7 @@ describe('cooperating squad — World integration soak', () => {
             },
             abilities: Object.keys(st.known).flatMap((aid) => {
               const a = getContent().ability(aid as AbilityId);
-              return a
+              return a && (a.kind === 'melee' || a.kind === 'projectile' || a.kind === 'heal')
                 ? [
                     {
                       id: aid,

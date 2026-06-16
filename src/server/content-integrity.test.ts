@@ -69,7 +69,7 @@ describe('mob template integrity', () => {
 });
 
 describe('ability + item integrity', () => {
-  const kinds = new Set(['melee', 'projectile', 'heal']);
+  const kinds = new Set(['melee', 'projectile', 'heal', 'summon']);
 
   it('every ability is well-formed (valid kind, non-negative numbers)', () => {
     for (const ab of c.abilityList()) {
@@ -78,6 +78,13 @@ describe('ability + item integrity', () => {
       expect(ab.damage, `${ab.id} damage`).toBeGreaterThanOrEqual(0);
       expect(ab.manaCost, `${ab.id} manaCost`).toBeGreaterThanOrEqual(0);
       expect(ab.range, `${ab.id} range`).toBeGreaterThanOrEqual(0);
+      // A summon ability must name a real, summonable-flagged creature to raise.
+      const summon = (ab.behaviors ?? []).find((b) => b.type === 'summon');
+      if (summon && summon.type === 'summon') {
+        const t = c.mobTemplate(summon.minion);
+        expect(t, `${ab.id} summons ${summon.minion}`).toBeDefined();
+        expect(t!.summonable, `${summon.minion} is summonable`).toBe(true);
+      }
     }
   });
 

@@ -495,7 +495,10 @@ function driveBots(): void {
           },
           abilities: Object.keys(stats.known).flatMap((aid) => {
             const a = getContent().ability(aid as AbilityId);
-            if (!a) return [];
+            // Bots only reason about direct-attack/heal spells; summon (and any future) kinds are
+            // skipped so the BotAbilityView union stays the combat subset the brain understands.
+            if (!a || (a.kind !== 'melee' && a.kind !== 'projectile' && a.kind !== 'heal'))
+              return [];
             return [
               {
                 id: aid,

@@ -255,6 +255,25 @@ const SPELLBOOKS: Record<string, { name: string; color: string; teaches: string;
   tome_warcry: { name: 'Tome of the War Cry', color: '#ffb347', teaches: 'warcry', sell: 200 },
   tome_sprint: { name: 'Tome of Sprinting', color: '#7cf0ff', teaches: 'sprint', sell: 180 },
   tome_renew: { name: 'Tome of Renewal', color: '#9be8a0', teaches: 'renew', sell: 200 },
+  // --- Necromancy: the summon line (raise skeletal minions that fight at your side). ---
+  tome_raise_skeleton: {
+    name: 'Grimoire of Bone',
+    color: '#d8d2c0',
+    teaches: 'raise_skeleton',
+    sell: 240,
+  },
+  tome_raise_skeleton_mage: {
+    name: 'Grimoire of the Bound Dead',
+    color: '#9fd8ff',
+    teaches: 'raise_skeleton_mage',
+    sell: 320,
+  },
+  tome_raise_skeleton_archer: {
+    name: 'Grimoire of the Bone Volley',
+    color: '#c7b98a',
+    teaches: 'raise_skeleton_archer',
+    sell: 300,
+  },
 };
 
 /** The town Merchant's shelf: the deterministic acquisition path (drops are the exciting one). */
@@ -1242,8 +1261,9 @@ function ensureWorldExpansion(db: Database): void {
   const insMob = db.prepare(
     `INSERT OR IGNORE INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
-        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits,
+        summonable)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     insMob.run(
@@ -1263,9 +1283,10 @@ function ensureWorldExpansion(db: Database): void {
       t.kiteRange ?? null,
       t.slamRadius ?? null,
       t.dashSpeed ?? null,
-      MOB_SPELLS[t.id] ?? null,
+      MOB_SPELLS[t.id] ?? t.spell ?? null,
       MOB_SUPPORT[t.id] ?? null,
       MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
+      t.summonable ? 1 : 0,
     );
   }
 
@@ -1622,8 +1643,9 @@ function seedMobs(db: Database): void {
   const mob = db.prepare(
     `INSERT INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
-        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits,
+        summonable)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     mob.run(
@@ -1643,9 +1665,10 @@ function seedMobs(db: Database): void {
       t.kiteRange ?? null,
       t.slamRadius ?? null,
       t.dashSpeed ?? null,
-      MOB_SPELLS[t.id] ?? null,
+      MOB_SPELLS[t.id] ?? t.spell ?? null,
       MOB_SUPPORT[t.id] ?? null,
       MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
+      t.summonable ? 1 : 0,
     );
   }
   const am = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');

@@ -8,6 +8,19 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Summoned minions (the necromancer pet line) — data-driven.** A new `kind:'summon'` ability raises
+  a friendly minion that follows you and fights nearby monsters with the hireling follow-and-fight AI,
+  persisting until slain (up to 5 per summoner). Crucially the system is **flag-driven, not skeleton-
+  specific**: a minion is raised from ANY creature whose mob template is flagged `summonable`, so
+  adding a new summon is pure content (set the flag + point a summon ability at it). Seeded with three
+  summonable skeleton creatures (Warrior / Mage / Archer) and their grimoire tomes (`raise_skeleton`,
+  `raise_skeleton_mage`, `raise_skeleton_archer`). Minions render as their source creature with a
+  green ally health bar (`EntityState.friendly`); monsters target and damage them through the same
+  paths as hirelings (unified via an `allyTargets` helper). New `mob_templates.summonable` column
+  (schema + migration #8 + editable registry); `AbilityKind` gains `'summon'` and `BehaviorSpec` a
+  `summon` variant carried in `behaviors_json` (no new ability column). First slice of the ED5 MMO
+  Studio feature port (pets/summons).
+
 - **Environmental hazard zones (poison pools / lava cracks).** Two new walkable decor kinds are DoT
   zones: standing in a `poison_pool` (toxic bog) or `lava_crack` (forge fissure) re-applies a short
   damage-over-time debuff each tick, so it chips you while you linger and lingers ~1s after you step

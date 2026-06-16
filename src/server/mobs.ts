@@ -62,6 +62,12 @@ export interface MobTemplate {
   support?: AbilityId;
   /** Personality traits that vary how it fights (loaded from the DB; see {@link MobTrait}). */
   traits?: MobTrait[];
+  /**
+   * True if this creature can be raised as a friendly summoned minion by a `kind:'summon'` ability.
+   * Data-driven: flag ANY creature here (or via the `summonable` DB column) to make it summonable —
+   * the summon system reads only this flag, so adding a new minion type is pure content.
+   */
+  summonable?: boolean;
 }
 
 /**
@@ -125,6 +131,59 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     attackCooldownMs: 1100,
     behavior: 'melee',
     telegraphMs: 360,
+  },
+  // --- Summonable skeleton minions (the necromancer pet line). Flagged `summonable`, NOT placed in
+  //     any area roster, so they exist only as raise-targets — not wild enemies. Any other creature
+  //     can be made a summon the same way: just set `summonable: true`. ---
+  skeleton_warrior: {
+    id: 'skeleton_warrior',
+    name: 'Skeleton Warrior',
+    hp: 70,
+    level: 5,
+    hue: 210,
+    speed: 200,
+    aggroRange: 320,
+    attackRange: 44,
+    damage: 12,
+    attackCooldownMs: 1000,
+    behavior: 'melee',
+    telegraphMs: 0,
+    summonable: true,
+  },
+  skeleton_mage: {
+    id: 'skeleton_mage',
+    name: 'Skeletal Mage',
+    hp: 48,
+    level: 5,
+    hue: 200,
+    speed: 185,
+    aggroRange: 360,
+    attackRange: 240,
+    damage: 14,
+    attackCooldownMs: 1700,
+    behavior: 'ranged',
+    telegraphMs: 0,
+    projectileSpeed: 320,
+    kiteRange: 130,
+    spell: 'frost', // a cold bolt — visually distinct from the archer's arrow
+    summonable: true,
+  },
+  skeleton_archer: {
+    id: 'skeleton_archer',
+    name: 'Skeletal Archer',
+    hp: 52,
+    level: 5,
+    hue: 205,
+    speed: 195,
+    aggroRange: 360,
+    attackRange: 250,
+    damage: 11,
+    attackCooldownMs: 1300,
+    behavior: 'ranged',
+    telegraphMs: 0,
+    projectileSpeed: 360,
+    kiteRange: 110,
+    summonable: true,
   },
   bat: {
     id: 'bat',

@@ -141,6 +141,16 @@ const MIGRATIONS: Migration[] = [
         ensureColumns(db, 'elite_modifiers', { explode_dmg: 'REAL NOT NULL DEFAULT 0' });
     },
   },
+  {
+    version: 8,
+    name: 'summonable-creatures',
+    up(db) {
+      // Creatures gain a `summonable` flag so any of them can be raised as a friendly minion by a
+      // summon ability. Defaults to 0 — existing creatures are not summonable unless flagged.
+      if (hasTable(db, 'mob_templates'))
+        ensureColumns(db, 'mob_templates', { summonable: 'INTEGER NOT NULL DEFAULT 0' });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */

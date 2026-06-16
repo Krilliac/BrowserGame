@@ -20,7 +20,7 @@ export type EntityKind =
 
 // AbilityId is derived from the ABILITIES table below (see the declaration), so adding a spell to
 // that one object automatically extends the id type, ABILITY_ORDER, and the content seeding.
-export type AbilityKind = 'melee' | 'projectile' | 'heal';
+export type AbilityKind = 'melee' | 'projectile' | 'heal' | 'summon';
 
 /**
  * The damage school of an ability. 'physical' is the neutral default (no mob carries physical
@@ -62,7 +62,13 @@ export type BehaviorSpec =
       type: 'beam';
       range: number;
       width: number; /* half-width: hit if dist-to-centerline ≤ width + MOB_RADIUS */
-    };
+    }
+  /**
+   * Summon a minion. Carried on a `kind:'summon'` ability; the server raises `count` minions of the
+   * named template (e.g. 'skeleton_warrior') beside the caster, up to the per-owner minion cap. The
+   * Diablo-necromancer pet line — skeletons that follow you and fight, persisting until slain.
+   */
+  | { type: 'summon'; minion: string; count: number };
 
 export interface Ability {
   id: string;
@@ -883,6 +889,46 @@ const ABILITY_DEFS = {
     projectileSpeed: 260,
     projectileTtlMs: 1900,
     radius: 20,
+  },
+  // --- Necromancy: summon skeletal minions that follow you and fight (the Diablo pet line). ---
+  raise_skeleton: {
+    id: 'raise_skeleton',
+    name: 'Raise Skeleton',
+    key: '7',
+    kind: 'summon',
+    damage: 0,
+    range: 0,
+    cooldownMs: 1200,
+    manaCost: 14,
+    color: '#d8d2c0',
+    radius: 0,
+    behaviors: [{ type: 'summon', minion: 'skeleton_warrior', count: 1 }],
+  },
+  raise_skeleton_mage: {
+    id: 'raise_skeleton_mage',
+    name: 'Raise Skeletal Mage',
+    key: '8',
+    kind: 'summon',
+    damage: 0,
+    range: 0,
+    cooldownMs: 1600,
+    manaCost: 18,
+    color: '#9fd8ff',
+    radius: 0,
+    behaviors: [{ type: 'summon', minion: 'skeleton_mage', count: 1 }],
+  },
+  raise_skeleton_archer: {
+    id: 'raise_skeleton_archer',
+    name: 'Raise Skeletal Archer',
+    key: '9',
+    kind: 'summon',
+    damage: 0,
+    range: 0,
+    cooldownMs: 1400,
+    manaCost: 16,
+    color: '#c7b98a',
+    radius: 0,
+    behaviors: [{ type: 'summon', minion: 'skeleton_archer', count: 1 }],
   },
 } satisfies Record<string, Ability>;
 

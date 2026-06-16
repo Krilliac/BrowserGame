@@ -2488,7 +2488,8 @@ export class PixiRenderer {
       }
       view.dyn.rect(-bw / 2, view.topY - 6, bw, 4).fill({ color: '#000000', alpha: 0.6 });
       view.dyn.rect(-bw / 2, view.topY - 6, bw * frac, 4).fill({
-        color: e.kind === 'mob' ? '#cc4444' : '#4caf50',
+        // Enemy mobs are red; players, allies, and summoned (friendly) minions are green.
+        color: e.kind === 'mob' && !e.friendly ? '#cc4444' : '#4caf50',
       });
     }
     // Faux-perspective depth scale (closer to camera = bigger), combined with the champion bump.

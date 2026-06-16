@@ -452,6 +452,7 @@ export function loadContent(db: GameDatabase): Content {
     if (r.spell !== null) template.spell = r.spell as AbilityId;
     if (r.support !== null) template.support = r.support as AbilityId;
     if (r.traits !== null) template.traits = JSON.parse(r.traits) as MobTrait[];
+    if (r.summonable) template.summonable = true;
     mobTemplates.set(r.id, template);
   }
 
@@ -1068,6 +1069,7 @@ interface MobRow {
   spell: string | null;
   support: string | null;
   traits: string | null;
+  summonable: number | null;
 }
 interface AreaMobRow {
   area_id: string;
