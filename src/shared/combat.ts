@@ -58,7 +58,11 @@ export type BehaviorSpec =
    * (`pointToSegmentDist ≤ width + MOB_RADIUS`) overlaps the segment. Replaces the projectile-spawn
    * when present on a `kind:'projectile'` ability.
    */
-  | { type: 'beam'; range: number; width: number /* half-width: hit if dist-to-centerline ≤ width + MOB_RADIUS */ };
+  | {
+      type: 'beam';
+      range: number;
+      width: number; /* half-width: hit if dist-to-centerline ≤ width + MOB_RADIUS */
+    };
 
 export interface Ability {
   id: string;
