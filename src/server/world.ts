@@ -148,6 +148,7 @@ import {
   xpReward,
 } from './progression.js';
 import { StatusSet } from './status-effects.js';
+import { ABILITY_KNOCKBACK } from './ability-effects.js';
 import { SpatialGrid } from './spatial.js';
 import { getContent, type QuestDef } from './content.js';
 import type { WeatherKind } from '../shared/theme.js';
@@ -2268,6 +2269,17 @@ export class World {
     return n;
   }
 
+  /**
+   * Test seam: inject a status directly onto a mob (identified by entity id from the snapshot).
+   * Only usable in tests — production paths go through applyStatus / the content-driven table.
+   */
+  injectMobStatus(mobId: number, statusId: string, durationMs: number, magnitude: number): boolean {
+    const mob = this.mobs.get(mobId);
+    if (!mob || mob.dead) return false;
+    mob.statuses.apply(statusId as Parameters<StatusSet['apply']>[0], durationMs, magnitude);
+    return true;
+  }
+
   playerPos(id: number): { x: number; y: number } | undefined {
     const p = this.players.get(id);
     return p ? { x: p.x, y: p.y } : undefined;
@@ -2475,6 +2487,9 @@ export class World {
     const rank = player.known.get(abilityId);
     if (rank === undefined) return;
     if ((player.cooldowns.get(abilityId) ?? 0) > 0 || player.mana < ability.manaCost) return;
+    // Silence (and stun/freeze, which imply silence) prevents casting. Checked after the cooldown
+    // and mana guards so we don't waste a gate order, but before mana is spent or the cooldown set.
+    if (player.debuffs.silenced()) return;
 
     const facing = aimAngle(dx, dy, player.facing);
     player.facing = facing;
@@ -2510,7 +2525,11 @@ export class World {
             getContent().mobResists(mob.templateId),
           );
           this.damageMob(mob, finalDmg, abilityId, player.id, crit);
-          if (finalDmg > 0) applyStatus(mob, abilityId);
+          if (finalDmg > 0) {
+            applyStatus(mob, abilityId);
+            const kbPx = ABILITY_KNOCKBACK[abilityId];
+            if (kbPx) this.knockbackMob(mob, player.x, player.y, kbPx);
+          }
         }
       }
     } else {
@@ -2676,7 +2695,9 @@ export class World {
       }
 
       const { dx, dy } = moveVector(player.input);
-      if (dx !== 0 || dy !== 0) {
+      // Root (stun / freeze): the player cannot move from input this tick; all other per-tick
+      // housekeeping above (regen, debuff tick, cooldown drain) still runs normally.
+      if ((dx !== 0 || dy !== 0) && !player.debuffs.rooted()) {
         // Full effective speed (weather Ã— affix Ã— haste Ã— slow). The client predictor receives this
         // same multiplier in the `you` packet, so the two stay in sync â€” no rubber-banding.
         const speed = PLAYER_SPEED * this.playerMoveMul(player);
@@ -2932,6 +2953,9 @@ export class World {
       if (dotDamage > 0) this.damageMob(mob, dotDamage, undefined, mob.lastAttacker);
       if (mob.dead) continue;
       if (regenHeal > 0) mob.hp = Math.min(mob.maxHp, mob.hp + regenHeal);
+      // Hard CC: a stunned or frozen mob cannot move, attack, or cast this tick. DoT and regen
+      // above still apply (burning while stunned is intentional). Mirror the telegraphUntil pattern.
+      if (mob.statuses.rooted()) continue;
       const moveMul = mob.statuses.slowFactor() * mob.statuses.moveFactor();
 
       const template = getContent().mobTemplate(mob.templateId)!;
@@ -3361,6 +3385,9 @@ export class World {
    * status. Used both for offensive casts (in place of the basic attack) and periodic self-support.
    */
   private castMobSpell(mob: Mob, template: MobTemplate, abilityId: AbilityId): void {
+    // Silence (and stun/freeze, which imply silence) prevents spell casting. Basic melee swings
+    // are NOT gated here — they go through executeMobAttack → the non-spell branches.
+    if (mob.statuses.silenced()) return;
     const ability = getContent().ability(abilityId);
     if (!ability) return;
     this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing, abilityId });
@@ -3619,7 +3646,35 @@ export class World {
       getContent().mobResists(mob.templateId),
     );
     this.damageMob(mob, finalDmg, proj.abilityId, proj.ownerId, crit);
-    if (finalDmg > 0) applyStatus(mob, proj.abilityId);
+    if (finalDmg > 0) {
+      applyStatus(mob, proj.abilityId);
+      const kbPx = ABILITY_KNOCKBACK[proj.abilityId];
+      if (kbPx) this.knockbackMob(mob, proj.x, proj.y, kbPx);
+    }
+  }
+
+  /**
+   * One-shot positional knockback: shove a mob `px` pixels away from (fromX, fromY), clamped to
+   * the map bounds and resolved against solid collision geometry. Deterministic (no randomness) so
+   * a recorded input sequence reproduces the same displacement. Called after damage is applied.
+   */
+  private knockbackMob(mob: Mob, fromX: number, fromY: number, px: number): void {
+    const dx = mob.x - fromX;
+    const dy = mob.y - fromY;
+    const len = Math.hypot(dx, dy) || 1;
+    const tx = mob.x + (dx / len) * px;
+    const ty = mob.y + (dy / len) * px;
+    const res = resolveCircleMove(
+      mob.x,
+      mob.y,
+      clamp(tx, 0, this.width),
+      clamp(ty, 0, this.height),
+      PLAYER_COLLISION_RADIUS,
+      this.wallList(),
+      this.circleList(),
+    );
+    mob.x = res.x;
+    mob.y = res.y;
   }
 
   private wander(mob: Mob, dt: number, speed: number): void {

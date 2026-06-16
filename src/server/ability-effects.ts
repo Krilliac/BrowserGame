@@ -94,6 +94,18 @@ export interface ShrineBuffDef {
   label: string;
 }
 
+/**
+ * One-shot knockback impulse: maps an ability id to the pixel distance the target is shoved
+ * away from the attacker. Only applies to the named slam/blast abilities; omitted abilities have
+ * no knockback (0 = no-op). Values are kept in the 50–90 px band so knockback is visible but
+ * never map-breaking.
+ */
+export const ABILITY_KNOCKBACK: Record<string, number> = {
+  crushing_smash: 70, // heavy melee slam
+  skullbreaker: 60, // overhead skull-crack
+  galeburst: 80, // wind-gust blast
+};
+
 export const DEFAULT_SHRINE_BUFFS: ShrineBuffDef[] = [
   {
     id: 'might',
