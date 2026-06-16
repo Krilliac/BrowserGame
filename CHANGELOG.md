@@ -23,6 +23,15 @@ versioning once it stabilizes.
   spell damage. They flow through the existing gem/socket/Artificer system and merge into casts via
   a pure `applyModifiers`; SQL-tunable via the gems table (`mult`, `grants_homing`; migration #4).
 
+- **Stat expansion (slice 4).** New gear/build levers: per-element increased-damage % (fire/cold/
+  lightning/poison/physical), resistance **penetration** (ignore a % of a target's elemental
+  resist), **ailment effectiveness** (duration % + magnitude %), and AoE size %. The Slice-2 spell
+  modifiers (chain/pierce/fork/spell-AoE) can now roll on **affixes, runewords, and skill nodes** —
+  no longer gem-only. Added **knockback as a spell behavior** (heavy bolts shove on hit). All are
+  player-computed stats sourced through recomputeStats; new affixes seed onto existing saves. The
+  remaining Slice-1 behaviors — beam (hitscan), lob (ground-target), trail (ground zone), orbit
+  (caster-attached) — are deferred: each needs a new entity lifecycle or an aim-point cast protocol.
+
 - **Ailments + crowd control (slice 3).** Damage elements now imprint signature ailments — fire
   ignites, cold chills (and frost-novas briefly freeze), lightning shocks, poison stacks, physical
   bleeds — and spells/bosses can stun, freeze, silence, knock back, and curse. Stun/freeze root
