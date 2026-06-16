@@ -4445,6 +4445,18 @@ export class World {
         kills: number;
         bossKills: number;
         deathlessStreak: number;
+        /** Extra chain bounces aggregated from socketed modifier gems. */
+        chainAdd: number;
+        /** Extra pierce-through count aggregated from socketed modifier gems. */
+        pierceAdd: number;
+        /** Extra fork splits aggregated from socketed modifier gems. */
+        forkAdd: number;
+        /** Spell AoE radius bonus aggregated from socketed modifier gems. */
+        spellAoe: number;
+        /** Homing projectile count from socketed seeking gems. */
+        homingAdd: number;
+        /** Multiplicative spell-damage modifier from support gems (1 = no penalty). */
+        spellDamageMult: number;
       }
     | undefined {
     const p = this.players.get(id);
@@ -4483,6 +4495,12 @@ export class World {
       kills: p.kills,
       bossKills: p.bossKills,
       deathlessStreak: p.deathlessStreak,
+      chainAdd: p.chainAdd,
+      pierceAdd: p.pierceAdd,
+      forkAdd: p.forkAdd,
+      spellAoe: p.spellAoe,
+      homingAdd: p.homingAdd,
+      spellDamageMult: p.spellDamageMult,
     };
   }
 

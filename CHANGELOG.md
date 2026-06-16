@@ -17,6 +17,12 @@ versioning once it stabilizes.
   the universal default. A projectile never damages the same mob twice (chain/pierce/splash dedupe).
   Foundation for the modifier-gem, ailment, and stat slices that follow.
 
+- **Modifier gems (slice 2).** New socketable gems reshape how all your spells behave: voltaic
+  (+chain), lancing (+pierce), splitting (+fork), concussive (+splash radius), seeking (+homing) —
+  plus "support" gems (overcharge, impaler) that grant a bigger behavior bonus at the cost of base
+  spell damage. They flow through the existing gem/socket/Artificer system and merge into casts via
+  a pure `applyModifiers`; SQL-tunable via the gems table (`mult`, `grants_homing`; migration #4).
+
 - **Gloomwood design system adopted; the game is now art-license-clean.** Brought in the original,
   procedurally-generated Gloomwood art set and wired the pieces the renderer didn't yet have:
   - **Original art swap (HANDOFF §1):** decor (+ animated braziers/candles), the catacombs / cursed /
