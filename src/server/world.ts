@@ -2622,7 +2622,7 @@ export class World {
           const elem = ability.element ?? 'physical';
           const power =
             (ability.damage + player.power) * rankMult * mightMult * (1 + player.elemDamage[elem]);
-          const base = rollAbilityDamage(player.level, mob.level, power);
+          const base = rollAbilityDamage(player.level, mob.level, power, this.rand);
           const crit = base > 0 && rollCrit(this.rand, player.critChance);
           const dmg = applyCrit(base, crit);
           const finalDmg = resistedDamage(
@@ -3387,7 +3387,7 @@ export class World {
             });
             this.events.push({ kind: 'cast', x: h.x, y: h.y, facing: h.facing });
           } else {
-            const dmg = rollAbilityDamage(h.level, mob.level, h.power);
+            const dmg = rollAbilityDamage(h.level, mob.level, h.power, this.rand);
             this.damageMob(mob, dmg, undefined, h.ownerId);
             this.events.push({ kind: 'melee', x: h.x, y: h.y, facing: h.facing });
           }
@@ -3758,7 +3758,7 @@ export class World {
 
   /** Roll + apply one projectile damage instance to a mob (crit, element resist, status), scaled. */
   private applyProjectileDamage(proj: Projectile, mob: Mob, scale: number): void {
-    const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage * scale);
+    const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage * scale, this.rand);
     const crit = base > 0 && rollCrit(this.rand, proj.critChance);
     const dmg = applyCrit(base, crit);
     const owner = this.players.get(proj.ownerId);
@@ -4737,12 +4737,13 @@ function rollAbilityDamage(
   attackerLevel: number,
   defenderLevel: number,
   baseDamage: number,
+  rng: () => number = Math.random,
 ): number {
   const atk = attackRoll(attackerLevel, 8); // small inherent accuracy so early hits mostly land
   const def = defenceRoll(defenderLevel);
-  if (!rolledHit(atk, def)) return 0;
+  if (!rolledHit(atk, def, rng)) return 0;
   const half = Math.ceil(baseDamage * 0.5);
-  return half + rollDamage(baseDamage - half);
+  return half + rollDamage(baseDamage - half, rng);
 }
 
 /**
