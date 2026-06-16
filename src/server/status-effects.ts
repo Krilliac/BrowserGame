@@ -123,12 +123,18 @@ export class StatusSet {
    * sane floor so a stack of slows can't stop an entity dead.
    */
   slowFactor(): number {
-    return Math.max(SLOW_FACTOR_FLOOR, 1 - (this.mag('slow') + this.mag('chill') + this.mag('maim')));
+    return Math.max(
+      SLOW_FACTOR_FLOOR,
+      1 - (this.mag('slow') + this.mag('chill') + this.mag('maim')),
+    );
   }
 
   /** Monster outgoing-damage multiplier from weaken + sap + curse (1 = normal; floored). */
   weakenFactor(): number {
-    return Math.max(WEAKEN_FACTOR_FLOOR, 1 - (this.mag('weaken') + this.mag('sap') + this.mag('curse')));
+    return Math.max(
+      WEAKEN_FACTOR_FLOOR,
+      1 - (this.mag('weaken') + this.mag('sap') + this.mag('curse')),
+    );
   }
 
   /**

@@ -2665,9 +2665,9 @@ export class World {
       // Advance self-buffs; an active REGEN buff heals over time on top of base regen.
       const { regenHeal } = player.buffs.tick(dt * 1000);
       if (regenHeal > 0) player.hp = Math.min(player.maxHp, player.hp + regenHeal);
-      // Advance enemy debuffs; a BURN debuff (from an enemy fire spell) chips HP over time.
-      const { burnDamage } = player.debuffs.tick(dt * 1000);
-      if (burnDamage > 0) this.damagePlayer(player, burnDamage, true);
+      // Advance enemy debuffs; DoT effects (burn, ignite, poison, bleed) chip HP over time.
+      const { dotDamage } = player.debuffs.tick(dt * 1000);
+      if (dotDamage > 0) this.damagePlayer(player, dotDamage, true);
       if (player.dead) continue;
       for (const [ability, remaining] of player.cooldowns) {
         const next = remaining - dt * 1000;
@@ -2927,9 +2927,9 @@ export class World {
       if (mob.attackCd > 0) mob.attackCd -= dt * 1000;
       if (mob.supportCd > 0) mob.supportCd -= dt * 1000;
 
-      // Status effects: burn (debuff) chips HP, regen (self-buff) heals; slow/haste scale movement.
-      const { burnDamage, regenHeal } = mob.statuses.tick(dt * 1000);
-      if (burnDamage > 0) this.damageMob(mob, burnDamage, undefined, mob.lastAttacker);
+      // Status effects: DoT (burn/ignite/poison/bleed) chips HP, regen heals; slow/haste scale movement.
+      const { dotDamage, regenHeal } = mob.statuses.tick(dt * 1000);
+      if (dotDamage > 0) this.damageMob(mob, dotDamage, undefined, mob.lastAttacker);
       if (mob.dead) continue;
       if (regenHeal > 0) mob.hp = Math.min(mob.maxHp, mob.hp + regenHeal);
       const moveMul = mob.statuses.slowFactor() * mob.statuses.moveFactor();
@@ -3652,6 +3652,8 @@ export class World {
     attackerId: number,
     crit = false,
   ): void {
+    // Scale by the mob's incoming-damage multiplier (shock/brittle/curse → >1; default 1 = no-op).
+    amount = amount * mob.statuses.vulnFactor();
     if (attackerId !== 0) {
       mob.lastAttacker = attackerId;
       // Anyone who lands a hit is a TAGGER — they share the kill (no last-hit stealing).
@@ -4167,6 +4169,8 @@ export class World {
 
   private damagePlayer(player: Player, amount: number, silent = false): void {
     if (player.god) return;
+    // Scale by the player's incoming-damage multiplier (shock/brittle/curse → >1; default 1 = no-op).
+    amount = amount * player.debuffs.vulnFactor();
     const taken = amount * player.damageTakenMult; // corrupted +fragile makes hits land harder
     player.hp -= taken;
     // Round the floating damage (mult'd by corruption/fragile) for a clean floating number. Burn
