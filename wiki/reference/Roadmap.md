@@ -211,7 +211,9 @@ Skipping survival (hunger/thirst/seasons) + housing as genre-drift from the Diab
       `summonable`-flagged creature (data-driven, not skeleton-specific); follow-and-fight via the
       hireling AI, cap 5, render as the source creature with an ally health bar. `summonable` column
       (migration #8), `minions.ts`, `world-summons.test.ts`.
-- [ ] **Pets & mounts** — tameable combat companions that level/evolve; rideable mounts (move speed).
+- [~] **Pets & mounts** — **mounts DONE** (owned persistent travel-speed boosts from a Stablemaster;
+      `mounts` table, `NpcFlags.STABLE`, `/mount` commands). Pets (tameable combat companions that
+      level/evolve) still TODO — likely a `tameable` flag + persistence/leveling on the minion system.
 - [ ] **Guilds** — roster, ranks, guild chat channel, shared guild bank (extends parties/friends).
 - [ ] **Auction house + mail** — player market listings + currency sink + mail with attachments.
 - [ ] **PvP zones** — opt-in/flagged PvP with multiple zone rule types.

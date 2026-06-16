@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Mounts.** Owned, persistent travel-speed boosts (the ED5 mount system, ARPG-flavored): buy a
+  mount once from the town **Stablemaster** (Hoss) and toggle it on/off for a big move-speed
+  multiplier. Three tiers seeded (Dustback Mule +40% / War Courser +70% / Dread Destrier +100%) as a
+  recurring gold sink. Server-authoritative (folds into `playerMoveMul`, so the client predictor
+  stays in sync with no movement change); ownership + the active mount persist across area crossings.
+  New `mounts` content table (no migration — `CREATE TABLE IF NOT EXISTS`), `NpcFlags.STABLE`, and
+  `/mounts` · `/mount [id]` · `/buymount <id>` commands (E on the Stablemaster lists them). Second
+  slice of the ED5 MMO Studio feature port.
+
 - **Summoned minions (the necromancer pet line) — data-driven.** A new `kind:'summon'` ability raises
   a friendly minion that follows you and fights nearby monsters with the hireling follow-and-fight AI,
   persisting until slain (up to 5 per summoner). Crucially the system is **flag-driven, not skeleton-

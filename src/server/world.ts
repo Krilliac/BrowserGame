@@ -540,6 +540,10 @@ interface Player {
   debuffs: StatusSet;
   /** Mercenary contract (hired at the Recruiter). Null = none; voided when the hireling dies. */
   hireling: { type: string } | null;
+  /** Mount ids the character owns (bought from a Stablemaster — permanent). */
+  mounts: Set<string>;
+  /** The currently-active mount id (its speed multiplier folds into movement), or null = on foot. */
+  mount: string | null;
   dead: boolean;
   respawnAt: number;
 }
@@ -592,6 +596,10 @@ export interface PlayerSave {
   discovered?: string[];
   /** Mercenary contract; the hireling respawns beside the player in the destination instance. */
   hireling?: { type: string } | null;
+  /** Owned mount ids (absent on pre-mount saves → none). */
+  mounts?: string[];
+  /** The active mount id carried across areas (absent → on foot). */
+  mount?: string | null;
 }
 
 interface Mob {
@@ -701,7 +709,8 @@ type NpcKind =
   | 'artificer'
   | 'banker'
   | 'recruiter'
-  | 'riftkeeper';
+  | 'riftkeeper'
+  | 'stable';
 
 interface Npc {
   id: number;
@@ -1113,6 +1122,7 @@ export class World {
       'banker',
       'recruiter',
       'riftkeeper',
+      'stable',
     ];
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
@@ -1166,6 +1176,10 @@ export class World {
         maxTier: maxRiftTier(player.level),
         costBase: RIFT_COST_PER_TIER,
       });
+    } else if (hasNpcFlag(npc.flags, NpcFlags.STABLE)) {
+      // The Stablemaster sells mounts; the buy/ride flow runs through chat commands.
+      for (const line of this.mountStatus(player.id)) this.notify(player.id, line);
+      this.notify(player.id, 'Use /buymount <id> to buy, /mount <id> to ride.');
     } else {
       this.talkToQuestGiver(player);
     }
@@ -1369,6 +1383,65 @@ export class World {
     this.despawnHirelingOf(player.id);
     this.spawnHireling(player);
     this.notify(player.id, `${template.name} hired — they will fight at your side.`);
+  }
+
+  /**
+   * Buy a mount from a Stablemaster (proximity- + gold-gated, one-time permanent purchase). Returns
+   * a status line for the chat command. Re-buying an owned mount is refused (no double-charge).
+   */
+  buyMount(id: number, mountId: string): string {
+    const player = this.players.get(id);
+    if (!player || player.dead) return 'No character.';
+    const npc = this.nearbyNpc(player);
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.STABLE)) {
+      return 'Find a Stablemaster to buy a mount.';
+    }
+    const def = getContent().mount(mountId);
+    if (!def) return `No such mount: ${mountId}`;
+    if (player.mounts.has(mountId)) return `You already own a ${def.name}.`;
+    if (player.gold < def.price) return `You need ${def.price}g for a ${def.name}.`;
+    player.gold -= def.price;
+    player.mounts.add(mountId);
+    return `Bought a ${def.name}! Use /mount ${mountId} to ride.`;
+  }
+
+  /**
+   * Toggle a mount on/off (the speed boost folds into movement via {@link mountMul}). With no id, or
+   * the active mount's id, you dismount. You can only ride a mount you own. Returns a status line.
+   */
+  toggleMount(id: number, mountId?: string): string {
+    const player = this.players.get(id);
+    if (!player || player.dead) return 'No character.';
+    if (!mountId || player.mount === mountId) {
+      player.mount = null;
+      return 'You dismount.';
+    }
+    if (!player.mounts.has(mountId)) return `You don't own that mount (buy one at a Stablemaster).`;
+    const def = getContent().mount(mountId);
+    if (!def) return `No such mount: ${mountId}`;
+    player.mount = mountId;
+    return `You mount the ${def.name}.`;
+  }
+
+  /** Chat lines for /mounts: owned mounts (active marked) + what a Stablemaster sells. */
+  mountStatus(id: number): string[] {
+    const player = this.players.get(id);
+    if (!player) return ['No character.'];
+    const lines: string[] = [];
+    const owned = getContent()
+      .mounts()
+      .filter((m) => player.mounts.has(m.id));
+    lines.push(owned.length ? 'Your mounts:' : 'You own no mounts yet.');
+    for (const m of owned) {
+      const active = player.mount === m.id ? ' (riding)' : '';
+      lines.push(`  ${m.name} [${m.id}] +${Math.round((m.speedMult - 1) * 100)}% speed${active}`);
+    }
+    lines.push('For sale at a Stablemaster:');
+    for (const m of getContent().mounts()) {
+      if (player.mounts.has(m.id)) continue;
+      lines.push(`  ${m.name} [${m.id}] — ${m.price}g, +${Math.round((m.speedMult - 1) * 100)}%`);
+    }
+    return lines;
   }
 
   /** Spawn the player's contracted hireling beside them (on hire, import, or area arrival). */
@@ -2578,6 +2651,8 @@ export class World {
       buffs: new StatusSet(),
       debuffs: new StatusSet(),
       hireling: null,
+      mounts: new Set(),
+      mount: null,
       dead: false,
       respawnAt: 0,
     });
@@ -2618,6 +2693,8 @@ export class World {
       known: [...p.known],
       discovered: [...p.discovered],
       hireling: p.hireling,
+      mounts: [...p.mounts],
+      mount: p.mount,
     };
   }
 
@@ -2678,6 +2755,9 @@ export class World {
     // The mercenary contract crosses with the player; the companion respawns at their side.
     p.hireling = save.hireling ?? null;
     if (p.hireling) this.spawnHireling(p);
+    // Owned mounts + the active mount ride across area crossings (a mount is permanent).
+    p.mounts = new Set(save.mounts ?? []);
+    p.mount = save.mount ?? null;
   }
 
   remove(id: number): void {
@@ -2906,8 +2986,15 @@ export class World {
       player.moveMult *
       player.debugSpeed *
       player.buffs.moveFactor() *
-      player.debuffs.slowFactor()
+      player.debuffs.slowFactor() *
+      this.mountMul(player)
     );
+  }
+
+  /** The active mount's move-speed multiplier (1 = on foot / unknown mount). */
+  private mountMul(player: Player): number {
+    if (!player.mount) return 1;
+    return getContent().mount(player.mount)?.speedMult ?? 1;
   }
 
   /**

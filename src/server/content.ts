@@ -41,6 +41,7 @@ import {
   DEFAULT_ELITE_MODIFIERS,
 } from './mobs.js';
 import { applyHirelingOverrides, type HirelingTemplate } from './hirelings.js';
+import { DEFAULT_MOUNTS, type MountDef } from './mounts.js';
 import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
 import type { StatusEffectKind } from './ability-effects.js';
 import type { StatusId } from './status-effects.js';
@@ -197,6 +198,10 @@ export interface Content {
   skillTree(): SkillNode[];
   /** The hireling (mercenary) roster (overlaid onto the shared HIRELING_TEMPLATES; server-only). */
   hirelingTemplates(): HirelingTemplate[];
+  /** The mount roster (owned, persistent travel-speed boosts sold by a Stablemaster). */
+  mounts(): MountDef[];
+  /** A single mount def by id (undefined if unknown). */
+  mount(id: string): MountDef | undefined;
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -803,6 +808,15 @@ export function loadContent(db: GameDatabase): Content {
     return t;
   });
 
+  // Mount roster (owned travel-speed boosts). Empty table falls back to the code defaults.
+  const mountRows = (db.prepare('SELECT * FROM mounts').all() as MountRow[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    speedMult: r.speed_mult,
+    price: r.price,
+  }));
+  const mounts: MountDef[] = mountRows.length ? mountRows : DEFAULT_MOUNTS;
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -866,6 +880,8 @@ export function loadContent(db: GameDatabase): Content {
     affixNames: () => affixNames,
     skillTree: () => skillTree,
     hirelingTemplates: () => hirelingTemplates,
+    mounts: () => mounts,
+    mount: (id) => mounts.find((m) => m.id === id),
   };
 }
 
@@ -1297,4 +1313,10 @@ interface HirelingRow {
   attack_range: number;
   kite_range: number | null;
   attack_cooldown_ms: number;
+}
+interface MountRow {
+  id: string;
+  name: string;
+  speed_mult: number;
+  price: number;
 }

@@ -495,6 +495,15 @@ CREATE TABLE IF NOT EXISTS quests (
   flags         INTEGER NOT NULL DEFAULT 0     -- bitmask (QuestFlags): REPEATABLE, …
 );
 
+-- Mounts: owned, persistent travel-speed boosts bought from a Stablemaster. A new table (no
+-- migration needed — CREATE TABLE IF NOT EXISTS runs on every open).
+CREATE TABLE IF NOT EXISTS mounts (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  speed_mult  REAL NOT NULL,            -- move-speed multiplier while mounted (1.6 = +60%)
+  price       INTEGER NOT NULL          -- gold for the one-time permanent purchase
+);
+
 -- Accounts: username -> access level (Player 0 .. Developer 4), with a salted password hash.
 -- Used to gate GM/admin/dev chat commands. Players are guests (level 0) until they /login.
 CREATE TABLE IF NOT EXISTS accounts (

@@ -777,6 +777,17 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       attack_cooldown_ms: { type: 'int', min: 0, max: 60000 },
     },
   },
+
+  mounts: {
+    pk: 'id',
+    label: 'mount',
+    note: 'travel-speed boost; applies when next mounted',
+    columns: {
+      name: { type: 'text' },
+      speed_mult: { type: 'real', min: 1, max: 5 },
+      price: { type: 'int', min: 0, max: 100000000 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

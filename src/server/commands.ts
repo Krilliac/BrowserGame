@@ -275,6 +275,35 @@ const COMMAND_LIST: Command[] = [
       ctx.reply(ctx.world.acceptQuest(ctx.playerId, questId));
     },
   },
+  {
+    name: 'mounts',
+    minLevel: AccessLevel.Player,
+    usage: '/mounts',
+    help: 'List your mounts and what a Stablemaster sells.',
+    run: (ctx) => {
+      for (const line of ctx.world.mountStatus(ctx.playerId)) ctx.reply(line);
+    },
+  },
+  {
+    name: 'mount',
+    minLevel: AccessLevel.Player,
+    usage: '/mount [mountId]',
+    help: 'Ride a mount you own (no id = dismount). See /mounts.',
+    run: (ctx) => {
+      ctx.reply(ctx.world.toggleMount(ctx.playerId, ctx.args[0]));
+    },
+  },
+  {
+    name: 'buymount',
+    minLevel: AccessLevel.Player,
+    usage: '/buymount <mountId>',
+    help: 'Buy a mount (stand near a Stablemaster). See /mounts.',
+    run: (ctx) => {
+      const id = ctx.args[0];
+      if (!id) return ctx.reply('Usage: /buymount <mountId>');
+      ctx.reply(ctx.world.buyMount(ctx.playerId, id));
+    },
+  },
 
   // --- Game Master ----------------------------------------------------------------------
   {

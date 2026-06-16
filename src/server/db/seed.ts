@@ -13,6 +13,7 @@ import {
   MOB_RESISTS,
   DEFAULT_ELITE_MODIFIERS,
 } from '../mobs.js';
+import { DEFAULT_MOUNTS } from '../mounts.js';
 import type { DamageElement } from '../../shared/combat.js';
 import { weatherModifiers } from '../weather-effects.js';
 import {
@@ -356,6 +357,7 @@ export function seed(db: Database): void {
   ensureDenContent(db); // the generic cellar/den interior (procedural mini-dungeon shell)
   ensureWeatherModifiers(db); // per-WeatherKind gameplay multipliers (seeded from code defaults)
   ensureEliteModifiers(db); // champion stat-modifier roster (seeded from code defaults)
+  ensureMounts(db); // mount roster (owned travel-speed boosts) seeded from code defaults
   ensureAbilityStatusEffects(db); // per-ability on-hit slow/burn/weaken (seeded from code defaults)
   ensureAbilityCastBuffs(db); // per-ability self-buff on cast (seeded from code defaults)
   ensureShrineBuffs(db); // shrine blessing pool (seeded from code defaults)
@@ -403,6 +405,13 @@ function ensureEliteModifiers(db: Database): void {
   DEFAULT_ELITE_MODIFIERS.forEach((m, i) =>
     ins.run(m.id, m.name, m.hp, m.dmg, m.spd, m.explodeDmg, i),
   );
+}
+
+function ensureMounts(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO mounts (id,name,speed_mult,price) VALUES (?,?,?,?)',
+  );
+  for (const m of DEFAULT_MOUNTS) ins.run(m.id, m.name, m.speedMult, m.price);
 }
 
 /**
@@ -1506,6 +1515,7 @@ function ensureSpellbookContent(db: Database): void {
   ensureNpc('town', 'Vault Keeper', 1020, 560, 40, 'banker');
   ensureNpc('town', 'Captain Aldric', 700, 620, 210, 'recruiter');
   ensureNpc('town', 'Saelis the Riftkeeper', 760, 680, 270, 'riftkeeper');
+  ensureNpc('town', 'Hoss the Stablemaster', 640, 620, 30, 'stable');
 
   // Collect/turn-in quests added after the original seed (id is the PK, so OR IGNORE dedups).
   const insQuest = db.prepare(
