@@ -15,7 +15,9 @@ initGameDb(':memory:');
 describe('beam spell behavior', () => {
   function setup(): { w: World; pid: number } {
     // Large open arena — no area mobs spawn automatically.
-    const w = new World(4000, 4000, { x: 2000, y: 2000 });
+    // Fixed seed 12345 makes every RNG call (hit rolls, damage) deterministic so the retry
+    // loop is unnecessary: the same seed always produces the same hit/miss outcome.
+    const w = new World(4000, 4000, { x: 2000, y: 2000 }, undefined, 'world', undefined, 0, 1);
     const pid = w.spawn('Caster', { x: 2000, y: 2000 });
     // Learn starfall (the beam ability).
     w.giveItem(pid, 'tome_starfall', 1);
@@ -41,22 +43,11 @@ describe('beam spell behavior', () => {
     const hpBefore = w.snapshot().find((e) => e.id === mobAId)!.hp;
 
     // Cast starfall aimed at +x (dx=1, dy=0) — no tick needed, beam is instant.
+    // With the fixed seed the RNG is deterministic: seed 1 guarantees this cast hits.
     w.cast(pid, 'starfall', 1, 0);
 
     const hpAfter = w.snapshot().find((e) => e.id === mobAId)!.hp;
-    // Mob A must have taken some damage (hp < 10000). Some casts may miss (rollAbilityDamage uses
-    // the seeded World RNG, so outcomes vary). Retry up to 10 casts to handle potential misses.
-    // starfall cooldown is 2300 ms; tick past it between attempts.
-    let tookDamage = hpAfter < hpBefore;
-    for (let attempt = 0; attempt < 10 && !tookDamage; attempt++) {
-      // Advance past cooldown.
-      for (let t = 0; t < 50; t++) w.tick(0.05); // 2500ms > 2300ms cooldown
-      const hpPre = w.snapshot().find((e) => e.id === mobAId)!.hp;
-      w.cast(pid, 'starfall', 1, 0);
-      const hpPost = w.snapshot().find((e) => e.id === mobAId)!.hp;
-      tookDamage = hpPost < hpPre;
-    }
-    expect(tookDamage).toBe(true);
+    expect(hpAfter).toBeLessThan(hpBefore);
   });
 
   it('mob off the beam axis is not hit', () => {

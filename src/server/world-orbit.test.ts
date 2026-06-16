@@ -13,10 +13,12 @@ initGameDb(':memory:');
  * TTL: 1700 ms.
  */
 describe('orbit spell behavior', () => {
-  /** Build a minimal world with one player (arcane_orb learned) and no area mobs. */
+  /** Build a minimal world with one player (arcane_orb learned) and no area mobs.
+   *  Fixed seed 12345 makes every RNG call inside the sim deterministic. */
   function setup(): { w: World; pid: number } {
     // Small flat world with no area content so no mobs spawn automatically.
-    const w = new World(2000, 2000, { x: 1000, y: 1000 });
+    // Seed is the 8th constructor argument; passing a constant eliminates all RNG flake.
+    const w = new World(2000, 2000, { x: 1000, y: 1000 }, undefined, 'world', undefined, 0, 1);
     const pid = w.spawn('Caster', { x: 1000, y: 1000 });
     w.giveItem(pid, 'tome_arcane_orb', 1);
     w.learn(pid, 'tome_arcane_orb');
@@ -68,22 +70,24 @@ describe('orbit spell behavior', () => {
 
   it('orbit projectile damages a mob inside the ring and persists (not consumed)', () => {
     const { w, pid } = setup();
-    // Place a mob near the caster. The orbit sweeps 3.2 rad/s around a 48px ring, so it will
-    // sweep past anything within ≈26px of the ring path during the 1700ms TTL.
+    // Spawn a mob then teleport it to the orbit start position: (ownerX + 48, ownerY).
+    // cast(pid, 'arcane_orb', 1, 0) aims right (facing=0), so the orb starts at angle=0 →
+    // position (1000 + 48, 1000) = (1048, 1000). The mob is guaranteed to be on the ring path.
     w.spawnMobAt(pid, 'bat');
-
-    // Find the mob's initial HP via snapshot.
     const mobSnap0 = w.snapshot().find((e) => e.kind === 'mob');
     expect(mobSnap0).toBeDefined();
-    const initialHp = mobSnap0!.hp;
+    const mobId = mobSnap0!.id;
+    // Place mob exactly on the orbit starting position so the sweeping orb is guaranteed to hit.
+    expect(w.teleportMob(mobId, 1048, 1000)).toBe(true);
+    const initialHp = w.snapshot().find((e) => e.id === mobId)!.hp;
 
-    // Cast the orbit spell.
+    // Cast the orbit spell aimed right (facing=0).
     w.cast(pid, 'arcane_orb', 1, 0);
 
     // Advance for the full TTL (1700ms) in 50ms ticks.
     for (let t = 0; t < 34; t++) w.tick(0.05);
 
-    const mobSnapFinal = w.snapshot().find((e) => e.kind === 'mob');
+    const mobSnapFinal = w.snapshot().find((e) => e.id === mobId);
     // Mob should have taken some damage during the orbit sweep.
     if (mobSnapFinal) {
       expect(mobSnapFinal.hp).toBeLessThan(initialHp);
@@ -112,31 +116,19 @@ describe('orbit spell behavior', () => {
   it('orbit re-hit cooldown: a mob on the orbit path is not hit every single tick', () => {
     const { w, pid } = setup();
 
-    // Place mob directly on orbit path at angle=0 (ownerX + 48, ownerY).
-    // We achieve this by placing the player at a position such that ownerX + 48 is where
-    // we expect the mob. Since spawnMobAt is random, we instead directly test via a mob
-    // placed at the spawn position by using spawnMobAt and checking.
-    //
-    // Alternative: test the re-hit logic by examining the hit count is consistent with
-    // ORBIT_REHIT_MS = 350ms. Over 1700ms TTL, max hits per mob = floor(1700/350) + 1 = 5-6.
-    // With 50ms ticks, if every tick hit, it would be 34 hits. Cooldown limits it to ~5.
-    //
-    // Place the mob exactly at the starting orbit position by using the real world API.
-    // We'll spawn a mob near the caster, record its starting HP, and after the orb expires,
-    // count the expected maximum possible hits. We do this by capturing HP snapshots.
-
-    // Spawn a mob at (ownerX + 48, ownerY) by spawning it near the player with a fixed seed.
-    // Since we can't control rand, we place the mob using the world's internal knowledge:
-    // the orbit starts at angle=facing. Cast at angle 0 (right). Mob needs to be within
-    // (proj_radius=14 + MOB_RADIUS=12 = 26px) of (ownerX+48, ownerY).
-    //
-    // We use spawnMobAt (random ±30px) and then verify the cooldown property holds for
-    // whatever mob position was assigned: collect HP readings at each tick and count drops.
-
+    // Place the mob exactly on the orbit starting position: (ownerX + 48, ownerY) = (1048, 1000).
+    // cast aimed right (facing=0) so the orb begins at angle=0 and sweeps through this point.
+    // With ORBIT_REHIT_MS=350 and TTL=1700ms, the orb can hit at most floor(1700/350)+1 = 5-6
+    // times. With 50ms ticks and no cooldown it would hit 34 times. The cooldown is what we test.
     w.spawnMobAt(pid, 'bat');
     const mob0 = w.snapshot().find((e) => e.kind === 'mob');
     expect(mob0).toBeDefined();
-    const startHp = mob0!.hp;
+    const mobId = mob0!.id;
+    // Warp the mob to the orbit start position so it is guaranteed to be swept by the orb.
+    expect(w.teleportMob(mobId, 1048, 1000)).toBe(true);
+    // Boost HP so the mob survives multiple hits and we can count them.
+    expect(w.boostMobHp(mobId, 10_000)).toBe(true);
+    const startHp = w.snapshot().find((e) => e.id === mobId)!.hp;
 
     w.cast(pid, 'arcane_orb', 1, 0);
 
@@ -146,7 +138,7 @@ describe('orbit spell behavior', () => {
     // Run through the full orbit lifetime in 50ms ticks.
     for (let t = 0; t < 34; t++) {
       w.tick(0.05);
-      const mob = w.snapshot().find((e) => e.kind === 'mob');
+      const mob = w.snapshot().find((e) => e.id === mobId);
       if (!mob) break; // mob died — stop counting
       if (mob.hp < prevHp) {
         hitTicks++;
@@ -154,9 +146,9 @@ describe('orbit spell behavior', () => {
       }
     }
 
-    // If the mob was positioned anywhere near the orbit path it will take at most
-    // floor(1700 / 350) + 1 = 5-6 hits. If it was never in range it takes 0.
-    // Either way it must be far fewer than 34 (the per-tick upper bound with no cooldown).
-    expect(hitTicks).toBeLessThan(10);
+    // The mob is on the orbit path; the re-hit cooldown (350ms) limits hits to ≤6 over the
+    // 1700ms TTL. Must be far fewer than 34 (the per-tick upper bound with no cooldown).
+    expect(hitTicks).toBeGreaterThan(0); // mob is on-path, must take at least one hit
+    expect(hitTicks).toBeLessThan(10); // cooldown caps it well below the tick count
   });
 });
