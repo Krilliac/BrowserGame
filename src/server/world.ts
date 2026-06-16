@@ -4654,6 +4654,14 @@ export class World {
         homingAdd: number;
         /** Multiplicative spell-damage modifier from support gems (1 = no penalty). */
         spellDamageMult: number;
+        /** Per-element bonus damage fraction (from elemental-damage affixes; Slice 4). */
+        elemDamage: Record<DamageElement, number>;
+        /** Fraction of enemy resistance ignored (from +penetration affixes; Slice 4). */
+        penetration: number;
+        /** Fraction bonus to ailment duration (from +ailmentdur affixes; Slice 4). */
+        ailmentDuration: number;
+        /** Fraction bonus to ailment magnitude (from +ailmentmag affixes; Slice 4). */
+        ailmentMagnitude: number;
       }
     | undefined {
     const p = this.players.get(id);
@@ -4698,6 +4706,10 @@ export class World {
       spellAoe: p.spellAoe,
       homingAdd: p.homingAdd,
       spellDamageMult: p.spellDamageMult,
+      elemDamage: { ...p.elemDamage },
+      penetration: p.penetration,
+      ailmentDuration: p.ailmentDuration,
+      ailmentMagnitude: p.ailmentMagnitude,
     };
   }
 
