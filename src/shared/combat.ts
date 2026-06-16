@@ -58,7 +58,7 @@ export type BehaviorSpec =
    * (`pointToSegmentDist ≤ width + MOB_RADIUS`) overlaps the segment. Replaces the projectile-spawn
    * when present on a `kind:'projectile'` ability.
    */
-  | { type: 'beam'; range: number; width: number };
+  | { type: 'beam'; range: number; width: number /* half-width: hit if dist-to-centerline ≤ width + MOB_RADIUS */ };
 
 export interface Ability {
   id: string;
@@ -954,9 +954,9 @@ export interface FxEvent {
   /** 'pickup' only: rarity of a picked-up gear instance, so the sparkle matches its color. */
   rarity?: string;
   abilityId?: AbilityId;
-  /** `arc` only: the far endpoint of a chain link (the source is x,y). */
+  /** `arc`/`beam` only: the far endpoint of the line (the source is x,y). */
   x2?: number;
   y2?: number;
-  /** `arc` only: element tint for the arc color. */
+  /** `arc`/`beam` only: element tint for the line color. */
   element?: DamageElement;
 }
