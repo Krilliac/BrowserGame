@@ -83,18 +83,28 @@ describe('hiring at the recruiter', () => {
 
 describe('hireling combat', () => {
   it('fights nearby monsters and the kill credits the OWNER with XP', () => {
-    // Pin the instance seed: the guard (speed 190) always runs the wolf (110) down, but the World's
-    // default Date.now seed occasionally rolled a worst-case chase that outlasted the 600-tick budget
-    // (flaky in the full suite). With a fixed seed the chase is deterministic — this seed kills in
-    // ~136 ticks, a >4× margin. (Removes the flake without weakening the assertion.)
-    const w = new World(undefined, undefined, undefined, undefined, undefined, undefined, 0, 7);
+    // Use a plain World (no pinned seed needed) and set the wolf to 1 HP so the guard's very
+    // first landed hit kills it. This eliminates two sources of flakiness:
+    //   1. rollAbilityDamage uses Math.random (not the seeded World RNG) for hit rolls, so a
+    //      run of bad luck could keep the wolf alive past a fixed tick budget.
+    //   2. With normal HP the wolf could kill the guard before dying (wolf attacks always
+    //      connect; guard attacks are hit-roll gated), voiding the contract and the XP.
+    // With 1 HP, a single landed swing ends the fight. 200 ticks (10 sim-seconds) gives ~9
+    // attack opportunities at the guard's 1 100 ms cooldown — P(all 9 miss) < 0.004 %, which
+    // is safely below the "flake threshold" for a CI test run.
+    const w = new World();
     w.importPlayer(1, { ...BASE_SAVE, god: true, hireling: { type: 'guard' } }, 400, 400);
     expect(hirelingsOf(w)).toHaveLength(1);
     w.spawnMobAt(1, 'wolf');
 
+    // Pin the wolf at 1 HP so the first hit is lethal regardless of damage roll variance.
+    const wolfSnap = w.snapshot().find((e) => e.kind === 'mob');
+    expect(wolfSnap).toBeDefined();
+    expect(w.boostMobHp(wolfSnap!.id, 1)).toBe(true);
+
     const xpBefore = w.playerStats(1)!.xp;
-    // The guard closes and swings on cooldown; a wolf falls well inside this budget.
-    for (let i = 0; i < 600 && w.snapshot().some((e) => e.kind === 'mob' && e.hp > 0); i++) {
+    // Advance until the mob is dead or the budget expires (it will die on the first swing).
+    for (let i = 0; i < 200 && w.snapshot().some((e) => e.kind === 'mob' && e.hp > 0); i++) {
       w.tick(0.05);
     }
     expect(w.snapshot().some((e) => e.kind === 'mob' && e.hp > 0)).toBe(false);
