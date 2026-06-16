@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Chain quests.** A quest can carry a `requires` (prerequisite quest id); it stays **locked**
+  (shown in the log but un-acceptable) until that prerequisite is completed. The three Wayfinder
+  explore bounties now form an ordered chain — Chart the Sunken Pass → Brave the Ashveil → The
+  Fraying Edge — each unlocking the next leg of the road. New `quests.requires` column (schema +
+  migration #6 + editable registry); `QuestState.status` gains `'locked'` with a `requiresName` for
+  the UI ("Requires: <name>" + a dim Locked badge). Content-integrity asserts every prerequisite is
+  a real quest and never self-referential. (`World.questUnlocked` gates accept + the quest-giver
+  offer.)
+
 - **Explore/discover quest type.** A quest can now carry an `explore_area`: it completes automatically
   the instant the player first sets foot in that area — no kill, no turn-in. Old Wren the Wayfinder
   hands out three frontier scouting bounties (Chart the Sunken Pass, Brave the Ashveil, The Fraying
