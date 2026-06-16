@@ -106,9 +106,18 @@ export type ResistMap = Partial<Record<DamageElement, number>>;
  * 0 = no effect (the neutral default), 1 = immune (0 damage), and a negative value = vulnerable
  * (e.g. -0.5 takes 50% more). Clamped to [-1, 1] so resistance can at most null damage and at most
  * double it. Rounded to a whole number, never below 0. Pure.
+ *
+ * `penetration` (default 0) is the attacker's resistance-ignore fraction: subtracted from the
+ * defender's raw resist before clamping, so penetration can push a positive resist toward 0 or
+ * into vulnerability — but the effective resist r still floors at −1 (damage can't exceed ×2).
  */
-export function resistedDamage(damage: number, element: DamageElement, resists: ResistMap): number {
-  const r = Math.max(-1, Math.min(1, resists[element] ?? 0));
+export function resistedDamage(
+  damage: number,
+  element: DamageElement,
+  resists: ResistMap,
+  penetration = 0,
+): number {
+  const r = Math.max(-1, Math.min(1, (resists[element] ?? 0) - penetration));
   return Math.max(0, Math.round(damage * (1 - r)));
 }
 

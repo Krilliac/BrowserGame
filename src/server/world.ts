@@ -2603,14 +2603,17 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
-          const power = (ability.damage + player.power) * rankMult * mightMult;
+          const elem = ability.element ?? 'physical';
+          const power =
+            (ability.damage + player.power) * rankMult * mightMult * (1 + player.elemDamage[elem]);
           const base = rollAbilityDamage(player.level, mob.level, power);
           const crit = base > 0 && rollCrit(this.rand, player.critChance);
           const dmg = applyCrit(base, crit);
           const finalDmg = resistedDamage(
             dmg,
-            ability.element ?? 'physical',
+            elem,
             getContent().mobResists(mob.templateId),
+            player.penetration,
           );
           this.damageMob(mob, finalDmg, abilityId, player.id, crit);
           if (finalDmg > 0) {
@@ -2652,7 +2655,12 @@ export class World {
           vx: Math.cos(a) * speed,
           vy: Math.sin(a) * speed,
           ttl: ability.projectileTtlMs ?? 1200,
-          damage: (ability.damage + player.power) * rankMult * mightMult * player.spellDamageMult,
+          damage:
+            (ability.damage + player.power) *
+            rankMult *
+            mightMult *
+            player.spellDamageMult *
+            (1 + player.elemDamage[ability.element ?? 'physical']),
           radius: ability.radius,
           ownerId: player.id,
           ownerLevel: player.level,
@@ -3731,10 +3739,12 @@ export class World {
     const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage * scale);
     const crit = base > 0 && rollCrit(this.rand, proj.critChance);
     const dmg = applyCrit(base, crit);
+    const owner = this.players.get(proj.ownerId);
     const finalDmg = resistedDamage(
       dmg,
       getContent().ability(proj.abilityId)?.element ?? 'physical',
       getContent().mobResists(mob.templateId),
+      owner?.penetration ?? 0,
     );
     this.damageMob(mob, finalDmg, proj.abilityId, proj.ownerId, crit);
     if (finalDmg > 0) {

@@ -44,6 +44,22 @@ describe('resistedDamage', () => {
   it('clamps resistance above 1 to full immunity and never returns below 0', () => {
     expect(resistedDamage(100, 'poison', { poison: 5 })).toBe(0);
   });
+
+  it('penetration reduces effective resistance (fire 0.5 - 0.3 pen => resist 0.2 => 80 dmg)', () => {
+    expect(resistedDamage(100, 'fire', { fire: 0.5 }, 0.3)).toBe(80);
+  });
+
+  it('penetration exceeding resist pushes into vulnerability but floors at -1 (max ×2 dmg)', () => {
+    // resist 0.1 - pen 0.5 = -0.4 (vulnerability) => 100 * 1.4 = 140
+    expect(resistedDamage(100, 'fire', { fire: 0.1 }, 0.5)).toBe(140);
+    // resist -0.5 - pen 0.9 would be -1.4, clamped to -1 => 100 * 2 = 200
+    expect(resistedDamage(100, 'fire', { fire: -0.5 }, 0.9)).toBe(200);
+  });
+
+  it('penetration = 0 (default) is identical to the 3-arg call', () => {
+    expect(resistedDamage(100, 'fire', { fire: 0.5 })).toBe(50);
+    expect(resistedDamage(100, 'fire', { fire: 0.5 }, 0)).toBe(50);
+  });
 });
 
 describe('attackRoll / defenceRoll (effective rolls)', () => {
