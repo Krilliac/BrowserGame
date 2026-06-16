@@ -3690,6 +3690,9 @@ export class World {
             candidates,
           });
           this.applyProjectileDamage(proj, hit, res.primaryDamageScale);
+          // Knockback behavior: shove the primary hit target away from the impact point.
+          const kb = proj.behaviors.find((b) => b.type === 'knockback');
+          if (kb && kb.type === 'knockback') this.knockbackMob(hit, proj.x, proj.y, kb.px);
           if (res.splash) {
             for (const m of this.mobs.values()) {
               if (m.dead || m.id === hit.id || proj.hitMobs.has(m.id)) continue;

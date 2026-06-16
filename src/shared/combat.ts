@@ -42,7 +42,9 @@ export type BehaviorSpec =
   | { type: 'splash'; radius: number; scale: number }
   | { type: 'homing'; turnRate: number; acquireRange: number }
   | { type: 'multishot'; count: number; spreadRad: number }
-  | { type: 'return'; falloff: number };
+  | { type: 'return'; falloff: number }
+  /** Push the primary hit target `px` pixels directly away from the projectile impact point. */
+  | { type: 'knockback'; px: number };
 
 export interface Ability {
   id: string;
@@ -744,6 +746,7 @@ const ABILITY_DEFS = {
     behaviors: [{ type: 'return', falloff: 0.8 }],
   },
   // Mire Mortar: a slow, heavy glob lobbed in a lazy arc — big splat, mid-game crowd softener.
+  // The sheer weight of impact shoves the primary target away on hit.
   mire_mortar: {
     id: 'mire_mortar',
     name: 'Mire Mortar',
@@ -757,6 +760,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 220,
     projectileTtlMs: 1900,
     radius: 18,
+    behaviors: [{ type: 'knockback', px: 55 }],
   },
   // Galeburst: a full-circle gust nova (half-angle ~π = all around), the mid-game "get off me".
   galeburst: {
