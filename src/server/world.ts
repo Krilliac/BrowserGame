@@ -147,7 +147,8 @@ import {
   xpForLevel,
   xpReward,
 } from './progression.js';
-import { StatusSet } from './status-effects.js';
+import { StatusSet, type StatusId } from './status-effects.js';
+import { STATUS_BITS } from '../shared/status-bits.js';
 import { ABILITY_KNOCKBACK } from './ability-effects.js';
 import { SpatialGrid } from './spatial.js';
 import { getContent, type QuestDef } from './content.js';
@@ -4290,15 +4291,14 @@ export class World {
     const out: EntityState[] = [];
     for (const p of this.players.values()) {
       if (p.dead) continue;
-      // Debuff bits (slow=1, burn=2, weaken=4) match the monster tint bits â€” so a slowed/burning
-      // player tints like a monster â€” while buff bits (might=8, haste=16, regen=32) drive HUD pips.
-      const flags =
-        (p.debuffs.has('slow') ? 1 : 0) |
-        (p.debuffs.has('burn') ? 2 : 0) |
-        (p.debuffs.has('weaken') ? 4 : 0) |
-        (p.buffs.has('might') ? 8 : 0) |
-        (p.buffs.has('haste') ? 16 : 0) |
-        (p.buffs.has('regen') ? 32 : 0);
+      // Build the full status bitfield from STATUS_BITS — covers all debuffs (p.debuffs) and buffs
+      // (p.buffs). Skip 'enrage' which is mob-only (triggered by might|haste self-buff, not a status
+      // a player can hold). Each bit drives client tinting (debuffs) or HUD pips (buffs).
+      let flags = 0;
+      for (const [name, bit] of Object.entries(STATUS_BITS)) {
+        if (name === 'enrage') continue;
+        if (p.debuffs.has(name as StatusId) || p.buffs.has(name as StatusId)) flags |= bit;
+      }
       // Visible-equipment bitfield for the paper-doll: head→helm(1), chest→armor(2), mainhand→weapon(4).
       const look =
         (p.equipment.head ? 1 : 0) | (p.equipment.chest ? 2 : 0) | (p.equipment.mainhand ? 4 : 0);
@@ -4338,11 +4338,14 @@ export class World {
     }
     for (const m of this.mobs.values()) {
       if (m.dead) continue;
-      const flags =
-        (m.statuses.has('slow') ? 1 : 0) |
-        (m.statuses.has('burn') ? 2 : 0) |
-        (m.statuses.has('weaken') ? 4 : 0) |
-        (m.statuses.has('might') || m.statuses.has('haste') ? 64 : 0); // enraged/hasted self-buff
+      // Build the full status bitfield for the mob: loop every STATUS_BITS entry (skip enrage —
+      // that's computed below from might|haste), then OR in the enrage bit separately.
+      let flags = 0;
+      for (const [name, bit] of Object.entries(STATUS_BITS)) {
+        if (name === 'enrage') continue;
+        if (m.statuses.has(name as StatusId)) flags |= bit;
+      }
+      if (m.statuses.has('might') || m.statuses.has('haste')) flags |= STATUS_BITS.enrage; // enraged/hasted self-buff
       const mob: EntityState = {
         id: m.id,
         x: m.x,
