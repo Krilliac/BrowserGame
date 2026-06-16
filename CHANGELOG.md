@@ -23,6 +23,15 @@ versioning once it stabilizes.
   spell damage. They flow through the existing gem/socket/Artificer system and merge into casts via
   a pure `applyModifiers`; SQL-tunable via the gems table (`mult`, `grants_homing`; migration #4).
 
+- **Ailments + crowd control (slice 3).** Damage elements now imprint signature ailments — fire
+  ignites, cold chills (and frost-novas briefly freeze), lightning shocks, poison stacks, physical
+  bleeds — and spells/bosses can stun, freeze, silence, knock back, and curse. Stun/freeze root
+  (and cancel a pending wind-up); silence blocks casting; shock/brittle/curse raise damage taken
+  (`vulnFactor`); chill/maim slow; sap/curse weaken. Built on the existing pure tick-driven
+  StatusSet; statuses ride an expanded `flags` bitfield (a single shared `STATUS_BITS` source of
+  truth) and the wire protocol bumps to v2 (reconnect old clients). Fear and taunt are deferred
+  (they need attacker-id threading + bespoke AI state).
+
 - **Gloomwood design system adopted; the game is now art-license-clean.** Brought in the original,
   procedurally-generated Gloomwood art set and wired the pieces the renderer didn't yet have:
   - **Original art swap (HANDOFF §1):** decor (+ animated braziers/candles), the catacombs / cursed /
