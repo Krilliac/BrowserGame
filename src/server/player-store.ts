@@ -178,3 +178,75 @@ export function removeGuildMemberRow(db: GameDatabase, token: string): void {
 export function setGuildRankRow(db: GameDatabase, token: string, rank: string): void {
   db.prepare('UPDATE guild_members SET rank = ? WHERE owner_token = ?').run(rank, token);
 }
+
+// --- Mail persistence (deferred gold/item delivery; also the auction delivery channel) -----
+// One row per piece of mail, addressed by the recipient's owner token. Collecting deletes the row.
+// item_json is a serialized ItemInstance (or NULL for gold-only). All params bound.
+
+/** One inbox entry. `itemJson` is the serialized ItemInstance, or null for gold-only mail. */
+export interface MailRow {
+  id: number;
+  senderName: string;
+  gold: number;
+  itemJson: string | null;
+  subject: string;
+}
+
+/** The most-recent owner token saved under a (case-insensitive) character name, or null. */
+export function tokenForName(db: GameDatabase, name: string): string | null {
+  const row = db
+    .prepare(
+      'SELECT token FROM player_saves WHERE name = ? COLLATE NOCASE ORDER BY updated_at DESC',
+    )
+    .get(name.trim()) as { token: string } | undefined;
+  return row?.token ?? null;
+}
+
+/** Send mail (insert an inbox row for the recipient). */
+export function sendMail(
+  db: GameDatabase,
+  recipientToken: string,
+  senderName: string,
+  gold: number,
+  itemJson: string | null,
+  subject = '',
+): void {
+  db.prepare(
+    'INSERT INTO mail (recipient_token, sender_name, gold, item_json, subject) VALUES (?, ?, ?, ?, ?)',
+  ).run(recipientToken, senderName, gold, itemJson, subject);
+}
+
+/** All inbox entries for a token (oldest first). */
+export function loadMail(db: GameDatabase, token: string): MailRow[] {
+  return (
+    db
+      .prepare(
+        'SELECT id, sender_name AS senderName, gold, item_json AS itemJson, subject FROM mail WHERE recipient_token = ? ORDER BY id',
+      )
+      .all(token) as MailRow[]
+  ).map((r) => ({ ...r, itemJson: r.itemJson ?? null }));
+}
+
+/** One inbox entry by id, scoped to the recipient token (so a client can't claim others' mail). */
+export function getMail(db: GameDatabase, id: number, token: string): MailRow | undefined {
+  const r = db
+    .prepare(
+      'SELECT id, sender_name AS senderName, gold, item_json AS itemJson, subject FROM mail WHERE id = ? AND recipient_token = ?',
+    )
+    .get(id, token) as MailRow | undefined;
+  return r ? { ...r, itemJson: r.itemJson ?? null } : undefined;
+}
+
+/** How many inbox entries a token holds (for the per-recipient cap). */
+export function mailCount(db: GameDatabase, token: string): number {
+  return (
+    db.prepare('SELECT COUNT(*) AS n FROM mail WHERE recipient_token = ?').get(token) as {
+      n: number;
+    }
+  ).n;
+}
+
+/** Delete a piece of mail (after its contents are delivered). */
+export function deleteMail(db: GameDatabase, id: number): void {
+  db.prepare('DELETE FROM mail WHERE id = ?').run(id);
+}

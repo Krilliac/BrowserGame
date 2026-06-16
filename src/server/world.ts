@@ -1578,6 +1578,43 @@ export class World {
     this.pushStash(player);
   }
 
+  /** Mail: deduct `amount` gold from a player to attach to outgoing mail. False if they can't afford it. */
+  mailTakeGold(playerId: number, amount: number): boolean {
+    const p = this.players.get(playerId);
+    if (!p || amount < 0 || p.gold < amount) return false;
+    p.gold -= amount;
+    return true;
+  }
+
+  /** Mail: pull a bag gear instance out to attach to outgoing mail (returns it, or null if absent). */
+  mailTakeGear(playerId: number, uid: number): ItemInstance | null {
+    const p = this.players.get(playerId);
+    if (!p) return null;
+    const idx = p.gear.findIndex((g) => g.uid === uid);
+    if (idx < 0) return null;
+    return p.gear.splice(idx, 1)[0] ?? null;
+  }
+
+  /**
+   * Mail: deliver collected gold + an optional gear instance into a player's bag. Gold always lands;
+   * a gear item needs a free bag slot (else the whole delivery is refused so the mail can be kept).
+   * The item is re-issued a fresh uid to avoid colliding with this instance's live uid space.
+   */
+  mailDeliver(
+    playerId: number,
+    gold: number,
+    item: ItemInstance | null,
+  ): { ok: boolean; reason?: string } {
+    const p = this.players.get(playerId);
+    if (!p) return { ok: false, reason: 'No character.' };
+    if (item && p.gear.length >= MAX_BAG_GEAR) {
+      return { ok: false, reason: 'Your bag is full — make room and collect again.' };
+    }
+    if (gold > 0) p.gold += gold;
+    if (item) this.addGear(p, { ...item, uid: this.allocId() });
+    return { ok: true };
+  }
+
   /**
    * Banker: buy another block of stash slots for gold. Requires banker proximity. The cost escalates
    * with each block already purchased, and the stash can be expanded at most STASH_MAX_EXPANSIONS

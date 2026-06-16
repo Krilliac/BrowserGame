@@ -495,6 +495,19 @@ CREATE TABLE IF NOT EXISTS quests (
   flags         INTEGER NOT NULL DEFAULT 0     -- bitmask (QuestFlags): REPEATABLE, …
 );
 
+-- Mail: deferred player-to-player delivery of gold + an optional gear instance. Rows wait in the
+-- recipient's inbox (by owner token) until collected; collecting deletes the row. New table (no
+-- migration). Also the delivery channel for auction-house proceeds/purchases.
+CREATE TABLE IF NOT EXISTS mail (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  recipient_token TEXT NOT NULL,
+  sender_name     TEXT NOT NULL,
+  gold            INTEGER NOT NULL DEFAULT 0,
+  item_json       TEXT,                       -- a serialized ItemInstance, or NULL for gold-only mail
+  subject         TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_mail_recipient ON mail (recipient_token);
+
 -- Mounts: owned, persistent travel-speed boosts bought from a Stablemaster. A new table (no
 -- migration needed — CREATE TABLE IF NOT EXISTS runs on every open).
 CREATE TABLE IF NOT EXISTS mounts (

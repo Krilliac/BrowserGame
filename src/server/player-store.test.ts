@@ -16,6 +16,12 @@ import {
   addGuildMemberRow,
   removeGuildMemberRow,
   setGuildRankRow,
+  tokenForName,
+  sendMail,
+  loadMail,
+  getMail,
+  mailCount,
+  deleteMail,
 } from './player-store.js';
 import type { PlayerSave } from './world.js';
 
@@ -192,5 +198,39 @@ describe('guild persistence', () => {
     deleteGuildRow(db, gid);
     expect(guildName(db, gid)).toBeUndefined();
     expect(guildOf(db, a)).toBeUndefined(); // membership rows cascade-removed
+  });
+});
+
+describe('mail persistence', () => {
+  it('sends, lists, scopes, counts, and deletes inbox mail', () => {
+    const db = openDatabase(':memory:');
+    const a = newPlayerToken();
+    const b = newPlayerToken();
+
+    sendMail(db, a, 'Bob', 100, null);
+    sendMail(db, a, 'Cara', 0, '{"uid":7}');
+    sendMail(db, b, 'Dan', 5, null); // a different recipient's inbox
+
+    const inbox = loadMail(db, a);
+    expect(inbox).toHaveLength(2);
+    expect(inbox[0]!.senderName).toBe('Bob');
+    expect(inbox[1]!.itemJson).toBe('{"uid":7}');
+    expect(mailCount(db, a)).toBe(2);
+    expect(loadMail(db, b)).toHaveLength(1); // not leaked across recipients
+
+    const one = getMail(db, inbox[0]!.id, a)!;
+    expect(one.gold).toBe(100);
+    expect(getMail(db, inbox[0]!.id, b)).toBeUndefined(); // can't read another's mail by id
+
+    deleteMail(db, inbox[0]!.id);
+    expect(mailCount(db, a)).toBe(1);
+  });
+
+  it('resolves the most-recent token for a character name', () => {
+    const db = openDatabase(':memory:');
+    const t = newPlayerToken();
+    storeSave(db, t, sampleSave('Mailee'));
+    expect(tokenForName(db, 'mailee')).toBe(t); // case-insensitive
+    expect(tokenForName(db, 'Nobody')).toBeNull();
   });
 });

@@ -55,6 +55,11 @@ export interface CommandContext {
   guildRoster: () => string[];
   /** Broadcast a guild-chat line to online members; returns '' on success, else an error line. */
   guildSay: (text: string) => string;
+  // Mail (host-level: deferred gold/item delivery, persists for offline recipients).
+  mailSend: (toName: string, gold: number, uid?: number) => string;
+  mailList: () => string[];
+  mailTake: (id: number) => string;
+  mailTakeAll: () => string;
 }
 
 interface Command {
@@ -361,6 +366,30 @@ const COMMAND_LIST: Command[] = [
       if (!text) return ctx.reply('Usage: /g <message>');
       const err = ctx.guildSay(text);
       if (err) ctx.reply(err);
+    },
+  },
+  {
+    name: 'mail',
+    minLevel: AccessLevel.Player,
+    usage: '/mail [send <player> <gold> [itemUid] | take <id> | takeall]',
+    help: 'Read your mailbox; send gold/items; collect mail. No args = read.',
+    run: (ctx) => {
+      const sub = (ctx.args[0] ?? 'list').toLowerCase();
+      if (sub === 'send') {
+        const to = ctx.args[1];
+        const gold = int(ctx.args, 2, 0);
+        const uid = ctx.args[3] !== undefined ? int(ctx.args, 3, -1) : undefined;
+        if (!to) return ctx.reply('Usage: /mail send <player> <gold> [itemUid]');
+        return ctx.reply(ctx.mailSend(to, gold, uid !== undefined && uid >= 0 ? uid : undefined));
+      }
+      if (sub === 'take') {
+        const id = int(ctx.args, 1, -1);
+        if (id < 0) return ctx.reply('Usage: /mail take <id>');
+        return ctx.reply(ctx.mailTake(id));
+      }
+      if (sub === 'takeall') return ctx.reply(ctx.mailTakeAll());
+      for (const line of ctx.mailList()) ctx.reply(line);
+      return;
     },
   },
 

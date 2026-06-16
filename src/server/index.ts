@@ -46,7 +46,14 @@ import {
   addGuildMemberRow,
   removeGuildMemberRow,
   setGuildRankRow,
+  tokenForName,
+  sendMail,
+  loadMail,
+  getMail,
+  mailCount,
+  deleteMail,
 } from './player-store.js';
+import type { ItemInstance } from '../shared/items.js';
 import { recordScore, formatLadder, isLeaderboardMetric } from './leaderboard.js';
 import { activeEvents, totalXpBonus, totalGoldBonus, msUntilNextChange } from './game-events.js';
 import { PartyRegistry } from './party.js';
@@ -721,6 +728,68 @@ function guildBroadcast(token: string, from: string, text: string): void {
 function guildMemberTokenByName(byToken: string, name: string): string | undefined {
   const lower = name.trim().toLowerCase();
   return guilds.roster(byToken)?.members.find((m) => m.name.toLowerCase() === lower)?.token;
+}
+
+/** Largest inbox per recipient (anti-spam / anti-hoard). */
+const MAX_MAIL = 30;
+
+/**
+ * Send mail: take the gold (+ optional bag item by uid) from the sender's live World, resolve the
+ * recipient's persistent token (online presence first, else the most-recent save by name), and
+ * queue an inbox row. Refunds anything already taken if a later check fails, so no gold/item is lost.
+ */
+function mailSend(
+  world: World,
+  senderId: number,
+  senderToken: string,
+  senderName: string,
+  toName: string,
+  gold: number,
+  uid?: number,
+): string {
+  const amount = Math.max(0, Math.floor(gold) || 0);
+  const toToken = social.findOnline(toName)?.token ?? tokenForName(getDb(), toName);
+  if (!toToken) return 'No such player (they must have played here).';
+  if (toToken === senderToken) return 'You cannot mail yourself.';
+  if (amount === 0 && uid === undefined) return 'Attach some gold or an item.';
+  if (mailCount(getDb(), toToken) >= MAX_MAIL) return 'Their mailbox is full.';
+
+  // Take the item first (it can fail cleanly before any gold moves), then the gold.
+  const item = uid !== undefined ? world.mailTakeGear(senderId, uid) : null;
+  if (uid !== undefined && !item) return 'No such item in your bag.';
+  if (amount > 0 && !world.mailTakeGold(senderId, amount)) {
+    if (item) world.mailDeliver(senderId, 0, item); // give the item back — nothing lost
+    return `You don't have ${amount}g.`;
+  }
+  sendMail(getDb(), toToken, senderName, amount, item ? JSON.stringify(item) : null);
+  sendToToken(toToken, {
+    t: 'chat',
+    from: 'System',
+    text: `You have new mail from ${senderName} — /mail to read it.`,
+    channel: 'system',
+  });
+  return `Mail sent to ${toName}.`;
+}
+
+/** Collect one piece of mail into the collector's live World bag (deletes it on success). */
+function mailTake(collectorId: number, token: string, world: World, id: number): string {
+  const m = getMail(getDb(), id, token);
+  if (!m) return 'No such mail.';
+  let item: ItemInstance | null = null;
+  if (m.itemJson) {
+    try {
+      item = JSON.parse(m.itemJson) as ItemInstance;
+    } catch {
+      item = null; // corrupt payload — drop the item but still release the gold + clear the row
+    }
+  }
+  const r = world.mailDeliver(collectorId, m.gold, item);
+  if (!r.ok) return r.reason ?? 'Could not collect.';
+  deleteMail(getDb(), id);
+  const got: string[] = [];
+  if (m.gold > 0) got.push(`${m.gold}g`);
+  if (item) got.push('an item');
+  return `Collected ${got.join(' + ') || 'mail'}.`;
 }
 
 /** Build the roster entry for one party member (members are always connected — see disconnect). */
@@ -1551,6 +1620,35 @@ wss.on('connection', (socket) => {
                     if (!guilds.guildNameOf(p.token)) return 'You are not in a guild.';
                     guildBroadcast(p.token, from, text);
                     return '';
+                  },
+                  mailSend: (toName, gold, uid) =>
+                    mailSend(world, entityId, p.token, from, toName, gold, uid),
+                  mailList: () => {
+                    const inbox = loadMail(getDb(), p.token);
+                    if (inbox.length === 0) return ['Your mailbox is empty.'];
+                    return [
+                      `Mailbox (${inbox.length}):`,
+                      ...inbox.map((m) => {
+                        const parts: string[] = [];
+                        if (m.gold > 0) parts.push(`${m.gold}g`);
+                        if (m.itemJson) parts.push('an item');
+                        return `  #${m.id} from ${m.senderName}: ${parts.join(' + ') || '(empty)'} — /mail take ${m.id}`;
+                      }),
+                    ];
+                  },
+                  mailTake: (id) => mailTake(entityId, p.token, world, id),
+                  mailTakeAll: () => {
+                    const inbox = loadMail(getDb(), p.token);
+                    if (inbox.length === 0) return 'Your mailbox is empty.';
+                    let taken = 0;
+                    for (const m of inbox) {
+                      const r = mailTake(entityId, p.token, world, m.id);
+                      if (r.startsWith('Collected')) taken++;
+                      else break; // stop on the first failure (e.g. bag full) so nothing is lost
+                    }
+                    return taken > 0
+                      ? `Collected ${taken} mail.`
+                      : 'Could not collect (bag full?).';
                   },
                 });
               } catch (err) {

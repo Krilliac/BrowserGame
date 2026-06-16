@@ -57,6 +57,10 @@ function makeCtx(
     guildRank: () => 'ranked',
     guildRoster: () => ['You are not in a guild.'],
     guildSay: () => '',
+    mailSend: () => 'sent',
+    mailList: () => ['Your mailbox is empty.'],
+    mailTake: () => 'Collected mail.',
+    mailTakeAll: () => 'Collected 0 mail.',
   };
   return { ctx, cap };
 }

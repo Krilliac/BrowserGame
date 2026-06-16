@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Mail.** Deferred player-to-player delivery of gold + an optional gear item that waits in the
+  recipient's inbox even while they're offline: `/mail send <player> <gold> [itemUid]`, `/mail` to
+  read, `/mail take <id>` / `/mail takeall` to collect. Server-authoritative and loss-safe — the
+  attachment is pulled from the sender's live bag, refunded if a later check fails, and a full bag
+  refuses item delivery so the mail is kept; the item gets a fresh uid on collect to avoid id
+  collisions. Recipients resolve by online presence first, else the most-recent save by name; inbox
+  capped per player. New `mail` table (no migration) + persistence in `player-store.ts`; the auction
+  house (next) will deliver through this same channel. Fourth slice of the ED5 MMO Studio port.
+
 - **Guilds.** Persistent player societies that span instances: found one with `/guild create <name>`,
   then invite / accept / leave / kick / promote / demote and chat to the whole guild with `/g <msg>`
   (green guild channel). Three ranks (leader / officer / member) gate the actions — officers+ invite
