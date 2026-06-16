@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Game HUD" description="In-game ARPG screen scaffold — orbs, spell hotbar and a gold-framed title, wired to the BrowserGame design system." -->
+<helmet>
+  <script src="./ds-base.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; }
+  </style>
+</helmet>
+<div style="position:fixed; inset:0; font-family:var(--font-body); background:radial-gradient(140% 120% at 50% 18%, #28331f 0%, #1b241a 40%, #0c100b 100%); overflow:hidden;">
+  <!-- vignette -->
+  <div style="position:absolute; inset:0; pointer-events:none; background:radial-gradient(120% 100% at 50% 45%, transparent 45%, rgba(0,0,0,0.6) 100%);"></div>
+
+  <!-- area title -->
+  <div style="position:absolute; top:18px; left:0; right:0; text-align:center; font-family:var(--font-display); font-weight:700; font-size:22px; letter-spacing:0.1em; text-transform:uppercase; color:var(--gold-300); text-shadow:0 1px 2px #000;">
+    Gloomwood
+  </div>
+
+  <!-- health orb (bottom-left) -->
+  <div style="position:absolute; bottom:18px; left:18px;">
+    <x-import component-from-global-scope="BrowserGameARPGDesignSystem_aa965c.OrbGauge" type="health" value="420" max="560" hint-size="128px,128px"></x-import>
+  </div>
+
+  <!-- mana orb (bottom-right) -->
+  <div style="position:absolute; bottom:18px; right:18px;">
+    <x-import component-from-global-scope="BrowserGameARPGDesignSystem_aa965c.OrbGauge" type="mana" value="88" max="120" hint-size="128px,128px"></x-import>
+  </div>
+
+  <!-- spell hotbar (bottom-center) -->
+  <div style="position:absolute; bottom:30px; left:50%; transform:translateX(-50%); display:flex; gap:10px;">
+    <x-import component-from-global-scope="BrowserGameARPGDesignSystem_aa965c.AbilitySlot" src="../../assets/fx/spell_fireball.png" hotkey="1" hint-size="52px,52px"></x-import>
+    <x-import component-from-global-scope="BrowserGameARPGDesignSystem_aa965c.AbilitySlot" src="../../assets/fx/spell_ice_lance.png" hotkey="2" hint-size="52px,52px"></x-import>
+    <x-import component-from-global-scope="BrowserGameARPGDesignSystem_aa965c.AbilitySlot" src="../../assets/fx/spell_arcane_bolt.png" hotkey="3" hint-size="52px,52px"></x-import>
+    <x-import component-from-global-scope="BrowserGameARPGDesignSystem_aa965c.AbilitySlot" src="../../assets/fx/spell_magic_orb.png" hotkey="4" hint-size="52px,52px"></x-import>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>

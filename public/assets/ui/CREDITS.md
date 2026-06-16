@@ -1,5 +1,9 @@
 # UI / Items / FX Asset Credits
 
+> **Superseded — see `../CREDITS.md`.** The Kenney UI chrome and the licensed item/FX specimen sheets
+> were removed; the game now uses the design system's original `gw_*` chrome, spell-FX strips, and
+> item/gem icons (all original/license-free). Detail below is retained for historical context.
+
 All assets under `public/assets/ui/` are license-clean for a distributable game.
 Licenses used here: **CC0** (no obligations) and **CC-BY 4.0** (attribution required — satisfied by this file).
 No GPL-only, ripped, or unclear-license assets are included.

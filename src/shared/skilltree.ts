@@ -23,6 +23,11 @@
  * - `vigor`        flat HP regenerated per second.
  * - `manaRegen`    flat mana regenerated per second.
  * - `multishot`    extra projectiles fired.
+ * - `chain`        extra chain bounces (integer count; same unit as gem chain).
+ * - `pierce`       extra pierce count (integer; same unit as gem pierce).
+ * - `fork`         extra fork projectiles (integer; same unit as gem fork).
+ * - `spellaoe`     spell AoE radius multiplier bonus (fraction, e.g. 0.2 = +20%; same unit as
+ *                  concussive/seeking gems — stored as a fraction, NOT whole-percent points).
  */
 export interface SkillEffects {
   power: number;
@@ -35,6 +40,10 @@ export interface SkillEffects {
   vigor: number;
   manaRegen: number;
   multishot: number;
+  chain?: number;
+  pierce?: number;
+  fork?: number;
+  spellaoe?: number;
 }
 
 /**
@@ -240,6 +249,10 @@ function zeroEffects(): SkillEffects {
     vigor: 0,
     manaRegen: 0,
     multishot: 0,
+    chain: 0,
+    pierce: 0,
+    fork: 0,
+    spellaoe: 0,
   };
 }
 

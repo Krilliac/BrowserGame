@@ -8,25 +8,40 @@
  */
 
 export type StatusId =
-  // Monster debuffs:
+  // Monster debuffs (legacy set — do not renumber the wire bits):
   | 'slow' // reduces movement
   | 'burn' // damage over time
   | 'weaken' // reduces the monster's outgoing damage
   // Player buffs:
   | 'might' // increases the player's outgoing damage
   | 'haste' // faster attacks (lower cooldowns) + faster movement
-  | 'regen'; // heal over time
+  | 'regen' // heal over time
+  // Extended ailment / CC suite (slice 3):
+  | 'ignite' // fire DoT (harder tick than burn; stacks with burn)
+  | 'poison' // poison DoT
+  | 'bleed' // physical DoT
+  | 'chill' // moderate snare (lighter than slow)
+  | 'shock' // lightning debuff (amplifies damage taken)
+  | 'brittle' // reduces armor / increases crit taken
+  | 'maim' // heavy movement impair (stacks with slow)
+  | 'sap' // reduces attack speed / cooldown recovery
+  | 'stun' // hard CC: cannot move or act
+  | 'freeze' // hard CC: cannot move or act (cold variant)
+  | 'silence' // prevents ability casts
+  | 'curse'; // magic debuff (amplifies spell damage taken)
 
 /** Lowest movement multiplier slow can ever produce (so a slow can't fully freeze). */
 const SLOW_FACTOR_FLOOR = 0.2;
 /** Floors so a single debuff/buff can't fully zero a stat. */
 const WEAKEN_FACTOR_FLOOR = 0.25;
 const HASTE_COOLDOWN_FLOOR = 0.4;
+/** Additive poison magnitude cap (prevents runaway stacking). */
+const POISON_MAX = 20;
 
 /** Result of advancing a StatusSet by some dt. */
 export interface StatusTickResult {
-  /** Total burn (damage-over-time) damage dealt this tick. */
-  burnDamage: number;
+  /** Total DoT (burn + ignite + poison + bleed) damage dealt this tick. */
+  dotDamage: number;
   /** Total regen (heal-over-time) restored this tick. */
   regenHeal: number;
 }
@@ -56,8 +71,14 @@ export class StatusSet {
 
     const existing = this.effects.get(id);
     if (existing) {
-      existing.remainingMs = Math.max(existing.remainingMs, durationMs);
-      existing.magnitude = Math.max(existing.magnitude, magnitude);
+      if (id === 'poison') {
+        // Poison stacks additively (capped), and duration takes the longer of the two.
+        existing.magnitude = Math.min(POISON_MAX, existing.magnitude + magnitude);
+        existing.remainingMs = Math.max(existing.remainingMs, durationMs);
+      } else {
+        existing.remainingMs = Math.max(existing.remainingMs, durationMs);
+        existing.magnitude = Math.max(existing.magnitude, magnitude);
+      }
       return;
     }
 
@@ -65,28 +86,31 @@ export class StatusSet {
   }
 
   /**
-   * Advance all effects by dtMs, expiring finished ones. Returns the burn damage dealt
-   * this tick.
+   * Advance all effects by dtMs, expiring finished ones. Returns dotDamage (sum of all
+   * damage-over-time sources: burn, ignite, poison, bleed) and regenHeal this tick.
    *
-   * Burn accounting counts only the *active* elapsed time: if burn expires partway
+   * Per-DoT accounting counts only the *active* elapsed time: if an effect expires partway
    * through the tick, damage is `magnitude * (activeMs / 1000)` rather than the full dt.
    */
   tick(dtMs: number): StatusTickResult {
-    let burnDamage = 0;
+    let dotDamage = 0;
     let regenHeal = 0;
-    if (dtMs <= 0) return { burnDamage, regenHeal };
+    if (dtMs <= 0) return { dotDamage, regenHeal };
 
     for (const [id, state] of this.effects) {
       const activeMs = Math.min(state.remainingMs, dtMs);
 
-      if (id === 'burn') burnDamage += state.magnitude * (activeMs / 1000);
-      else if (id === 'regen') regenHeal += state.magnitude * (activeMs / 1000);
+      if (id === 'burn' || id === 'ignite' || id === 'poison' || id === 'bleed') {
+        dotDamage += state.magnitude * (activeMs / 1000);
+      } else if (id === 'regen') {
+        regenHeal += state.magnitude * (activeMs / 1000);
+      }
 
       state.remainingMs -= dtMs;
       if (state.remainingMs <= 0) this.effects.delete(id);
     }
 
-    return { burnDamage, regenHeal };
+    return { dotDamage, regenHeal };
   }
 
   private mag(id: StatusId): number {
@@ -94,19 +118,41 @@ export class StatusSet {
   }
 
   /**
-   * Movement multiplier from active slow (1 = normal speed; e.g. 0.5 = half). No slow => 1.
-   * The slow magnitude is the fractional slow amount in [0,1) (e.g. 0.4 => 0.6); the result
-   * is clamped to a sane floor so a huge magnitude can't stop an entity dead.
+   * Movement multiplier from active slow + chill + maim (1 = normal speed; e.g. 0.5 = half).
+   * The combined magnitude is the total fractional slow in [0,1); the result is clamped to a
+   * sane floor so a stack of slows can't stop an entity dead.
    */
   slowFactor(): number {
-    const slow = this.effects.get('slow');
-    if (!slow) return 1;
-    return Math.max(SLOW_FACTOR_FLOOR, 1 - slow.magnitude);
+    return Math.max(
+      SLOW_FACTOR_FLOOR,
+      1 - (this.mag('slow') + this.mag('chill') + this.mag('maim')),
+    );
   }
 
-  /** Monster outgoing-damage multiplier from WEAKEN (1 = normal; floored so it can't hit zero). */
+  /** Monster outgoing-damage multiplier from weaken + sap + curse (1 = normal; floored). */
   weakenFactor(): number {
-    return Math.max(WEAKEN_FACTOR_FLOOR, 1 - this.mag('weaken'));
+    return Math.max(
+      WEAKEN_FACTOR_FLOOR,
+      1 - (this.mag('weaken') + this.mag('sap') + this.mag('curse')),
+    );
+  }
+
+  /**
+   * Incoming-damage multiplier from shock + brittle + curse (1 = normal; >1 = more damage taken).
+   * shock is multiplicative; brittle and curse are additive before being applied as a multiplier.
+   */
+  vulnFactor(): number {
+    return (1 + this.mag('shock')) * (1 + this.mag('brittle') + this.mag('curse'));
+  }
+
+  /** Whether the entity is rooted (cannot move) due to stun or freeze. */
+  rooted(): boolean {
+    return this.has('stun') || this.has('freeze');
+  }
+
+  /** Whether the entity is silenced (cannot cast abilities) due to stun, freeze, or silence. */
+  silenced(): boolean {
+    return this.rooted() || this.has('silence');
   }
 
   /** Player outgoing-damage multiplier from MIGHT (1 = normal; e.g. magnitude 0.3 => 1.3). */

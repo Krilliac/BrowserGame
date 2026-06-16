@@ -1,0 +1,70 @@
+<!-- @dsCard group="Colors" viewport="700x160" name="Text & status" subtitle="Parchment / bone / ash neutrals + feedback colors" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--surface-panel-solid);
+        font-family: var(--font-body);
+        padding: 22px;
+        display: flex;
+        gap: 30px;
+      }
+      .col {
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+      .line {
+        font-size: 15px;
+      }
+      .tag {
+        font-family: var(--font-mono);
+        font-size: 9px;
+        color: var(--text-faint);
+        margin-left: 6px;
+      }
+      .chips {
+        display: flex;
+        gap: 8px;
+      }
+      .c {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        font-size: 10px;
+        color: var(--text-muted);
+      }
+      .c i {
+        width: 30px;
+        height: 30px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="col">
+      <div class="line" style="color:var(--text-display);font-family:var(--font-display)">Parchment display<span class="tag">#e7d9b0</span></div>
+      <div class="line" style="color:var(--text-heading)">Heading bone<span class="tag">#e8eef7</span></div>
+      <div class="line" style="color:var(--text-body)">Body text<span class="tag">#d7dbe3</span></div>
+      <div class="line" style="color:var(--text-muted)">Muted secondary<span class="tag">#9aa3b2</span></div>
+      <div class="line" style="color:var(--text-stat);font-family:var(--font-mono)">Stat line +12<span class="tag">#9fb0c0</span></div>
+      <div class="line" style="color:var(--text-faint)">Faint / disabled<span class="tag">#6b707a</span></div>
+    </div>
+    <div class="col">
+      <div class="tag" style="margin:0">STATUS</div>
+      <div class="chips">
+        <div class="c"><i style="background:var(--ok)"></i>ok</div>
+        <div class="c"><i style="background:var(--warn)"></i>warn</div>
+        <div class="c"><i style="background:var(--danger)"></i>danger</div>
+        <div class="c"><i style="background:var(--info)"></i>info</div>
+      </div>
+      <div class="line" style="color:var(--danger);font-size:13px">−30 hp &nbsp; +18% dmg taken</div>
+      <div class="line" style="color:var(--ok);font-size:13px">connected · 4 players</div>
+    </div>
+  </body>
+</html>

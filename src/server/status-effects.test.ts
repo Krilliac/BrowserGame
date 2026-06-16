@@ -37,17 +37,17 @@ describe('StatusSet (timed status effects)', () => {
     const effects = new StatusSet();
     effects.apply('burn', 1000, 10); // 10 damage/second for 1s
 
-    expect(effects.tick(500).burnDamage).toBeCloseTo(5, 5);
-    expect(effects.tick(500).burnDamage).toBeCloseTo(5, 5); // last of the duration
+    expect(effects.tick(500).dotDamage).toBeCloseTo(5, 5);
+    expect(effects.tick(500).dotDamage).toBeCloseTo(5, 5); // last of the duration
     expect(effects.has('burn')).toBe(false);
-    expect(effects.tick(500).burnDamage).toBe(0); // expired => no more damage
+    expect(effects.tick(500).dotDamage).toBe(0); // expired => no more damage
   });
 
   it('only counts the active fraction when burn expires mid-tick', () => {
     const effects = new StatusSet();
     effects.apply('burn', 300, 10); // 0.3s remaining
     // Tick 1s: only 0.3s of burn is active => 10 * 0.3 = 3 damage.
-    expect(effects.tick(1000).burnDamage).toBeCloseTo(3, 5);
+    expect(effects.tick(1000).dotDamage).toBeCloseTo(3, 5);
     expect(effects.has('burn')).toBe(false);
   });
 
@@ -136,5 +136,63 @@ describe('StatusSet (buffs + the weaken debuff)', () => {
     expect(s.tick(500).regenHeal).toBeCloseTo(5, 5);
     expect(s.has('regen')).toBe(false);
     expect(s.tick(500).regenHeal).toBe(0);
+  });
+});
+
+describe('StatusSet — ailments & CC (slice 3)', () => {
+  it('dotDamage sums burn + ignite + poison + bleed over the tick', () => {
+    const s = new StatusSet();
+    s.apply('burn', 2000, 5);
+    s.apply('ignite', 2000, 3);
+    s.apply('bleed', 2000, 2);
+    expect(s.tick(1000).dotDamage).toBeCloseTo(10);
+  });
+  it('poison stacks additively; other DoTs refresh by max', () => {
+    const s = new StatusSet();
+    s.apply('poison', 2000, 3);
+    s.apply('poison', 2000, 3);
+    expect(s.tick(1000).dotDamage).toBeCloseTo(6);
+    const s2 = new StatusSet();
+    s2.apply('burn', 2000, 3);
+    s2.apply('burn', 2000, 3);
+    expect(s2.tick(1000).dotDamage).toBeCloseTo(3);
+  });
+  it('slowFactor folds slow + chill + maim', () => {
+    const s = new StatusSet();
+    s.apply('chill', 2000, 0.3);
+    s.apply('maim', 2000, 0.2);
+    expect(s.slowFactor()).toBeCloseTo(0.5);
+  });
+  it('slowFactor respects the floor', () => {
+    const s = new StatusSet();
+    s.apply('chill', 2000, 0.9);
+    s.apply('maim', 2000, 0.9);
+    expect(s.slowFactor()).toBeCloseTo(0.2);
+  });
+  it('weakenFactor folds weaken + sap + curse', () => {
+    const s = new StatusSet();
+    s.apply('sap', 2000, 0.2);
+    s.apply('curse', 2000, 0.1);
+    expect(s.weakenFactor()).toBeCloseTo(0.7);
+  });
+  it('vulnFactor raises incoming damage from shock + brittle + curse', () => {
+    const s = new StatusSet();
+    s.apply('shock', 2000, 0.25);
+    s.apply('brittle', 2000, 0.15);
+    expect(s.vulnFactor()).toBeCloseTo(1.25 * 1.15);
+  });
+  it('vulnFactor is 1 with no incoming-up statuses', () => {
+    expect(new StatusSet().vulnFactor()).toBe(1);
+  });
+  it('rooted on stun/freeze; silenced on stun/freeze/silence', () => {
+    const a = new StatusSet();
+    a.apply('stun', 1000, 1);
+    expect(a.rooted()).toBe(true);
+    expect(a.silenced()).toBe(true);
+    const b = new StatusSet();
+    b.apply('silence', 1000, 1);
+    expect(b.rooted()).toBe(false);
+    expect(b.silenced()).toBe(true);
+    expect(new StatusSet().rooted()).toBe(false);
   });
 });

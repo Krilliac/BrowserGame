@@ -22,10 +22,14 @@ import {
   STARTER_ABILITIES,
   spellRankMult,
   type AbilityId,
+  type BehaviorSpec,
+  type DamageElement,
   type FxEvent,
 } from '../shared/combat.js';
 import { config } from './config.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
+import { initialCharges, resolveHit, steerHoming, type MobLite } from './projectile-behaviors.js';
+import { applyModifiers } from './spell-modifiers.js';
 import {
   applyCrit,
   attackRoll,
@@ -144,7 +148,9 @@ import {
   xpForLevel,
   xpReward,
 } from './progression.js';
-import { StatusSet } from './status-effects.js';
+import { StatusSet, type StatusId } from './status-effects.js';
+import { STATUS_BITS } from '../shared/status-bits.js';
+import { ABILITY_KNOCKBACK } from './ability-effects.js';
 import { SpatialGrid } from './spatial.js';
 import { getContent, type QuestDef } from './content.js';
 import type { WeatherKind } from '../shared/theme.js';
@@ -447,6 +453,26 @@ interface Player {
   damageTakenMult: number;
   /** Bonus HP regenerated per second from +vigor affixes (added to base regen). */
   vigor: number;
+  /** Extra projectile chain bounces (from 'chain' gems). */
+  chainAdd: number;
+  /** Extra pierce-through count (from 'pierce' gems). */
+  pierceAdd: number;
+  /** Extra fork splits on projectile hit (from 'fork' gems). */
+  forkAdd: number;
+  /** Spell AoE radius bonus (from 'spellaoe' gems). */
+  spellAoe: number;
+  /** Extra homing projectile count (reserved for future homing gem; init 0). */
+  homingAdd: number;
+  /** Multiplicative spell-damage bonus (1 = no change; increased by spell-damage gems). */
+  spellDamageMult: number;
+  /** Per-element bonus damage percent (from elemental-damage affixes; Slice 4). */
+  elemDamage: Record<DamageElement, number>;
+  /** Percent of enemy resistance ignored (from +penetration affixes; Slice 4). */
+  penetration: number;
+  /** Percent bonus to ailment duration (from +ailmentdur affixes; Slice 4). */
+  ailmentDuration: number;
+  /** Percent bonus to ailment magnitude (from +ailmentmag affixes; Slice 4). */
+  ailmentMagnitude: number;
   /** Bonus mana/sec from the Energy attribute (added to base mana regen). */
   manaRegenBonus: number;
   /** Item procs from equipped gear (rebuilt in recomputeStats; chance-on-hit/crit effects). */
@@ -614,6 +640,19 @@ interface Projectile {
   critChance: number;
   /** True for an enemy (mob) projectile â€” it damages players instead of mobs. */
   hostile: boolean;
+  /** Effective behavior list resolved at spawn (ability behaviors; + player modifiers in Slice 2). */
+  behaviors: BehaviorSpec[];
+  /** Mob ids already damaged — never double-hit on pierce/chain. */
+  hitMobs: Set<number>;
+  bouncesLeft: number;
+  piercesLeft: number;
+  forksLeft: number;
+  /** Running falloff multiplier applied to damage (1 at spawn). */
+  damageScale: number;
+  /** `homing` acquisition (mob id), if any. */
+  homingTargetId?: number;
+  /** `return` latch — set once the projectile has reversed. */
+  returned?: boolean;
 }
 
 interface GroundItem {
@@ -1966,12 +2005,29 @@ export class World {
     let bonusHp = 0;
     let crit = BASE_CRIT_CHANCE;
     let multishot = 0;
+    let chainAdd = 0,
+      pierceAdd = 0,
+      forkAdd = 0,
+      spellAoe = 0,
+      homingAdd = 0,
+      spellDamageMult = 1;
     let damageTaken = 1;
     let lifesteal = 0; // percent points
     let swift = 0; // percent cooldown reduction
     let move = 0; // percent move bonus
     let armor = 0; // percent incoming-damage reduction
     let vigor = 0; // bonus HP regenerated per second
+    // Slice 4: element-damage, penetration, ailment accumulators (fraction: 0.0–N.0).
+    const elemDamage: Record<DamageElement, number> = {
+      physical: 0,
+      fire: 0,
+      cold: 0,
+      lightning: 0,
+      poison: 0,
+    };
+    let penetration = 0;
+    let ailmentDuration = 0;
+    let ailmentMagnitude = 0;
     const procs: ProcDef[] = []; // chance-on-hit/crit procs gathered from equipped gear
     for (const slot of EQUIP_SLOTS) {
       const inst = player.equipment[slot];
@@ -1991,7 +2047,24 @@ export class World {
         else if (a.stat === 'vigor') vigor += a.value;
         else if (a.stat === 'frail')
           bonusHp -= a.value; // corrupted debuff: less max HP
-        else if (a.stat === 'fragile') damageTaken += a.value / 100; // corrupted debuff: take more
+        else if (a.stat === 'fragile')
+          damageTaken += a.value / 100; // corrupted debuff: take more
+        // Slice 4: element damage, penetration, ailment, and projectile-modifier affixes.
+        // Percent stats (whole-percent in DB) → /100 to match the fraction unit gem path uses.
+        else if (a.stat === 'firedmg') elemDamage.fire += a.value / 100;
+        else if (a.stat === 'colddmg') elemDamage.cold += a.value / 100;
+        else if (a.stat === 'lightningdmg') elemDamage.lightning += a.value / 100;
+        else if (a.stat === 'poisondmg') elemDamage.poison += a.value / 100;
+        else if (a.stat === 'physdmg') elemDamage.physical += a.value / 100;
+        else if (a.stat === 'penetration') penetration += a.value / 100;
+        else if (a.stat === 'ailmentdur') ailmentDuration += a.value / 100;
+        else if (a.stat === 'ailmentmag') ailmentMagnitude += a.value / 100;
+        // Integer counts — add directly (same unit as gem chain/pierce/fork).
+        else if (a.stat === 'chain') chainAdd += a.value;
+        else if (a.stat === 'pierce') pierceAdd += a.value;
+        else if (a.stat === 'fork') forkAdd += a.value;
+        // Spell AoE: affix stores whole-percent (8-18) → /100 to match gem fraction (0.2-0.5).
+        else if (a.stat === 'spellaoe') spellAoe += a.value / 100;
       }
       // Socketed gems add the same stat kinds as affixes (crit gem value is in whole % points).
       const gems = gemBonuses(inst.sockets ?? []);
@@ -1999,6 +2072,12 @@ export class World {
       bonusHp += gems.hp;
       crit += gems.crit / 100;
       multishot += gems.multishot;
+      chainAdd += gems.chain;
+      pierceAdd += gems.pierce;
+      forkAdd += gems.fork;
+      spellAoe += gems.spellaoe;
+      homingAdd += gems.homing;
+      spellDamageMult *= gems.mult;
       lifesteal += gems.lifesteal;
       swift += gems.swift;
       move += gems.move;
@@ -2015,6 +2094,19 @@ export class World {
         else if (a.stat === 'move') move += a.value;
         else if (a.stat === 'armor') armor += a.value;
         else if (a.stat === 'vigor') vigor += a.value;
+        // Slice 4: runeword can grant the same new stat kinds as affixes.
+        else if (a.stat === 'firedmg') elemDamage.fire += a.value / 100;
+        else if (a.stat === 'colddmg') elemDamage.cold += a.value / 100;
+        else if (a.stat === 'lightningdmg') elemDamage.lightning += a.value / 100;
+        else if (a.stat === 'poisondmg') elemDamage.poison += a.value / 100;
+        else if (a.stat === 'physdmg') elemDamage.physical += a.value / 100;
+        else if (a.stat === 'penetration') penetration += a.value / 100;
+        else if (a.stat === 'ailmentdur') ailmentDuration += a.value / 100;
+        else if (a.stat === 'ailmentmag') ailmentMagnitude += a.value / 100;
+        else if (a.stat === 'chain') chainAdd += a.value;
+        else if (a.stat === 'pierce') pierceAdd += a.value;
+        else if (a.stat === 'fork') forkAdd += a.value;
+        else if (a.stat === 'spellaoe') spellAoe += a.value / 100;
       }
     }
     // Item-set bonuses: wearing several pieces of one set grants threshold bonuses (D2 set items).
@@ -2029,6 +2121,19 @@ export class World {
       else if (a.stat === 'move') move += a.value;
       else if (a.stat === 'armor') armor += a.value;
       else if (a.stat === 'vigor') vigor += a.value;
+      // Slice 4: set bonuses can grant the same new stat kinds as affixes.
+      else if (a.stat === 'firedmg') elemDamage.fire += a.value / 100;
+      else if (a.stat === 'colddmg') elemDamage.cold += a.value / 100;
+      else if (a.stat === 'lightningdmg') elemDamage.lightning += a.value / 100;
+      else if (a.stat === 'poisondmg') elemDamage.poison += a.value / 100;
+      else if (a.stat === 'physdmg') elemDamage.physical += a.value / 100;
+      else if (a.stat === 'penetration') penetration += a.value / 100;
+      else if (a.stat === 'ailmentdur') ailmentDuration += a.value / 100;
+      else if (a.stat === 'ailmentmag') ailmentMagnitude += a.value / 100;
+      else if (a.stat === 'chain') chainAdd += a.value;
+      else if (a.stat === 'pierce') pierceAdd += a.value;
+      else if (a.stat === 'fork') forkAdd += a.value;
+      else if (a.stat === 'spellaoe') spellAoe += a.value / 100;
     }
     // Attribute bonuses (strengthâ†’power, vitalityâ†’maxHp, dexterityâ†’crit, energyâ†’mana regen).
     const attr = attributeBonuses(player.attributes);
@@ -2045,9 +2150,21 @@ export class World {
     armor += skill.armorPct;
     vigor += skill.vigor;
     multishot += skill.multishot;
+    // Slice 4: skill-tree nodes can grant chain/pierce/fork (integer counts) and spellaoe (fraction).
+    // spellaoe is stored as a fraction in SkillEffects (same unit as concussive/seeking gems).
+    chainAdd += skill.chain ?? 0;
+    pierceAdd += skill.pierce ?? 0;
+    forkAdd += skill.fork ?? 0;
+    spellAoe += skill.spellaoe ?? 0;
     player.power = power;
     player.critChance = crit;
     player.multishot = multishot;
+    player.chainAdd = chainAdd;
+    player.pierceAdd = pierceAdd;
+    player.forkAdd = forkAdd;
+    player.spellAoe = spellAoe;
+    player.homingAdd = homingAdd;
+    player.spellDamageMult = spellDamageMult;
     player.procs = procs;
     player.lifesteal = Math.min(0.6, lifesteal / 100); // cap life steal at 60% of damage
     player.cooldownMult = Math.max(0.4, 1 - swift / 100); // cap attack speed at +60%
@@ -2056,6 +2173,11 @@ export class World {
     player.damageTakenMult = damageTaken * Math.max(0.5, 1 - armor / 100);
     player.vigor = vigor; // flat HP/sec added to base regen in tickPlayers
     player.manaRegenBonus = attr.manaRegen + skill.manaRegen;
+    // Slice 4: element-damage multipliers, penetration, and ailment modifiers.
+    player.elemDamage = elemDamage;
+    player.penetration = penetration;
+    player.ailmentDuration = ailmentDuration;
+    player.ailmentMagnitude = ailmentMagnitude;
     // Max HP: base + flat bonuses, then the skill tree's percentage max-HP increase.
     player.maxHp = Math.max(
       1,
@@ -2222,6 +2344,42 @@ export class World {
     return n;
   }
 
+  /**
+   * Test seam: inject a status directly onto a mob (identified by entity id from the snapshot).
+   * Only usable in tests — production paths go through applyStatus / the content-driven table.
+   */
+  injectMobStatus(mobId: number, statusId: string, durationMs: number, magnitude: number): boolean {
+    const mob = this.mobs.get(mobId);
+    if (!mob || mob.dead) return false;
+    mob.statuses.apply(statusId as Parameters<StatusSet['apply']>[0], durationMs, magnitude);
+    return true;
+  }
+
+  /** Test seam: override a mob's current and maximum HP so it can absorb hits in test scenarios. */
+  boostMobHp(mobId: number, hp: number): boolean {
+    const mob = this.mobs.get(mobId);
+    if (!mob || mob.dead) return false;
+    mob.hp = hp;
+    mob.maxHp = hp;
+    return true;
+  }
+
+  /**
+   * Test seam: directly set a player's ailment-scaling stats (fraction values; e.g. 0.5 = +50%).
+   * Only usable in tests — production paths go through recomputeStats / gear affixes.
+   */
+  setPlayerAilmentStats(
+    playerId: number,
+    ailmentDuration: number,
+    ailmentMagnitude: number,
+  ): boolean {
+    const p = this.players.get(playerId);
+    if (!p) return false;
+    p.ailmentDuration = ailmentDuration;
+    p.ailmentMagnitude = ailmentMagnitude;
+    return true;
+  }
+
   playerPos(id: number): { x: number; y: number } | undefined {
     const p = this.players.get(id);
     return p ? { x: p.x, y: p.y } : undefined;
@@ -2270,6 +2428,16 @@ export class World {
       debugSpeed: 1,
       damageTakenMult: 1,
       vigor: 0,
+      chainAdd: 0,
+      pierceAdd: 0,
+      forkAdd: 0,
+      spellAoe: 0,
+      homingAdd: 0,
+      spellDamageMult: 1,
+      elemDamage: { physical: 0, fire: 0, cold: 0, lightning: 0, poison: 0 },
+      penetration: 0,
+      ailmentDuration: 0,
+      ailmentMagnitude: 0,
       god: false,
       quests: new Map(),
       questsDone: new Set(),
@@ -2423,6 +2591,9 @@ export class World {
     const rank = player.known.get(abilityId);
     if (rank === undefined) return;
     if ((player.cooldowns.get(abilityId) ?? 0) > 0 || player.mana < ability.manaCost) return;
+    // Silence (and stun/freeze, which imply silence) prevents casting. Checked after the cooldown
+    // and mana guards so we don't waste a gate order, but before mana is spent or the cooldown set.
+    if (player.debuffs.silenced()) return;
 
     const facing = aimAngle(dx, dy, player.facing);
     player.facing = facing;
@@ -2448,24 +2619,50 @@ export class World {
       for (const mob of this.mobs.values()) {
         if (mob.dead) continue;
         if (inMeleeCone(player.x, player.y, facing, mob.x, mob.y, ability.range, halfAngle)) {
-          const power = (ability.damage + player.power) * rankMult * mightMult;
+          const elem = ability.element ?? 'physical';
+          const power =
+            (ability.damage + player.power) * rankMult * mightMult * (1 + player.elemDamage[elem]);
           const base = rollAbilityDamage(player.level, mob.level, power);
           const crit = base > 0 && rollCrit(this.rand, player.critChance);
           const dmg = applyCrit(base, crit);
           const finalDmg = resistedDamage(
             dmg,
-            ability.element ?? 'physical',
+            elem,
             getContent().mobResists(mob.templateId),
+            player.penetration,
           );
           this.damageMob(mob, finalDmg, abilityId, player.id, crit);
-          if (finalDmg > 0) applyStatus(mob, abilityId);
+          if (finalDmg > 0) {
+            applyStatus(mob, abilityId, {
+              durMult: 1 + player.ailmentDuration,
+              magMult: 1 + player.ailmentMagnitude,
+            });
+            const kbPx = ABILITY_KNOCKBACK[abilityId];
+            if (kbPx) this.knockbackMob(mob, player.x, player.y, kbPx);
+          }
         }
       }
     } else {
-      // Multishot affixes add extra projectiles, fanned around the aim â€” gear shapes the kit.
       const speed = ability.projectileSpeed ?? 300;
-      const count = 1 + player.multishot;
-      const spread = 0.18; // radians between adjacent shots
+      const behaviors = ability.behaviors ?? [];
+      // Multishot: the ability's `multishot` behavior OR the player's multishot stat (whichever is
+      // larger) fans extra projectiles around the aim. Slice 2 adds gem-driven multishot.
+      const ms = behaviors.find((b) => b.type === 'multishot');
+      const count = Math.max(1 + player.multishot, ms ? ms.count : 1);
+      const spread = ms ? ms.spreadRad : 0.18;
+      // Behaviors carried by each projectile exclude the cast-time `multishot` entry.
+      // Gem modifier stats (chain/pierce/fork/spellAoe/homing) are merged in here.
+      const carried = applyModifiers(
+        behaviors.filter((b) => b.type !== 'multishot'),
+        {
+          chainAdd: player.chainAdd,
+          pierceAdd: player.pierceAdd,
+          forkAdd: player.forkAdd,
+          spellAoe: player.spellAoe,
+          homingAdd: player.homingAdd,
+        },
+      );
+      const charges = initialCharges(carried);
       for (let i = 0; i < count; i++) {
         const a = facing + (i - (count - 1) / 2) * spread;
         const pid = this.allocId();
@@ -2477,12 +2674,23 @@ export class World {
           vx: Math.cos(a) * speed,
           vy: Math.sin(a) * speed,
           ttl: ability.projectileTtlMs ?? 1200,
-          damage: (ability.damage + player.power) * rankMult * mightMult,
+          damage:
+            (ability.damage + player.power) *
+            rankMult *
+            mightMult *
+            player.spellDamageMult *
+            (1 + player.elemDamage[ability.element ?? 'physical']),
           radius: ability.radius,
           ownerId: player.id,
           ownerLevel: player.level,
           critChance: player.critChance,
           hostile: false,
+          behaviors: carried,
+          hitMobs: new Set<number>(),
+          bouncesLeft: charges.bouncesLeft,
+          piercesLeft: charges.piercesLeft,
+          forksLeft: charges.forksLeft,
+          damageScale: 1,
         });
       }
     }
@@ -2591,9 +2799,9 @@ export class World {
       // Advance self-buffs; an active REGEN buff heals over time on top of base regen.
       const { regenHeal } = player.buffs.tick(dt * 1000);
       if (regenHeal > 0) player.hp = Math.min(player.maxHp, player.hp + regenHeal);
-      // Advance enemy debuffs; a BURN debuff (from an enemy fire spell) chips HP over time.
-      const { burnDamage } = player.debuffs.tick(dt * 1000);
-      if (burnDamage > 0) this.damagePlayer(player, burnDamage, true);
+      // Advance enemy debuffs; DoT effects (burn, ignite, poison, bleed) chip HP over time.
+      const { dotDamage } = player.debuffs.tick(dt * 1000);
+      if (dotDamage > 0) this.damagePlayer(player, dotDamage, true);
       if (player.dead) continue;
       for (const [ability, remaining] of player.cooldowns) {
         const next = remaining - dt * 1000;
@@ -2602,7 +2810,9 @@ export class World {
       }
 
       const { dx, dy } = moveVector(player.input);
-      if (dx !== 0 || dy !== 0) {
+      // Root (stun / freeze): the player cannot move from input this tick; all other per-tick
+      // housekeeping above (regen, debuff tick, cooldown drain) still runs normally.
+      if ((dx !== 0 || dy !== 0) && !player.debuffs.rooted()) {
         // Full effective speed (weather Ã— affix Ã— haste Ã— slow). The client predictor receives this
         // same multiplier in the `you` packet, so the two stay in sync â€” no rubber-banding.
         const speed = PLAYER_SPEED * this.playerMoveMul(player);
@@ -2853,11 +3063,17 @@ export class World {
       if (mob.attackCd > 0) mob.attackCd -= dt * 1000;
       if (mob.supportCd > 0) mob.supportCd -= dt * 1000;
 
-      // Status effects: burn (debuff) chips HP, regen (self-buff) heals; slow/haste scale movement.
-      const { burnDamage, regenHeal } = mob.statuses.tick(dt * 1000);
-      if (burnDamage > 0) this.damageMob(mob, burnDamage, undefined, mob.lastAttacker);
+      // Status effects: DoT (burn/ignite/poison/bleed) chips HP, regen heals; slow/haste scale movement.
+      const { dotDamage, regenHeal } = mob.statuses.tick(dt * 1000);
+      if (dotDamage > 0) this.damageMob(mob, dotDamage, undefined, mob.lastAttacker);
       if (mob.dead) continue;
       if (regenHeal > 0) mob.hp = Math.min(mob.maxHp, mob.hp + regenHeal);
+      // Hard CC: a stunned or frozen mob cannot move, attack, or cast this tick. DoT and regen
+      // above still apply (burning while stunned is intentional). Mirror the telegraphUntil pattern.
+      if (mob.statuses.rooted()) {
+        mob.telegraphUntil = 0; // stun/freeze cancels any pending wind-up — no delayed strike post-stun
+        continue;
+      }
       const moveMul = mob.statuses.slowFactor() * mob.statuses.moveFactor();
 
       const template = getContent().mobTemplate(mob.templateId)!;
@@ -3162,6 +3378,12 @@ export class World {
               ownerLevel: h.level,
               critChance: 0,
               hostile: false,
+              behaviors: [],
+              hitMobs: new Set<number>(),
+              bouncesLeft: 0,
+              piercesLeft: 0,
+              forksLeft: 0,
+              damageScale: 1,
             });
             this.events.push({ kind: 'cast', x: h.x, y: h.y, facing: h.facing });
           } else {
@@ -3232,6 +3454,12 @@ export class World {
         ownerLevel: template.level,
         critChance: 0,
         hostile: true,
+        behaviors: [],
+        hitMobs: new Set<number>(),
+        bouncesLeft: 0,
+        piercesLeft: 0,
+        forksLeft: 0,
+        damageScale: 1,
       });
       this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
       return;
@@ -3275,6 +3503,9 @@ export class World {
    * status. Used both for offensive casts (in place of the basic attack) and periodic self-support.
    */
   private castMobSpell(mob: Mob, template: MobTemplate, abilityId: AbilityId): void {
+    // Silence (and stun/freeze, which imply silence) prevents spell casting. Basic melee swings
+    // are NOT gated here — they go through executeMobAttack → the non-spell branches.
+    if (mob.statuses.silenced()) return;
     const ability = getContent().ability(abilityId);
     if (!ability) return;
     this.events.push({ kind: 'cast', x: mob.x, y: mob.y, facing: mob.telegraphFacing, abilityId });
@@ -3338,6 +3569,12 @@ export class World {
       ownerLevel: template.level,
       critChance: 0,
       hostile: true,
+      behaviors: [],
+      hitMobs: new Set<number>(),
+      bouncesLeft: 0,
+      piercesLeft: 0,
+      forksLeft: 0,
+      damageScale: 1,
     });
   }
 
@@ -3350,7 +3587,43 @@ export class World {
   }
 
   private tickProjectiles(dt: number): void {
+    // Fork children are buffered here and inserted AFTER the iteration to avoid mutating
+    // this.projectiles while we are iterating it (which would process children in the same tick).
+    const spawned: Projectile[] = [];
+
     for (const proj of this.projectiles.values()) {
+      // On-travel behaviors (server-authoritative).
+      const homing = proj.behaviors.find((b) => b.type === 'homing');
+      if (homing && !proj.hostile) {
+        let tgt: MobLite | undefined;
+        let best = homing.acquireRange;
+        for (const m of this.mobs.values()) {
+          if (m.dead || proj.hitMobs.has(m.id)) continue;
+          const d = Math.hypot(m.x - proj.x, m.y - proj.y);
+          if (d <= best) {
+            best = d;
+            tgt = { id: m.id, x: m.x, y: m.y };
+          }
+        }
+        if (tgt) {
+          const v = steerHoming(proj.x, proj.y, proj.vx, proj.vy, tgt, homing.turnRate, dt * 1000);
+          proj.vx = v.vx;
+          proj.vy = v.vy;
+        }
+      }
+      const ret = proj.behaviors.find((b) => b.type === 'return');
+      if (
+        ret &&
+        !proj.returned &&
+        proj.ttl <= (getContent().ability(proj.abilityId)?.projectileTtlMs ?? 1200) / 2
+      ) {
+        proj.vx = -proj.vx;
+        proj.vy = -proj.vy;
+        proj.returned = true;
+        proj.hitMobs.clear();
+        proj.damageScale *= ret.falloff;
+      }
+
       proj.x += proj.vx * dt;
       proj.y += proj.vy * dt;
       proj.ttl -= dt * 1000;
@@ -3385,28 +3658,152 @@ export class World {
           }
         }
       } else {
+        let hit: Mob | undefined;
         for (const mob of this.mobs.values()) {
-          if (mob.dead) continue;
+          if (mob.dead || proj.hitMobs.has(mob.id)) continue;
           if (circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) {
-            const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage);
-            const crit = base > 0 && rollCrit(this.rand, proj.critChance);
-            const dmg = applyCrit(base, crit);
-            const finalDmg = resistedDamage(
-              dmg,
-              getContent().ability(proj.abilityId)?.element ?? 'physical',
-              getContent().mobResists(mob.templateId),
-            );
-            this.damageMob(mob, finalDmg, proj.abilityId, proj.ownerId, crit);
-            if (finalDmg > 0) applyStatus(mob, proj.abilityId);
-            consumed = true;
+            hit = mob;
             break;
           }
+        }
+        if (hit) {
+          proj.hitMobs.add(hit.id);
+          const candidates: MobLite[] = [];
+          for (const m of this.mobs.values()) {
+            if (m.dead || proj.hitMobs.has(m.id)) continue;
+            candidates.push({ id: m.id, x: m.x, y: m.y });
+          }
+          const res = resolveHit({
+            x: proj.x,
+            y: proj.y,
+            vx: proj.vx,
+            vy: proj.vy,
+            damageScale: proj.damageScale,
+            behaviors: proj.behaviors,
+            charges: {
+              bouncesLeft: proj.bouncesLeft,
+              piercesLeft: proj.piercesLeft,
+              forksLeft: proj.forksLeft,
+            },
+            hitMobs: proj.hitMobs,
+            hitMob: { id: hit.id, x: hit.x, y: hit.y },
+            candidates,
+          });
+          this.applyProjectileDamage(proj, hit, res.primaryDamageScale);
+          // Knockback behavior: shove the primary hit target away from the impact point.
+          const kb = proj.behaviors.find((b) => b.type === 'knockback');
+          if (kb && kb.type === 'knockback') this.knockbackMob(hit, proj.x, proj.y, kb.px);
+          if (res.splash) {
+            for (const m of this.mobs.values()) {
+              if (m.dead || m.id === hit.id || proj.hitMobs.has(m.id)) continue;
+              if (Math.hypot(m.x - hit.x, m.y - hit.y) <= res.splash.radius) {
+                this.applyProjectileDamage(proj, m, res.primaryDamageScale * res.splash.scale);
+                proj.hitMobs.add(m.id);
+              }
+            }
+          }
+          for (const f of res.forks) {
+            const cid = this.allocId();
+            spawned.push({
+              id: cid,
+              abilityId: proj.abilityId,
+              x: proj.x,
+              y: proj.y,
+              vx: f.vx,
+              vy: f.vy,
+              ttl: getContent().ability(proj.abilityId)?.projectileTtlMs ?? 1200,
+              damage: proj.damage,
+              radius: proj.radius,
+              ownerId: proj.ownerId,
+              ownerLevel: proj.ownerLevel,
+              critChance: proj.critChance,
+              hostile: false,
+              behaviors: [],
+              hitMobs: new Set<number>(),
+              bouncesLeft: 0,
+              piercesLeft: 0,
+              forksLeft: 0,
+              damageScale: f.damageScale,
+            });
+          }
+          proj.bouncesLeft = res.charges.bouncesLeft;
+          proj.piercesLeft = res.charges.piercesLeft;
+          proj.forksLeft = res.charges.forksLeft;
+          proj.damageScale = res.damageScaleAfter;
+          if (res.redirect) {
+            proj.vx = res.redirect.vx;
+            proj.vy = res.redirect.vy;
+            if (res.arcTo) {
+              this.events.push({
+                kind: 'arc',
+                x: hit.x,
+                y: hit.y,
+                x2: res.arcTo.x,
+                y2: res.arcTo.y,
+                element: getContent().ability(proj.abilityId)?.element ?? 'physical',
+              });
+            }
+          }
+          consumed = res.consume;
         }
       }
       if (consumed || proj.ttl <= 0 || this.outOfBounds(proj.x, proj.y)) {
         this.projectiles.delete(proj.id);
       }
     }
+
+    // Insert fork children now that iteration is complete.
+    for (const p of spawned) this.projectiles.set(p.id, p);
+  }
+
+  /** Roll + apply one projectile damage instance to a mob (crit, element resist, status), scaled. */
+  private applyProjectileDamage(proj: Projectile, mob: Mob, scale: number): void {
+    const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage * scale);
+    const crit = base > 0 && rollCrit(this.rand, proj.critChance);
+    const dmg = applyCrit(base, crit);
+    const owner = this.players.get(proj.ownerId);
+    const finalDmg = resistedDamage(
+      dmg,
+      getContent().ability(proj.abilityId)?.element ?? 'physical',
+      getContent().mobResists(mob.templateId),
+      owner?.penetration ?? 0,
+    );
+    this.damageMob(mob, finalDmg, proj.abilityId, proj.ownerId, crit);
+    if (finalDmg > 0) {
+      applyStatus(
+        mob,
+        proj.abilityId,
+        owner
+          ? { durMult: 1 + owner.ailmentDuration, magMult: 1 + owner.ailmentMagnitude }
+          : undefined,
+      );
+      const kbPx = ABILITY_KNOCKBACK[proj.abilityId];
+      if (kbPx) this.knockbackMob(mob, proj.x, proj.y, kbPx);
+    }
+  }
+
+  /**
+   * One-shot positional knockback: shove a mob `px` pixels away from (fromX, fromY), clamped to
+   * the map bounds and resolved against solid collision geometry. Deterministic (no randomness) so
+   * a recorded input sequence reproduces the same displacement. Called after damage is applied.
+   */
+  private knockbackMob(mob: Mob, fromX: number, fromY: number, px: number): void {
+    const dx = mob.x - fromX;
+    const dy = mob.y - fromY;
+    const len = Math.hypot(dx, dy) || 1;
+    const tx = mob.x + (dx / len) * px;
+    const ty = mob.y + (dy / len) * px;
+    const res = resolveCircleMove(
+      mob.x,
+      mob.y,
+      clamp(tx, 0, this.width),
+      clamp(ty, 0, this.height),
+      PLAYER_COLLISION_RADIUS,
+      this.wallList(),
+      this.circleList(),
+    );
+    mob.x = res.x;
+    mob.y = res.y;
   }
 
   private wander(mob: Mob, dt: number, speed: number): void {
@@ -3439,6 +3836,8 @@ export class World {
     attackerId: number,
     crit = false,
   ): void {
+    // Scale by the mob's incoming-damage multiplier (shock/brittle/curse → >1; default 1 = no-op).
+    amount = amount * mob.statuses.vulnFactor();
     if (attackerId !== 0) {
       mob.lastAttacker = attackerId;
       // Anyone who lands a hit is a TAGGER — they share the kill (no last-hit stealing).
@@ -3490,7 +3889,14 @@ export class World {
         this.rand,
       )) {
         if (eff.kind === 'damage') this.damageMob(mob, eff.amount, undefined, attackerId, false);
-        else applyStatus(mob, eff.ability as AbilityId);
+        else
+          applyStatus(
+            mob,
+            eff.ability as AbilityId,
+            attacker
+              ? { durMult: 1 + attacker.ailmentDuration, magMult: 1 + attacker.ailmentMagnitude }
+              : undefined,
+          );
         if (mob.dead) break;
       }
       this.procDepth--;
@@ -3954,6 +4360,8 @@ export class World {
 
   private damagePlayer(player: Player, amount: number, silent = false): void {
     if (player.god) return;
+    // Scale by the player's incoming-damage multiplier (shock/brittle/curse → >1; default 1 = no-op).
+    amount = amount * player.debuffs.vulnFactor();
     const taken = amount * player.damageTakenMult; // corrupted +fragile makes hits land harder
     player.hp -= taken;
     // Round the floating damage (mult'd by corruption/fragile) for a clean floating number. Burn
@@ -4006,15 +4414,14 @@ export class World {
     const out: EntityState[] = [];
     for (const p of this.players.values()) {
       if (p.dead) continue;
-      // Debuff bits (slow=1, burn=2, weaken=4) match the monster tint bits â€” so a slowed/burning
-      // player tints like a monster â€” while buff bits (might=8, haste=16, regen=32) drive HUD pips.
-      const flags =
-        (p.debuffs.has('slow') ? 1 : 0) |
-        (p.debuffs.has('burn') ? 2 : 0) |
-        (p.debuffs.has('weaken') ? 4 : 0) |
-        (p.buffs.has('might') ? 8 : 0) |
-        (p.buffs.has('haste') ? 16 : 0) |
-        (p.buffs.has('regen') ? 32 : 0);
+      // Build the full status bitfield from STATUS_BITS — covers all debuffs (p.debuffs) and buffs
+      // (p.buffs). Skip 'enrage' which is mob-only (triggered by might|haste self-buff, not a status
+      // a player can hold). Each bit drives client tinting (debuffs) or HUD pips (buffs).
+      let flags = 0;
+      for (const [name, bit] of Object.entries(STATUS_BITS)) {
+        if (name === 'enrage') continue;
+        if (p.debuffs.has(name as StatusId) || p.buffs.has(name as StatusId)) flags |= bit;
+      }
       // Visible-equipment bitfield for the paper-doll: head→helm(1), chest→armor(2), mainhand→weapon(4).
       const look =
         (p.equipment.head ? 1 : 0) | (p.equipment.chest ? 2 : 0) | (p.equipment.mainhand ? 4 : 0);
@@ -4054,11 +4461,14 @@ export class World {
     }
     for (const m of this.mobs.values()) {
       if (m.dead) continue;
-      const flags =
-        (m.statuses.has('slow') ? 1 : 0) |
-        (m.statuses.has('burn') ? 2 : 0) |
-        (m.statuses.has('weaken') ? 4 : 0) |
-        (m.statuses.has('might') || m.statuses.has('haste') ? 64 : 0); // enraged/hasted self-buff
+      // Build the full status bitfield for the mob: loop every STATUS_BITS entry (skip enrage —
+      // that's computed below from might|haste), then OR in the enrage bit separately.
+      let flags = 0;
+      for (const [name, bit] of Object.entries(STATUS_BITS)) {
+        if (name === 'enrage') continue;
+        if (m.statuses.has(name as StatusId)) flags |= bit;
+      }
+      if (m.statuses.has('might') || m.statuses.has('haste')) flags |= STATUS_BITS.enrage; // enraged/hasted self-buff
       const mob: EntityState = {
         id: m.id,
         x: m.x,
@@ -4232,6 +4642,26 @@ export class World {
         kills: number;
         bossKills: number;
         deathlessStreak: number;
+        /** Extra chain bounces aggregated from socketed modifier gems. */
+        chainAdd: number;
+        /** Extra pierce-through count aggregated from socketed modifier gems. */
+        pierceAdd: number;
+        /** Extra fork splits aggregated from socketed modifier gems. */
+        forkAdd: number;
+        /** Spell AoE radius bonus aggregated from socketed modifier gems. */
+        spellAoe: number;
+        /** Homing projectile count from socketed seeking gems. */
+        homingAdd: number;
+        /** Multiplicative spell-damage modifier from support gems (1 = no penalty). */
+        spellDamageMult: number;
+        /** Per-element bonus damage fraction (from elemental-damage affixes; Slice 4). */
+        elemDamage: Record<DamageElement, number>;
+        /** Fraction of enemy resistance ignored (from +penetration affixes; Slice 4). */
+        penetration: number;
+        /** Fraction bonus to ailment duration (from +ailmentdur affixes; Slice 4). */
+        ailmentDuration: number;
+        /** Fraction bonus to ailment magnitude (from +ailmentmag affixes; Slice 4). */
+        ailmentMagnitude: number;
       }
     | undefined {
     const p = this.players.get(id);
@@ -4270,6 +4700,16 @@ export class World {
       kills: p.kills,
       bossKills: p.bossKills,
       deathlessStreak: p.deathlessStreak,
+      chainAdd: p.chainAdd,
+      pierceAdd: p.pierceAdd,
+      forkAdd: p.forkAdd,
+      spellAoe: p.spellAoe,
+      homingAdd: p.homingAdd,
+      spellDamageMult: p.spellDamageMult,
+      elemDamage: { ...p.elemDamage },
+      penetration: p.penetration,
+      ailmentDuration: p.ailmentDuration,
+      ailmentMagnitude: p.ailmentMagnitude,
     };
   }
 
@@ -4309,10 +4749,19 @@ function rollAbilityDamage(
  * Map an ability's on-hit effect onto a monster. The effects are data-driven (the
  * `ability_status_effects` content table); a spell may carry several (e.g. a curse that both slows
  * and weakens), each applied independently.
+ *
+ * Pass `mods` with the caster's ailment multipliers to scale duration and magnitude. Defaults to
+ * 1/1 (no scaling) so existing call sites that omit mods are behaviour-identical.
  */
-function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
+function applyStatus(
+  mob: { statuses: StatusSet },
+  abilityId: AbilityId,
+  mods?: { durMult: number; magMult: number },
+): void {
+  const dm = mods?.durMult ?? 1;
+  const mm = mods?.magMult ?? 1;
   for (const e of getContent().abilityStatusEffects(abilityId)) {
-    mob.statuses.apply(e.effect, e.ms, e.magnitude);
+    mob.statuses.apply(e.effect, e.ms * dm, e.magnitude * mm);
   }
 }
 

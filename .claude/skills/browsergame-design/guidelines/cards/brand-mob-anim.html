@@ -1,0 +1,90 @@
+<!-- @dsCard group="Brand" viewport="700x300" name="Bestiary — animation frames" subtitle="4-frame idle / walk / attack loops for every mob (live)" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--ink-950);
+        font-family: var(--font-body);
+        padding: 16px 18px;
+      }
+      .bar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+        align-items: center;
+      }
+      .bar button {
+        font-family: var(--font-display);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        background: var(--surface-inset);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+        padding: 5px 12px;
+        cursor: pointer;
+      }
+      .bar button.on {
+        color: var(--text-on-gold);
+        background: var(--gold-500);
+        border-color: var(--gold-500);
+      }
+      .grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .m {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+      }
+      .cell {
+        width: 64px;
+        height: 64px;
+        background: radial-gradient(ellipse at 50% 80%, rgba(201, 162, 75, 0.08), transparent 70%);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+        background-repeat: no-repeat;
+        background-position: 0 0;
+        background-size: auto 64px;
+        animation: play 0.56s steps(4) infinite;
+      }
+      @keyframes play {
+        from { background-position: 0 0; }
+        to { background-position: -256px 0; }
+      }
+      .nm {
+        font-family: var(--font-mono);
+        font-size: 8px;
+        color: var(--text-faint);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <span class="nm" style="margin-right:4px">STATE</span>
+      <button data-s="idle">Idle</button>
+      <button data-s="walk" class="on">Walk</button>
+      <button data-s="attack">Attack</button>
+    </div>
+    <div class="grid" id="grid"></div>
+    <script>
+      const M = ['hero', 'skeleton', 'zombie', 'ghoul', 'wraith', 'banshee', 'reaper', 'lich', 'cultist', 'demon', 'imp', 'orc', 'goblin', 'troll', 'minotaur', 'golem', 'naga', 'gorgon', 'hellhound', 'bat', 'spider', 'slime', 'kobold', 'myconid', 'giant-rat', 'giant-worm', 'giant-centipede'];
+      const grid = document.getElementById('grid');
+      grid.innerHTML = M.map((n) => `<div class="m"><div class="cell" data-n="${n}"></div><span class="nm">${n}</span></div>`).join('');
+      function setState(s) {
+        document.querySelectorAll('.cell').forEach((c) => { c.style.backgroundImage = `url(../../assets/mobs/${c.dataset.n}_${s}.png)`; });
+        document.querySelectorAll('.bar button').forEach((b) => b.classList.toggle('on', b.dataset.s === s));
+      }
+      document.querySelectorAll('.bar button').forEach((b) => b.addEventListener('click', () => setState(b.dataset.s)));
+      setState('walk');
+    </script>
+  </body>
+</html>

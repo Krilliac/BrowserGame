@@ -1,0 +1,46 @@
+<!-- @dsCard group="Spacing" viewport="700x160" name="Spacing scale" subtitle="4px base rhythm — the HUD is dense" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--bg-app);
+        font-family: var(--font-mono);
+        padding: 24px;
+        display: flex;
+        align-items: flex-end;
+        gap: 16px;
+      }
+      .u {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 7px;
+      }
+      .bar {
+        background: var(--gold-500);
+        width: 22px;
+        border-radius: 2px;
+      }
+      .v {
+        font-size: 10px;
+        color: var(--text-faint);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="u"><div class="bar" style="height:4px"></div><span class="v">1·4</span></div>
+    <div class="u"><div class="bar" style="height:8px"></div><span class="v">2·8</span></div>
+    <div class="u"><div class="bar" style="height:12px"></div><span class="v">3·12</span></div>
+    <div class="u"><div class="bar" style="height:16px"></div><span class="v">4·16</span></div>
+    <div class="u"><div class="bar" style="height:20px"></div><span class="v">5·20</span></div>
+    <div class="u"><div class="bar" style="height:24px"></div><span class="v">6·24</span></div>
+    <div class="u"><div class="bar" style="height:32px"></div><span class="v">8·32</span></div>
+    <div class="u"><div class="bar" style="height:40px"></div><span class="v">10·40</span></div>
+    <div class="u"><div class="bar" style="height:48px"></div><span class="v">12·48</span></div>
+    <div class="u"><div class="bar" style="height:64px"></div><span class="v">16·64</span></div>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MOB_TEMPLATES } from '../mobs.js';
 import { AREAS } from '../../shared/areas.js';
-import { mobSpriteCell } from '../../client/rogues-sprites.js';
+import { mobSpriteName } from '../../client/mob-sprites.js';
 import { EXPANSION_AREA_MOBS, EXPANSION_LOOT, EXPANSION_RIFT_POOL } from './seed-expansion.js';
 
 /**
@@ -97,10 +97,10 @@ describe('EXPANSION_RIFT_POOL', () => {
 });
 
 describe('expansion sprite coverage', () => {
-  it('every expansion template name resolves to a 32rogues cell', () => {
+  it('every expansion template name resolves to a client sprite (generated or curated, not an orb)', () => {
     for (const id of expansionTemplateIds) {
       const template = MOB_TEMPLATES[id]!;
-      expect(mobSpriteCell(template.name), template.name).toBeDefined();
+      expect(mobSpriteName(template.name, template.hp), template.name).toBeDefined();
     }
   });
 });

@@ -1,0 +1,51 @@
+<!-- @dsCard group="Spacing" viewport="700x190" name="Shadows & glows" subtitle="Panel depth, gold glow, resource glow, rarity beacons" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--ink-850);
+        font-family: var(--font-body);
+        padding: 26px;
+        display: flex;
+        gap: 22px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .box {
+        width: 110px;
+        height: 70px;
+        border-radius: var(--radius-md);
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        font-size: 10px;
+        color: var(--text-muted);
+        padding-bottom: 6px;
+      }
+      .dot {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+      }
+      .grp {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        font-size: 10px;
+        color: var(--text-faint);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grp"><div class="box" style="background:var(--surface-panel-solid);box-shadow:var(--shadow-panel);border:1px solid var(--border-subtle)">panel</div>shadow-panel</div>
+    <div class="grp"><div class="box" style="background:var(--ink-700);box-shadow:var(--glow-gold);border:1px solid var(--gold-500)">gold</div>glow-gold</div>
+    <div class="grp"><div class="dot" style="background:var(--rarity-epic);box-shadow:var(--glow-epic)"></div>epic</div>
+    <div class="grp"><div class="dot" style="background:var(--rarity-legendary);box-shadow:var(--glow-legendary)"></div>legendary</div>
+    <div class="grp"><div class="dot" style="background:var(--rarity-corrupted);box-shadow:var(--glow-corrupted)"></div>corrupted</div>
+  </body>
+</html>

@@ -44,6 +44,7 @@ import { installErrorTrap, getLatestError } from './error-trap.js';
 import { clampPanelRect } from './ui-guard.js';
 import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
 import type { EntityState, InputState } from '../shared/protocol.js';
+import { STATUS_BITS } from '../shared/status-bits.js';
 
 const gameCanvas = document.getElementById('game') as HTMLCanvasElement;
 const hudCanvas = document.getElementById('hud') as HTMLCanvasElement;
@@ -2047,19 +2048,29 @@ function drawTargetFrame(): void {
     `${Math.ceil(t.hp)} / ${t.maxHp}`,
   );
 
-  // Status badges (top-right): the slows/burns/weakens your spells + procs apply, made visible on
-  // the target. Flag bits match the snapshot's monster-debuff bits (1=slow, 2=burn, 4=weaken).
+  // Status badges (top-right): debuffs your spells + procs apply, made visible on the target.
+  // Driven by STATUS_BITS so bit values never drift from the server protocol.
   const flags = t.flags ?? 0;
-  const badges = [
-    { on: (flags & 1) !== 0, label: 'Slow', color: '#6fb4ff' },
-    { on: (flags & 2) !== 0, label: 'Burn', color: '#ff8a3a' },
-    { on: (flags & 4) !== 0, label: 'Weak', color: '#c77dff' },
+  const allBadges = [
+    { on: (flags & STATUS_BITS.stun) !== 0, label: 'Stun', color: '#c8d8ff' },
+    { on: (flags & STATUS_BITS.freeze) !== 0, label: 'Freeze', color: '#9dd8ff' },
+    { on: (flags & STATUS_BITS.poison) !== 0, label: 'Poison', color: '#7ec84a' },
+    { on: (flags & STATUS_BITS.bleed) !== 0, label: 'Bleed', color: '#d94040' },
+    { on: (flags & STATUS_BITS.burn) !== 0, label: 'Burn', color: '#ff8a3a' },
+    { on: (flags & STATUS_BITS.ignite) !== 0, label: 'Ignite', color: '#ff6020' },
+    { on: (flags & STATUS_BITS.shock) !== 0, label: 'Shock', color: '#f0d050' },
+    { on: (flags & STATUS_BITS.slow) !== 0, label: 'Slow', color: '#6fb4ff' },
+    { on: (flags & STATUS_BITS.chill) !== 0, label: 'Chill', color: '#90c8f0' },
+    { on: (flags & STATUS_BITS.weaken) !== 0, label: 'Weak', color: '#c77dff' },
+    { on: (flags & STATUS_BITS.silence) !== 0, label: 'Silence', color: '#c0a0d8' },
   ];
+  // Cap to avoid overflowing the frame — show the first N active badges.
+  const MAX_BADGES = 6;
+  const badges = allBadges.filter((b) => b.on).slice(0, MAX_BADGES);
   hud.font = 'bold 9px system-ui, sans-serif';
   hud.textAlign = 'right';
   let bx = fx + fw - 8;
   for (const b of badges) {
-    if (!b.on) continue;
     const bwid = hud.measureText(b.label).width + 8;
     bx -= bwid;
     hud.fillStyle = 'rgba(0,0,0,0.45)';
@@ -2461,18 +2472,48 @@ function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean; 
 function drawBuffPips(rightX: number, y: number): void {
   const flags = self?.flags ?? 0;
   const defs = [
-    { bit: 1, label: 'Slowed', color: '#88bbff', bad: true },
-    { bit: 2, label: 'Burning', color: '#ff8a4d', bad: true },
-    { bit: 4, label: 'Weakened', color: '#c08adf', bad: true },
-    { bit: 8, label: 'Might', color: '#ffb347', bad: false },
-    { bit: 16, label: 'Haste', color: '#7cf0ff', bad: false },
-    { bit: 32, label: 'Regen', color: '#9be8a0', bad: false },
+    // Debuffs — bad: true -------------------------------------------------------
+    { bit: STATUS_BITS.stun, label: 'Stunned', color: '#c8d8ff', bad: true },
+    { bit: STATUS_BITS.freeze, label: 'Frozen', color: '#9dd8ff', bad: true },
+    { bit: STATUS_BITS.silence, label: 'Silenced', color: '#c0a0d8', bad: true },
+    { bit: STATUS_BITS.poison, label: 'Poisoned', color: '#7ec84a', bad: true },
+    { bit: STATUS_BITS.bleed, label: 'Bleeding', color: '#d94040', bad: true },
+    { bit: STATUS_BITS.ignite, label: 'Ignited', color: '#ff6020', bad: true },
+    { bit: STATUS_BITS.shock, label: 'Shocked', color: '#f0d050', bad: true },
+    { bit: STATUS_BITS.burn, label: 'Burning', color: '#ff8a4d', bad: true },
+    { bit: STATUS_BITS.chill, label: 'Chilled', color: '#90c8f0', bad: true },
+    { bit: STATUS_BITS.slow, label: 'Slowed', color: '#88bbff', bad: true },
+    { bit: STATUS_BITS.weaken, label: 'Weakened', color: '#c08adf', bad: true },
+    // Buffs — bad: false --------------------------------------------------------
+    { bit: STATUS_BITS.might, label: 'Might', color: '#ffb347', bad: false },
+    { bit: STATUS_BITS.haste, label: 'Haste', color: '#7cf0ff', bad: false },
+    { bit: STATUS_BITS.regen, label: 'Regen', color: '#9be8a0', bad: false },
   ];
   const active = defs.filter((d) => (flags & d.bit) !== 0);
-  if (active.length === 0) return;
+  // Combined 'Hexed' pip for lesser hex statuses (brittle/maim/sap/curse) — show one chip when
+  // any of these is active rather than cluttering the HUD with four separate pips.
+  const HEX_MASK = STATUS_BITS.brittle | STATUS_BITS.maim | STATUS_BITS.sap | STATUS_BITS.curse;
+  const hexed = (flags & HEX_MASK) !== 0;
+  if (active.length === 0 && !hexed) return;
   hud.font = 'bold 11px system-ui, sans-serif';
   hud.textBaseline = 'middle';
   let x = rightX;
+  // Render the Hexed combined pip first (rightmost) if any lesser hex is active.
+  if (hexed) {
+    const label = 'Hexed';
+    const chipW = hud.measureText(label).width + 22;
+    x -= chipW;
+    hud.fillStyle = 'rgba(0,0,0,0.5)';
+    hud.fillRect(x, y - 9, chipW, 18);
+    hud.fillStyle = '#9a6fc8'; // muted purple
+    hud.beginPath();
+    hud.arc(x + 9, y, 4, 0, Math.PI * 2);
+    hud.fill();
+    hud.fillStyle = '#e88';
+    hud.textAlign = 'left';
+    hud.fillText(label, x + 16, y);
+    x -= 6;
+  }
   for (let i = active.length - 1; i >= 0; i--) {
     const d = active[i]!;
     const chipW = hud.measureText(d.label).width + 22;

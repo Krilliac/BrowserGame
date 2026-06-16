@@ -1,0 +1,85 @@
+<!-- @dsCard group="Brand" viewport="700x400" name="Bestiary — mob sprites" subtitle="Original top-down roster: hero, undead, demons, brutes, beasts, vermin" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--ink-950);
+        font-family: var(--font-body);
+        padding: 16px 18px;
+      }
+      .grp {
+        font-family: var(--font-display);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--text-label);
+        margin: 12px 0 8px;
+      }
+      .grp:first-child {
+        margin-top: 0;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: flex-end;
+      }
+      .m {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+      }
+      .cell {
+        width: 64px;
+        height: 64px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        background: radial-gradient(ellipse at 50% 80%, rgba(201, 162, 75, 0.08), transparent 70%);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-sm);
+      }
+      .cell img {
+        width: 58px;
+        height: 58px;
+      }
+      .nm {
+        font-family: var(--font-mono);
+        font-size: 8px;
+        color: var(--text-faint);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grp">Hero — 3-way facing (flip side for left/right)</div>
+    <div class="row" id="hero"></div>
+    <div class="grp">Undead</div>
+    <div class="row" id="undead"></div>
+    <div class="grp">Demons & Brutes</div>
+    <div class="row" id="demon"></div>
+    <div class="grp">Beasts & Vermin</div>
+    <div class="row" id="beast"></div>
+    <script>
+      const G = {
+        hero: ['hero', 'hero_side', 'hero_back'],
+        undead: ['skeleton', 'zombie', 'ghoul', 'wraith', 'banshee', 'reaper', 'lich'],
+        demon: ['cultist', 'demon', 'imp', 'orc', 'goblin', 'troll', 'minotaur', 'golem'],
+        beast: ['hellhound', 'bat', 'spider', 'slime', 'naga', 'gorgon', 'kobold', 'myconid', 'giant-rat', 'giant-worm', 'giant-centipede'],
+      };
+      for (const [k, list] of Object.entries(G)) {
+        const row = document.getElementById(k);
+        row.innerHTML = list
+          .map(
+            (n) =>
+              `<div class="m"><div class="cell"><img src="../../assets/mobs/${n}.png" alt="" /></div><span class="nm">${n}</span></div>`,
+          )
+          .join('');
+      }
+    </script>
+  </body>
+</html>

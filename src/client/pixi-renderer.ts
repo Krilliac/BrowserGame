@@ -23,6 +23,7 @@ import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
 import { Weather } from './weather.js';
+import { STATUS_BITS } from '../shared/status-bits.js';
 import { CloudShadows } from './clouds.js';
 import { Lighting, type LightSource } from './lighting.js';
 import { PostFx, type Quality } from './post-fx.js';
@@ -50,13 +51,6 @@ import {
   type ClipSet,
 } from './animation-controller.js';
 import {
-  ANIMALS_SHEET,
-  MONSTERS_SHEET,
-  ROGUES_SHEET,
-  mobSpriteCell,
-  npcSpriteCell,
-} from './rogues-sprites.js';
-import {
   GROUND_TILESETS,
   groundTilesetFor,
   patchCoverage,
@@ -67,6 +61,20 @@ import {
   PATTERN_TILES,
 } from './ground-tiles.js';
 import { DECOR_SPRITES, decorSprite } from './decor-sprites.js';
+import { arcColor, projectileStrip, type ProjStrip } from './projectile-fx.js';
+import {
+  MOB_ARCHETYPES,
+  MOB_CLIPS,
+  MOB_DIR,
+  MOB_FH,
+  MOB_FRAMES,
+  MOB_FW,
+  mobArchetype,
+  mobSheetKey,
+  mobSpriteName,
+  mobStripSrc,
+  type MobState,
+} from './mob-sprites.js';
 import { combineTints } from './tint.js';
 import { backOut, cubicOut } from './easing.js';
 import { shadowLift } from './shadow-lift.js';
@@ -288,6 +296,27 @@ const SHEETS: Record<string, Sheet> = {
 };
 
 /**
+ * Original design-system mob roster (the *tail-coverage* tier — see mob-sprites.ts). One virtual
+ * 3-row sheet per archetype (idle/walk/attack), its texture composed at load by {@link composeMobSheets}
+ * from the three single-facing strips and keyed `mob:<arch>`. These cover the long tail the generated
+ * 8/16-direction sheets above don't (demons, golems, vermin, oozes, nagas…) — entities that used to
+ * fall back to the licensed 32rogues static cell or a procedural orb. `src` is informational only
+ * (the texture is composed, not file-loaded); fw/fh/clips are shared via MOB_CLIPS.
+ */
+const MOB_SHEETS: Record<string, Sheet> = Object.fromEntries(
+  Object.entries(MOB_ARCHETYPES).map(([arch, a]) => [
+    mobSheetKey(arch),
+    {
+      src: `${MOB_DIR}/${arch}_idle.png`,
+      fw: MOB_FW,
+      fh: MOB_FH,
+      scale: a.scale,
+      clips: MOB_CLIPS,
+    },
+  ]),
+);
+
+/**
  * Generated combat FX strips (ASSET-FX, `tools/assetgen/fx`) — one-shot animated effects played from
  * `state.fx` events. These are our own procedurally-generated art (no pack licensing), replacing the
  * old `explosion-cuzco.png`. Aliased `fxstrip:<key>` and loaded in loadAssets; frames are a horizontal
@@ -364,8 +393,11 @@ const FX_STRIPS: Record<
 /** Misc single/strip textures (spell FX + item icons). */
 const MISC: Record<string, string> = {
   fx_fireball: '/assets/ui/fx/spell_fireball.png', // 96x16 -> 6 frames
+  fx_firebomb: '/assets/ui/fx/spell_firebomb.png', // 96x16 -> 6 frames
   fx_frost: '/assets/ui/fx/spell_ice_lance.png', // 64x16 -> 4 frames
+  fx_water: '/assets/ui/fx/spell_water_bolt.png', // 96x16 -> 6 frames
   fx_arcane: '/assets/ui/fx/spell_arcane_bolt.png', // 96x16 -> 6 frames
+  fx_rock: '/assets/ui/fx/spell_rock_sling.png', // 16x16 -> 1 frame
   item_gold: '/assets/ui/items/coin_gold.png', // 32x32 — a few coins
   item_gold_stack: '/assets/ui/items/coin_gold_stack.png', // a small stack
   item_gold_pile: '/assets/ui/items/coin_pile_large.png', // a big pile
@@ -375,10 +407,14 @@ const MISC: Record<string, string> = {
   gem_topaz: '/assets/ui/items/gem_amethyst.png', // amethyst icon stands in for topaz
   gem_diamond: '/assets/ui/items/gem_diamond.png',
 };
-const PROJ_STRIP: Record<string, { alias: string; frames: number }> = {
+/** Each animated spell strip (projectile-fx.ts) → its loaded MISC alias + frame count (16px frames). */
+const PROJ_STRIP_DEFS: Record<ProjStrip, { alias: string; frames: number }> = {
   fireball: { alias: 'fx_fireball', frames: 6 },
+  firebomb: { alias: 'fx_firebomb', frames: 6 },
   frost: { alias: 'fx_frost', frames: 4 },
-  lightning: { alias: 'fx_arcane', frames: 6 },
+  water: { alias: 'fx_water', frames: 6 },
+  arcane: { alias: 'fx_arcane', frames: 6 },
+  rock: { alias: 'fx_rock', frames: 1 },
 };
 
 // Screen-shake decay rate (per second, exponential) and the kick a death impact gives.
@@ -395,6 +431,10 @@ const TINT_BURN = 0xffaa55;
 const TINT_SLOW = 0x88bbff;
 const TINT_WEAKEN = 0xb088c0; // sickly violet — a cursed/weakened monster
 const TINT_ENRAGE = 0xff7b5a; // hot orange-red — a self-buffed (enraged/hasted) monster
+const TINT_STUN = 0xdfe6ff; // pale icy white-blue (stun / freeze)
+const TINT_POISON = 0x8fd96a; // sickly green
+const TINT_BLEED = 0xc23b3b; // dark red
+const TINT_SHOCK = 0xf4e06b; // electric yellow
 
 /** Parse a CSS `#rrggbb` hex color to a 0xRRGGBB number for the additive light layer (which takes
  * numeric colors); falls back to a cool blue if the string isn't a 6-digit hex. */
@@ -412,14 +452,12 @@ function hash2(x: number, y: number): number {
 
 // Names whose monsters fly — rendered elevated above a planted ground shadow (a 3D height cue).
 const FLYER_RE = /Bat|Sprite|Shade|Wraith|Spectre|Ghost/;
-// Big humanoid/undead bosses get the imposing 1.6× boss sprite.
-const BOSS_NAME_RE = /Lord|King|Warden|Bonecaller|Tyrant|Unmaker|Eternal|Knight|Reaver/;
 
 /**
- * Pick a sprite sheet for an entity by archetype (the LPC sheets are reused across thematically
- * similar monsters): humanoid/undead → skeleton, canine/beast → wolf, flyer → bat, big named undead
- * → boss. Monsters with no good match (oozes, golems, imps, colossi, demons) fall back to procedural
- * shapes, which suit their amorphous forms better than a mismatched sprite.
+ * Pick a sprite sheet for an entity: players/NPCs/hirelings use the generated 16-direction adventurer;
+ * mobs delegate to {@link mobSpriteName} (a generated creature sheet by archetype, else a composed
+ * curated `mob:<arch>` sheet, else undefined → procedural orb). The mob decision is pure + unit-tested
+ * in mob-sprites.ts so the content DB's mob names and the client's sprite tiers stay in lockstep.
  */
 function sheetKey(e: EntityState): string | undefined {
   if (e.kind === 'player' || e.kind === 'npc') return 'hero';
@@ -427,22 +465,26 @@ function sheetKey(e: EntityState): string | undefined {
   // be wrong — use the hero sheet so it visually belongs to the player's side of the fight.
   if (e.kind === 'hireling') return 'hero';
   if (e.kind !== 'mob') return undefined;
-  const n = e.name;
-  if (e.maxHp >= 280 && BOSS_NAME_RE.test(n)) return 'boss';
-  if (/Wolf|Hound|Boar/.test(n)) return 'wolf';
-  if (
-    /Skeleton|Cultist|Revenant|Knight|Warlock|Acolyte|Warden|Runeseer|Seer|Bonecaller|Lord|Pilgrim/.test(
-      n,
-    )
-  )
-    return 'skeleton';
-  if (FLYER_RE.test(n)) return 'bat';
-  return undefined;
+  return mobSpriteName(e.name, e.maxHp);
 }
 
 /** Elevation (px) a flying monster floats above the ground, separating it from its planted shadow. */
 function flyHeight(e: EntityState): number {
-  return e.kind === 'mob' && FLYER_RE.test(e.name) ? 16 : 0;
+  if (e.kind !== 'mob') return 0;
+  if (FLYER_RE.test(e.name)) return 16;
+  // Curated flyers (banshee, imp) aren't in FLYER_RE but hover via their archetype's `flying` flag.
+  const arch = mobArchetype(e.name);
+  return arch && MOB_ARCHETYPES[arch]?.flying ? 12 : 0;
+}
+
+/** Load one image, rejecting on error (used to compose the curated mob strip sheets). Browser-only. */
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`failed to load ${src}`));
+    img.src = src;
+  });
 }
 
 export interface RenderState {
@@ -560,6 +602,7 @@ export class PixiRenderer {
   private readonly grade = new ColorMatrixFilter(); // per-area color grading (one pass on the world)
   private readonly fade = new Graphics();
   private readonly fxGfx = new Graphics();
+  private readonly arcGfx = new Graphics();
   private readonly fxTexts: Text[] = [];
   private readonly explosionPool: Sprite[] = [];
   private readonly views = new Map<number, ActorView>();
@@ -636,6 +679,8 @@ export class PixiRenderer {
       this.roofLayer,
     );
     this.fxLayer.addChild(this.fxGfx);
+    this.arcGfx.blendMode = 'add';
+    this.fxLayer.addChild(this.arcGfx);
     this.fxLayer.addChild(this.particles.layer); // world-space particle bursts (RENDER-03)
     this.fade.eventMode = 'none';
     // Draw order (back→front): ground, world, ambient motes, weather, the screen wash (day/night +
@@ -671,9 +716,6 @@ export class PixiRenderer {
       ...Object.fromEntries(Object.entries(FX_STRIPS).map(([k, s]) => [`fxstrip:${k}`, s.src])),
       ...Object.fromEntries(Object.entries(EQUIP_LAYER_SRCS).map(([k, s]) => [`equip:${k}`, s])),
       ...MISC,
-      rogues32: ROGUES_SHEET.src,
-      monsters32: MONSTERS_SHEET.src,
-      animals32: ANIMALS_SHEET.src,
       ...Object.fromEntries([...decorSrcs].map((src) => [src, src])),
     };
     // Load every texture INDEPENDENTLY: a single failed fetch (a dev-server blip, a missing
@@ -691,11 +733,13 @@ export class PixiRenderer {
         }
       }),
     );
-    // The 32px sheets and decor cutouts are pixel art — keep them crisp when scaled.
-    for (const alias of ['rogues32', 'monsters32', 'animals32', ...decorSrcs]) {
+    // Decor cutouts are pixel art — keep them crisp when scaled.
+    for (const alias of decorSrcs) {
       const t = this.tex.get(alias);
       if (t) t.source.scaleMode = 'nearest';
     }
+    // Compose the original mob roster's per-state strips into virtual 3-row sheets (fail-soft).
+    await this.composeMobSheets();
     // Ground tilesets load as plain images: the ground texture is baked on a 2D canvas per area.
     const tileSrcs = new Set(Object.values(GROUND_TILESETS).map((t) => t.src));
     await Promise.all(
@@ -716,6 +760,37 @@ export class PixiRenderer {
     // Per-pixel dynamic lighting (RENDER-01) derives normals from the albedo, so it needs no normal
     // art — enable it on desktop ('high'); touch keeps the cheaper additive-halo-only lighting.
     this.deferred.setEnabled(this.quality === 'high' && !this.heavyGpuFxDisabled);
+  }
+
+  /**
+   * Compose each curated mob archetype's three single-facing strips (idle/walk/attack, 256×64) into
+   * one virtual 3-row sheet texture (256×192) keyed `mob:<arch>`, so the original Gloomwood roster
+   * plugs straight into the animated-actor pipeline (MOB_SHEETS + MOB_CLIPS via resolveAnim). Drawn
+   * with smoothing off so the pixel art stays crisp. Browser-only and fail-soft: a missing or broken
+   * strip just leaves that archetype unsheeted, so its mobs keep the procedural / generated fallback.
+   */
+  private async composeMobSheets(): Promise<void> {
+    if (typeof document === 'undefined') return;
+    const states: MobState[] = ['idle', 'walk', 'attack'];
+    await Promise.all(
+      Object.keys(MOB_ARCHETYPES).map(async (arch) => {
+        try {
+          const imgs = await Promise.all(states.map((st) => loadImage(mobStripSrc(arch, st))));
+          const canvas = document.createElement('canvas');
+          canvas.width = MOB_FW * MOB_FRAMES; // 4 frames wide
+          canvas.height = MOB_FH * states.length; // idle / walk / attack rows
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          ctx.imageSmoothingEnabled = false;
+          imgs.forEach((img, row) => ctx.drawImage(img, 0, row * MOB_FH));
+          const tex = Texture.from(canvas);
+          tex.source.scaleMode = 'nearest';
+          this.tex.set(mobSheetKey(arch), tex);
+        } catch {
+          // strip missing/broken → archetype stays unsheeted; its mobs use the existing fallback
+        }
+      }),
+    );
   }
 
   /**
@@ -2340,15 +2415,23 @@ export class PixiRenderer {
             : combineTints(this.currentTheme.spriteTint, e.tint)
           : now < view.flashUntil
             ? TINT_FLASH
-            : flags & 2
-              ? TINT_BURN
-              : flags & 1
-                ? TINT_SLOW
-                : flags & 4
-                  ? TINT_WEAKEN
-                  : flags & 64
-                    ? TINT_ENRAGE
-                    : combineTints(this.currentTheme.spriteTint, e.tint);
+            : flags & (STATUS_BITS.freeze | STATUS_BITS.stun)
+              ? TINT_STUN
+              : flags & (STATUS_BITS.ignite | STATUS_BITS.burn)
+                ? TINT_BURN
+                : flags & STATUS_BITS.poison
+                  ? TINT_POISON
+                  : flags & STATUS_BITS.bleed
+                    ? TINT_BLEED
+                    : flags & STATUS_BITS.shock
+                      ? TINT_SHOCK
+                      : flags & (STATUS_BITS.chill | STATUS_BITS.slow)
+                        ? TINT_SLOW
+                        : flags & STATUS_BITS.weaken
+                          ? TINT_WEAKEN
+                          : flags & STATUS_BITS.enrage
+                            ? TINT_ENRAGE
+                            : combineTints(this.currentTheme.spriteTint, e.tint);
     }
 
     if (view.dyn && e.maxHp > 0) {
@@ -2426,7 +2509,7 @@ export class PixiRenderer {
     }
 
     const key = sheetKey(e);
-    const sheet = key ? SHEETS[key] : undefined;
+    const sheet = key ? (SHEETS[key] ?? MOB_SHEETS[key]) : undefined;
     const baseTex = key ? this.tex.get(key) : undefined;
     const anim = newAnimView();
     const view: ActorView = {
@@ -2442,15 +2525,7 @@ export class PixiRenderer {
       seen: true,
     };
 
-    // Static (single-frame) 32rogues sprites: NPCs prefer them (a distinct figure per role beats
-    // a shared animated hero), and mobs use them when no animated LPC sheet matches — previously
-    // those fell back to procedural orbs.
-    const staticSprite = this.staticActorSprite(e);
-    if (staticSprite && (e.kind === 'npc' || !(sheet && baseTex))) {
-      view.sprite = staticSprite;
-      view.topY = -staticSprite.height * 0.85;
-      container.addChild(staticSprite);
-    } else if (sheet && baseTex) {
+    if (sheet && baseTex) {
       const start = resolveAnim(anim, sheet.clips, e.facing, false, performance.now());
       const sprite = new Sprite(this.frame(key!, sheet.fw, sheet.fh, start.col, start.row));
       sprite.anchor.set(0.5, 0.92);
@@ -2542,33 +2617,6 @@ export class PixiRenderer {
     return view;
   }
 
-  /**
-   * A static one-frame sprite for an actor from the 32rogues sheets: every monster name maps to a
-   * creature cell (mobSpriteCell) and every service NPC kind to a townsfolk cell (npcSpriteCell).
-   * Returns undefined when no cell matches or the sheet isn't loaded (→ LPC/orb fallback).
-   */
-  private staticActorSprite(e: EntityState): Sprite | undefined {
-    let alias: string | undefined;
-    let cell: { col: number; row: number } | undefined;
-    if (e.kind === 'mob') {
-      const m = mobSpriteCell(e.name);
-      if (m) {
-        alias = m.sheet === 'animals' ? 'animals32' : 'monsters32';
-        cell = m;
-      }
-    } else if (e.kind === 'npc' && e.npcKind) {
-      cell = npcSpriteCell(e.npcKind);
-      alias = 'rogues32';
-    }
-    if (!alias || !cell || !this.tex.has(alias)) return undefined;
-    // Bosses read bigger; everyone else lands near the LPC actors' on-screen height.
-    const scale = e.kind === 'mob' && e.maxHp >= 280 ? 2.1 : 1.4;
-    const sprite = new Sprite(this.frame(alias, 32, 32, cell.col, cell.row));
-    sprite.anchor.set(0.5, 0.92);
-    sprite.scale.set(scale);
-    return sprite;
-  }
-
   private frame(alias: string, fw: number, fh: number, col: number, row: number): Texture {
     const key = `${alias}:${col}:${row}`;
     let t = this.frameCache.get(key);
@@ -2589,7 +2637,10 @@ export class PixiRenderer {
     // Enemy projectiles read as a menacing red regardless of the sprite hint they were given.
     const color = (e.hostile ? '#ff4d4d' : (ability?.color ?? '#ffffff')) as ColorSource;
     const radius = ability?.radius ?? 6;
-    const strip = e.abilityId ? PROJ_STRIP[e.abilityId] : undefined;
+    // Animate the projectile with the element-appropriate spell strip (by ability id, then by the
+    // ability's true color); elements with no strip (poison/holy) keep the correctly-tinted orb.
+    const stripKey = projectileStrip(e.abilityId, ability?.color);
+    const strip = stripKey ? PROJ_STRIP_DEFS[stripKey] : undefined;
     const hasStrip = strip ? this.tex.has(strip.alias) : false;
 
     let view = this.views.get(e.id);
@@ -2927,6 +2978,7 @@ export class PixiRenderer {
   private updateFx(fx: TimedFx[]): void {
     const g = this.fxGfx;
     g.clear();
+    this.arcGfx.clear();
     const now = performance.now();
     let ti = 0;
     let ei = 0; // FX-strip pool index
@@ -3042,6 +3094,11 @@ export class PixiRenderer {
       } else if (ev.kind === 'death') {
         if (this.playStrip('explosion', x, ev.y * PITCH, t0, now, ei)) ei++;
         else g.circle(x, y - 10, 10 + age * 40).stroke({ width: 3, color: '#ccaaaa', alpha });
+      } else if (ev.kind === 'arc' && ev.x2 !== undefined && ev.y2 !== undefined) {
+        this.arcGfx
+          .moveTo(ev.x, ev.y * PITCH)
+          .lineTo(ev.x2, ev.y2 * PITCH)
+          .stroke({ width: 2, color: arcColor(ev.element), alpha: 0.9 });
       }
     }
     for (let i = ti; i < this.fxTexts.length; i++) this.fxTexts[i]!.visible = false;

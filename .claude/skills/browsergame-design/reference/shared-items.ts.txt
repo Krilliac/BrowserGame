@@ -1,0 +1,555 @@
+/**
+ * Item rarity + rolled instances — the Diablo-style "RNG tier loot" layer, shared by client and
+ * server so the wire, the bag UI, and the authoritative stats all agree.
+ *
+ * A base item (from the content DB / `equipment.ts`) defines the *kind* of gear and its baseline
+ * power/hp. When a monster drops gear, the server rolls a {@link Rarity} and a concrete stat value
+ * around the base — producing an {@link ItemInstance} with its own rolled stats and a unique id.
+ * Two "Iron Swords" are no longer interchangeable: one may be a Common with 12 power, another a
+ * Legendary with 41. All randomness is injected (`rng`) so every function here is pure and tested.
+ *
+ * Forward note: this is the foundation for affixes ("loot = your build") and the living-loot meta —
+ * an instance is the natural place to later hang rolled affixes (e.g. +crit) and provenance.
+ */
+
+import type { ItemSlot } from './equipment.js';
+
+export type Rarity = 'common' | 'magic' | 'rare' | 'epic' | 'legendary' | 'corrupted' | 'unique';
+
+/**
+ * The normal-roll rarities, most to least common. **Corrupted is excluded on purpose** — it never
+ * drops from the weighted roll or a rarity bump; it is only created by the corruption of an item
+ * (see {@link rollCorruptedInstance}), so the area-corruption system is its sole source.
+ */
+export const RARITY_ORDER: Rarity[] = ['common', 'magic', 'rare', 'epic', 'legendary'];
+
+export interface RarityDef {
+  name: string;
+  /** Relative drop weight (higher = more common). */
+  weight: number;
+  /** Multiplier applied to the base item's power/hp before variance. */
+  statMult: number;
+  /** ± fraction of variance around the multiplied stat (0.15 = ±15%). */
+  variance: number;
+  /** Display + glow color (drives the ground-drop glint and the bag entry). */
+  color: string;
+}
+
+/**
+ * Code DEFAULTS for the rarity tiers — the seed source for the `rarity_tiers` content table and the
+ * fallback the live {@link RARITY} table is reset to. Treat as immutable; edit tuning via the DB.
+ */
+export const DEFAULT_RARITY: Record<Rarity, RarityDef> = {
+  // Weights tuned so a clear majority of gear rolls magic-or-better (an affix-bearing item) — the
+  // "loot = your build" identity wants modifiers to feel common, not rare.
+  common: { name: 'Common', weight: 560, statMult: 1.0, variance: 0.1, color: '#c9c9c9' },
+  magic: { name: 'Magic', weight: 480, statMult: 1.35, variance: 0.12, color: '#6ea8ff' },
+  rare: { name: 'Rare', weight: 190, statMult: 1.8, variance: 0.15, color: '#ffd24a' },
+  epic: { name: 'Epic', weight: 52, statMult: 2.4, variance: 0.18, color: '#c06bff' },
+  legendary: { name: 'Legendary', weight: 11, statMult: 3.2, variance: 0.22, color: '#ff7a1a' },
+  // Never weighted-rolled (weight 0); only born from corruption. The strongest base stats of all.
+  corrupted: { name: 'Corrupted', weight: 0, statMult: 3.9, variance: 0.25, color: '#ff2d6f' },
+  // Never weighted-rolled (weight 0); only minted by the unique roller. A named, fixed-affix drop —
+  // the loot chase. Top-tier base stats; its signature powers come from its hand-authored affixes.
+  unique: { name: 'Unique', weight: 0, statMult: 3.6, variance: 0.18, color: '#bfa05a' },
+};
+
+/**
+ * The LIVE rarity table the roll/display code reads. Initialized from {@link DEFAULT_RARITY}; the
+ * server overlays the `rarity_tiers` DB rows onto it at load, and the client overlays the values
+ * shipped in the content packet — so tuning weights/colors is data, not code. The object reference
+ * is stable (fields are mutated in place) so all `RARITY[r]` readers see updates without re-import.
+ */
+export const RARITY: Record<Rarity, RarityDef> = Object.fromEntries(
+  (Object.entries(DEFAULT_RARITY) as [Rarity, RarityDef][]).map(([r, d]) => [r, { ...d }]),
+) as Record<Rarity, RarityDef>;
+
+/**
+ * Overlay rarity-tier definitions onto the live {@link RARITY} table (mutating fields in place). Any
+ * tier absent from `defs` is RESET to its {@link DEFAULT_RARITY} value, so this is idempotent and
+ * `applyRarityOverrides({})` restores the code defaults. Called server-side from the content load and
+ * client-side from the content packet.
+ */
+export function applyRarityOverrides(defs: Partial<Record<Rarity, RarityDef>>): void {
+  for (const r of Object.keys(RARITY) as Rarity[]) {
+    Object.assign(RARITY[r], DEFAULT_RARITY[r], defs[r] ?? {});
+  }
+}
+
+/** Roll a rarity tier by weight. Deterministic given `rng`. */
+export function rollRarity(rng: () => number = Math.random): Rarity {
+  let total = 0;
+  for (const r of RARITY_ORDER) total += RARITY[r].weight;
+  let t = rng() * total;
+  for (const r of RARITY_ORDER) {
+    t -= RARITY[r].weight;
+    if (t < 0) return r;
+  }
+  return 'common';
+}
+
+/** Bump a rarity up `steps` tiers (capped at legendary). Used for elite/champion drops. */
+export function bumpRarity(rarity: Rarity, steps = 1): Rarity {
+  const i = Math.min(RARITY_ORDER.length - 1, RARITY_ORDER.indexOf(rarity) + Math.max(0, steps));
+  return RARITY_ORDER[i]!;
+}
+
+/**
+ * Roll a concrete stat value for a base stat at a rarity: `base * statMult` then a uniform draw
+ * within ±variance, rounded. A non-positive base yields 0 (e.g. a weapon has no hp). Positive
+ * bases never roll below 1.
+ */
+export function rollStat(base: number, rarity: Rarity, rng: () => number = Math.random): number {
+  if (base <= 0) return 0;
+  const def = RARITY[rarity];
+  const center = base * def.statMult;
+  const lo = center * (1 - def.variance);
+  const hi = center * (1 + def.variance);
+  return Math.max(1, Math.round(lo + rng() * (hi - lo)));
+}
+
+/** The base (template) shape an instance is rolled from — a subset of the content DB item. */
+export interface BaseItem {
+  id: string;
+  name: string;
+  slot: ItemSlot;
+  power?: number | null;
+  hp?: number | null;
+}
+
+/**
+ * Rollable bonus stats ("affixes") layered on top of a piece of gear's base stats. Most are scalar
+ * bonuses, but `multishot` is *build-defining*: it adds extra projectiles to your projectile
+ * abilities — gear that changes how your kit plays, the first taste of "loot = your build".
+ */
+export type AffixStat =
+  | 'power'
+  | 'hp'
+  | 'crit'
+  | 'multishot'
+  | 'lifesteal' // value = % of damage dealt healed back
+  | 'swift' // value = % attack-cooldown reduction
+  | 'move' // value = % movement-speed bonus
+  | 'armor' // value = % incoming damage reduced
+  | 'vigor' // value = bonus HP regenerated per second
+  // Debuffs — only appear on corrupted gear, paired with a strong buff:
+  | 'frail' // value = max HP removed
+  | 'fragile'; // value = % extra damage taken
+
+/** One rolled affix. `value` is always a positive magnitude; debuff stats apply it as a penalty. */
+export interface Affix {
+  stat: AffixStat;
+  value: number;
+}
+
+/**
+ * Bitmask flags on an item template (extensible — add bits as needed). Stored as the `flags` int on
+ * each `items` row, so an item can carry several at once. The LEGENDARY bit marks hand-authored
+ * uniques (which carry fixed `affixes` + a `baseId`), and excludes them from random base/gamble rolls.
+ */
+export const ItemFlags = {
+  LEGENDARY: 1 << 0,
+} as const;
+export type ItemFlag = (typeof ItemFlags)[keyof typeof ItemFlags];
+
+/** True if `flags` has the given {@link ItemFlags} bit set. */
+export function hasItemFlag(flags: number, flag: ItemFlag): boolean {
+  return (flags & flag) !== 0;
+}
+
+/** Affix stats that are penalties (corrupted gear pairs one of these with a strong buff). */
+const DEBUFF_STATS: AffixStat[] = ['frail', 'fragile'];
+
+/** True if an affix is a downside (rendered as a warning). */
+export function isDebuff(a: Affix): boolean {
+  return DEBUFF_STATS.includes(a.stat);
+}
+
+/** Stats that can appear on a normal (non-corrupted) affix roll. */
+type RollableStat =
+  | 'power'
+  | 'hp'
+  | 'crit'
+  | 'multishot'
+  | 'lifesteal'
+  | 'swift'
+  | 'move'
+  | 'armor'
+  | 'vigor';
+const AFFIX_STATS: RollableStat[] = [
+  'power',
+  'hp',
+  'crit',
+  'multishot',
+  'lifesteal',
+  'swift',
+  'move',
+  'armor',
+  'vigor',
+];
+
+/** A scalar affix's pre-rarity-scaling base value range. */
+export interface AffixRange {
+  min: number;
+  max: number;
+}
+
+/** The scalar affix stats that have a rollable range (multishot is handled specially). */
+type RangeStat = Exclude<RollableStat, 'multishot'>;
+
+/**
+ * Code DEFAULTS for the affix roll ranges — the seed source for `affix_ranges` and the fallback the
+ * live {@link AFFIX_RANGES} resets to. Treat as immutable; tune via the DB.
+ */
+export const DEFAULT_AFFIX_RANGES: Record<RangeStat, AffixRange> = {
+  power: { min: 2, max: 6 },
+  hp: { min: 8, max: 22 },
+  crit: { min: 2, max: 6 },
+  lifesteal: { min: 2, max: 5 },
+  swift: { min: 2, max: 4 },
+  move: { min: 3, max: 6 },
+  armor: { min: 2, max: 5 },
+  vigor: { min: 1, max: 3 },
+};
+
+/** The LIVE affix roll ranges (server-only; overlaid from the `affix_ranges` DB table at load). */
+export const AFFIX_RANGES: Record<RangeStat, AffixRange> = Object.fromEntries(
+  (Object.entries(DEFAULT_AFFIX_RANGES) as [RangeStat, AffixRange][]).map(([s, r]) => [
+    s,
+    { ...r },
+  ]),
+) as Record<RangeStat, AffixRange>;
+
+/**
+ * Overlay affix roll ranges onto the live {@link AFFIX_RANGES} (mutating fields in place). A stat
+ * absent from `ranges` resets to its {@link DEFAULT_AFFIX_RANGES} value, so `{}` restores defaults.
+ */
+export function applyAffixRangeOverrides(ranges: Partial<Record<string, AffixRange>>): void {
+  for (const stat of Object.keys(AFFIX_RANGES) as RangeStat[]) {
+    const o = ranges[stat] ?? DEFAULT_AFFIX_RANGES[stat];
+    AFFIX_RANGES[stat].min = o.min;
+    AFFIX_RANGES[stat].max = o.max;
+  }
+}
+
+/** How many affixes a rarity rolls (common gear has none — rarity is the dopamine gate). */
+export function affixCount(rarity: Rarity): number {
+  const counts: Partial<Record<Rarity, number>> = {
+    common: 0,
+    magic: 1,
+    rare: 2,
+    epic: 2,
+    legendary: 3,
+  };
+  return counts[rarity] ?? 0; // corrupted gets its affixes from the corrupted pair, not this
+}
+
+/** Roll an item's affixes: `affixCount(rarity)` distinct stats, each value scaled by rarity. */
+export function rollAffixes(rarity: Rarity, rng: () => number = Math.random): Affix[] {
+  const n = affixCount(rarity);
+  if (n <= 0) return [];
+  const pool = [...AFFIX_STATS];
+  const mult = RARITY[rarity].statMult;
+  const out: Affix[] = [];
+  for (let i = 0; i < n && pool.length > 0; i++) {
+    const stat = pool.splice(Math.floor(rng() * pool.length), 1)[0]!;
+    if (stat === 'multishot') {
+      // A bounded, build-defining roll — never mult-scaled into absurdity.
+      out.push({ stat, value: rarity === 'epic' || rarity === 'legendary' ? 2 : 1 });
+    } else {
+      const r = AFFIX_RANGES[stat];
+      const base = r.min + rng() * (r.max - r.min);
+      out.push({ stat, value: Math.max(1, Math.round(base * mult)) });
+    }
+  }
+  return out;
+}
+
+/** Human-readable affix line, e.g. "+5% crit", "+1 projectile", or the debuff "-30 hp". */
+export function affixLabel(a: Affix): string {
+  switch (a.stat) {
+    case 'crit':
+      return `+${a.value}% crit`;
+    case 'multishot':
+      return `+${a.value} projectile${a.value > 1 ? 's' : ''}`;
+    case 'lifesteal':
+      return `+${a.value}% life steal`;
+    case 'swift':
+      return `+${a.value}% attack speed`;
+    case 'move':
+      return `+${a.value}% move speed`;
+    case 'armor':
+      return `+${a.value}% armor`;
+    case 'vigor':
+      return `+${a.value} hp/sec`;
+    case 'frail':
+      return `-${a.value} hp`;
+    case 'fragile':
+      return `+${a.value}% dmg taken`;
+    default:
+      return `+${a.value} ${a.stat}`;
+  }
+}
+
+// --- Diablo-style affix names ---------------------------------------------------------
+// Each affix gets an evocative name that flows into the item title: prefixes go before the base
+// ("Savage Iron Sword"), suffixes after ("... of the Boar"), tiered by magnitude. The numbers still
+// show on the stat line; this is the flavor layer that makes a magic drop read like a named item.
+
+export interface AffixName {
+  /** Where it sits in the title. */
+  kind: 'prefix' | 'suffix';
+  /** Ascending value thresholds → the word/phrase used at that tier (upTo may be Infinity). */
+  tiers: { upTo: number; word: string }[];
+}
+
+/**
+ * Code DEFAULTS for the affix flavor names — the seed source for `affix_names`/`affix_name_tiers`
+ * and the fallback the live {@link AFFIX_NAMES} resets to. Treat as immutable; tune via the DB.
+ */
+export const DEFAULT_AFFIX_NAMES: Record<AffixStat, AffixName> = {
+  power: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Jagged' },
+      { upTo: 12, word: 'Savage' },
+      { upTo: 20, word: 'Cruel' },
+      { upTo: Infinity, word: 'Merciless' },
+    ],
+  },
+  crit: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Keen' },
+      { upTo: 12, word: 'Deadly' },
+      { upTo: Infinity, word: 'Vicious' },
+    ],
+  },
+  multishot: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 1, word: 'Forking' },
+      { upTo: Infinity, word: 'Splitting' },
+    ],
+  },
+  lifesteal: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Bloody' },
+      { upTo: 12, word: 'Vampiric' },
+      { upTo: Infinity, word: 'Sanguine' },
+    ],
+  },
+  swift: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Quick' },
+      { upTo: 12, word: 'Rapid' },
+      { upTo: Infinity, word: 'Blurred' },
+    ],
+  },
+  move: {
+    kind: 'suffix',
+    tiers: [
+      { upTo: 10, word: 'of the Wind' },
+      { upTo: 18, word: 'of the Gale' },
+      { upTo: Infinity, word: 'of the Storm' },
+    ],
+  },
+  armor: {
+    kind: 'prefix',
+    tiers: [
+      { upTo: 6, word: 'Sturdy' },
+      { upTo: 12, word: 'Plated' },
+      { upTo: Infinity, word: 'Ironclad' },
+    ],
+  },
+  vigor: {
+    kind: 'suffix',
+    tiers: [
+      { upTo: 6, word: 'of Health' },
+      { upTo: 12, word: 'of Vitality' },
+      { upTo: Infinity, word: 'of Renewal' },
+    ],
+  },
+  hp: {
+    kind: 'suffix',
+    tiers: [
+      { upTo: 20, word: 'of the Fox' },
+      { upTo: 40, word: 'of the Boar' },
+      { upTo: 60, word: 'of the Bear' },
+      { upTo: Infinity, word: 'of the Colossus' },
+    ],
+  },
+  frail: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Frailty' }] },
+  fragile: { kind: 'suffix', tiers: [{ upTo: Infinity, word: 'of Brittleness' }] },
+};
+
+/** The LIVE affix flavor names (overlaid from the `affix_names` DB tables; client + server). */
+export const AFFIX_NAMES: Record<AffixStat, AffixName> = Object.fromEntries(
+  (Object.entries(DEFAULT_AFFIX_NAMES) as [AffixStat, AffixName][]).map(([s, n]) => [s, n]),
+) as Record<AffixStat, AffixName>;
+
+/**
+ * Overlay affix flavor names onto the live {@link AFFIX_NAMES} (replacing each stat's value). A stat
+ * absent from `names` resets to its {@link DEFAULT_AFFIX_NAMES} value, so `{}` restores defaults.
+ */
+export function applyAffixNameOverrides(names: Partial<Record<AffixStat, AffixName>>): void {
+  for (const stat of Object.keys(AFFIX_NAMES) as AffixStat[]) {
+    AFFIX_NAMES[stat] = names[stat] ?? DEFAULT_AFFIX_NAMES[stat];
+  }
+}
+
+/** The evocative name + placement for one affix (e.g. {kind:'suffix', word:'of the Boar'}). */
+export function affixName(a: Affix): { kind: 'prefix' | 'suffix'; word: string } {
+  const def = AFFIX_NAMES[a.stat];
+  const tier = def.tiers.find((t) => a.value <= t.upTo) ?? def.tiers[def.tiers.length - 1]!;
+  return { kind: def.kind, word: tier.word };
+}
+
+/**
+ * The Diablo-style item title composed from its affixes: prefix words, the base name, then suffix
+ * phrases — e.g. "Savage Keen Iron Sword of the Boar". A plain (affix-less) item is just its base
+ * name; rarity is conveyed by color, not a "Magic/Rare" word.
+ */
+export function instanceTitle(inst: ItemInstance, baseName: string): string {
+  if (inst.name) return inst.name; // unique items carry a hand-authored name
+  const affixes = inst.affixes ?? [];
+  if (affixes.length === 0) return baseName;
+  const prefixes: string[] = [];
+  const suffixes: string[] = [];
+  for (const a of affixes) {
+    const n = affixName(a);
+    (n.kind === 'prefix' ? prefixes : suffixes).push(n.word);
+  }
+  const head = prefixes.length ? `${prefixes.join(' ')} ` : '';
+  const tail = suffixes.length ? ` ${suffixes.join(' ')}` : '';
+  return `${head}${baseName}${tail}`;
+}
+
+const CORRUPT_BUFFS: AffixStat[] = ['power', 'crit', 'multishot'];
+
+/** Roll a corrupted item's affix pair: one strong buff and one debuff. */
+export function rollCorruptedAffixes(rng: () => number = Math.random): Affix[] {
+  const buff = CORRUPT_BUFFS[Math.floor(rng() * CORRUPT_BUFFS.length)]!;
+  const debuff = DEBUFF_STATS[Math.floor(rng() * DEBUFF_STATS.length)]!;
+  const span = (lo: number, hi: number): number => Math.round(lo + rng() * (hi - lo));
+  const buffAffix: Affix =
+    buff === 'multishot'
+      ? { stat: 'multishot', value: 2 }
+      : buff === 'power'
+        ? { stat: 'power', value: span(8, 16) }
+        : { stat: 'crit', value: span(10, 20) };
+  const debuffAffix: Affix =
+    debuff === 'frail'
+      ? { stat: 'frail', value: span(20, 40) }
+      : { stat: 'fragile', value: span(15, 30) };
+  return [buffAffix, debuffAffix];
+}
+
+/** A concrete, rolled piece of gear a player can hold or equip. `uid` is unique within a world. */
+export interface ItemInstance {
+  uid: number;
+  baseId: string;
+  rarity: Rarity;
+  /** Rolled attack power (0 for armor). */
+  power: number;
+  /** Rolled bonus max HP (0 for weapons). */
+  hp: number;
+  /** Rolled bonus affixes (empty for common gear). */
+  affixes: Affix[];
+  /** Gem sockets: each entry is a socketed gem id or null (empty). Absent on pre-gem saves/gear. */
+  sockets?: (string | null)[];
+  /** Unique items only: the hand-authored name shown instead of the affix-composed title. */
+  name?: string;
+}
+
+/** How many gem sockets a piece of gear of this rarity rolls. Sockets are a valued, rarer perk. */
+export function socketCountFor(rarity: Rarity): number {
+  const counts: Record<Rarity, number> = {
+    common: 0,
+    magic: 1,
+    rare: 1,
+    epic: 2,
+    legendary: 2,
+    corrupted: 1,
+    unique: 3, // uniques get a third socket — enough to host a 3-rune runeword
+  };
+  return counts[rarity];
+}
+
+/** A fresh array of `n` empty sockets. */
+function emptySockets(n: number): (string | null)[] {
+  return new Array<string | null>(n).fill(null);
+}
+
+/** Roll a fresh instance of a base item: a rarity, then its stat(s). Deterministic given `rng`. */
+export function rollItemInstance(
+  uid: number,
+  base: BaseItem,
+  rng: () => number = Math.random,
+  rarityBump = 0,
+): ItemInstance {
+  const rarity = rarityBump > 0 ? bumpRarity(rollRarity(rng), rarityBump) : rollRarity(rng);
+  return {
+    uid,
+    baseId: base.id,
+    rarity,
+    power: rollStat(base.power ?? 0, rarity, rng),
+    hp: rollStat(base.hp ?? 0, rarity, rng),
+    affixes: rollAffixes(rarity, rng),
+    sockets: emptySockets(socketCountFor(rarity)),
+  };
+}
+
+/**
+ * Roll a vendor-bought instance: always **common** rarity, no affixes. Shop gear is a floor that
+ * fills equipment gaps — the jackpot rarities stay on the drop path, so killing monsters remains
+ * the exciting way to gear up.
+ */
+export function rollVendorInstance(
+  uid: number,
+  base: BaseItem,
+  rng: () => number = Math.random,
+): ItemInstance {
+  return {
+    uid,
+    baseId: base.id,
+    rarity: 'common',
+    power: rollStat(base.power ?? 0, 'common', rng),
+    hp: rollStat(base.hp ?? 0, 'common', rng),
+    affixes: [],
+  };
+}
+
+/** Build a corrupted instance: top-tier base stats plus a strong-buff/debuff corrupted affix pair. */
+export function rollCorruptedInstance(
+  uid: number,
+  base: BaseItem,
+  rng: () => number = Math.random,
+): ItemInstance {
+  return {
+    uid,
+    baseId: base.id,
+    rarity: 'corrupted',
+    power: rollStat(base.power ?? 0, 'corrupted', rng),
+    hp: rollStat(base.hp ?? 0, 'corrupted', rng),
+    affixes: rollCorruptedAffixes(rng),
+    sockets: emptySockets(socketCountFor('corrupted')),
+  };
+}
+
+/** Display name: the base name, prefixed with the rarity for anything above common. */
+export function instanceName(inst: ItemInstance, baseName: string): string {
+  if (inst.name) return inst.name; // unique items carry a hand-authored name
+  return inst.rarity === 'common' ? baseName : `${RARITY[inst.rarity].name} ${baseName}`;
+}
+
+/** Vendor gold paid for a gear instance — scales with its rolled stats, (buff) affixes, and rarity. */
+export function gearSellValue(inst: ItemInstance): number {
+  const affixWorth = inst.affixes.reduce((s, a) => s + (isDebuff(a) ? 0 : a.value), 0);
+  return Math.max(
+    1,
+    Math.round((inst.power + inst.hp + affixWorth) * 0.6 * RARITY[inst.rarity].statMult),
+  );
+}

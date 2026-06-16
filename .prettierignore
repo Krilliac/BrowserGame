@@ -4,3 +4,4 @@ public/assets
 *.md
 .vs
 .remember
+.claude/skills

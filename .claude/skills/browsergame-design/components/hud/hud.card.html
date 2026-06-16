@@ -1,0 +1,86 @@
+<!-- @dsCard group="Components" viewport="700x440" name="HUD — Orbs · Bars · Hotbar · Nameplates" subtitle="Liquid globes, resource bars, ability slots, monster banners" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+    <script src="../../_ds_bundle.js"></script>
+    <style>
+      body {
+        margin: 0;
+        background:
+          radial-gradient(120% 90% at 50% 130%, #20160f 0%, var(--ink-950) 65%);
+        font-family: var(--font-body);
+        padding: 22px;
+      }
+      .lbl {
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--text-label);
+        margin: 0 0 10px;
+      }
+      .row {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 24px;
+      }
+      .plates {
+        display: flex;
+        gap: 28px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const NS = window.BrowserGameARPGDesignSystem_aa965c;
+      const { OrbGauge, ResourceBar, AbilitySlot, Nameplate } = NS;
+      const FX = (n) => `../../assets/fx/${n}.png`;
+
+      function Demo() {
+        return (
+          <div>
+            <div className="row">
+              <OrbGauge type="health" value={420} max={560} />
+              <div style={{ display: 'flex', gap: 10 }}>
+                <AbilitySlot src={FX('spell_fireball')} hotkey="1" />
+                <AbilitySlot src={FX('spell_ice_lance')} hotkey="2" cooldown={0.45} cooldownText="3" />
+                <AbilitySlot src={FX('spell_arcane_bolt')} hotkey="3" />
+                <AbilitySlot src={FX('spell_magic_orb')} hotkey="4" disabled />
+              </div>
+              <OrbGauge type="mana" value={88} max={120} />
+            </div>
+
+            <div style={{ display: 'flex', gap: 24, marginBottom: 24, flexWrap: 'wrap' }}>
+              <div style={{ width: 220 }}>
+                <p className="lbl">Resource bars</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <ResourceBar kind="xp" value={3200} max={5000} label="Level 14" showValue />
+                  <ResourceBar kind="health" value={38} max={120} />
+                  <ResourceBar kind="mana" value={90} max={120} />
+                </div>
+              </div>
+              <div>
+                <p className="lbl">Nameplates</p>
+                <div className="plates">
+                  <Nameplate name="Rot Ghoul" level={6} hp={62} maxHp={80} />
+                  <Nameplate name="Tusk Runner" tier="elite" level={8} hp={120} maxHp={140} />
+                  <Nameplate name="Maggath" tier="boss" level={12} hp={1800} maxHp={2400} />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+    </script>
+  </body>
+</html>

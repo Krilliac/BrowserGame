@@ -91,6 +91,28 @@ const MIGRATIONS: Migration[] = [
       if (hasTable(db, 'game_events')) ensureColumns(db, 'game_events', { gold_bonus: 'REAL' });
     },
   },
+  {
+    version: 3,
+    name: 'ability-behaviors',
+    up(db) {
+      // Spell-behavior engine: abilities carry a JSON behavior list (chain/pierce/fork/splash/homing/
+      // multishot/return), seeded into behaviors_json. Add the nullable column to old DBs.
+      if (hasTable(db, 'abilities')) ensureColumns(db, 'abilities', { behaviors_json: 'TEXT' });
+    },
+  },
+  {
+    version: 4,
+    name: 'gem-modifier-fields',
+    up(db) {
+      // Support gems carry a damage-tradeoff multiplier (mult) and a homing flag (grants_homing).
+      // Both default to their neutral values so all existing gem rows behave identically to before.
+      if (hasTable(db, 'gems'))
+        ensureColumns(db, 'gems', {
+          mult: 'REAL NOT NULL DEFAULT 1',
+          grants_homing: 'INTEGER NOT NULL DEFAULT 0',
+        });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */

@@ -29,6 +29,23 @@ export type AbilityKind = 'melee' | 'projectile' | 'heal';
  */
 export type DamageElement = 'physical' | 'fire' | 'cold' | 'lightning' | 'poison';
 
+/**
+ * A composable spell behavior (Slice 1 of the spell-behavior engine). Declared as data on an ability
+ * and seeded into the content DB (`abilities.behaviors_json`), so behaviors are SQL-tunable. The
+ * server resolves them via `src/server/projectile-behaviors.ts`. `falloff` is a per-event damage
+ * multiplier (0.7 = each subsequent jump/pierce deals 70% of the prior).
+ */
+export type BehaviorSpec =
+  | { type: 'chain'; count: number; range: number; falloff: number }
+  | { type: 'pierce'; count: number; falloff: number }
+  | { type: 'fork'; count: number; spreadRad: number; falloff: number }
+  | { type: 'splash'; radius: number; scale: number }
+  | { type: 'homing'; turnRate: number; acquireRange: number }
+  | { type: 'multishot'; count: number; spreadRad: number }
+  | { type: 'return'; falloff: number }
+  /** Push the primary hit target `px` pixels directly away from the projectile impact point. */
+  | { type: 'knockback'; px: number };
+
 export interface Ability {
   id: string;
   name: string;
@@ -52,6 +69,8 @@ export interface Ability {
   radius: number;
   /** Damage school (defaults to 'physical' when the DB column is unset). Drives mob resistances. */
   element?: DamageElement;
+  /** Composable projectile behaviors (chain/pierce/fork/splash/homing/multishot/return). */
+  behaviors?: BehaviorSpec[];
 }
 
 const ABILITY_DEFS = {
@@ -81,6 +100,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 320,
     projectileTtlMs: 1500,
     radius: 12,
+    behaviors: [{ type: 'splash', radius: 70, scale: 0.5 }],
   },
   arrow: {
     id: 'arrow',
@@ -95,6 +115,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 560,
     projectileTtlMs: 1100,
     radius: 5,
+    behaviors: [{ type: 'pierce', count: 2, falloff: 0.9 }],
   },
   frost: {
     id: 'frost',
@@ -109,6 +130,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 300,
     projectileTtlMs: 1400,
     radius: 10,
+    behaviors: [{ type: 'splash', radius: 50, scale: 0.4 }],
   },
   heal: {
     id: 'heal',
@@ -135,6 +157,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 640,
     projectileTtlMs: 900,
     radius: 8,
+    behaviors: [{ type: 'chain', count: 3, range: 150, falloff: 0.75 }],
   },
   // A heavy sweeping melee — wide arc, big hit, slow swing. The two-hander fantasy.
   cleave: {
@@ -164,6 +187,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 340,
     projectileTtlMs: 1300,
     radius: 9,
+    behaviors: [{ type: 'splash', radius: 60, scale: 0.5 }],
   },
   // The big nuke: slow, expensive, hits hard and sets the target ablaze.
   meteor: {
@@ -179,6 +203,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 300,
     projectileTtlMs: 1500,
     radius: 14,
+    behaviors: [{ type: 'splash', radius: 70, scale: 0.5 }],
   },
 
   // --- Expanded spellbook: elemental (fire / ice / lightning) ---
@@ -209,6 +234,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 500,
     projectileTtlMs: 1100,
     radius: 7,
+    behaviors: [{ type: 'splash', radius: 50, scale: 0.4 }],
   },
   sparkjolt: {
     id: 'sparkjolt',
@@ -237,6 +263,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 440,
     projectileTtlMs: 1300,
     radius: 9,
+    behaviors: [{ type: 'pierce', count: 2, falloff: 0.9 }],
   },
   flamewave: {
     id: 'flamewave',
@@ -290,6 +317,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 760,
     projectileTtlMs: 880,
     radius: 8,
+    behaviors: [{ type: 'chain', count: 3, range: 150, falloff: 0.75 }],
   },
   cinderorb: {
     id: 'cinderorb',
@@ -318,6 +346,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 300,
     projectileTtlMs: 1500,
     radius: 14,
+    behaviors: [{ type: 'splash', radius: 50, scale: 0.4 }],
   },
   thunderlance: {
     id: 'thunderlance',
@@ -332,6 +361,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 820,
     projectileTtlMs: 820,
     radius: 9,
+    behaviors: [{ type: 'chain', count: 3, range: 150, falloff: 0.75 }],
   },
   infernonova: {
     id: 'infernonova',
@@ -361,6 +391,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 340,
     projectileTtlMs: 1500,
     radius: 10,
+    behaviors: [{ type: 'splash', radius: 60, scale: 0.5 }],
   },
   shadow_bolt: {
     id: 'shadow_bolt',
@@ -712,8 +743,10 @@ const ABILITY_DEFS = {
     projectileSpeed: 600,
     projectileTtlMs: 950,
     radius: 12,
+    behaviors: [{ type: 'return', falloff: 0.8 }],
   },
   // Mire Mortar: a slow, heavy glob lobbed in a lazy arc — big splat, mid-game crowd softener.
+  // The sheer weight of impact shoves the primary target away on hit.
   mire_mortar: {
     id: 'mire_mortar',
     name: 'Mire Mortar',
@@ -727,6 +760,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 220,
     projectileTtlMs: 1900,
     radius: 18,
+    behaviors: [{ type: 'knockback', px: 55 }],
   },
   // Galeburst: a full-circle gust nova (half-angle ~π = all around), the mid-game "get off me".
   galeburst: {
@@ -797,6 +831,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 860,
     projectileTtlMs: 780,
     radius: 10,
+    behaviors: [{ type: 'pierce', count: 2, falloff: 0.9 }],
   },
   // Starfall: a shard of falling sky — big, bright, and worth the wait.
   starfall: {
@@ -884,7 +919,8 @@ export interface FxEvent {
     | 'heal'
     | 'levelup'
     | 'telegraph'
-    | 'slam';
+    | 'slam'
+    | 'arc';
   x: number;
   y: number;
   /** Facing/direction in radians (melee arcs, cast flashes, telegraph aim). */
@@ -900,4 +936,9 @@ export interface FxEvent {
   /** 'pickup' only: rarity of a picked-up gear instance, so the sparkle matches its color. */
   rarity?: string;
   abilityId?: AbilityId;
+  /** `arc` only: the far endpoint of a chain link (the source is x,y). */
+  x2?: number;
+  y2?: number;
+  /** `arc` only: element tint for the arc color. */
+  element?: DamageElement;
 }

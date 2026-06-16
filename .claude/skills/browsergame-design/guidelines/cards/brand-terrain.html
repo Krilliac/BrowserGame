@@ -1,0 +1,43 @@
+<!-- @dsCard group="Brand" viewport="700x200" name="Terrain tilesets" subtitle="Biome ground references — catacomb, cursed, undead, forest" -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../styles.css" />
+    <style>
+      body {
+        margin: 0;
+        background: var(--bg-app);
+        font-family: var(--font-body);
+        padding: 18px;
+        display: flex;
+        gap: 12px;
+      }
+      .t {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .frame {
+        height: 120px;
+        border: 1px solid var(--border-accent-soft);
+        border-radius: var(--radius-sm);
+        background-size: 96px;
+        image-rendering: pixelated;
+      }
+      .nm {
+        font-family: var(--font-mono);
+        font-size: 9px;
+        color: var(--text-faint);
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="t"><div class="frame" style="background-image:url(../../assets/terrain/catacombs.png)"></div><span class="nm">catacomb</span></div>
+    <div class="t"><div class="frame" style="background-image:url(../../assets/terrain/cursed_ground.png)"></div><span class="nm">cursed</span></div>
+    <div class="t"><div class="frame" style="background-image:url(../../assets/terrain/undead_ground.png)"></div><span class="nm">undead</span></div>
+    <div class="t"><div class="frame" style="background-image:url(../../assets/terrain/forest_spring.png)"></div><span class="nm">forest</span></div>
+  </body>
+</html>

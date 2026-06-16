@@ -1,5 +1,9 @@
 # Terrain Tileset Credits — public/assets/tiles/
 
+> **Superseded — see `../CREDITS.md`.** The licensed Kenney/OGA tile sheets were removed; the game
+> now uses only the project-generated 4×4 biome sheets (meadow/marsh/mine/frost/cave/dungeon/autumn,
+> all original/license-free). Detail below is retained for historical context.
+
 Curated, license-clean top-down / 2.5D terrain tilesets for BrowserGame's
 Diablo/RuneScape fantasy look (grass, dirt/path, stone/dungeon floor, water, cliffs).
 

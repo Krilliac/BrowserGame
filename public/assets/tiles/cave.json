@@ -1,0 +1,84 @@
+{
+  "src": "/assets/tiles/cave.png",
+  "tileSize": 32,
+  "tiles": [
+    {
+      "col": 0,
+      "row": 0,
+      "weight": 60
+    },
+    {
+      "col": 1,
+      "row": 0,
+      "weight": 6
+    },
+    {
+      "col": 2,
+      "row": 0,
+      "weight": 6
+    },
+    {
+      "col": 3,
+      "row": 0,
+      "weight": 6
+    },
+    {
+      "col": 0,
+      "row": 1,
+      "weight": 6
+    },
+    {
+      "col": 1,
+      "row": 1,
+      "weight": 6
+    },
+    {
+      "col": 2,
+      "row": 1,
+      "weight": 6
+    }
+  ],
+  "blend": {
+    "patch": [
+      {
+        "col": 3,
+        "row": 1
+      },
+      {
+        "col": 0,
+        "row": 2
+      },
+      {
+        "col": 1,
+        "row": 2
+      },
+      {
+        "col": 2,
+        "row": 2
+      },
+      {
+        "col": 3,
+        "row": 2
+      },
+      {
+        "col": 0,
+        "row": 3
+      },
+      {
+        "col": 1,
+        "row": 3
+      },
+      {
+        "col": 2,
+        "row": 3
+      },
+      {
+        "col": 3,
+        "row": 3
+      }
+    ],
+    "scale": 5,
+    "threshold": 0.6,
+    "margin": 0.1
+  }
+}

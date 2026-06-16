@@ -3,7 +3,7 @@ import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
 import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme, type WeatherKind } from '../shared/theme.js';
-import type { Ability, AbilityId, DamageElement } from '../shared/combat.js';
+import type { Ability, AbilityId, BehaviorSpec, DamageElement } from '../shared/combat.js';
 import type { ResistMap } from './combat-formulas.js';
 import {
   hasItemFlag,
@@ -350,6 +350,13 @@ export function loadContent(db: GameDatabase): Content {
     if (r.melee_half_angle !== null) ability.meleeHalfAngle = r.melee_half_angle;
     if (r.projectile_speed !== null) ability.projectileSpeed = r.projectile_speed;
     if (r.projectile_ttl_ms !== null) ability.projectileTtlMs = r.projectile_ttl_ms;
+    if (r.behaviors_json) {
+      try {
+        ability.behaviors = JSON.parse(r.behaviors_json) as BehaviorSpec[];
+      } catch {
+        // malformed JSON → no behaviors (plain projectile); never crash content load
+      }
+    }
     abilities.set(r.id, ability);
     order.push(r.id as AbilityId);
   }
@@ -579,14 +586,19 @@ export function loadContent(db: GameDatabase): Content {
   }
 
   // Gem catalog (socketable bonuses). Overlaid onto the shared GEMS table.
-  const gems = (db.prepare('SELECT * FROM gems').all() as GemRow[]).map((r) => ({
-    id: r.id,
-    name: r.name,
-    color: r.color,
-    stat: r.stat as GemDef['stat'],
-    value: r.value,
-    tier: r.tier,
-  }));
+  const gems = (db.prepare('SELECT * FROM gems').all() as GemRow[]).map((r) => {
+    const def: GemDef = {
+      id: r.id,
+      name: r.name,
+      color: r.color,
+      stat: r.stat as GemDef['stat'],
+      value: r.value,
+      tier: r.tier,
+    };
+    if (r.mult !== 1) def.mult = r.mult;
+    if (r.grants_homing !== 0) def.grantsHoming = true;
+    return def;
+  });
 
   // Rune pool + runeword recipes (server-side runeword detection). Recipe sequence is the
   // comma-joined rune list; bonuses are reassembled from runeword_bonuses in sort order.
@@ -987,6 +999,7 @@ interface AbilityRow {
   melee_half_angle: number | null;
   projectile_speed: number | null;
   projectile_ttl_ms: number | null;
+  behaviors_json: string | null;
   radius: number;
   element: string | null;
 }
@@ -1137,6 +1150,8 @@ interface GemRow {
   stat: string;
   value: number;
   tier: number;
+  mult: number;
+  grants_homing: number;
 }
 interface RuneRow {
   id: string;

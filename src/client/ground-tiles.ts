@@ -6,27 +6,18 @@
  * sets (one `pickTile` call per pattern cell), then TilingSprites it across the area. Weights let
  * a plain base tile dominate with occasional detail variants (cracks, flowers, rubble).
  *
- * Every tile below was picked by eye from the source sheet as a FULL floor tile (opaque, no wall
- * faces, no edge-shadows, no object overlays) and verified fully opaque. Regions used per sheet
- * (cell coordinates are 0-indexed {col,row} at the sheet's native tile size):
+ * All terrain art is now original/license-free. Two kinds of sheet:
  *
- * - forest_spring.png / forest_autumn.png (Mana Seed seasonal sample, 16px): col 0 rows 1-5 are
- *   pure grass (left of the dirt-patch demo); rows 6-7 cols 0-3 are flower / fallen-leaf variants
- *   drawn on the same grass.
- * - dungeon_floor.png (CraftPix top-down-dungeon walls_floor.png, 16px): the plain slate floor —
- *   interior tiles of the floor demo at cols 3-5 rows 5-7 plus the platform interior (1,6)/(1,7).
- *   (3,6) was excluded: it contains a semi-transparent trim pixel.
- * - catacombs.png (Szadi rf-catacombs mainlevbuild.png, 16px): the floor-variant strip on the
- *   right of the sheet — 2x3 slab blocks at rows 13-15 and 2x2 cobble blocks at rows 17-18; this
- *   game uses the warm dark-grey family at cols 49-50.
- * - cursed_ground.png (CraftPix cursed-land Ground.png, 16px): solid interior tiles only — the
- *   plain dusty-mauve column 24 rows 4-7, plus full vein-overgrowth tiles at cols 19-20 rows 5-6.
- * - undead_ground.png (CraftPix undead Ground_rocks.png, 16px): the cracked dead-earth interior
- *   strip at row 22, cols 20 and 22-26 ((21,22) skipped — a prop shadow clips its bottom edge).
- * - rogues_tiles.png (32rogues tiles.png, 32px, labels in tiles.txt): floor rows — dark-grey
- *   blank + floor stones (txt row 7 = sheet row 6), dirt (row 9 = sheet 8), red stone floor
- *   (row 12 = sheet 11), blue stone floor (row 13 = sheet 12), green-bg dirt/grass (rows 14-15 =
- *   sheets 13-14).
+ * 1. Generated 4×4 sheets (tools/assetgen/tiles → public/assets/tiles, 32px), built via the shared
+ *    {@link generatedBiome} layout: meadow, marsh, mine, frost, cave, dungeon, autumn. tile (0,0) is
+ *    the heavy base, (1,0)…(2,1) re-seeded variants, rows 2–3 the clustered RENDER-04 detail.
+ * 2. Design-system pixel sheets under /assets/curated/tiles (drawn to match the renderer's existing
+ *    cell expectations, so the picked coordinates below are stable):
+ *    - forest_spring.png (16px): col 0 rows 1-5 pure grass; rows 6-7 cols 0-3 wildflower variants;
+ *      col 4 rows 1-3 solid dirt for the worn-path layer.
+ *    - catacombs.png (16px): warm dark-grey slab family at cols 49-50 rows 13-15, cobble rubble rows 17-18.
+ *    - cursed_ground.png (16px): dusty-mauve col 24 rows 4-7, vein-overgrowth cols 19-20 rows 5-6.
+ *    - undead_ground.png (16px): cracked dead-earth strip at row 22, cols 20 and 22-26.
  */
 
 export interface GroundTileset {
@@ -80,11 +71,15 @@ export const PATTERN_TILES = 16;
 
 const TILES = '/assets/curated/tiles';
 
-export const GROUND_TILESETS: Record<string, GroundTileset> = {
-  // Generated meadow (tools/assetgen/tiles) — our own art, replacing the licensed Mana Seed grass for
-  // the village green. Base-heavy weighted tiles + a clustered wildflower blend (RENDER-04).
-  meadow: {
-    src: '/assets/tiles/meadow.png', // our generated art (tools/assetgen/tiles → public/assets/tiles)
+/**
+ * A generated 4×4 biome sheet (tools/assetgen/tiles → public/assets/tiles, all original/license-free):
+ * tile (0,0) is the heavy base, (1,0)…(2,1) are subtle re-seeded base variants, and rows 2–3 are the
+ * clustered detail tiles fed to the RENDER-04 blend. Every generated biome shares this layout, so the
+ * manifest the generator emits is identical bar the `src` — captured here once instead of inlined.
+ */
+function generatedBiome(src: string): GroundTileset {
+  return {
+    src,
     tileSize: 32,
     tiles: [
       { col: 0, row: 0, weight: 60 },
@@ -111,7 +106,12 @@ export const GROUND_TILESETS: Record<string, GroundTileset> = {
       threshold: 0.6,
       margin: 0.1,
     },
-  },
+  };
+}
+
+export const GROUND_TILESETS: Record<string, GroundTileset> = {
+  // Generated meadow — our own art for the village green (base-heavy + clustered wildflower blend).
+  meadow: generatedBiome('/assets/tiles/meadow.png'),
   // Aldermere village green — bright spring grass with wildflower patches clustered into beds.
   town: {
     src: `${TILES}/forest_spring.png`,
@@ -177,96 +177,18 @@ export const GROUND_TILESETS: Record<string, GroundTileset> = {
       },
     },
   },
-  // Seasonal variant of the grass biomes (no area defaults to it; available to DB re-skins).
-  forest_autumn: {
-    src: `${TILES}/forest_autumn.png`,
-    tileSize: 16,
-    tiles: [
-      { col: 0, row: 1, weight: 12 },
-      { col: 0, row: 2, weight: 12 },
-      { col: 0, row: 3, weight: 12 },
-      { col: 0, row: 4, weight: 12 },
-      { col: 0, row: 5, weight: 12 },
-    ],
-    blend: {
-      patch: [
-        { col: 0, row: 6 }, // fallen-leaf piles
-        { col: 1, row: 6 },
-        { col: 2, row: 6 },
-        { col: 3, row: 6 },
-        { col: 0, row: 7 },
-        { col: 1, row: 7 },
-        { col: 2, row: 7 },
-        { col: 3, row: 7 },
-      ],
-      scale: 4,
-      threshold: 0.5,
-      margin: 0.12,
-    },
-  },
-  // Rotfen Marsh — 32rogues dark-green floor with dirt clumps and grass tufts poking through.
-  marsh: {
-    src: `${TILES}/rogues_tiles.png`,
-    tileSize: 32,
-    tiles: [
-      { col: 0, row: 13, weight: 70 },
-      { col: 1, row: 13, weight: 5 }, // dirt on green
-      { col: 2, row: 13, weight: 5 },
-      { col: 3, row: 13, weight: 5 },
-      { col: 1, row: 14, weight: 5 }, // grass tufts on green
-      { col: 2, row: 14, weight: 5 },
-      { col: 3, row: 14, weight: 5 },
-    ],
-  },
-  // Emberdeep Mines / Infernal Forge — red-black volcanic stone floor.
-  mine: {
-    src: `${TILES}/rogues_tiles.png`,
-    tileSize: 32,
-    tiles: [
-      { col: 0, row: 11, weight: 70 },
-      { col: 1, row: 11, weight: 10 }, // red stone slabs
-      { col: 2, row: 11, weight: 10 },
-      { col: 3, row: 11, weight: 10 },
-    ],
-  },
-  // Frostpeak Pass / Frozen Vault — blue-black glacial stone floor.
-  frost: {
-    src: `${TILES}/rogues_tiles.png`,
-    tileSize: 32,
-    tiles: [
-      { col: 0, row: 12, weight: 70 },
-      { col: 1, row: 12, weight: 10 }, // blue stone slabs
-      { col: 2, row: 12, weight: 10 },
-      { col: 3, row: 12, weight: 10 },
-    ],
-  },
-  // Hollowroot Caverns — dark cave floor with loose stones and dirt.
-  cave: {
-    src: `${TILES}/rogues_tiles.png`,
-    tileSize: 32,
-    tiles: [
-      { col: 0, row: 6, weight: 64 },
-      { col: 1, row: 6, weight: 8 }, // floor stones
-      { col: 2, row: 6, weight: 8 },
-      { col: 3, row: 6, weight: 8 },
-      { col: 1, row: 8, weight: 4 }, // dirt clumps
-      { col: 2, row: 8, weight: 4 },
-      { col: 3, row: 8, weight: 4 },
-    ],
-  },
-  // Generic worked-stone floor (Blighted Spire citadel) — plain slate, all tiles equal.
-  dungeon: {
-    src: `${TILES}/dungeon_floor.png`,
-    tileSize: 16,
-    tiles: [
-      { col: 3, row: 5, weight: 1 },
-      { col: 4, row: 5, weight: 1 },
-      { col: 5, row: 5, weight: 1 },
-      { col: 3, row: 7, weight: 1 },
-      { col: 1, row: 6, weight: 1 },
-      { col: 1, row: 7, weight: 1 },
-    ],
-  },
+  // Seasonal grass re-skin (no area defaults to it; available to DB re-skins) — generated amber turf.
+  forest_autumn: generatedBiome('/assets/tiles/autumn.png'),
+  // Rotfen Marsh / Sunken Pass — generated dark waterlogged green with grass-tuft patches.
+  marsh: generatedBiome('/assets/tiles/marsh.png'),
+  // Emberdeep Mines / Infernal Forge — generated red-black volcanic stone, fissured.
+  mine: generatedBiome('/assets/tiles/mine.png'),
+  // Frostpeak Pass / Frozen Vault — generated blue-black glacial stone with ice cracks.
+  frost: generatedBiome('/assets/tiles/frost.png'),
+  // Hollowroot Caverns — generated dark grey-brown cave floor with loose stones.
+  cave: generatedBiome('/assets/tiles/cave.png'),
+  // Worked-stone citadel floor (Blighted Spire / Vhal'reth) — generated cool slate.
+  dungeon: generatedBiome('/assets/tiles/dungeon.png'),
   // Shadow Crypt / Forgotten Catacombs — dark stone slabs with patches of cobbled rubble.
   crypt: {
     src: `${TILES}/catacombs.png`,

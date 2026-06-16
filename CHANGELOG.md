@@ -6,6 +6,64 @@ versioning once it stabilizes.
 
 ## [Unreleased]
 
+### Added
+
+- **Spell-behavior engine (slice 1).** Spells now carry composable, data-driven behaviors
+  (chain / pierce / fork / splash / homing / multishot / return) resolved by a pure, unit-tested
+  module (`src/server/projectile-behaviors.ts`) — lightning fires one bolt that chains between
+  enemies (with an additive arc VFX), arrows pierce, fireballs/meteors splash, frost/poison detonate,
+  homing missiles seek, the chakram returns. Behaviors are SQL-tunable via `abilities.behaviors_json`
+  (with a forward migration for existing DBs). Multishot is now one behavior among many rather than
+  the universal default. A projectile never damages the same mob twice (chain/pierce/splash dedupe).
+  Foundation for the modifier-gem, ailment, and stat slices that follow.
+
+- **Modifier gems (slice 2).** New socketable gems reshape how all your spells behave: voltaic
+  (+chain), lancing (+pierce), splitting (+fork), concussive (+splash radius), seeking (+homing) —
+  plus "support" gems (overcharge, impaler) that grant a bigger behavior bonus at the cost of base
+  spell damage. They flow through the existing gem/socket/Artificer system and merge into casts via
+  a pure `applyModifiers`; SQL-tunable via the gems table (`mult`, `grants_homing`; migration #4).
+
+- **Stat expansion (slice 4).** New gear/build levers: per-element increased-damage % (fire/cold/
+  lightning/poison/physical), resistance **penetration** (ignore a % of a target's elemental
+  resist), **ailment effectiveness** (duration % + magnitude %), and AoE size %. The Slice-2 spell
+  modifiers (chain/pierce/fork/spell-AoE) can now roll on **affixes, runewords, and skill nodes** —
+  no longer gem-only. Added **knockback as a spell behavior** (heavy bolts shove on hit). All are
+  player-computed stats sourced through recomputeStats; new affixes seed onto existing saves. The
+  remaining Slice-1 behaviors — beam (hitscan), lob (ground-target), trail (ground zone), orbit
+  (caster-attached) — are deferred: each needs a new entity lifecycle or an aim-point cast protocol.
+
+- **Ailments + crowd control (slice 3).** Damage elements now imprint signature ailments — fire
+  ignites, cold chills (and frost-novas briefly freeze), lightning shocks, poison stacks, physical
+  bleeds — and spells/bosses can stun, freeze, silence, knock back, and curse. Stun/freeze root
+  (and cancel a pending wind-up); silence blocks casting; shock/brittle/curse raise damage taken
+  (`vulnFactor`); chill/maim slow; sap/curse weaken. Built on the existing pure tick-driven
+  StatusSet; statuses ride an expanded `flags` bitfield (a single shared `STATUS_BITS` source of
+  truth) and the wire protocol bumps to v2 (reconnect old clients). Fear and taunt are deferred
+  (they need attacker-id threading + bespoke AI state).
+
+- **Gloomwood design system adopted; the game is now art-license-clean.** Brought in the original,
+  procedurally-generated Gloomwood art set and wired the pieces the renderer didn't yet have:
+  - **Original art swap (HANDOFF §1):** decor (+ animated braziers/candles), the catacombs / cursed /
+    undead / forest_spring biome sheets, spell-FX strips, item & currency icons, and a new 29-creature
+    top-down mob roster — all byte-compatible drop-ins for the existing renderer data.
+  - **Animated mob sprite layer (§3.1):** `mob-sprites.ts` resolves a mob name → archetype and the
+    renderer composes each archetype's idle/walk/attack strips into a virtual sheet, so mobs the
+    generated 8/16-dir sheets don't cover now animate (idle/walk + fx-driven attack) instead of
+    rendering as a static cell or a procedural orb. Flyers (banshee/imp) hover.
+  - **Elemental projectile strips (§3.2):** projectiles map to a spell strip by ability/element
+    (`projectile-fx.ts`), so frost/arcane/water/etc. bolts animate instead of drawing as a plain orb.
+  - **Generated biome terrain:** original marsh/mine/frost/cave/dungeon/autumn tile sheets
+    (`tools/assetgen/tiles`) replace the last licensed ground sheets.
+  - **`browsergame-design` skill** installed under `.claude/skills/` for on-brand UI/asset work.
+
+### Changed
+
+- **Removed all third-party art (HANDOFF §4).** Deleted the 32rogues / CraftPix / Mana Seed / Szadi /
+  Kenney / OpenGameArt LPC sprites, tiles, UI chrome and item sheets (and the dead CC-BY-SA combat
+  SFX) now that originals/generated art cover everything; `rogues-sprites.ts` is gone and `sheetKey`
+  delegates to the pure, tested `mobSpriteName`. No attribution-required asset remains; `CREDITS.md`
+  rewritten accordingly.
+
 ### Fixed
 
 - **Exception handling + null guards at the runtime boundaries (resilience).** Hardened the spots

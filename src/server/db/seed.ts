@@ -348,6 +348,7 @@ export function seed(db: Database): void {
   ensureBossScripts(db); // scripted apex-boss phases/steps (seeded from boss-scripts.ts defaults)
   ensureItemProcs(db); // chance-on-hit/crit item procs (seeded from item-procs.ts defaults)
   ensureAbilityElements(db); // tag elemental abilities (fire/cold/...) — only ones still 'physical'
+  ensureAbilityBehaviors(db); // backfill behaviors_json from code defaults (upgrade-path; NULL-only)
   ensureMobResists(db); // per-element mob resistances (seeded from mobs.ts MOB_RESISTS)
   ensureGameEvents(db); // timed recurring liveops events (seeded from game-events.ts defaults)
   ensureRiftModifiers(db); // D3-style rift mutators (seeded from rift-modifiers.ts defaults)
@@ -452,10 +453,10 @@ function ensureRarityTiers(db: Database): void {
  */
 function ensureGems(db: Database): void {
   const ins = db.prepare(
-    'INSERT OR IGNORE INTO gems (id,name,color,stat,value,tier) VALUES (?,?,?,?,?,?)',
+    'INSERT OR IGNORE INTO gems (id,name,color,stat,value,tier,mult,grants_homing) VALUES (?,?,?,?,?,?,?,?)',
   );
   for (const g of Object.values(DEFAULT_GEMS))
-    ins.run(g.id, g.name, g.color, g.stat, g.value, g.tier);
+    ins.run(g.id, g.name, g.color, g.stat, g.value, g.tier, g.mult ?? 1, g.grantsHoming ? 1 : 0);
 }
 
 /**
@@ -560,6 +561,18 @@ const ABILITY_ELEMENTS: Record<string, DamageElement> = {
 function ensureAbilityElements(db: Database): void {
   const upd = db.prepare("UPDATE abilities SET element = ? WHERE id = ? AND element = 'physical'");
   for (const [id, element] of Object.entries(ABILITY_ELEMENTS)) upd.run(element, id);
+}
+
+/** Backfill behaviors_json from code defaults onto rows that don't have it yet (idempotent;
+ *  only touches NULL so a designer's SQL edit to behaviors_json survives). */
+function ensureAbilityBehaviors(db: Database): void {
+  const upd = db.prepare(
+    'UPDATE abilities SET behaviors_json = ? WHERE id = ? AND behaviors_json IS NULL',
+  );
+  for (const id of ABILITY_ORDER) {
+    const a = ABILITIES[id];
+    if (a.behaviors) upd.run(JSON.stringify(a.behaviors), id);
+  }
 }
 
 /**
@@ -1390,8 +1403,8 @@ function ensureSpellbookContent(db: Database): void {
   const abilityHas = db.prepare('SELECT 1 FROM abilities WHERE id = ?');
   const abilityIns = db.prepare(
     `INSERT INTO abilities
-       (id,name,key,kind,damage,range,cooldown_ms,mana_cost,color,melee_half_angle,projectile_speed,projectile_ttl_ms,radius,sort_order)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (id,name,key,kind,damage,range,cooldown_ms,mana_cost,color,melee_half_angle,projectile_speed,projectile_ttl_ms,behaviors_json,radius,sort_order)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   ABILITY_ORDER.forEach((id, i) => {
     if (abilityHas.get(id)) return;
@@ -1409,6 +1422,7 @@ function ensureSpellbookContent(db: Database): void {
       a.meleeHalfAngle ?? null,
       a.projectileSpeed ?? null,
       a.projectileTtlMs ?? null,
+      a.behaviors ? JSON.stringify(a.behaviors) : null,
       a.radius,
       i,
     );
@@ -1559,8 +1573,8 @@ function seedAreas(db: Database): void {
 function seedAbilities(db: Database): void {
   const ins = db.prepare(
     `INSERT INTO abilities
-       (id,name,key,kind,damage,range,cooldown_ms,mana_cost,color,melee_half_angle,projectile_speed,projectile_ttl_ms,radius,sort_order)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (id,name,key,kind,damage,range,cooldown_ms,mana_cost,color,melee_half_angle,projectile_speed,projectile_ttl_ms,behaviors_json,radius,sort_order)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const id of ABILITY_ORDER) {
     const a = ABILITIES[id];
@@ -1577,6 +1591,7 @@ function seedAbilities(db: Database): void {
       a.meleeHalfAngle ?? null,
       a.projectileSpeed ?? null,
       a.projectileTtlMs ?? null,
+      a.behaviors ? JSON.stringify(a.behaviors) : null,
       a.radius,
       ABILITY_ORDER.indexOf(id),
     );

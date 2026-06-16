@@ -1,0 +1,16 @@
+{
+  "name": "gloomwood-assetgen",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Procedural generator for the original Gloomwood ARPG art set (icons, FX, decor, terrain, UI chrome, mobs). Emits PNGs into the game's public/assets tree. All output is original and license-free.",
+  "type": "commonjs",
+  "bin": { "gloomwood-assetgen": "build.js" },
+  "scripts": {
+    "build": "node build.js",
+    "build:mobs": "node build.js mobs",
+    "build:icons": "node build.js icons"
+  },
+  "dependencies": {
+    "canvas": "^2.11.2"
+  }
+}

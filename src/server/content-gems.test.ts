@@ -49,4 +49,17 @@ describe('content gems', () => {
     applyGemOverrides([]);
     expect(gemDef('ruby_t1')?.value).toBe(DEFAULT_GEMS.ruby_t1!.value);
   });
+
+  it('a modifier gem with mult and grants_homing round-trips through loadContent', () => {
+    // Insert a one-off support gem that carries both a damage penalty (mult) and the homing flag.
+    const db = openDatabase(':memory:');
+    db.prepare(
+      'INSERT INTO gems (id,name,color,stat,value,tier,mult,grants_homing) VALUES (?,?,?,?,?,?,?,?)',
+    ).run('cinnabar_t3', 'Cinnabar', '#ff6040', 'spellaoe', 0.1, 3, 0.75, 1);
+    const list = loadContent(db).gems();
+    const cinnabar = list.find((g) => g.id === 'cinnabar_t3');
+    expect(cinnabar).toBeDefined();
+    expect(cinnabar!.mult).toBe(0.75);
+    expect(cinnabar!.grantsHoming).toBe(true);
+  });
 });

@@ -1,5 +1,9 @@
 # Asset Pack Inventory
 
+> **Historical — see `CREDITS.md`.** These third-party extraction packs (32rogues, CraftPix, Mana
+> Seed, Szadi/RF, Kenney) have been **removed** from disk; the game ships only original generated /
+> design-system art. This inventory is kept as a record of what was explored during prototyping.
+
 Extracted pixel-art asset packs for the BrowserGame ARPG. Served from the web root
 under `/assets/<slug>/...` (the repo's `public/` folder is the Vite web root, so a file at
 `public/assets/undead/PNG/Objects.png` loads as `/assets/undead/PNG/Objects.png`).
