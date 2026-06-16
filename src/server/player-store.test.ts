@@ -22,6 +22,13 @@ import {
   getMail,
   mailCount,
   deleteMail,
+  auctionPayout,
+  createAuction,
+  loadAuctions,
+  getAuction,
+  auctionsBySeller,
+  auctionCountBySeller,
+  deleteAuction,
 } from './player-store.js';
 import type { PlayerSave } from './world.js';
 
@@ -232,5 +239,32 @@ describe('mail persistence', () => {
     storeSave(db, t, sampleSave('Mailee'));
     expect(tokenForName(db, 'mailee')).toBe(t); // case-insensitive
     expect(tokenForName(db, 'Nobody')).toBeNull();
+  });
+});
+
+describe('auction persistence', () => {
+  it('lists, browses, scopes by seller, caps count, and deletes', () => {
+    const db = openDatabase(':memory:');
+    const a = newPlayerToken();
+    const b = newPlayerToken();
+
+    const id1 = createAuction(db, a, 'Alice', '{"baseId":"iron_sword"}', 500);
+    createAuction(db, a, 'Alice', '{"baseId":"oak_shield"}', 200);
+    createAuction(db, b, 'Bob', '{"baseId":"ruby_t1"}', 999);
+
+    expect(loadAuctions(db)).toHaveLength(3); // global browse
+    expect(auctionsBySeller(db, a)).toHaveLength(2);
+    expect(auctionCountBySeller(db, a)).toBe(2);
+    expect(getAuction(db, id1)!.price).toBe(500);
+
+    deleteAuction(db, id1);
+    expect(getAuction(db, id1)).toBeUndefined();
+    expect(auctionCountBySeller(db, a)).toBe(1);
+  });
+
+  it('payout applies the house cut as a gold sink', () => {
+    expect(auctionPayout(1000)).toBe(950); // 5% cut
+    expect(auctionPayout(1)).toBe(0); // floored
+    expect(auctionPayout(0)).toBe(0);
   });
 });

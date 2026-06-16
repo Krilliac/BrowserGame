@@ -60,6 +60,12 @@ export interface CommandContext {
   mailList: () => string[];
   mailTake: (id: number) => string;
   mailTakeAll: () => string;
+  // Auction house (host-level: persistent buyout market; delivers via the mail channel).
+  auctionList: (uid: number, price: number) => string;
+  auctionBuy: (id: number) => string;
+  auctionCancel: (id: number) => string;
+  auctionBrowse: () => string[];
+  auctionMine: () => string[];
 }
 
 interface Command {
@@ -389,6 +395,37 @@ const COMMAND_LIST: Command[] = [
       }
       if (sub === 'takeall') return ctx.reply(ctx.mailTakeAll());
       for (const line of ctx.mailList()) ctx.reply(line);
+      return;
+    },
+  },
+  {
+    name: 'ah',
+    minLevel: AccessLevel.Player,
+    usage: '/ah [list <itemUid> <price> | buy <id> | cancel <id> | mine]',
+    help: 'Auction house: browse, list a bag item for sale, buy, or cancel. No args = browse.',
+    run: (ctx) => {
+      const sub = (ctx.args[0] ?? 'browse').toLowerCase();
+      if (sub === 'list' || sub === 'sell') {
+        const uid = int(ctx.args, 1, -1);
+        const price = int(ctx.args, 2, 0);
+        if (uid < 0 || price <= 0) return ctx.reply('Usage: /ah list <itemUid> <price>');
+        return ctx.reply(ctx.auctionList(uid, price));
+      }
+      if (sub === 'buy') {
+        const id = int(ctx.args, 1, -1);
+        if (id < 0) return ctx.reply('Usage: /ah buy <id>');
+        return ctx.reply(ctx.auctionBuy(id));
+      }
+      if (sub === 'cancel') {
+        const id = int(ctx.args, 1, -1);
+        if (id < 0) return ctx.reply('Usage: /ah cancel <id>');
+        return ctx.reply(ctx.auctionCancel(id));
+      }
+      if (sub === 'mine') {
+        for (const line of ctx.auctionMine()) ctx.reply(line);
+        return;
+      }
+      for (const line of ctx.auctionBrowse()) ctx.reply(line);
       return;
     },
   },

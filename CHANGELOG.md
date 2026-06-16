@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Auction house.** A persistent player-to-player buyout market: `/ah list <itemUid> <price>` escrows
+  a bag item for sale, `/ah` browses listings, `/ah buy <id>` purchases (gold out, item in), `/ah mine`
+  / `/ah cancel <id>` manage your own. Server-authoritative and loss-safe — the item leaves the
+  seller's live bag into escrow; a buyer with a full bag is refunded and the sale aborts; proceeds are
+  paid to the (possibly offline) seller through the **mail channel**, minus a 5% house cut that acts as
+  a gold sink; cancelling mails the item back. Per-seller listing cap. New `auctions` table (no
+  migration) + persistence in `player-store.ts`. Fifth slice of the ED5 MMO Studio port — completes
+  the "Auction house + mail" item.
+
 - **Mail.** Deferred player-to-player delivery of gold + an optional gear item that waits in the
   recipient's inbox even while they're offline: `/mail send <player> <gold> [itemUid]`, `/mail` to
   read, `/mail take <id>` / `/mail takeall` to collect. Server-authoritative and loss-safe — the

@@ -508,6 +508,19 @@ CREATE TABLE IF NOT EXISTS mail (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_recipient ON mail (recipient_token);
 
+-- Auctions: a player-to-player buyout market. Each row is one listing — a gear instance held in
+-- escrow (its owner removed it from their bag) plus a buyout price. Buying delivers the item to the
+-- buyer and the proceeds (minus the house cut) to the seller via the mail channel; the row is then
+-- deleted. New table (no migration).
+CREATE TABLE IF NOT EXISTS auctions (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  seller_token TEXT NOT NULL,
+  seller_name  TEXT NOT NULL,
+  item_json    TEXT NOT NULL,                 -- the serialized ItemInstance held in escrow
+  price        INTEGER NOT NULL               -- buyout price in gold
+);
+CREATE INDEX IF NOT EXISTS idx_auctions_seller ON auctions (seller_token);
+
 -- Mounts: owned, persistent travel-speed boosts bought from a Stablemaster. A new table (no
 -- migration needed — CREATE TABLE IF NOT EXISTS runs on every open).
 CREATE TABLE IF NOT EXISTS mounts (

@@ -61,6 +61,11 @@ function makeCtx(
     mailList: () => ['Your mailbox is empty.'],
     mailTake: () => 'Collected mail.',
     mailTakeAll: () => 'Collected 0 mail.',
+    auctionList: () => 'listed',
+    auctionBuy: () => 'bought',
+    auctionCancel: () => 'cancelled',
+    auctionBrowse: () => ['The auction house is empty.'],
+    auctionMine: () => ['You have no active listings.'],
   };
   return { ctx, cap };
 }

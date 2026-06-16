@@ -52,8 +52,16 @@ import {
   getMail,
   mailCount,
   deleteMail,
+  auctionPayout,
+  MAX_AUCTIONS_PER_SELLER,
+  createAuction,
+  loadAuctions,
+  getAuction,
+  auctionsBySeller,
+  auctionCountBySeller,
+  deleteAuction,
 } from './player-store.js';
-import type { ItemInstance } from '../shared/items.js';
+import { instanceName, type ItemInstance } from '../shared/items.js';
 import { recordScore, formatLadder, isLeaderboardMetric } from './leaderboard.js';
 import { activeEvents, totalXpBonus, totalGoldBonus, msUntilNextChange } from './game-events.js';
 import { PartyRegistry } from './party.js';
@@ -790,6 +798,86 @@ function mailTake(collectorId: number, token: string, world: World, id: number):
   if (m.gold > 0) got.push(`${m.gold}g`);
   if (item) got.push('an item');
   return `Collected ${got.join(' + ') || 'mail'}.`;
+}
+
+/** A short, readable name for an item held in an auction listing (e.g. "Rare Iron Sword"). */
+function describeAuctionItem(itemJson: string): string {
+  try {
+    const inst = JSON.parse(itemJson) as ItemInstance;
+    return instanceName(inst, getContent().item(inst.baseId)?.name ?? inst.baseId);
+  } catch {
+    return 'an item';
+  }
+}
+
+/** List a bag gear instance on the auction house (escrow it out of the seller's live bag). */
+function auctionList(
+  world: World,
+  sellerId: number,
+  sellerToken: string,
+  sellerName: string,
+  uid: number,
+  price: number,
+): string {
+  const amount = Math.floor(price) || 0;
+  if (amount <= 0) return 'Set a buyout price above 0.';
+  if (auctionCountBySeller(getDb(), sellerToken) >= MAX_AUCTIONS_PER_SELLER) {
+    return `You already have ${MAX_AUCTIONS_PER_SELLER} listings.`;
+  }
+  const item = world.mailTakeGear(sellerId, uid);
+  if (!item) return 'No such item in your bag.';
+  const id = createAuction(getDb(), sellerToken, sellerName, JSON.stringify(item), amount);
+  return `Listed ${describeAuctionItem(JSON.stringify(item))} for ${amount}g (#${id}).`;
+}
+
+/** Buy a listing: pay gold, receive the item, mail the seller the proceeds (minus the house cut). */
+function auctionBuy(world: World, buyerId: number, buyerToken: string, id: number): string {
+  const a = getAuction(getDb(), id);
+  if (!a) return 'No such listing (it may have sold).';
+  if (a.sellerToken === buyerToken) return 'That is your own listing — use /ah cancel.';
+  let item: ItemInstance | null = null;
+  try {
+    item = JSON.parse(a.itemJson) as ItemInstance;
+  } catch {
+    item = null;
+  }
+  if (!item) {
+    deleteAuction(getDb(), id); // corrupt listing — clear it
+    return 'That listing is invalid.';
+  }
+  if (!world.mailTakeGold(buyerId, a.price)) return `You need ${a.price}g.`;
+  const delivered = world.mailDeliver(buyerId, 0, item);
+  if (!delivered.ok) {
+    world.mailDeliver(buyerId, a.price, null); // refund — nothing lost
+    return delivered.reason ?? 'Your bag is full.';
+  }
+  const payout = auctionPayout(a.price);
+  sendMail(
+    getDb(),
+    a.sellerToken,
+    'Auction House',
+    payout,
+    null,
+    `Sold: ${describeAuctionItem(a.itemJson)}`,
+  );
+  deleteAuction(getDb(), id);
+  sendToToken(a.sellerToken, {
+    t: 'chat',
+    from: 'System',
+    text: `Your auction sold for ${a.price}g (${payout}g after fees) — collect it with /mail.`,
+    channel: 'system',
+  });
+  return `Bought ${describeAuctionItem(a.itemJson)} for ${a.price}g.`;
+}
+
+/** Cancel your own listing: the escrowed item is mailed back to you. */
+function auctionCancel(token: string, id: number): string {
+  const a = getAuction(getDb(), id);
+  if (!a) return 'No such listing.';
+  if (a.sellerToken !== token) return 'That is not your listing.';
+  sendMail(getDb(), token, 'Auction House', 0, a.itemJson, 'Listing cancelled');
+  deleteAuction(getDb(), id);
+  return 'Listing cancelled — the item is mailed back to you.';
 }
 
 /** Build the roster entry for one party member (members are always connected — see disconnect). */
@@ -1649,6 +1737,36 @@ wss.on('connection', (socket) => {
                     return taken > 0
                       ? `Collected ${taken} mail.`
                       : 'Could not collect (bag full?).';
+                  },
+                  auctionList: (uid, price) =>
+                    auctionList(world, entityId, p.token, from, uid, price),
+                  auctionBuy: (id) => auctionBuy(world, entityId, p.token, id),
+                  auctionCancel: (id) => auctionCancel(p.token, id),
+                  auctionBrowse: () => {
+                    const rows = loadAuctions(getDb());
+                    if (rows.length === 0) return ['The auction house is empty.'];
+                    const shown = rows.slice(0, 25);
+                    const lines = [`Auction house (${rows.length} listing(s)):`];
+                    for (const a of shown) {
+                      lines.push(
+                        `  #${a.id} ${describeAuctionItem(a.itemJson)} — ${a.price}g (${a.sellerName})`,
+                      );
+                    }
+                    if (rows.length > shown.length) {
+                      lines.push(`  …and ${rows.length - shown.length} more.`);
+                    }
+                    return lines;
+                  },
+                  auctionMine: () => {
+                    const rows = auctionsBySeller(getDb(), p.token);
+                    if (rows.length === 0) return ['You have no active listings.'];
+                    return [
+                      'Your listings:',
+                      ...rows.map(
+                        (a) =>
+                          `  #${a.id} ${describeAuctionItem(a.itemJson)} — ${a.price}g — /ah cancel ${a.id}`,
+                      ),
+                    ];
                   },
                 });
               } catch (err) {

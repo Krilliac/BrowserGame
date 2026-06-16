@@ -217,9 +217,9 @@ Skipping survival (hunger/thirst/seasons) + housing as genre-drift from the Diab
 - [x] **Guilds** — persistent societies (`guilds`/`guild_members` tables) via a pure `GuildRegistry`:
       create/invite/accept/leave/kick/promote/demote, leader/officer/member ranks, `/g` guild chat,
       roster with live presence. Command-driven (no client panel). Shared **guild bank still TODO**.
-- [~] **Auction house + mail** — **MAIL DONE** (deferred gold/item delivery, persists for offline
-      recipients; `mail` table; `/mail` commands; loss-safe). Auction house (listings + currency sink,
-      delivering via the mail channel) still TODO.
+- [x] **Auction house + mail** — mail (deferred gold/item delivery; `mail` table; `/mail`) + the
+      auction house (persistent buyout market; `auctions` table; `/ah`; escrow + 5% gold-sink cut;
+      proceeds/cancellations delivered via the mail channel). Both loss-safe + offline-safe.
 - [ ] **PvP zones** — opt-in/flagged PvP with multiple zone rule types.
 
 ## Later (systems — reimplement from the SparkGameMMO blueprint)

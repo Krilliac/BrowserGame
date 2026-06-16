@@ -250,3 +250,83 @@ export function mailCount(db: GameDatabase, token: string): number {
 export function deleteMail(db: GameDatabase, id: number): void {
   db.prepare('DELETE FROM mail WHERE id = ?').run(id);
 }
+
+// --- Auction house persistence (player-to-player buyout market) ------------------------------
+// One row per listing: a gear instance held in escrow + a buyout price. The host orchestrates the
+// gold/item moves (reusing the World inventory + mail), these are the dumb row primitives.
+
+/** The house cut on a sale — the gold sink. The seller receives the rest. */
+export const AUCTION_CUT = 0.05;
+/** Most concurrent listings one seller may hold. */
+export const MAX_AUCTIONS_PER_SELLER = 10;
+
+/** Gold the seller nets from a sale at `price` after the house cut (floored). */
+export function auctionPayout(price: number): number {
+  return Math.max(0, Math.floor(price * (1 - AUCTION_CUT)));
+}
+
+/** One active listing. `itemJson` is the serialized ItemInstance in escrow. */
+export interface AuctionRow {
+  id: number;
+  sellerToken: string;
+  sellerName: string;
+  itemJson: string;
+  price: number;
+}
+
+/** List a gear instance for sale; returns the new listing id. */
+export function createAuction(
+  db: GameDatabase,
+  sellerToken: string,
+  sellerName: string,
+  itemJson: string,
+  price: number,
+): number {
+  const info = db
+    .prepare(
+      'INSERT INTO auctions (seller_token, seller_name, item_json, price) VALUES (?, ?, ?, ?)',
+    )
+    .run(sellerToken, sellerName, itemJson, price);
+  return Number(info.lastInsertRowid);
+}
+
+/** All active listings (oldest first), for the browse view. */
+export function loadAuctions(db: GameDatabase): AuctionRow[] {
+  return db
+    .prepare(
+      'SELECT id, seller_token AS sellerToken, seller_name AS sellerName, item_json AS itemJson, price FROM auctions ORDER BY id',
+    )
+    .all() as AuctionRow[];
+}
+
+/** One listing by id, or undefined. */
+export function getAuction(db: GameDatabase, id: number): AuctionRow | undefined {
+  return db
+    .prepare(
+      'SELECT id, seller_token AS sellerToken, seller_name AS sellerName, item_json AS itemJson, price FROM auctions WHERE id = ?',
+    )
+    .get(id) as AuctionRow | undefined;
+}
+
+/** A seller's own active listings. */
+export function auctionsBySeller(db: GameDatabase, token: string): AuctionRow[] {
+  return db
+    .prepare(
+      'SELECT id, seller_token AS sellerToken, seller_name AS sellerName, item_json AS itemJson, price FROM auctions WHERE seller_token = ? ORDER BY id',
+    )
+    .all(token) as AuctionRow[];
+}
+
+/** How many active listings a seller holds (for the cap). */
+export function auctionCountBySeller(db: GameDatabase, token: string): number {
+  return (
+    db.prepare('SELECT COUNT(*) AS n FROM auctions WHERE seller_token = ?').get(token) as {
+      n: number;
+    }
+  ).n;
+}
+
+/** Remove a listing (after sale or cancellation). */
+export function deleteAuction(db: GameDatabase, id: number): void {
+  db.prepare('DELETE FROM auctions WHERE id = ?').run(id);
+}
