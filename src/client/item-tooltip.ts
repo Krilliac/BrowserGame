@@ -4,12 +4,16 @@
  * Everything here is framework-free and DOM-free — the output is a plain data model that the
  * HUD renderer (or any other consumer) can draw however it likes. Keeping this pure makes it
  * unit-testable without a canvas environment.
+ *
+ * `drawTooltip` is the one Canvas2D exception — it lives here so tooltip rendering stays
+ * co-located with the model that drives it, but it is intentionally NOT unit-tested.
  */
 
 import type { ItemInstance } from '../shared/items.js';
 import { affixLabel, instanceTitle, isDebuff, RARITY } from '../shared/items.js';
 import { ITEM_SETS } from '../shared/item-sets.js';
 import { SLOT_LABELS } from '../shared/equipment.js';
+import { clampPanelRect } from './ui-guard.js';
 
 // ---------------------------------------------------------------------------
 // Public model types
@@ -200,6 +204,92 @@ export function buildGemTooltip(gemId: string, resolvers: TooltipResolvers): Too
     lines,
     actions: [],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Canvas2D renderer — draws a floating tooltip box near the cursor
+// ---------------------------------------------------------------------------
+
+/**
+ * Draw a floating tooltip box at `(x, y)` (typically cursor + small offset), clamped to `view`.
+ *
+ * Layout: dark filled rounded-rect, gold border (#c9a24b, lineWidth 2), bold 14px title in
+ * `model.titleColor`, then each line at 11px in its own color.  Actions are deliberately NOT
+ * rendered here — the pinned popup (Task 4) handles them.
+ *
+ * Returns the final clamped box rect so callers can check overlap if needed.
+ */
+export function drawTooltip(
+  hud: CanvasRenderingContext2D,
+  model: TooltipModel,
+  x: number,
+  y: number,
+  view: { w: number; h: number },
+): { x: number; y: number; w: number; h: number } {
+  const PAD_X = 10;
+  const PAD_Y = 8;
+  const TITLE_SIZE = 14;
+  const LINE_SIZE = 11;
+  const LINE_GAP = 14; // px per line row
+  const TITLE_GAP = 18; // px for the title row (slightly taller)
+
+  // Measure the widest string to size the box, clamped to a readable range.
+  hud.font = `bold ${TITLE_SIZE}px system-ui, sans-serif`;
+  let maxW = hud.measureText(model.title).width;
+  hud.font = `${LINE_SIZE}px system-ui, sans-serif`;
+  for (const line of model.lines) {
+    const lw = hud.measureText(line.text).width;
+    if (lw > maxW) maxW = lw;
+  }
+  const boxW = Math.min(320, Math.max(200, maxW + PAD_X * 2));
+  const boxH = PAD_Y * 2 + TITLE_GAP + model.lines.length * LINE_GAP;
+
+  // Position near cursor, then clamp so the box never overflows the view.
+  const clamped = clampPanelRect({ x, y, w: boxW, h: boxH }, view, 6);
+
+  // Background fill.
+  hud.fillStyle = 'rgba(8,9,13,0.96)';
+  hud.beginPath();
+  const r = 4; // corner radius
+  hud.moveTo(clamped.x + r, clamped.y);
+  hud.lineTo(clamped.x + clamped.w - r, clamped.y);
+  hud.arcTo(clamped.x + clamped.w, clamped.y, clamped.x + clamped.w, clamped.y + r, r);
+  hud.lineTo(clamped.x + clamped.w, clamped.y + clamped.h - r);
+  hud.arcTo(
+    clamped.x + clamped.w,
+    clamped.y + clamped.h,
+    clamped.x + clamped.w - r,
+    clamped.y + clamped.h,
+    r,
+  );
+  hud.lineTo(clamped.x + r, clamped.y + clamped.h);
+  hud.arcTo(clamped.x, clamped.y + clamped.h, clamped.x, clamped.y + clamped.h - r, r);
+  hud.lineTo(clamped.x, clamped.y + r);
+  hud.arcTo(clamped.x, clamped.y, clamped.x + r, clamped.y, r);
+  hud.closePath();
+  hud.fill();
+
+  // Gold border.
+  hud.strokeStyle = '#c9a24b';
+  hud.lineWidth = 2;
+  hud.stroke();
+
+  // Title.
+  hud.font = `bold ${TITLE_SIZE}px system-ui, sans-serif`;
+  hud.fillStyle = model.titleColor;
+  hud.textAlign = 'left';
+  hud.fillText(model.title, clamped.x + PAD_X, clamped.y + PAD_Y + TITLE_SIZE);
+
+  // Body lines.
+  hud.font = `${LINE_SIZE}px system-ui, sans-serif`;
+  let ly = clamped.y + PAD_Y + TITLE_GAP + LINE_SIZE;
+  for (const line of model.lines) {
+    hud.fillStyle = line.color;
+    hud.fillText(line.text, clamped.x + PAD_X, ly);
+    ly += LINE_GAP;
+  }
+
+  return clamped;
 }
 
 // ---------------------------------------------------------------------------

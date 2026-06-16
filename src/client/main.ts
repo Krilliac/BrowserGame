@@ -42,6 +42,13 @@ import {
 import { drawSkillTree, type SkillTreeButton } from './skilltree-panel.js';
 import { installErrorTrap, getLatestError } from './error-trap.js';
 import { clampPanelRect } from './ui-guard.js';
+import {
+  buildItemTooltip,
+  buildGemTooltip,
+  drawTooltip,
+  type TooltipResolvers,
+} from './item-tooltip.js';
+import { GEMS } from '../shared/gems.js';
 import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
 import type { EntityState, InputState } from '../shared/protocol.js';
 import { STATUS_BITS } from '../shared/status-bits.js';
@@ -2307,6 +2314,9 @@ function drawHud(): void {
     const secs = Math.max(0, net.you.respawnIn / 1000).toFixed(1);
     hud.fillText(`You died — respawning in ${secs}s`, w / 2, h / 2);
   }
+
+  // Hover tooltip — rendered last so it sits on top of every other HUD element.
+  drawHoverTooltip(w, h);
 }
 
 const ACHIEVEMENT_PREFIX = 'Achievement unlocked:';
@@ -2463,6 +2473,129 @@ function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean; 
   const set = ITEM_SETS.find((s) => s.pieces.includes(inst.baseId));
   if (set) segs.push({ text: `◆ ${set.name}`, debuff: false, color: '#9be09b' });
   return segs;
+}
+
+/**
+ * Build the TooltipResolvers object wired to live runtime data. Called once per frame (or lazily)
+ * by the hover-tooltip code — cheap because all the referenced objects are module-level references.
+ */
+function tooltipResolvers(): TooltipResolvers {
+  return {
+    itemInfo: (id) => {
+      const info = net.content.item(id);
+      if (!info) return undefined;
+      return {
+        name: info.name,
+        kind: info.kind,
+        slot: info.slot ?? null,
+        sellValue: info.sellValue ?? 0,
+        teaches: info.teaches ?? null,
+      };
+    },
+    abilityName: (id) => net.content.ability(id)?.name,
+    gemName: (id) => net.content.item(id)?.name ?? GEMS[id]?.name ?? id,
+    gemColor: (id) => net.content.item(id)?.color ?? GEMS[id]?.color ?? '#d6a8ff',
+    gemEffect: (id) => {
+      const g = GEMS[id];
+      if (!g) return undefined;
+      let s = affixLabel({ stat: g.stat, value: g.value });
+      if (g.mult !== undefined && g.mult !== 1)
+        s += ` · ${Math.round((g.mult - 1) * 100)}% spell dmg`;
+      if (g.grantsHoming) s += ' · grants homing';
+      return s;
+    },
+  };
+}
+
+/**
+ * Draw a hover tooltip for the item or gem under the cursor. Placed at the end of drawHud() so
+ * it renders on top of all other panels. Returns without drawing when nothing is under the cursor.
+ */
+function drawHoverTooltip(w: number, h: number): void {
+  const resolvers = tooltipResolvers();
+
+  // Helper: resolve a gear uid to an ItemInstance (bag or stash).
+  const bagByUid = (uid: number): ItemInstance | undefined =>
+    net.you.gear.find((g) => g.uid === uid);
+  const stashByUid = (uid: number): ItemInstance | undefined =>
+    net.stash?.items.find((g) => g.uid === uid);
+
+  // Check hit-rects in order: bag strip → char slots → gem strip → inventory panel → stash panel.
+  // First match wins.
+
+  // 1. HUD bag strip (the newest-N sidebar items).
+  for (const rect of bagRects) {
+    if (!inRect(mouseX, mouseY, rect)) continue;
+    const inst = bagByUid(rect.uid);
+    if (!inst) return;
+    const model = buildItemTooltip(
+      inst,
+      net.content.item(inst.baseId)?.name ?? inst.baseId,
+      resolvers,
+      'none',
+    );
+    drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+    return;
+  }
+
+  // 2. Character-panel equipment slots.
+  for (const rect of charSlotRects) {
+    if (!inRect(mouseX, mouseY, rect)) continue;
+    const inst = net.you.equipment[rect.slot] ?? null;
+    if (!inst) return;
+    const model = buildItemTooltip(
+      inst,
+      net.content.item(inst.baseId)?.name ?? inst.baseId,
+      resolvers,
+      'none',
+    );
+    drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+    return;
+  }
+
+  // 3. Gem strip (socketable gems in the bag listed on the HUD sidebar).
+  for (const rect of socketRects) {
+    if (!inRect(mouseX, mouseY, rect)) continue;
+    const model = buildGemTooltip(rect.itemId, resolvers);
+    drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+    return;
+  }
+
+  // 4. Inventory panel (full bag grid, only when open).
+  if (inventoryOpen) {
+    for (const btn of inventoryButtons) {
+      if (btn.action !== 'equip' || btn.uid === undefined) continue;
+      if (!inRect(mouseX, mouseY, btn)) continue;
+      const inst = bagByUid(btn.uid);
+      if (!inst) return;
+      const model = buildItemTooltip(
+        inst,
+        net.content.item(inst.baseId)?.name ?? inst.baseId,
+        resolvers,
+        'none',
+      );
+      drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+      return;
+    }
+  }
+
+  // 5. Vault / stash panel (only when open).
+  if (net.stash) {
+    for (const btn of stashButtons) {
+      if (btn.uid === undefined) continue;
+      if (!inRect(mouseX, mouseY, btn)) continue;
+      const inst = btn.action === 'deposit' ? bagByUid(btn.uid) : stashByUid(btn.uid);
+      if (!inst) return;
+      const model = buildItemTooltip(
+        inst,
+        net.content.item(inst.baseId)?.name ?? inst.baseId,
+        resolvers,
+        'none',
+      );
+      drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+      return;
+    }
+  }
 }
 
 /**
