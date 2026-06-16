@@ -8,6 +8,14 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Item & gem inspect.** Hover an item/gem for a read-only stats tooltip; click/tap it for a pinned
+  inspect popup showing the full breakdown — rarity-colored name, type/slot, base stats, every affix
+  (now pretty-printed, e.g. `+8% fire damage`, `+1 chain`, `+5% penetration`), set bonus, sockets with
+  each socketed gem's effect, sell value, and a spellbook's taught ability — plus context action
+  buttons (Equip/Unequip/Salvage/Sell, gem **Socket**, vault **Withdraw**). Works across the bag strip,
+  full inventory panel, equipment slots, vault, and gem strip; the popup is the mobile/tap path. Fast
+  actions preserved: shift-click salvages, double-click equips; Esc / click-away dismisses.
+
 - **Spell-behavior engine (slice 1).** Spells now carry composable, data-driven behaviors
   (chain / pierce / fork / splash / homing / multishot / return) resolved by a pure, unit-tested
   module (`src/server/projectile-behaviors.ts`) — lightning fires one bolt that chains between
