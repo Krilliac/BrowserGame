@@ -306,6 +306,11 @@ describe('quest integrity', () => {
       if (q.exploreArea !== null) {
         expect(c.area(q.exploreArea), `${q.id} explore area ${q.exploreArea}`).toBeDefined();
       }
+      // A chain quest must require a REAL quest (and never itself, which would deadlock it).
+      if (q.requires !== null) {
+        expect(c.quest(q.requires), `${q.id} requires ${q.requires}`).toBeDefined();
+        expect(q.requires, `${q.id} cannot require itself`).not.toBe(q.id);
+      }
       // A reward item (e.g. a spellbook) must be a real item.
       if (q.rewardItem !== null) {
         expect(c.item(q.rewardItem), `${q.id} reward item ${q.rewardItem}`).toBeDefined();

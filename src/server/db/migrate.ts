@@ -122,6 +122,15 @@ const MIGRATIONS: Migration[] = [
       if (hasTable(db, 'quests')) ensureColumns(db, 'quests', { explore_area: 'TEXT' });
     },
   },
+  {
+    version: 6,
+    name: 'chain-quest-prereq',
+    up(db) {
+      // Chain quests gain a `requires` prerequisite quest id. Nullable: existing quests have no
+      // prerequisite and stay immediately available, exactly as before.
+      if (hasTable(db, 'quests')) ensureColumns(db, 'quests', { requires: 'TEXT' });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */

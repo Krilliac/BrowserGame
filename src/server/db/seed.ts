@@ -831,7 +831,7 @@ function ensureActsContent(db: Database): void {
   }
 
   const insQuest = db.prepare(
-    'INSERT OR IGNORE INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item,turn_in_item,turn_in_count,explore_area) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+    'INSERT OR IGNORE INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item,turn_in_item,turn_in_count,explore_area,requires) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
   );
   for (const q of ACTS_QUESTS) {
     insQuest.run(
@@ -846,6 +846,7 @@ function ensureActsContent(db: Database): void {
       q.turnInItem ?? null,
       q.turnInCount ?? 0,
       q.exploreArea ?? null,
+      q.requires ?? null,
     );
   }
 

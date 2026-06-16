@@ -489,6 +489,7 @@ CREATE TABLE IF NOT EXISTS quests (
   turn_in_item  TEXT,                          -- collect quests: the item id to turn in
   turn_in_count INTEGER NOT NULL DEFAULT 0,    -- collect quests: how many to turn in
   explore_area  TEXT,                          -- explore quests: the area id to discover
+  requires      TEXT,                          -- chain quests: prerequisite quest id (must be done first)
   flags         INTEGER NOT NULL DEFAULT 0     -- bitmask (QuestFlags): REPEATABLE, …
 );
 

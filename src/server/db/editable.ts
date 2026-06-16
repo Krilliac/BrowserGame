@@ -159,6 +159,7 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       turn_in_item: { type: 'text', nullable: true },
       turn_in_count: { type: 'int', min: 0, max: 100000 },
       explore_area: { type: 'text', nullable: true },
+      requires: { type: 'text', nullable: true },
     },
   },
 

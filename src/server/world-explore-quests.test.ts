@@ -67,3 +67,41 @@ describe('explore/discover quests', () => {
     );
   });
 });
+
+/**
+ * Chain quests: a quest with a `requires` prerequisite stays 'locked' (offered but un-acceptable)
+ * until the prerequisite is complete. The three Wayfinder bounties form a chain
+ * (scout_sunken_pass → chart_ashveil → witness_voidmarch).
+ */
+describe('chain quests', () => {
+  const find = (w: ReturnType<typeof areaWorld>, id: number, qid: string) =>
+    w.playerStats(id)!.quests.find((q) => q.id === qid)!;
+
+  it('locks a quest until its prerequisite is complete, then unlocks it', () => {
+    const pass = areaWorld('sunken_pass');
+    const id = pass.spawn('Climber');
+
+    // Before the prereq: the next leg is locked, names its requirement, and cannot be accepted.
+    const locked = find(pass, id, 'chart_ashveil');
+    expect(locked.status).toBe('locked');
+    expect(locked.requiresName).toBeTruthy();
+    expect(pass.acceptQuest(id, 'chart_ashveil')).toContain('Locked');
+    expect(find(pass, id, 'chart_ashveil').status).toBe('locked');
+
+    // Completing the prerequisite (spawning in sunken_pass already discovered it) unlocks it.
+    pass.acceptQuest(id, 'scout_sunken_pass'); // auto-completes — area already discovered
+    expect(find(pass, id, 'scout_sunken_pass').status).toBe('done');
+    const unlocked = find(pass, id, 'chart_ashveil');
+    expect(unlocked.status).toBe('available');
+    expect(unlocked.requiresName).toBeNull();
+    expect(pass.acceptQuest(id, 'chart_ashveil')).toContain('accepted');
+  });
+
+  it('keeps the third leg locked while only the first is done', () => {
+    const pass = areaWorld('sunken_pass');
+    const id = pass.spawn('Trekker');
+    pass.acceptQuest(id, 'scout_sunken_pass'); // leg 1 done
+    expect(find(pass, id, 'chart_ashveil').status).toBe('available'); // leg 2 unlocked
+    expect(find(pass, id, 'witness_voidmarch').status).toBe('locked'); // leg 3 still gated on leg 2
+  });
+});

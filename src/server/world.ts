@@ -1785,7 +1785,10 @@ export class World {
         return;
       }
     }
-    const next = quests.find((q) => !player.quests.has(q.id) && !player.questsDone.has(q.id));
+    const next = quests.find(
+      (q) =>
+        !player.quests.has(q.id) && !player.questsDone.has(q.id) && this.questUnlocked(player, q),
+    );
     if (next) {
       player.quests.set(next.id, 0);
       const ask = next.turnInItem
@@ -4260,6 +4263,10 @@ export class World {
     if (!quest) return `No such quest: ${questId}`;
     if (player.questsDone.has(questId)) return `Already completed: ${quest.name}`;
     if (player.quests.has(questId)) return `Already on quest: ${quest.name}`;
+    if (!this.questUnlocked(player, quest)) {
+      const req = getContent().quest(quest.requires!);
+      return `Locked: complete "${req?.name ?? quest.requires}" first.`;
+    }
     player.quests.set(questId, 0);
     // An explore quest for an area the player has already visited completes the moment it is taken.
     if (quest.exploreArea) this.progressExploreQuests(player);
@@ -4283,6 +4290,10 @@ export class World {
           const need = q.exploreArea ? 1 : q.targetCount;
           return `â–¸ ${q.name}: ${got}/${need} â€” ${q.description}`;
         }
+        if (!this.questUnlocked(player, q)) {
+          const req = getContent().quest(q.requires!);
+          return `(locked) ${q.name} - requires "${req?.name ?? q.requires}"`;
+        }
         return `Â· ${q.name} [${q.id}] â€” /accept ${q.id}`;
       });
   }
@@ -4296,7 +4307,9 @@ export class World {
           ? 'done'
           : player.quests.has(q.id)
             ? 'active'
-            : 'available';
+            : this.questUnlocked(player, q)
+              ? 'available'
+              : 'locked';
         const collect = !!q.turnInItem;
         const explore = !!q.exploreArea;
         const kind = explore
@@ -4324,6 +4337,8 @@ export class World {
           rewardGold: q.rewardGold,
           rewardXp: q.rewardXp,
           rewardItem: q.rewardItem,
+          requiresName:
+            status === 'locked' ? (getContent().quest(q.requires!)?.name ?? q.requires) : null,
         };
       });
   }
@@ -4421,6 +4436,11 @@ export class World {
       if (next >= quest.targetCount) this.completeQuest(player, quest);
       else player.quests.set(questId, next);
     }
+  }
+
+  /** True if a quest's chain prerequisite (if any) is satisfied — i.e. it can be offered/accepted. */
+  private questUnlocked(player: Player, quest: QuestDef): boolean {
+    return !quest.requires || player.questsDone.has(quest.requires);
   }
 
   /**

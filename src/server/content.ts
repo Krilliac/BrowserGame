@@ -99,6 +99,8 @@ export interface QuestDef {
   turnInCount: number;
   /** Explore quests: the area id the player must discover to complete (null otherwise). */
   exploreArea: string | null;
+  /** Chain quests: a prerequisite quest id that must be completed before this one unlocks. */
+  requires: string | null;
   /** Bitmask of {@link QuestFlags} (e.g. REPEATABLE). */
   flags: number;
 }
@@ -502,6 +504,7 @@ export function loadContent(db: GameDatabase): Content {
     turnInItem: q.turn_in_item ?? null,
     turnInCount: q.turn_in_count ?? 0,
     exploreArea: q.explore_area ?? null,
+    requires: q.requires ?? null,
     flags: q.flags ?? 0,
   }));
 
@@ -1093,6 +1096,7 @@ interface QuestRow {
   turn_in_item: string | null;
   turn_in_count: number;
   explore_area: string | null;
+  requires: string | null;
   flags: number;
 }
 interface LootRow {

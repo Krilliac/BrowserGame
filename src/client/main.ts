@@ -1921,8 +1921,9 @@ function drawQuestTracker(): void {
 function drawQuestPanel(): void {
   questAcceptRects.length = 0;
   const quests = net.you.quests ?? [];
-  // Order: active first, then available, then done — the player's eye goes to live objectives.
-  const rank = (s: string): number => (s === 'active' ? 0 : s === 'available' ? 1 : 2);
+  // Order: active first, then available, then locked (future chain steps), then done.
+  const rank = (s: string): number =>
+    s === 'active' ? 0 : s === 'available' ? 1 : s === 'locked' ? 2 : 3;
   const sorted = [...quests].sort((a, b) => rank(a.status) - rank(b.status));
 
   const pw = 420;
@@ -1963,6 +1964,7 @@ function drawQuestPanel(): void {
   const statusColor: Record<string, string> = {
     active: '#f2c14e',
     available: '#9fb0c0',
+    locked: '#6a6f7a',
     done: '#6b9a5a',
   };
   sorted.forEach((q, i) => {
@@ -1970,17 +1972,26 @@ function drawQuestPanel(): void {
     hud.textAlign = 'left';
     hud.fillStyle = statusColor[q.status] ?? '#d7dbe3';
     hud.font = 'bold 13px system-ui, sans-serif';
-    const tag = q.status === 'done' ? '✓ ' : q.status === 'active' ? '▸ ' : '· ';
+    const tag =
+      q.status === 'done'
+        ? '✓ '
+        : q.status === 'active'
+          ? '▸ '
+          : q.status === 'locked'
+            ? '🔒 '
+            : '· ';
     hud.fillText(fitText(tag + q.name, pw - 120), px + 14, ry + 14);
 
     hud.fillStyle = '#9aa3b2';
     hud.font = '10px system-ui, sans-serif';
     const desc =
-      q.status === 'active' && q.kind === 'collect'
-        ? `${q.description}  (turn in at a quest-giver)`
-        : q.status === 'active' && q.kind === 'explore'
-          ? `${q.description}  (travel there to complete)`
-          : q.description;
+      q.status === 'locked' && q.requiresName
+        ? `Requires: ${q.requiresName}`
+        : q.status === 'active' && q.kind === 'collect'
+          ? `${q.description}  (turn in at a quest-giver)`
+          : q.status === 'active' && q.kind === 'explore'
+            ? `${q.description}  (travel there to complete)`
+            : q.description;
     hud.fillText(fitText(desc, pw - 28), px + 14, ry + 30);
 
     // Reward line.
@@ -2023,6 +2034,19 @@ function drawQuestPanel(): void {
       hud.font = 'bold 11px system-ui, sans-serif';
       hud.textAlign = 'center';
       hud.fillText('Accept', rect.x + rect.w / 2, rect.y + 15);
+    } else if (q.status === 'locked') {
+      // No accept button — a dim "Locked" tag signals the chain prerequisite isn't met yet.
+      const bw = 78;
+      const bx = px + pw - bw - 14;
+      hud.fillStyle = 'rgba(40,42,48,0.6)';
+      hud.fillRect(bx, ry + 14, bw, 22);
+      hud.strokeStyle = 'rgba(120,124,132,0.5)';
+      hud.lineWidth = 1;
+      hud.strokeRect(bx, ry + 14, bw, 22);
+      hud.fillStyle = '#8a8f99';
+      hud.font = 'bold 11px system-ui, sans-serif';
+      hud.textAlign = 'center';
+      hud.fillText('Locked', bx + bw / 2, ry + 29);
     }
 
     if (i < sorted.length - 1) {

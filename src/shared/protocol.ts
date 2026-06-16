@@ -29,11 +29,14 @@ export interface QuestState {
   targetCount: number;
   /** Kills so far, or items currently held toward a collect quest (0 for available/done). */
   progress: number;
-  status: 'available' | 'active' | 'done';
+  /** 'locked' = a chain prerequisite quest is not yet complete (shown but not acceptable). */
+  status: 'available' | 'active' | 'done' | 'locked';
   /** Reward summary for the log (gold/xp + optional item name). */
   rewardGold: number;
   rewardXp: number;
   rewardItem: string | null;
+  /** Chain quests: the name of the prerequisite quest, shown when this one is 'locked' (else null). */
+  requiresName: string | null;
 }
 
 /** Item display/stat info sent to the client (mirrors the server's content DB items). */

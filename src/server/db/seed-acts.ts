@@ -458,6 +458,7 @@ export const ACTS_QUESTS: QuestRow[] = [
   },
   // Wayfinder bounties — Old Wren pays for charting the road ahead. Explore quests complete the
   // instant you set foot in the named area (no kill, no turn-in); the reward grows with the distance.
+  // They form a CHAIN: each unlocks only once the previous leg of the road has been scouted.
   {
     id: 'scout_sunken_pass',
     name: 'Chart the Sunken Pass',
@@ -479,6 +480,7 @@ export const ACTS_QUESTS: QuestRow[] = [
     rewardXp: 6000,
     rewardItem: null,
     exploreArea: 'ashveil_desert',
+    requires: 'scout_sunken_pass',
   },
   {
     id: 'witness_voidmarch',
@@ -490,6 +492,7 @@ export const ACTS_QUESTS: QuestRow[] = [
     rewardXp: 12000,
     rewardItem: null,
     exploreArea: 'voidmarch',
+    requires: 'chart_ashveil',
   },
 ];
 
