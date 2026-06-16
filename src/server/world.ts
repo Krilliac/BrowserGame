@@ -2364,6 +2364,22 @@ export class World {
     return true;
   }
 
+  /**
+   * Test seam: directly set a player's ailment-scaling stats (fraction values; e.g. 0.5 = +50%).
+   * Only usable in tests — production paths go through recomputeStats / gear affixes.
+   */
+  setPlayerAilmentStats(
+    playerId: number,
+    ailmentDuration: number,
+    ailmentMagnitude: number,
+  ): boolean {
+    const p = this.players.get(playerId);
+    if (!p) return false;
+    p.ailmentDuration = ailmentDuration;
+    p.ailmentMagnitude = ailmentMagnitude;
+    return true;
+  }
+
   playerPos(id: number): { x: number; y: number } | undefined {
     const p = this.players.get(id);
     return p ? { x: p.x, y: p.y } : undefined;
@@ -2617,7 +2633,10 @@ export class World {
           );
           this.damageMob(mob, finalDmg, abilityId, player.id, crit);
           if (finalDmg > 0) {
-            applyStatus(mob, abilityId);
+            applyStatus(mob, abilityId, {
+              durMult: 1 + player.ailmentDuration,
+              magMult: 1 + player.ailmentMagnitude,
+            });
             const kbPx = ABILITY_KNOCKBACK[abilityId];
             if (kbPx) this.knockbackMob(mob, player.x, player.y, kbPx);
           }
@@ -3748,7 +3767,13 @@ export class World {
     );
     this.damageMob(mob, finalDmg, proj.abilityId, proj.ownerId, crit);
     if (finalDmg > 0) {
-      applyStatus(mob, proj.abilityId);
+      applyStatus(
+        mob,
+        proj.abilityId,
+        owner
+          ? { durMult: 1 + owner.ailmentDuration, magMult: 1 + owner.ailmentMagnitude }
+          : undefined,
+      );
       const kbPx = ABILITY_KNOCKBACK[proj.abilityId];
       if (kbPx) this.knockbackMob(mob, proj.x, proj.y, kbPx);
     }
@@ -3861,7 +3886,14 @@ export class World {
         this.rand,
       )) {
         if (eff.kind === 'damage') this.damageMob(mob, eff.amount, undefined, attackerId, false);
-        else applyStatus(mob, eff.ability as AbilityId);
+        else
+          applyStatus(
+            mob,
+            eff.ability as AbilityId,
+            attacker
+              ? { durMult: 1 + attacker.ailmentDuration, magMult: 1 + attacker.ailmentMagnitude }
+              : undefined,
+          );
         if (mob.dead) break;
       }
       this.procDepth--;
@@ -4702,10 +4734,19 @@ function rollAbilityDamage(
  * Map an ability's on-hit effect onto a monster. The effects are data-driven (the
  * `ability_status_effects` content table); a spell may carry several (e.g. a curse that both slows
  * and weakens), each applied independently.
+ *
+ * Pass `mods` with the caster's ailment multipliers to scale duration and magnitude. Defaults to
+ * 1/1 (no scaling) so existing call sites that omit mods are behaviour-identical.
  */
-function applyStatus(mob: { statuses: StatusSet }, abilityId: AbilityId): void {
+function applyStatus(
+  mob: { statuses: StatusSet },
+  abilityId: AbilityId,
+  mods?: { durMult: number; magMult: number },
+): void {
+  const dm = mods?.durMult ?? 1;
+  const mm = mods?.magMult ?? 1;
   for (const e of getContent().abilityStatusEffects(abilityId)) {
-    mob.statuses.apply(e.effect, e.ms, e.magnitude);
+    mob.statuses.apply(e.effect, e.ms * dm, e.magnitude * mm);
   }
 }
 
