@@ -23,6 +23,7 @@ import type { TimedFx } from './draw.js';
 import type { ClientContentStore } from './content-store.js';
 import { Atmosphere } from './atmosphere.js';
 import { Weather } from './weather.js';
+import { STATUS_BITS } from '../shared/status-bits.js';
 import { CloudShadows } from './clouds.js';
 import { Lighting, type LightSource } from './lighting.js';
 import { PostFx, type Quality } from './post-fx.js';
@@ -430,6 +431,10 @@ const TINT_BURN = 0xffaa55;
 const TINT_SLOW = 0x88bbff;
 const TINT_WEAKEN = 0xb088c0; // sickly violet — a cursed/weakened monster
 const TINT_ENRAGE = 0xff7b5a; // hot orange-red — a self-buffed (enraged/hasted) monster
+const TINT_STUN = 0xdfe6ff; // pale icy white-blue (stun / freeze)
+const TINT_POISON = 0x8fd96a; // sickly green
+const TINT_BLEED = 0xc23b3b; // dark red
+const TINT_SHOCK = 0xf4e06b; // electric yellow
 
 /** Parse a CSS `#rrggbb` hex color to a 0xRRGGBB number for the additive light layer (which takes
  * numeric colors); falls back to a cool blue if the string isn't a 6-digit hex. */
@@ -2410,15 +2415,23 @@ export class PixiRenderer {
             : combineTints(this.currentTheme.spriteTint, e.tint)
           : now < view.flashUntil
             ? TINT_FLASH
-            : flags & 2
-              ? TINT_BURN
-              : flags & 1
-                ? TINT_SLOW
-                : flags & 4
-                  ? TINT_WEAKEN
-                  : flags & 64
-                    ? TINT_ENRAGE
-                    : combineTints(this.currentTheme.spriteTint, e.tint);
+            : flags & (STATUS_BITS.freeze | STATUS_BITS.stun)
+              ? TINT_STUN
+              : flags & (STATUS_BITS.ignite | STATUS_BITS.burn)
+                ? TINT_BURN
+                : flags & STATUS_BITS.poison
+                  ? TINT_POISON
+                  : flags & STATUS_BITS.bleed
+                    ? TINT_BLEED
+                    : flags & STATUS_BITS.shock
+                      ? TINT_SHOCK
+                      : flags & (STATUS_BITS.chill | STATUS_BITS.slow)
+                        ? TINT_SLOW
+                        : flags & STATUS_BITS.weaken
+                          ? TINT_WEAKEN
+                          : flags & STATUS_BITS.enrage
+                            ? TINT_ENRAGE
+                            : combineTints(this.currentTheme.spriteTint, e.tint);
     }
 
     if (view.dyn && e.maxHp > 0) {
