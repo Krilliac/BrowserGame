@@ -2017,6 +2017,17 @@ export class World {
     let move = 0; // percent move bonus
     let armor = 0; // percent incoming-damage reduction
     let vigor = 0; // bonus HP regenerated per second
+    // Slice 4: element-damage, penetration, ailment accumulators (fraction: 0.0–N.0).
+    const elemDamage: Record<DamageElement, number> = {
+      physical: 0,
+      fire: 0,
+      cold: 0,
+      lightning: 0,
+      poison: 0,
+    };
+    let penetration = 0;
+    let ailmentDuration = 0;
+    let ailmentMagnitude = 0;
     const procs: ProcDef[] = []; // chance-on-hit/crit procs gathered from equipped gear
     for (const slot of EQUIP_SLOTS) {
       const inst = player.equipment[slot];
@@ -2036,7 +2047,24 @@ export class World {
         else if (a.stat === 'vigor') vigor += a.value;
         else if (a.stat === 'frail')
           bonusHp -= a.value; // corrupted debuff: less max HP
-        else if (a.stat === 'fragile') damageTaken += a.value / 100; // corrupted debuff: take more
+        else if (a.stat === 'fragile')
+          damageTaken += a.value / 100; // corrupted debuff: take more
+        // Slice 4: element damage, penetration, ailment, and projectile-modifier affixes.
+        // Percent stats (whole-percent in DB) → /100 to match the fraction unit gem path uses.
+        else if (a.stat === 'firedmg') elemDamage.fire += a.value / 100;
+        else if (a.stat === 'colddmg') elemDamage.cold += a.value / 100;
+        else if (a.stat === 'lightningdmg') elemDamage.lightning += a.value / 100;
+        else if (a.stat === 'poisondmg') elemDamage.poison += a.value / 100;
+        else if (a.stat === 'physdmg') elemDamage.physical += a.value / 100;
+        else if (a.stat === 'penetration') penetration += a.value / 100;
+        else if (a.stat === 'ailmentdur') ailmentDuration += a.value / 100;
+        else if (a.stat === 'ailmentmag') ailmentMagnitude += a.value / 100;
+        // Integer counts — add directly (same unit as gem chain/pierce/fork).
+        else if (a.stat === 'chain') chainAdd += a.value;
+        else if (a.stat === 'pierce') pierceAdd += a.value;
+        else if (a.stat === 'fork') forkAdd += a.value;
+        // Spell AoE: affix stores whole-percent (8-18) → /100 to match gem fraction (0.2-0.5).
+        else if (a.stat === 'spellaoe') spellAoe += a.value / 100;
       }
       // Socketed gems add the same stat kinds as affixes (crit gem value is in whole % points).
       const gems = gemBonuses(inst.sockets ?? []);
@@ -2066,6 +2094,19 @@ export class World {
         else if (a.stat === 'move') move += a.value;
         else if (a.stat === 'armor') armor += a.value;
         else if (a.stat === 'vigor') vigor += a.value;
+        // Slice 4: runeword can grant the same new stat kinds as affixes.
+        else if (a.stat === 'firedmg') elemDamage.fire += a.value / 100;
+        else if (a.stat === 'colddmg') elemDamage.cold += a.value / 100;
+        else if (a.stat === 'lightningdmg') elemDamage.lightning += a.value / 100;
+        else if (a.stat === 'poisondmg') elemDamage.poison += a.value / 100;
+        else if (a.stat === 'physdmg') elemDamage.physical += a.value / 100;
+        else if (a.stat === 'penetration') penetration += a.value / 100;
+        else if (a.stat === 'ailmentdur') ailmentDuration += a.value / 100;
+        else if (a.stat === 'ailmentmag') ailmentMagnitude += a.value / 100;
+        else if (a.stat === 'chain') chainAdd += a.value;
+        else if (a.stat === 'pierce') pierceAdd += a.value;
+        else if (a.stat === 'fork') forkAdd += a.value;
+        else if (a.stat === 'spellaoe') spellAoe += a.value / 100;
       }
     }
     // Item-set bonuses: wearing several pieces of one set grants threshold bonuses (D2 set items).
@@ -2080,6 +2121,19 @@ export class World {
       else if (a.stat === 'move') move += a.value;
       else if (a.stat === 'armor') armor += a.value;
       else if (a.stat === 'vigor') vigor += a.value;
+      // Slice 4: set bonuses can grant the same new stat kinds as affixes.
+      else if (a.stat === 'firedmg') elemDamage.fire += a.value / 100;
+      else if (a.stat === 'colddmg') elemDamage.cold += a.value / 100;
+      else if (a.stat === 'lightningdmg') elemDamage.lightning += a.value / 100;
+      else if (a.stat === 'poisondmg') elemDamage.poison += a.value / 100;
+      else if (a.stat === 'physdmg') elemDamage.physical += a.value / 100;
+      else if (a.stat === 'penetration') penetration += a.value / 100;
+      else if (a.stat === 'ailmentdur') ailmentDuration += a.value / 100;
+      else if (a.stat === 'ailmentmag') ailmentMagnitude += a.value / 100;
+      else if (a.stat === 'chain') chainAdd += a.value;
+      else if (a.stat === 'pierce') pierceAdd += a.value;
+      else if (a.stat === 'fork') forkAdd += a.value;
+      else if (a.stat === 'spellaoe') spellAoe += a.value / 100;
     }
     // Attribute bonuses (strengthâ†’power, vitalityâ†’maxHp, dexterityâ†’crit, energyâ†’mana regen).
     const attr = attributeBonuses(player.attributes);
@@ -2096,6 +2150,12 @@ export class World {
     armor += skill.armorPct;
     vigor += skill.vigor;
     multishot += skill.multishot;
+    // Slice 4: skill-tree nodes can grant chain/pierce/fork (integer counts) and spellaoe (fraction).
+    // spellaoe is stored as a fraction in SkillEffects (same unit as concussive/seeking gems).
+    chainAdd += skill.chain ?? 0;
+    pierceAdd += skill.pierce ?? 0;
+    forkAdd += skill.fork ?? 0;
+    spellAoe += skill.spellaoe ?? 0;
     player.power = power;
     player.critChance = crit;
     player.multishot = multishot;
@@ -2113,6 +2173,11 @@ export class World {
     player.damageTakenMult = damageTaken * Math.max(0.5, 1 - armor / 100);
     player.vigor = vigor; // flat HP/sec added to base regen in tickPlayers
     player.manaRegenBonus = attr.manaRegen + skill.manaRegen;
+    // Slice 4: element-damage multipliers, penetration, and ailment modifiers.
+    player.elemDamage = elemDamage;
+    player.penetration = penetration;
+    player.ailmentDuration = ailmentDuration;
+    player.ailmentMagnitude = ailmentMagnitude;
     // Max HP: base + flat bonuses, then the skill tree's percentage max-HP increase.
     player.maxHp = Math.max(
       1,

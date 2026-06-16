@@ -19,6 +19,11 @@ const EFFECT_KEYS: (keyof SkillEffects)[] = [
   'vigor',
   'manaRegen',
   'multishot',
+  // Slice 4: projectile-modifier and AoE fields.
+  'chain',
+  'pierce',
+  'fork',
+  'spellaoe',
 ];
 
 describe('SKILL_TREE structure', () => {
