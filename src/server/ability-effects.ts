@@ -68,6 +68,65 @@ export const DEFAULT_ABILITY_STATUS_EFFECTS: AbilityStatusEffectDef[] = [
   { abilityId: 'curse_of_decay', effect: 'weaken', ms: 3000, magnitude: 0.4 },
   { abilityId: 'draining_touch', effect: 'weaken', ms: 2500, magnitude: 0.3 },
   { abilityId: 'shadow_nova', effect: 'weaken', ms: 2500, magnitude: 0.3 },
+
+  // --- Element-signature ailments (Slice 3): every damaging ability imprints its school ailment ---
+
+  // Fire → ignite (DoT; magnitude = damage per tick). Distinct from the legacy 'burn' rows above;
+  // both coexist on fire abilities so the ignite system and the original burn system can be tuned
+  // independently (e.g. ignite can be used as the proc-able ailment while burn stays the baseline).
+  { abilityId: 'fireball', effect: 'ignite', ms: 2500, magnitude: 3 },
+  { abilityId: 'meteor', effect: 'ignite', ms: 2500, magnitude: 3 },
+  { abilityId: 'emberbolt', effect: 'ignite', ms: 2500, magnitude: 3 },
+  { abilityId: 'flamewave', effect: 'ignite', ms: 2500, magnitude: 3 },
+  { abilityId: 'cinderorb', effect: 'ignite', ms: 2500, magnitude: 3 },
+  { abilityId: 'infernonova', effect: 'ignite', ms: 2500, magnitude: 3 },
+  { abilityId: 'wyrmfire_lance', effect: 'ignite', ms: 2500, magnitude: 3 },
+
+  // Cold → chill (slow factor; magnitude = movement multiplier applied on top of base speed).
+  // Nova/AoE cold abilities (frostnova, glacierspike) also briefly freeze (root) on hit.
+  { abilityId: 'frost', effect: 'chill', ms: 2000, magnitude: 0.3 },
+  { abilityId: 'frostshard', effect: 'chill', ms: 2000, magnitude: 0.3 },
+  { abilityId: 'frostlance', effect: 'chill', ms: 2000, magnitude: 0.3 },
+  { abilityId: 'frostnova', effect: 'chill', ms: 2000, magnitude: 0.3 },
+  { abilityId: 'frostnova', effect: 'freeze', ms: 900, magnitude: 1 },
+  { abilityId: 'glacierspike', effect: 'chill', ms: 2000, magnitude: 0.3 },
+  { abilityId: 'glacierspike', effect: 'freeze', ms: 900, magnitude: 1 },
+
+  // Lightning → shock (vulnerability amplifier; magnitude = incoming-damage bonus fraction).
+  { abilityId: 'lightning', effect: 'shock', ms: 2500, magnitude: 0.2 },
+  { abilityId: 'sparkjolt', effect: 'shock', ms: 2500, magnitude: 0.2 },
+  { abilityId: 'chainspark', effect: 'shock', ms: 2500, magnitude: 0.2 },
+  { abilityId: 'staticburst', effect: 'shock', ms: 2500, magnitude: 0.2 },
+  { abilityId: 'thunderlance', effect: 'shock', ms: 2500, magnitude: 0.2 },
+
+  // Poison → poison (DoT; magnitude = damage per tick).
+  { abilityId: 'venom', effect: 'poison', ms: 3000, magnitude: 2 },
+  { abilityId: 'poison_spit', effect: 'poison', ms: 3000, magnitude: 2 },
+  { abilityId: 'mire_mortar', effect: 'poison', ms: 3000, magnitude: 2 },
+
+  // Physical projectiles and heavy melee → bleed (DoT; magnitude = damage per tick).
+  { abilityId: 'slash', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'arrow', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'cleave', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'quick_jab', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'skewer', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'broadsweep', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'whirlwind', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'bladestorm', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'crushing_smash', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'skullbreaker', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'throwing_axe', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'bone_chakram', effect: 'bleed', ms: 2500, magnitude: 2 },
+  { abilityId: 'razor_wind', effect: 'bleed', ms: 2500, magnitude: 2 },
+
+  // Control / hex rows on heavy-hitter and curse abilities.
+  // Big slams stun briefly (root + no actions; magnitude = 1 = full stun).
+  { abilityId: 'crushing_smash', effect: 'stun', ms: 700, magnitude: 1 },
+  { abilityId: 'skullbreaker', effect: 'stun', ms: 700, magnitude: 1 },
+  // Curse of Decay applies a proper curse debuff (amplifies all incoming magic damage).
+  { abilityId: 'curse_of_decay', effect: 'curse', ms: 3000, magnitude: 0.2 },
+  // Shadow Nova silences briefly (prevents ability use).
+  { abilityId: 'shadow_nova', effect: 'silence', ms: 1500, magnitude: 1 },
 ];
 
 /** A self-buff an ability grants its caster on cast (player War Cry / Sprint / Renew; mob heal-spells). */
