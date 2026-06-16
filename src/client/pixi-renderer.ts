@@ -3099,6 +3099,12 @@ export class PixiRenderer {
           .moveTo(ev.x, ev.y * PITCH)
           .lineTo(ev.x2, ev.y2 * PITCH)
           .stroke({ width: 2, color: arcColor(ev.element), alpha: 0.9 });
+      } else if (ev.kind === 'beam' && ev.x2 !== undefined && ev.y2 !== undefined) {
+        // Beam is brighter and thicker than a chain arc — it fills the full hitscan width visually.
+        this.arcGfx
+          .moveTo(ev.x, ev.y * PITCH)
+          .lineTo(ev.x2, ev.y2 * PITCH)
+          .stroke({ width: 4, color: arcColor(ev.element), alpha: 0.85 });
       }
     }
     for (let i = ti; i < this.fxTexts.length; i++) this.fxTexts[i]!.visible = false;

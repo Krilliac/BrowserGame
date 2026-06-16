@@ -28,6 +28,7 @@ import {
 } from '../shared/combat.js';
 import { config } from './config.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
+import { pointToSegmentDist } from './geometry.js';
 import { initialCharges, resolveHit, steerHoming, type MobLite } from './projectile-behaviors.js';
 import { applyModifiers } from './spell-modifiers.js';
 import {
@@ -2371,6 +2372,15 @@ export class World {
     return true;
   }
 
+  /** Test seam: warp a mob to an exact world position (bypass the random placement in spawnMobAt). */
+  teleportMob(mobId: number, x: number, y: number): boolean {
+    const mob = this.mobs.get(mobId);
+    if (!mob || mob.dead) return false;
+    mob.x = x;
+    mob.y = y;
+    return true;
+  }
+
   /**
    * Test seam: directly set a player's ailment-scaling stats (fraction values; e.g. 0.5 = +50%).
    * Only usable in tests — production paths go through recomputeStats / gear affixes.
@@ -2650,8 +2660,56 @@ export class World {
         }
       }
     } else {
-      const speed = ability.projectileSpeed ?? 300;
       const behaviors = ability.behaviors ?? [];
+
+      // --- Beam (hitscan) branch ---
+      // When an ability carries `{ type: 'beam' }`, skip projectile spawning entirely and instead
+      // trace an instant line from the caster. Every mob whose edge intersects the segment takes
+      // the full deterministic hit pipeline (same math as the melee branch above).
+      const beamSpec = behaviors.find((b) => b.type === 'beam');
+      if (beamSpec && beamSpec.type === 'beam') {
+        const elem = ability.element ?? 'physical';
+        const bx = player.x + Math.cos(facing) * beamSpec.range;
+        const by = player.y + Math.sin(facing) * beamSpec.range;
+        for (const mob of this.mobs.values()) {
+          if (mob.dead) continue;
+          if (
+            pointToSegmentDist(mob.x, mob.y, player.x, player.y, bx, by) <=
+            beamSpec.width + MOB_RADIUS
+          ) {
+            const power =
+              (ability.damage + player.power) *
+              rankMult *
+              mightMult *
+              (1 + player.elemDamage[elem]);
+            const base = rollAbilityDamage(player.level, mob.level, power, this.rand);
+            const crit = base > 0 && rollCrit(this.rand, player.critChance);
+            const dmg = applyCrit(base, crit);
+            const finalDmg = resistedDamage(
+              dmg,
+              elem,
+              getContent().mobResists(mob.templateId),
+              player.penetration,
+            );
+            this.damageMob(mob, finalDmg, abilityId, player.id, crit);
+            if (finalDmg > 0) {
+              applyStatus(mob, abilityId, {
+                durMult: 1 + player.ailmentDuration,
+                magMult: 1 + player.ailmentMagnitude,
+              });
+              const kbSpec = behaviors.find((b) => b.type === 'knockback');
+              if (kbSpec && kbSpec.type === 'knockback') {
+                this.knockbackMob(mob, player.x, player.y, kbSpec.px);
+              }
+            }
+          }
+        }
+        this.events.push({ kind: 'beam', x: player.x, y: player.y, x2: bx, y2: by, element: elem });
+        // Beam replaces projectile spawning — nothing more to do for this cast.
+        return;
+      }
+
+      const speed = ability.projectileSpeed ?? 300;
       // Multishot: the ability's `multishot` behavior OR the player's multishot stat (whichever is
       // larger) fans extra projectiles around the aim. Slice 2 adds gem-driven multishot.
       const ms = behaviors.find((b) => b.type === 'multishot');

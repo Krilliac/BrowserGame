@@ -51,7 +51,14 @@ export type BehaviorSpec =
    * hitting each mob independently on a per-target re-hit cooldown (ORBIT_REHIT_MS) so a sweeping
    * ring damages multiple enemies without consuming itself.
    */
-  | { type: 'orbit'; radius: number; angularSpeed: number };
+  | { type: 'orbit'; radius: number; angularSpeed: number }
+  /**
+   * Instant hitscan beam. Instead of spawning a projectile, the server traces a line segment from
+   * the caster and applies the full deterministic hit pipeline to every living mob whose edge
+   * (`pointToSegmentDist ≤ width + MOB_RADIUS`) overlaps the segment. Replaces the projectile-spawn
+   * when present on a `kind:'projectile'` ability.
+   */
+  | { type: 'beam'; range: number; width: number };
 
 export interface Ability {
   id: string;
@@ -841,7 +848,8 @@ const ABILITY_DEFS = {
     radius: 10,
     behaviors: [{ type: 'pierce', count: 2, falloff: 0.9 }],
   },
-  // Starfall: a shard of falling sky — big, bright, and worth the wait.
+  // Starfall: a bolt of pure starfire that pierces the sky and burns everything in its path.
+  // Uses the beam behavior: an instant hitscan line rather than a travelling projectile.
   starfall: {
     id: 'starfall',
     name: 'Starfall',
@@ -855,6 +863,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 340,
     projectileTtlMs: 1700,
     radius: 16,
+    behaviors: [{ type: 'beam', range: 360, width: 18 }],
   },
   // Maelstrom Orb: the endgame chase nuke — a huge, slow vortex with the biggest hit in the book.
   maelstrom_orb: {
@@ -928,7 +937,8 @@ export interface FxEvent {
     | 'levelup'
     | 'telegraph'
     | 'slam'
-    | 'arc';
+    | 'arc'
+    | 'beam';
   x: number;
   y: number;
   /** Facing/direction in radians (melee arcs, cast flashes, telegraph aim). */
