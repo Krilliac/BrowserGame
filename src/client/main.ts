@@ -2756,6 +2756,14 @@ function runTooltipAction(a: TooltipAction): void {
       // The TooltipModel doesn't currently emit index for unsocket actions from inspect-context, so
       // we omit this path rather than guess — artificer panel has its own dedicated unsocket buttons.
       break;
+    case 'socket':
+      // Socket the currently-pinned gem into the player's equipped gear (server validates fit).
+      if (pinnedInspect?.kind === 'gem') net.sendSocketGem(pinnedInspect.id);
+      break;
+    case 'withdraw':
+      // Withdraw a vault item to the bag (server validates bag space + ownership).
+      if (a.uid !== undefined) net.sendStashWithdraw(a.uid);
+      break;
   }
   pinnedInspect = null;
 }
@@ -2777,9 +2785,57 @@ function drawPinnedInspect(w: number, h: number): void {
     const model = buildGemTooltip(gemId, resolvers);
     // Anchor near where the user clicked, offset so the popup doesn't obscure the slot.
     const ax = Math.min(pinnedInspect.anchorX + 16, w - 240);
-    const ay = pinnedInspect.anchorY + 12;
-    drawTooltip(hud, model, ax, ay, view);
-    // Gem popup has no action buttons.
+    const ay = Math.min(pinnedInspect.anchorY + 12, h - 200);
+    const rect = drawTooltip(hud, model, ax, ay, view);
+
+    // Draw action buttons below the tooltip box (same layout as the item branch).
+    const BTN_H = 22;
+    const BTN_PAD = 8;
+    const BTN_GAP = 6;
+    const BTN_FONT = 'bold 11px system-ui, sans-serif';
+
+    hud.font = BTN_FONT;
+    const btnWidths = model.actions.map((a) => hud.measureText(a.label).width + BTN_PAD * 2);
+    const totalBtnsW = btnWidths.reduce((s, bw) => s + bw + BTN_GAP, -BTN_GAP);
+
+    let bx = rect.x;
+    const by = rect.y + rect.h + 4;
+
+    for (let i = 0; i < model.actions.length; i++) {
+      const action = model.actions[i]!;
+      const bw = btnWidths[i]!;
+      const btnRect = { x: bx, y: by, w: bw, h: BTN_H };
+
+      hud.fillStyle = 'rgba(8,9,13,0.94)';
+      hud.fillRect(btnRect.x, btnRect.y, btnRect.w, btnRect.h);
+      hud.strokeStyle = '#c9a24b';
+      hud.lineWidth = 1;
+      hud.strokeRect(btnRect.x, btnRect.y, btnRect.w, btnRect.h);
+      hud.fillStyle = '#e7d9b0';
+      hud.font = BTN_FONT;
+      hud.textAlign = 'center';
+      hud.fillText(action.label, btnRect.x + btnRect.w / 2, btnRect.y + BTN_H - 7);
+
+      const capturedAction: TooltipAction = action;
+      hitRegions.add({
+        x: btnRect.x,
+        y: btnRect.y,
+        w: btnRect.w,
+        h: btnRect.h,
+        onClick: () => runTooltipAction(capturedAction),
+      });
+
+      bx += bw + BTN_GAP;
+    }
+
+    hud.textAlign = 'left';
+
+    pinnedInspectRect = {
+      x: rect.x,
+      y: rect.y,
+      w: Math.max(rect.w, totalBtnsW),
+      h: rect.h + (model.actions.length > 0 ? 4 + BTN_H : 0),
+    };
     return;
   }
 
@@ -2810,7 +2866,7 @@ function drawPinnedInspect(w: number, h: number): void {
   // Filter actions by what's actually available right now.
   // - 'sell' only shown when a shop is open (and even then it sells all bag gear, not just this item)
   // - 'unsocket' is omitted (artificer panel has its own dedicated flow)
-  // - 'vault' context: withdraw maps to an 'equip' action that triggers sendEquip
+  // - 'vault' context: buildItemTooltip emits a 'withdraw' action → runTooltipAction calls sendStashWithdraw
   const availableActions: TooltipAction[] = model.actions.filter((a) => {
     if (a.action === 'sell') return !!net.shop;
     if (a.action === 'unsocket') return false; // handled by the artificer panel instead

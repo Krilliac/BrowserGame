@@ -202,9 +202,11 @@ describe('buildItemTooltip', () => {
       expect(model.actions[0]?.uid).toBe(1);
     });
 
-    it("'vault' ctx → equip action (withdraw-style)", () => {
+    it("'vault' ctx → withdraw action with uid", () => {
       const model = buildItemTooltip(MAGIC_SWORD, 'Iron Sword', BASE_RESOLVERS, 'vault');
-      expect(model.actions.map((a) => a.action)).toContain('equip');
+      expect(model.actions.map((a) => a.action)).toContain('withdraw');
+      const withdrawAction = model.actions.find((a) => a.action === 'withdraw');
+      expect(withdrawAction?.uid).toBe(1);
     });
 
     it("'gem-strip' ctx → no actions", () => {
@@ -234,9 +236,9 @@ describe('buildGemTooltip', () => {
     expect(effectLine).toContain('−20% spell dmg');
   });
 
-  it('actions are empty (unsocket handled by caller ctx)', () => {
+  it('actions contain a socket action', () => {
     const model = buildGemTooltip('overcharge_t3', BASE_RESOLVERS);
-    expect(model.actions).toHaveLength(0);
+    expect(model.actions.map((a) => a.action)).toContain('socket');
   });
 
   it('fallback when gemEffect returns undefined: line = "Gem"', () => {

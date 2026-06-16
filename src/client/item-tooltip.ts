@@ -29,7 +29,7 @@ export interface TooltipLine {
 /** One interactive button at the bottom of a tooltip. */
 export interface TooltipAction {
   label: string;
-  action: 'equip' | 'unequip' | 'salvage' | 'sell' | 'unsocket';
+  action: 'equip' | 'unequip' | 'salvage' | 'sell' | 'unsocket' | 'socket' | 'withdraw';
   uid?: number;
   /** Socket index, used for unsocket actions. */
   index?: number;
@@ -70,7 +70,7 @@ export interface TooltipResolvers {
  *
  * - `'bag'`      → Equip + Salvage
  * - `'equipped'` → Unequip
- * - `'vault'`    → Equip (withdraw-style — same action, vault caller interprets it)
+ * - `'vault'`    → Withdraw (moves the item from the vault to the bag)
  * - `'gem-strip'`/`'none'` → No item actions (gem-strip context is handled by the caller)
  */
 export type InspectContext = 'bag' | 'equipped' | 'vault' | 'gem-strip' | 'none';
@@ -187,8 +187,10 @@ export function buildItemTooltip(
 // ---------------------------------------------------------------------------
 
 /**
- * Build a {@link TooltipModel} for a gem (shown when hovering a socketed gem or a gem in a bag).
- * Actions are always empty — unsocket is handled by the caller's context.
+ * Build a {@link TooltipModel} for a gem (shown when hovering a socketed gem or a gem in the bag
+ * gem-strip). Includes a Socket action so the player can socket the gem into equipped gear.
+ * The caller (drawPinnedInspect gem branch) uses pinnedInspect.id to identify the gem when
+ * runTooltipAction dispatches the 'socket' case.
  */
 export function buildGemTooltip(gemId: string, resolvers: TooltipResolvers): TooltipModel {
   const name = resolvers.gemName(gemId);
@@ -202,7 +204,7 @@ export function buildGemTooltip(gemId: string, resolvers: TooltipResolvers): Too
     title: name,
     titleColor: color,
     lines,
-    actions: [],
+    actions: [{ label: 'Socket', action: 'socket' }],
   };
 }
 
@@ -306,7 +308,7 @@ function buildItemActions(uid: number, ctx: InspectContext): TooltipAction[] {
     case 'equipped':
       return [{ label: 'Unequip', action: 'unequip', uid }];
     case 'vault':
-      return [{ label: 'Equip', action: 'equip', uid }];
+      return [{ label: 'Withdraw', action: 'withdraw', uid }];
     case 'gem-strip':
     case 'none':
       return [];
