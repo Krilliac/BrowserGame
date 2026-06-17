@@ -8,6 +8,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Guild progression.** Guilds now level up from the kills their members score (member kills feed
+  guild XP via the World's new kill hook, scaled by the slain monster's level). Each `GUILD_XP_PER_LEVEL`
+  (500) is a guild level (capped at 20), announced in guild chat; the perk is a **larger guild bank**
+  (+5 item slots per level over the base 100). `/guild` shows the level + XP to next. Progress lives in
+  a new `guild_progress` table and is cleared on disband. (+6 tests.)
+
 - **Pet bonding & evolution.** A tamed pet now grows with you: every kill it shares earns bond XP, and
   at each threshold it climbs a **bond tier** (+18% HP & damage per tier on top of its owner-level
   base). The top tier (5) is its **evolution** — roughly +90% stronger, shown as `★ EVOLVED`. A

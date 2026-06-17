@@ -597,6 +597,13 @@ CREATE TABLE IF NOT EXISTS guild_bank_items (
 );
 CREATE INDEX IF NOT EXISTS idx_guild_bank_items_guild ON guild_bank_items (guild_id);
 
+-- Guild progression: lifetime XP from member kills → guild level (perks: a larger guild bank). One
+-- row per guild; level is derived from xp in guild-progress.ts. New table (no migration).
+CREATE TABLE IF NOT EXISTS guild_progress (
+  guild_id INTEGER PRIMARY KEY,
+  xp       INTEGER NOT NULL DEFAULT 0
+);
+
 -- Game events: timed recurring liveops (TrinityCore GameEventMgr, cut down). Each row is a schedule
 -- (recurs every period_min, active for length_min) with an optional XP bonus + announce line. The
 -- schedule math is pure (game-events.ts); the host applies the active XP bonus + announces on start.

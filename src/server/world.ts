@@ -869,6 +869,9 @@ export class World {
    * host-level, spanning instances); solo by default.
    */
   private partyResolver: (playerId: number) => number[] = () => [];
+  // Host hook fired once per credited player kill (playerId, killed-mob level). The host uses it to
+  // feed guild progression; default no-op keeps the World standalone + testable.
+  private killHook: (playerId: number, mobLevel: number) => void = () => {};
   private readonly areaId: string;
   /** Area-wide corruption pool, shared across every instance of the area (host-owned). */
   private readonly areaCorruption: AreaCorruption;
@@ -920,6 +923,11 @@ export class World {
   /** Inject the host's party lookup (co-members present in this instance) for shared kill credit. */
   setPartyResolver(fn: (playerId: number) => number[]): void {
     this.partyResolver = fn;
+  }
+
+  /** Host hook: called once per credited player kill with (playerId, killed-mob level). */
+  setKillHook(fn: (playerId: number, mobLevel: number) => void): void {
+    this.killHook = fn;
   }
 
   /** Current corruption (0..1) of this world's area. */
@@ -5010,8 +5018,10 @@ export class World {
     p.deathlessStreak += 1; // climbs with every kill; a death snaps it back to 0
     if (p.deathlessStreak > p.bestDeathlessStreak) p.bestDeathlessStreak = p.deathlessStreak; // record
     this.recomputeStats(p);
+    const mobLevel = getContent().mobTemplate(mobTemplateId)?.level ?? 1;
     // A pet at the owner's side shares in the kill, earning bond XP toward its next tier / evolution.
-    if (p.pet) this.awardPetXp(p, getContent().mobTemplate(mobTemplateId)?.level ?? 1);
+    if (p.pet) this.awardPetXp(p, mobLevel);
+    this.killHook(playerId, mobLevel); // host hook: feeds guild progression
     this.progressQuests(p, mobTemplateId);
     this.checkAchievements(p);
   }

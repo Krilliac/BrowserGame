@@ -90,6 +90,7 @@ import {
   canWithdraw,
   clearBank,
 } from './guild-bank.js';
+import { addGuildXp, guildLevelProgress, clearGuildProgress } from './guild-progress.js';
 import {
   ARTIFICER_REROLL_GOLD,
   ARTIFICER_UNSOCKET_GOLD,
@@ -785,6 +786,19 @@ function sendToToken(token: string, msg: Parameters<typeof send>[1]): void {
 function guildBroadcast(token: string, from: string, text: string): void {
   for (const memberToken of guilds.memberTokens(token)) {
     sendToToken(memberToken, { t: 'chat', from, text, channel: 'guild' });
+  }
+}
+
+/** Award guild XP for a player's kill (World kill hook → guild progression). Announces a level-up to
+ *  the guild. No-op for the guildless. */
+function awardGuildXp(playerId: number, mobLevel: number): void {
+  const p = players.get(playerId);
+  if (!p) return;
+  const m = guilds.membership(p.token);
+  if (!m) return;
+  const { before, after } = addGuildXp(m.guildId, Math.max(1, mobLevel));
+  if (after > before) {
+    guildBroadcast(p.token, 'System', `Your guild reached level ${after}!`);
   }
 }
 
@@ -2065,8 +2079,12 @@ wss.on('connection', (socket) => {
                     const before = guilds.membership(p.token);
                     const r = guilds.leave(p.token);
                     if (!r.ok) return r.reason ?? 'You are not in a guild.';
-                    // Disband empties the guild — drop its bank so a recycled guildId can't inherit it.
-                    if (before && r.note === 'Your guild is disbanded.') clearBank(before.guildId);
+                    // Disband empties the guild — drop its bank + progression so a recycled guildId
+                    // can't inherit them.
+                    if (before && r.note === 'Your guild is disbanded.') {
+                      clearBank(before.guildId);
+                      clearGuildProgress(before.guildId);
+                    }
                     for (const tok of r.affected) {
                       if (tok === p.token) continue;
                       sendToToken(tok, {
@@ -2107,7 +2125,15 @@ wss.on('connection', (socket) => {
                   guildRoster: () => {
                     const r = guilds.roster(p.token);
                     if (!r) return ['You are not in a guild. Found one with /guild create <name>.'];
-                    const lines = [`${r.name} — ${r.members.length} member(s):`];
+                    const mem = guilds.membership(p.token);
+                    const prog = mem ? guildLevelProgress(mem.guildId) : null;
+                    const lvl =
+                      prog && prog.span > 0
+                        ? ` — level ${prog.level} (${prog.into}/${prog.span} XP)`
+                        : prog
+                          ? ` — level ${prog.level} (max)`
+                          : '';
+                    const lines = [`${r.name}${lvl} — ${r.members.length} member(s):`];
                     for (const m of r.members) {
                       const on = social.findOnline(m.name);
                       const where = on ? `online (${on.areaId})` : 'offline';
@@ -2541,6 +2567,7 @@ setInterval(() => {
           world.setPartyResolver((id) =>
             parties.coMembers(id).filter((m) => players.get(m)?.instanceId === instance.id),
           );
+          world.setKillHook(awardGuildXp); // member kills feed their guild's progression
           resolverInstances.add(instance.id);
         }
         const all = world.snapshot();

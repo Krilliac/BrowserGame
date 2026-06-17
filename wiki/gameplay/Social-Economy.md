@@ -24,6 +24,15 @@ member) is promoted to leader.
 - `/guild` or `/guild roster` — show the roster with live online/area presence.
 - `/g <message>` — guild chat (green channel).
 
+#### Guild progression
+
+A guild **levels up** from the kills its members score. Every member kill feeds the guild XP (scaled by
+the slain monster's level) through the World's kill hook; at each `GUILD_XP_PER_LEVEL` (500) the guild
+gains a level (capped at `GUILD_MAX_LEVEL` = 20), announced in guild chat. The perk: **guild level
+enlarges the guild bank** (+`GUILD_BANK_SLOTS_PER_LEVEL` = 5 item slots per level over the base 100).
+`/guild` shows the guild's level and XP into the next. Progress persists in `guild_progress` and is
+cleared when the guild disbands.
+
 #### Guild bank
 
 A shared per-guild vault for gold and items — a reason to bank loot together.

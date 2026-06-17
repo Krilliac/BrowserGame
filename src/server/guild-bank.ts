@@ -1,6 +1,7 @@
 import { getDb } from './content.js';
 import type { ItemInstance } from '../shared/items.js';
 import type { GuildRank } from './guild.js';
+import { guildLevel, GUILD_BANK_SLOTS_PER_LEVEL } from './guild-progress.js';
 
 /**
  * Guild bank persistence + policy — a shared gold + item vault per guild. Backed by the content DB
@@ -14,8 +15,14 @@ import type { GuildRank } from './guild.js';
  * another guild's item by guessing a row id.
  */
 
-/** Largest number of distinct item stacks a guild bank can hold. */
+/** Base number of distinct item stacks a guild bank can hold (level 1). Guild levels add more. */
 export const MAX_BANK_ITEMS = 100;
+
+/** A guild's bank item capacity: the base plus a per-guild-level bonus (a guild-leveling perk). A
+ *  fresh level-1 guild holds exactly MAX_BANK_ITEMS. */
+export function bankItemCapacity(guildId: number): number {
+  return MAX_BANK_ITEMS + (guildLevel(guildId) - 1) * GUILD_BANK_SLOTS_PER_LEVEL;
+}
 
 // --- Gold -----------------------------------------------------------------------------------------
 
@@ -95,10 +102,11 @@ export function bankItemCount(guildId: number): number {
 
 /**
  * Add an item to the vault (the host removed it from the depositing player's bag first). Returns
- * false if the vault is already at {@link MAX_BANK_ITEMS}; otherwise inserts the serialized instance.
+ * false if the vault is already at its capacity ({@link bankItemCapacity}, which grows with guild
+ * level); otherwise inserts the serialized instance.
  */
 export function addBankItem(guildId: number, item: ItemInstance): boolean {
-  if (bankItemCount(guildId) >= MAX_BANK_ITEMS) return false;
+  if (bankItemCount(guildId) >= bankItemCapacity(guildId)) return false;
   getDb()
     .prepare('INSERT INTO guild_bank_items (guild_id, item_json) VALUES (?, ?)')
     .run(guildId, JSON.stringify(item));
@@ -134,7 +142,8 @@ export function canWithdraw(rank: GuildRank): boolean {
 
 // --- Lifecycle ------------------------------------------------------------------------------------
 
-/** Delete a disbanded guild's bank rows (both gold and items). The host calls this on disband. */
+/** Delete a disbanded guild's bank rows (both gold and items). The host calls this on disband
+ *  (alongside clearGuildProgress). */
 export function clearBank(guildId: number): void {
   const db = getDb();
   db.prepare('DELETE FROM guild_bank_items WHERE guild_id = ?').run(guildId);
