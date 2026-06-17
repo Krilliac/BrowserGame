@@ -30,6 +30,7 @@ import { initGameDb, getDb, getContent, reloadContent, type Content } from './co
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess, AccessLevel } from './accounts.js';
 import { engineSchema, engineRows, setEngineConfig } from './engine.js';
+import { editorWorld } from './editor.js';
 import {
   isValidToken,
   loadSave,
@@ -977,6 +978,21 @@ const http = createServer(async (req, res) => {
         guards: guardStats.top(5),
       }),
     );
+    return;
+  }
+  // Editor world export (slice 1 of the in-browser editor): the full data-driven content model as
+  // JSON — the source an editor UI loads and an exporter walks toward other engines. Dev-gated by the
+  // ENGINE_ADMIN_TOKEN (same gate as the engine panel) so it never leaks on a normal player path; if
+  // the token is unset the route is disabled entirely.
+  if ((req.url ?? '').split('?')[0] === '/editor/world.json') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(editorWorld()));
     return;
   }
   await serveStatic(req.url ?? '/', res);

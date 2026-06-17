@@ -8,6 +8,18 @@ versioning once it stabilizes.
 
 ### Added
 
+- **In-browser editor — slice 1: world export API.** Groundwork for porting ED5 Studio's visual
+  editor (and, longer-term, a cross-engine in-browser game engine). The game is already fully
+  data-driven, so the foundation is serializing that content model: a new `editor.ts` produces a
+  structured, typed view of the entire editable world — `editorSchema()` (every whitelisted table +
+  its column types from the `editable.ts` registry), `editorTable()` (a table's rows, registry-gated
+  so a forged/sensitive table name can't be read), and `editorWorld()` (the full schema + all rows in
+  one dump — the source an editor UI loads and a future exporter walks toward Tiled / 001 / Unity /
+  SparkEngine). Exposed at a **dev-gated `GET /editor/world.json?token=…`** route (same
+  `ENGINE_ADMIN_TOKEN` gate as the engine panel; disabled if unset) — least-disruptive, no separate
+  process. Next slices: a visual editor UI over this, then a canvas world/map editor, then import/
+  export adapters.
+
 - **Pets (beast taming).** Weaken a `tameable` wild creature below 30% HP, cast **Tame Beast**, and it
   becomes your persistent pet — a creature companion that follows you, fights with the minion AI, is
   saved + re-spawned across areas, and is lost if it dies (tame another). One pet at a time; it
