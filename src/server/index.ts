@@ -30,9 +30,10 @@ import { initGameDb, getDb, getContent, reloadContent, type Content } from './co
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess, AccessLevel } from './accounts.js';
 import { engineSchema, engineRows, setEngineConfig } from './engine.js';
-import { editorWorld } from './editor.js';
+import { editorWorld, parseEditBody } from './editor.js';
 import { areaToTiled, type TiledMap } from './editor-tiled.js';
 import { importTiled } from './editor-import.js';
+import { EDITOR_HTML } from './editor-page.js';
 import {
   isValidToken,
   loadSave,
@@ -995,6 +996,33 @@ const http = createServer(async (req, res) => {
     }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(editorWorld()));
+    return;
+  }
+  // The editor UI page itself (the shell carries no secrets; its data calls send the token).
+  if ((req.url ?? '').split('?')[0] === '/editor') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(EDITOR_HTML);
+    return;
+  }
+  // Editor cell edit: POST /editor/edit?token=… {table,id,column,value} (dev-gated). Validated +
+  // clamped by content-edit; reloads + re-broadcasts so the change applies live.
+  if ((req.url ?? '').split('?')[0] === '/editor/edit') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+      return;
+    }
+    const req2 = parseEditBody(await readJsonBody(req));
+    if (!req2) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'bad edit body' }));
+      return;
+    }
+    const out = editContent(req2.table, req2.id, req2.column, req2.value);
+    if (out.ok) rebroadcastContent();
+    res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
     return;
   }
   // Tiled .tmj export of one area: GET /editor/area/<id>.tmj?token=… (dev-gated). The cross-engine

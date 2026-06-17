@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { initGameDb } from './content.js';
-import { editorSchema, editorTable, editorWorld, ROW_CAP } from './editor.js';
+import { editorSchema, editorTable, editorWorld, parseEditBody, ROW_CAP } from './editor.js';
 import { EDITABLE_TABLES } from './db/editable.js';
 
 initGameDb(':memory:');
@@ -58,5 +58,25 @@ describe('editor world dump', () => {
     // Representative physical tables round-trip with content.
     expect(world.tables['items']!.rows.length).toBeGreaterThan(0);
     expect(world.tables['mob_templates']!.rows.length).toBeGreaterThan(0);
+  });
+});
+
+describe('parseEditBody', () => {
+  it('accepts a well-formed edit and normalizes id/value to strings', () => {
+    expect(parseEditBody({ table: 'mob_templates', id: 7, column: 'hp', value: 99 })).toEqual({
+      table: 'mob_templates',
+      id: '7',
+      column: 'hp',
+      value: '99',
+    });
+  });
+
+  it('rejects malformed bodies', () => {
+    expect(parseEditBody(null)).toBeNull();
+    expect(parseEditBody('nope')).toBeNull();
+    expect(parseEditBody({ table: '', id: 'x', column: 'c', value: 'v' })).toBeNull();
+    expect(parseEditBody({ table: 't', id: 'x', column: '', value: 'v' })).toBeNull();
+    expect(parseEditBody({ table: 't', column: 'c', value: 'v' })).toBeNull(); // missing id
+    expect(parseEditBody({ table: 't', id: {}, column: 'c', value: 'v' })).toBeNull(); // object id
   });
 });

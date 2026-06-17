@@ -8,6 +8,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **In-browser editor — slice 4: the visual editor page (capstone).** A self-contained, dependency-
+  free dev tool at **`GET /editor`** that turns the editor APIs into a usable UI: paste your
+  `ENGINE_ADMIN_TOKEN`, and it loads the whole content model, lets you **edit any whitelisted cell
+  live** (inline grid → `POST /editor/edit` → validated by content-edit → reloaded + re-broadcast to
+  connected players), and **export/import any area's map as Tiled `.tmj`** for the cross-engine
+  round-trip. The page shell carries no secrets; every data call sends the token, so access is gated
+  server-side exactly like the engine panel. Cell values are HTML-escaped (XSS-safe). Now a developer
+  can change the world from a browser without touching SQL or the chat console — the ED5-style editor,
+  ported. (New `editor-page.ts` + `parseEditBody` validator; `/editor` and `/editor/edit` routes.)
+
 - **In-browser editor — slice 3: Tiled `.tmj` map import (round-trip).** The reverse of the export:
   edit an area's map in Tiled (or any engine that exports Tiled) and load it back. `editor-import.ts`'s
   `tiledToContent()` is a pure, defensive parser of an untrusted map; `applyTiledImport()` replaces the

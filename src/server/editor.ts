@@ -96,6 +96,30 @@ export function editorTable(name: string): EditorTableData | null {
   };
 }
 
+/** A validated single-cell edit request from the editor UI's POST body. */
+export interface EditRequest {
+  table: string;
+  id: string;
+  column: string;
+  value: string;
+}
+
+/**
+ * Validate an untrusted `POST /editor/edit` body into an {@link EditRequest}, or null if malformed.
+ * Only shape/type checking here — the actual table/column whitelist + value coercion happens in
+ * `content-edit.ts` (`editContent`), so a bad table/column is still rejected there.
+ */
+export function parseEditBody(raw: unknown): EditRequest | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.table !== 'string' || typeof o.column !== 'string') return null;
+  if (o.table === '' || o.column === '') return null;
+  // id and value may arrive as string or number (a numeric pk / value); normalize to string.
+  if (o.id === undefined || o.id === null || typeof o.id === 'object') return null;
+  if (o.value === undefined || o.value === null || typeof o.value === 'object') return null;
+  return { table: o.table, id: String(o.id), column: o.column, value: String(o.value) };
+}
+
 /**
  * A full dump of the editable world — the schema plus every table's rows. This is the serialized
  * content model: what the editor loads, and the source an exporter walks to translate the game into
