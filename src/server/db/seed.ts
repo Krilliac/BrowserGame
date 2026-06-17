@@ -358,6 +358,7 @@ export function seed(db: Database): void {
   ensureWeatherModifiers(db); // per-WeatherKind gameplay multipliers (seeded from code defaults)
   ensureEliteModifiers(db); // champion stat-modifier roster (seeded from code defaults)
   ensureMounts(db); // mount roster (owned travel-speed boosts) seeded from code defaults
+  ensureAreaPvp(db); // per-area PvP rules (only non-safe areas; everything else defaults safe)
   ensureAbilityStatusEffects(db); // per-ability on-hit slow/burn/weaken (seeded from code defaults)
   ensureAbilityCastBuffs(db); // per-ability self-buff on cast (seeded from code defaults)
   ensureShrineBuffs(db); // shrine blessing pool (seeded from code defaults)
@@ -412,6 +413,15 @@ function ensureMounts(db: Database): void {
     'INSERT OR IGNORE INTO mounts (id,name,speed_mult,price) VALUES (?,?,?,?)',
   );
   for (const m of DEFAULT_MOUNTS) ins.run(m.id, m.name, m.speedMult, m.price);
+}
+
+/** Seed the PvP-enabled areas (everything else stays 'safe'). Endgame zones are opt-in contested. */
+function ensureAreaPvp(db: Database): void {
+  const ins = db.prepare('INSERT OR IGNORE INTO area_pvp (area_id,rule) VALUES (?,?)');
+  // Open-world contested PvP in the deep endgame zones (flagged-vs-flagged via /pvp).
+  ins.run('voidmarch', 'contested');
+  ins.run('sundered_wastes', 'contested');
+  ins.run('the_unmade_court', 'contested');
 }
 
 /**

@@ -220,7 +220,9 @@ Skipping survival (hunger/thirst/seasons) + housing as genre-drift from the Diab
 - [x] **Auction house + mail** — mail (deferred gold/item delivery; `mail` table; `/mail`) + the
       auction house (persistent buyout market; `auctions` table; `/ah`; escrow + 5% gold-sink cut;
       proceeds/cancellations delivered via the mail channel). Both loss-safe + offline-safe.
-- [ ] **PvP zones** — opt-in/flagged PvP with multiple zone rule types.
+- [x] **PvP zones** — per-area rules (safe / contested / hostile) in the `area_pvp` table; `/pvp`
+      opt-in flag; melee + direct projectiles harm attackable players via `canHarmPlayer` +
+      `applyPvpDamage` (scaled). Endgame zones seeded contested. (Behaviors/beams stay PvE for now.)
 
 ## Later (systems — reimplement from the SparkGameMMO blueprint)
 

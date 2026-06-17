@@ -1,7 +1,7 @@
 import { config, applyConfigOverrides } from './config.js';
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
-import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
+import type { AreaDef, DecorProp, DungeonDef, PvpRule } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme, type WeatherKind } from '../shared/theme.js';
 import type { Ability, AbilityId, BehaviorSpec, DamageElement } from '../shared/combat.js';
 import type { ResistMap } from './combat-formulas.js';
@@ -309,6 +309,15 @@ export function loadContent(db: GameDatabase): Content {
     decor.set(r.area_id, list);
   }
 
+  // Per-area PvP rule (only non-'safe' areas have a row; everything else defaults to safe).
+  const pvpRules = new Map<string, PvpRule>();
+  for (const r of db.prepare('SELECT area_id, rule FROM area_pvp').all() as {
+    area_id: string;
+    rule: string;
+  }[]) {
+    if (r.rule === 'contested' || r.rule === 'hostile') pvpRules.set(r.area_id, r.rule);
+  }
+
   const areas = new Map<string, AreaDef>();
   for (const a of db.prepare('SELECT * FROM areas').all() as AreaRow[]) {
     const portals = (
@@ -337,6 +346,7 @@ export function loadContent(db: GameDatabase): Content {
       portals,
       theme: themes.get(a.id) ?? DEFAULT_THEME,
       decor: decor.get(a.id) ?? [],
+      pvp: pvpRules.get(a.id) ?? 'safe',
     });
   }
 

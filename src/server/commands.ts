@@ -327,6 +327,13 @@ const COMMAND_LIST: Command[] = [
     },
   },
   {
+    name: 'pvp',
+    minLevel: AccessLevel.Player,
+    usage: '/pvp',
+    help: 'Toggle your PvP flag (lets you fight other flagged players in contested zones).',
+    run: (ctx) => ctx.reply(ctx.world.togglePvp(ctx.playerId)),
+  },
+  {
     name: 'guild',
     minLevel: AccessLevel.Player,
     usage: '/guild <create|invite|accept|decline|leave|kick|promote|demote|roster> [name]',

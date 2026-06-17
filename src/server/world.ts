@@ -88,7 +88,7 @@ import {
   minionFromTemplate,
   type MinionProfile,
 } from './minions.js';
-import type { DungeonDef, Rect } from '../shared/areas.js';
+import type { DungeonDef, Rect, PvpRule } from '../shared/areas.js';
 import { NpcFlags, hasNpcFlag } from '../shared/npc-flags.js';
 import { CreatureSpawnFlags, hasSpawnFlag } from '../shared/spawn-flags.js';
 import { QuestFlags, hasQuestFlag } from '../shared/quest-flags.js';
@@ -247,6 +247,9 @@ const SHRINE_COOLDOWN_MS = 60_000;
 // Volatile elites (the `explode_dmg` modifier) detonate on death, hitting players within this radius
 // — comfortably beyond melee reach, so the blast is a real "back off as it's dying" threat.
 const EXPLODE_RADIUS = 150;
+// PvP damage is scaled WAY down from PvE: players have far less HP than tanky mobs, so full ability
+// burst would one-shot. This keeps duels lasting a handful of exchanges instead of a single hit.
+const PVP_DAMAGE_SCALE = 0.35;
 // Environmental hazard zones (biome decor): standing within a hazard's radius re-applies a short DoT
 // debuff each tick, so it chips you while you linger and lingers ~1s after you step clear. The DoT
 // runs through the normal player-debuff path (so it shows the status tint and respects god mode).
@@ -544,6 +547,8 @@ interface Player {
   mounts: Set<string>;
   /** The currently-active mount id (its speed multiplier folds into movement), or null = on foot. */
   mount: string | null;
+  /** Opted in to PvP (the /pvp toggle). Session-only; lets a 'contested' area harm flagged players. */
+  pvpFlagged: boolean;
   dead: boolean;
   respawnAt: number;
 }
@@ -2690,6 +2695,7 @@ export class World {
       hireling: null,
       mounts: new Set(),
       mount: null,
+      pvpFlagged: false,
       dead: false,
       respawnAt: 0,
     });
@@ -2887,6 +2893,24 @@ export class World {
             });
             const kbPx = ABILITY_KNOCKBACK[abilityId];
             if (kbPx) this.knockbackMob(mob, player.x, player.y, kbPx);
+          }
+        }
+      }
+      // PvP: the same melee cone also strikes attackable players in a PvP zone (scaled down).
+      if (this.pvpEnabled()) {
+        const elem = ability.element ?? 'physical';
+        const raw =
+          (ability.damage + player.power) * rankMult * mightMult * (1 + player.elemDamage[elem]);
+        for (const victim of this.players.values()) {
+          if (!this.canHarmPlayer(player, victim)) continue;
+          if (
+            inMeleeCone(player.x, player.y, facing, victim.x, victim.y, ability.range, halfAngle)
+          ) {
+            this.applyPvpDamage(
+              player.id,
+              victim,
+              rollAbilityDamage(player.level, victim.level, raw, this.rand),
+            );
           }
         }
       }
@@ -4143,6 +4167,9 @@ export class World {
         }
         proj.orbitHits = orbitHits;
         // consumed stays false — orbit persists until TTL.
+      } else if (this.pvpEnabled() && this.pvpProjectileHit(proj)) {
+        // PvP: a player's direct projectile struck an attackable player — consume it (no mob pass).
+        consumed = true;
       } else {
         let hit: Mob | undefined;
         for (const mob of this.mobs.values()) {
@@ -4921,6 +4948,68 @@ export class World {
     if (healed <= 0) return;
     player.hp += healed;
     this.events.push({ kind: 'heal', x: player.x, y: player.y, value: Math.round(healed) });
+  }
+
+  /** This area's PvP ruleset (defaults to 'safe' for areas without an `area_pvp` row). */
+  private pvpRule(): PvpRule {
+    return getContent().area(this.areaId)?.pvp ?? 'safe';
+  }
+
+  /** True if this area allows ANY player-vs-player damage (a cheap guard before per-player checks). */
+  private pvpEnabled(): boolean {
+    return this.pvpRule() !== 'safe';
+  }
+
+  /**
+   * Whether `attacker` may harm `victim` here: never yourself / the dead / a god-mode player; in a
+   * 'hostile' area anyone is fair game; in 'contested' BOTH must have opted in via /pvp.
+   */
+  private canHarmPlayer(attacker: Player, victim: Player): boolean {
+    if (attacker.id === victim.id || attacker.dead || victim.dead || victim.god) return false;
+    const rule = this.pvpRule();
+    if (rule === 'hostile') return true;
+    if (rule === 'contested') return attacker.pvpFlagged && victim.pvpFlagged;
+    return false;
+  }
+
+  /**
+   * Apply a PvP hit: raw ability/projectile damage scaled by {@link PVP_DAMAGE_SCALE} (so duels last),
+   * routed through {@link damagePlayer} (which honors armor/vuln/god). Announces a kill to both parties.
+   */
+  private applyPvpDamage(attackerId: number, victim: Player, raw: number): void {
+    if (raw <= 0) return;
+    const wasDead = victim.dead;
+    this.damagePlayer(victim, raw * PVP_DAMAGE_SCALE);
+    if (!wasDead && victim.dead) {
+      const killer = this.players.get(attackerId);
+      const slayer = killer?.name ?? 'someone';
+      this.notify(victim.id, `You were slain by ${slayer}.`);
+      if (killer) this.notify(killer.id, `You slew ${victim.name}!`);
+    }
+  }
+
+  /** PvP: a player-owned projectile striking the first attackable player it overlaps (true if it hit). */
+  private pvpProjectileHit(proj: Projectile): boolean {
+    const attacker = this.players.get(proj.ownerId);
+    if (!attacker) return false;
+    for (const victim of this.players.values()) {
+      if (!this.canHarmPlayer(attacker, victim)) continue;
+      if (circlesOverlap(proj.x, proj.y, proj.radius, victim.x, victim.y, PLAYER_RADIUS)) {
+        this.applyPvpDamage(proj.ownerId, victim, proj.damage * proj.damageScale);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Toggle the caster's PvP opt-in flag (the /pvp command). Returns the new state's message. */
+  togglePvp(id: number): string {
+    const p = this.players.get(id);
+    if (!p) return 'No character.';
+    p.pvpFlagged = !p.pvpFlagged;
+    return p.pvpFlagged
+      ? 'PvP enabled — you can now fight (and be fought by) other flagged players in contested zones.'
+      : 'PvP disabled — you are no longer flagged for player combat.';
   }
 
   private damagePlayer(player: Player, amount: number, silent = false): void {

@@ -495,6 +495,13 @@ CREATE TABLE IF NOT EXISTS quests (
   flags         INTEGER NOT NULL DEFAULT 0     -- bitmask (QuestFlags): REPEATABLE, …
 );
 
+-- Area PvP rules: only rows for non-'safe' areas; any area absent here is safe (no player-vs-player).
+-- A new table (no migration). Drives whether player abilities can damage other players in that area.
+CREATE TABLE IF NOT EXISTS area_pvp (
+  area_id TEXT PRIMARY KEY,
+  rule    TEXT NOT NULL              -- 'contested' (flagged-vs-flagged) | 'hostile' (free-for-all)
+);
+
 -- Mail: deferred player-to-player delivery of gold + an optional gear instance. Rows wait in the
 -- recipient's inbox (by owner token) until collected; collecting deletes the row. New table (no
 -- migration). Also the delivery channel for auction-house proceeds/purchases.

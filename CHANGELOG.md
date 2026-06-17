@@ -8,6 +8,16 @@ versioning once it stabilizes.
 
 ### Added
 
+- **PvP zones.** Player-vs-player combat, gated per area: `safe` (no PvP — towns/leveling zones, the
+  default), `contested` (only players who both `/pvp` opt in can harm each other), and `hostile`
+  (free-for-all). Endgame zones (Voidmarch, Sundered Wastes, the Unmade Court) are seeded contested.
+  Server-authoritative — melee cones and direct projectiles now also strike attackable players, routed
+  through one `canHarmPlayer` gate + `applyPvpDamage` (scaled to `PVP_DAMAGE_SCALE` so duels last and
+  nothing one-shots; god-mode and the dead are immune); a kill announces to both parties. Data-driven
+  via a new `area_pvp` table (no migration; absent = safe) + `AreaDef.pvp`; `/pvp` toggles your flag.
+  Spell behaviors (chain/fork/splash) and beams stay PvE-only for now. Final main slice of the ED5
+  MMO Studio feature port.
+
 - **Auction house.** A persistent player-to-player buyout market: `/ah list <itemUid> <price>` escrows
   a bag item for sale, `/ah` browses listings, `/ah buy <id>` purchases (gold out, item in), `/ah mine`
   / `/ah cancel <id>` manage your own. Server-authoritative and loss-safe — the item leaves the
