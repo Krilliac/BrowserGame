@@ -26,6 +26,11 @@ versioning once it stabilizes.
 
 ### Fixed
 
+- **Wallet cap (SEC-103, low).** A player's gold is now capped at `MAX_GOLD` (1e12) on every credit
+  (loot/quest/sell/mail/pickup), so a very long-lived character can't drift toward float imprecision
+  near 2^53 where the `gold < price` checks that gate every purchase would start lying. (+2 tests.)
+- **Quest `targetCount` floored at 1 (low).** A kill quest authored with `target_count <= 0` would
+  have completed on the first kill; clamped at content load. (Non-kill quests ignore it.)
 - **Item/gold duplication via concurrent sessions (high).** Two sockets presenting the same save
   token both loaded the same character, so every item/gold balance existed live on two characters —
   drop/trade one away, let the other's disconnect write the still-intact save, and the balance

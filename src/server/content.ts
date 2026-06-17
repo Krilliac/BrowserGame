@@ -514,7 +514,9 @@ export function loadContent(db: GameDatabase): Content {
     name: q.name,
     description: q.description,
     targetMob: q.target_mob,
-    targetCount: q.target_count,
+    // Floor at 1: a kill quest authored with target_count <= 0 would otherwise complete on the very
+    // first kill (`kills+1 >= 0`). Non-kill quests ignore targetCount, so this only fixes misconfigs.
+    targetCount: Math.max(1, q.target_count),
     rewardGold: q.reward_gold,
     rewardXp: q.reward_xp,
     rewardItem: q.reward_item ?? null,

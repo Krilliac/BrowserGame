@@ -311,6 +311,11 @@ let SKILL_POINTS_PER_LEVEL = config.progression.skillPointsPerLevel;
 // Cost (gold) to refund all allocated attribute + skill points, scaled by level so a respec stays a
 // meaningful sink for a geared character. A fresh build is cheap to undo; a level-50 one is not.
 const RESPEC_COST_PER_LEVEL = 50;
+// Wallet ceiling (SEC-103): cap a player's gold well below Number.MAX_SAFE_INTEGER (~9e15) so a
+// very long-lived character can never accumulate into float-imprecision territory, where the
+// `gold < price` checks that gate every purchase/withdraw would start lying. A trillion is far
+// beyond any legitimate balance yet leaves four orders of magnitude of headroom.
+const MAX_GOLD = 1_000_000_000_000;
 // Unique (named legendary) drop chances: the loot chase. A slim base chance on any gear drop, better
 // from a chest. Elites/bosses already drop more gear, so they roll the base chance more often.
 let UNIQUE_DROP_CHANCE = config.drops.unique;
@@ -1707,7 +1712,7 @@ export class World {
     if (item && p.gear.length >= MAX_BAG_GEAR) {
       return { ok: false, reason: 'Your bag is full — make room and collect again.' };
     }
-    if (gold > 0) p.gold += gold;
+    this.creditGold(p, gold);
     if (item) this.addGear(p, { ...item, uid: this.allocId() });
     return { ok: true };
   }
@@ -1940,7 +1945,7 @@ export class World {
     for (const inst of player.gear) gold += gearSellValue(inst);
     player.gear = [];
     if (gold <= 0) return;
-    player.gold += gold;
+    this.creditGold(player, gold);
     this.events.push({ kind: 'coin', x: player.x, y: player.y, value: gold });
   }
 
@@ -2064,6 +2069,11 @@ export class World {
     while (player.gear.length > MAX_BAG_GEAR) player.gear.shift();
   }
 
+  /** Credit gold to a player's wallet, capped at MAX_GOLD (SEC-103). Non-positive amounts no-op. */
+  private creditGold(player: Player, amount: number): void {
+    if (amount > 0) player.gold = Math.min(MAX_GOLD, player.gold + amount);
+  }
+
   /** Remove one unit of a stackable loot item, deleting the stack when it hits zero. */
   private consumeLoot(player: Player, itemId: string): void {
     const n = (player.loot.get(itemId) ?? 0) - 1;
@@ -2124,7 +2134,7 @@ export class World {
     player.quests.delete(quest.id);
     // A repeatable quest is never marked permanently done, so it can be taken again.
     if (!hasQuestFlag(quest.flags, QuestFlags.REPEATABLE)) player.questsDone.add(quest.id);
-    player.gold += quest.rewardGold;
+    this.creditGold(player, quest.rewardGold);
     player.xp += quest.rewardXp;
     player.level = levelForXp(player.xp);
     this.recomputeStats(player);
@@ -2550,7 +2560,7 @@ export class World {
     const n = Math.max(1, Math.min(Math.floor(qty) || 1, 10_000));
     const base = asBaseItem(def);
     if (def.kind === 'currency') {
-      p.gold += n; // gold is the wallet, not a bag stack
+      this.creditGold(p, n); // gold is the wallet, not a bag stack
     } else if (base) {
       for (let i = 0; i < n; i++) this.addGear(p, rollItemInstance(this.allocId(), base));
     } else {
@@ -5039,7 +5049,7 @@ export class World {
             if (player.hp >= player.maxHp) continue;
             this.collectHealthGlobe(player);
           } else if (item.itemId === 'gold') {
-            player.gold += item.qty;
+            this.creditGold(player, item.qty);
             this.events.push({ kind: 'coin', x: item.x, y: item.y, value: item.qty });
           } else if (item.instance) {
             this.addGear(player, item.instance);
