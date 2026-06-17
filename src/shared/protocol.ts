@@ -152,6 +152,9 @@ export interface EntityState {
   /** Mobs only: true for a SUMMONED ally (a friendly minion) — the client draws a green ally
    *  health bar instead of the enemy red, and skips hostile-only cues. */
   friendly?: boolean;
+  /** Tamed pets only: the pet's bond tier (0..max). The client marks a bonded pet (and draws an
+   *  "evolved" flourish at the top tier). Absent for summoned minions and enemies. */
+  petTier?: number;
   /** Mobs only: true once a player has damaged it — the client marks it as claimed/engaged
    *  (you still earn full shared credit for piling onto someone else's fight). */
   tagged?: boolean;

@@ -50,6 +50,8 @@ describe('pets — bonding levels & evolution', () => {
     const { w, id } = tamed();
     expect(w.petStatus(id)).toContain('bond level 0');
     expect(w.exportPlayer(id)!.pet).toMatchObject({ templateId: 'wolf', xp: 0, tier: 0 });
+    // The pet's bond tier is surfaced in the snapshot (0 for a fresh pet) for the client marker.
+    expect(w.snapshot().find((e) => e.kind === 'mob' && e.friendly)!.petTier).toBe(0);
   });
 
   it('a pet earns bond XP from a kill its owner shares', () => {
@@ -83,5 +85,7 @@ describe('pets — bonding levels & evolution', () => {
     b.importPlayer(id, evolvedSave, 200, 200);
     expect(b.petStatus(id)).toContain('EVOLVED');
     expect(petHp(b)).toBeGreaterThan(hp0); // +18%/tier ⇒ a tier-5 pet is markedly tougher
+    // The evolved tier is surfaced in the snapshot so the client draws the evolved flourish.
+    expect(b.snapshot().find((e) => e.kind === 'mob' && e.friendly)!.petTier).toBe(5);
   });
 });

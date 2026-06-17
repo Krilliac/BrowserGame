@@ -2471,6 +2471,19 @@ export class PixiRenderer {
           .ellipse(0, 2, MOB_RADIUS + 7, (MOB_RADIUS + 7) * 0.5)
           .stroke({ width: 2, color: '#ffcf5a', alpha: 0.9 });
       }
+      // Tamed pet bond: an amber ground-ring that brightens with bond tier, plus a star over a fully
+      // evolved companion — so a grown/evolved pet reads at a glance. (PET_EVOLVED_TIER mirrors the
+      // server's PET_MAX_TIER; a drift only shifts the star by a tier, never breaks anything.)
+      if (e.petTier && e.petTier > 0) {
+        const PET_EVOLVED_TIER = 5;
+        const t = Math.min(1, e.petTier / PET_EVOLVED_TIER);
+        view.dyn
+          .ellipse(0, 2, MOB_RADIUS + 5, (MOB_RADIUS + 5) * 0.5)
+          .stroke({ width: 1.5 + t, color: '#ffd479', alpha: 0.45 + 0.45 * t });
+        if (e.petTier >= PET_EVOLVED_TIER) {
+          view.dyn.star(0, view.topY - 11, 5, 4.5, 2).fill({ color: '#ffe08a', alpha: 0.95 });
+        }
+      }
       // Your selected target (click-to-target): a bright white ground-ring, drawn larger than the
       // elite/tagged rings so the mob you're chasing + auto-attacking stands out in a pack.
       if (e.id === this.targetId) {

@@ -5349,6 +5349,8 @@ export class World {
         level: m.level,
         friendly: true,
       };
+      // Tamed pets carry their bond tier so the client can mark a bonded/evolved companion.
+      if (m.persistent) e.petTier = this.players.get(m.ownerId)?.pet?.tier ?? 0;
       const mTint = getContent().spriteTint(`mob:${m.profile.templateId}`);
       if (mTint) e.tint = mTint;
       out.push(e);

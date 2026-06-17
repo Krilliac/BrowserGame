@@ -12,7 +12,9 @@ versioning once it stabilizes.
   at each threshold it climbs a **bond tier** (+18% HP & damage per tier on top of its owner-level
   base). The top tier (5) is its **evolution** — roughly +90% stronger, shown as `★ EVOLVED`. A
   tier-up grants the HP increase (no free heal), and bond progress is saved with the pet across
-  areas/relogs (lost only if the pet dies). `/pet` shows the bond level and XP to next. (+3 tests.)
+  areas/relogs (lost only if the pet dies). `/pet` shows the bond level and XP to next. The pet's
+  bond tier is surfaced in the entity snapshot (`petTier`), and the renderer draws a bond ring that
+  brightens with tier plus an evolved-star flourish over a fully-bonded pet. (+3 tests.)
 
 - **Guild bank.** A shared per-guild vault for gold + items. `/guild bank` lists the contents (with
   withdraw ids), `/guild deposit <gold|item> <amount|uid>` adds to it (any member), and
