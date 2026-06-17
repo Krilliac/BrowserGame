@@ -194,12 +194,13 @@ export interface MailRow {
 
 /** The most-recent owner token saved under a (case-insensitive) character name, or null. */
 export function tokenForName(db: GameDatabase, name: string): string | null {
-  const row = db
-    .prepare(
-      'SELECT token FROM player_saves WHERE name = ? COLLATE NOCASE ORDER BY updated_at DESC',
-    )
-    .get(name.trim()) as { token: string } | undefined;
-  return row?.token ?? null;
+  // ONLY resolve when exactly one save holds the name. Display names are client-chosen and not
+  // unique, so picking "most-recent" would let a name-squatter divert mailed gold/items meant for an
+  // offline player (SEC-001). Ambiguous or unknown → null; callers prefer a live presence token.
+  const rows = db
+    .prepare('SELECT token FROM player_saves WHERE name = ? COLLATE NOCASE')
+    .all(name.trim()) as { token: string }[];
+  return rows.length === 1 ? rows[0]!.token : null;
 }
 
 /** Send mail (insert an inbox row for the recipient). */

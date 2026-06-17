@@ -237,8 +237,15 @@ describe('mail persistence', () => {
     const db = openDatabase(':memory:');
     const t = newPlayerToken();
     storeSave(db, t, sampleSave('Mailee'));
-    expect(tokenForName(db, 'mailee')).toBe(t); // case-insensitive
+    expect(tokenForName(db, 'mailee')).toBe(t); // case-insensitive, single match
     expect(tokenForName(db, 'Nobody')).toBeNull();
+  });
+
+  it('refuses an AMBIGUOUS name so value cannot be diverted to a name-squatter (SEC-001)', () => {
+    const db = openDatabase(':memory:');
+    storeSave(db, newPlayerToken(), sampleSave('Twin'));
+    storeSave(db, newPlayerToken(), sampleSave('twin')); // a second save squats the same name
+    expect(tokenForName(db, 'Twin')).toBeNull(); // ambiguous → don't guess
   });
 });
 

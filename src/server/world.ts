@@ -1549,7 +1549,7 @@ export class World {
       if (mob.dead) continue;
       const template = getContent().mobTemplate(mob.templateId);
       if (!template?.tameable) continue;
-      if (mob.maxHp > 0 && mob.hp / mob.maxHp > TAME_HP_THRESHOLD) continue; // not weak enough
+      if (mob.maxHp <= 0 || mob.hp / mob.maxHp > TAME_HP_THRESHOLD) continue; // not weak enough
       const d = Math.hypot(mob.x - owner.x, mob.y - owner.y);
       if (d <= bestDist) {
         best = mob;
@@ -3891,7 +3891,8 @@ export class World {
     for (const m of this.minions.values()) {
       const owner = this.players.get(m.ownerId);
       if (!owner || owner.dead) {
-        // Owner gone (disconnect/transfer) or dead — skeletons crumble. (Dead owner re-raises later.)
+        // Owner gone (disconnect/transfer): drop the entity. Owner merely dead: the ally idles in
+        // place (still targetable/killable by mobs) and resumes acting when the owner respawns.
         if (!owner) this.minions.delete(m.id);
         continue;
       }
@@ -3904,8 +3905,11 @@ export class World {
         const fresh = template ? minionFromTemplate(template, owner.level) : null;
         if (fresh) m.profile = fresh;
         m.level = owner.level;
+        // Raise the max HP and grant only the INCREASE — never a free full heal (which a player could
+        // cheese by letting a near-dead minion's HP refill on level-up). Damage taken is preserved.
+        const gain = Math.max(0, m.profile.maxHp - m.maxHp);
         m.maxHp = m.profile.maxHp;
-        m.hp = m.profile.maxHp;
+        m.hp = Math.min(m.maxHp, m.hp + gain);
         m.power = m.profile.power;
       }
 

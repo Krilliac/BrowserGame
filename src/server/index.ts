@@ -740,6 +740,8 @@ function guildMemberTokenByName(byToken: string, name: string): string | undefin
 
 /** Largest inbox per recipient (anti-spam / anti-hoard). */
 const MAX_MAIL = 30;
+/** Upper clamp on a single mail/auction gold value — defensive bound (the wallet is the real gate). */
+const MAX_TRADE_GOLD = 1_000_000_000;
 
 /**
  * Send mail: take the gold (+ optional bag item by uid) from the sender's live World, resolve the
@@ -755,7 +757,7 @@ function mailSend(
   gold: number,
   uid?: number,
 ): string {
-  const amount = Math.max(0, Math.floor(gold) || 0);
+  const amount = Math.min(MAX_TRADE_GOLD, Math.max(0, Math.floor(gold) || 0));
   const toToken = social.findOnline(toName)?.token ?? tokenForName(getDb(), toName);
   if (!toToken) return 'No such player (they must have played here).';
   if (toToken === senderToken) return 'You cannot mail yourself.';
@@ -819,7 +821,7 @@ function auctionList(
   uid: number,
   price: number,
 ): string {
-  const amount = Math.floor(price) || 0;
+  const amount = Math.min(MAX_TRADE_GOLD, Math.floor(price) || 0);
   if (amount <= 0) return 'Set a buyout price above 0.';
   if (auctionCountBySeller(getDb(), sellerToken) >= MAX_AUCTIONS_PER_SELLER) {
     return `You already have ${MAX_AUCTIONS_PER_SELLER} listings.`;
