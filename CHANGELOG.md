@@ -26,6 +26,17 @@ versioning once it stabilizes.
 
 ### Fixed
 
+- **Item-uid collision after a server restart (SEC-101, high).** The shared id counter
+  (`InstanceManager.nextEntityId`) allocates both entity ids and item-instance uids and resets to 1
+  each boot — but a returning player's saved gear/stash/equipment keep the uids from prior runs, so a
+  freshly-rolled drop or vendor item could be issued a uid that already belonged to the player's
+  restored gear. Every uid-targeted op (equip/salvage/sell/mail/trade) resolves by
+  `find(g => g.uid === uid)`, so the duplicate made those ops act on the wrong/ambiguous item. Every
+  save-restore path now advances the counter past every uid the save carries before importing.
+  (Found by the parallel persistence/economy review; +1 regression test.)
+- **Guild-bank gold deposits are clamped per-op** to `MAX_TRADE_GOLD` (SEC-102), consistent with
+  mail/auction, so the vault total can't be driven toward unsafe-integer territory.
+
 - **Combat polish** (low-severity findings from the parallel combat-review agent):
   - Lifesteal and the floating damage number now bill *effective* damage (clamped to the target's
     remaining HP), so a big hit on a sliver of HP can't over-heal the attacker or show an inflated

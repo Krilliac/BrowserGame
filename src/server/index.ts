@@ -2097,6 +2097,10 @@ wss.on('connection', (socket) => {
                     if (!m) return 'You are not in a guild.';
                     if (kind === 'gold') {
                       if (amount <= 0) return 'Deposit how much gold?';
+                      // Clamp per-op like mail/auction (SEC-102) so the vault total can't be driven
+                      // toward unsafe-integer territory over time.
+                      if (amount > MAX_TRADE_GOLD)
+                        return `You can deposit at most ${MAX_TRADE_GOLD}g at once.`;
                       if (!world.mailTakeGold(entityId, amount))
                         return `You don't have ${amount}g.`;
                       depositGold(m.guildId, amount);
