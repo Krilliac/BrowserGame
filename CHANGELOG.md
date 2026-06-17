@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **In-browser editor — slice 2: Tiled `.tmj` map export (first cross-engine bridge).** Export any
+  area to a [Tiled](https://www.mapeditor.org/) orthogonal map — the de-facto 2D interchange format
+  that Godot, Unity (SuperTiled2Unity), GameMaker, Defold, and 001 Game Creator all import. `editor-
+  tiled.ts`'s `areaToTiled()` is a pure transform of the data-driven content into named object layers
+  (decor / spawns / npcs / portals / meta), each object carrying its content props (kind, scale,
+  templateId, toArea, …) so the map is a faithful, re-importable snapshot — not just visuals. Served
+  at a dev-gated **`GET /editor/area/<id>.tmj?token=…`**. This is the widest single step toward "port
+  the world to another engine"; the reverse (Tiled → content import) is a later slice.
+
 - **In-browser editor — slice 1: world export API.** Groundwork for porting ED5 Studio's visual
   editor (and, longer-term, a cross-engine in-browser game engine). The game is already fully
   data-driven, so the foundation is serializing that content model: a new `editor.ts` produces a

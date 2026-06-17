@@ -31,6 +31,7 @@ import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess, AccessLevel } from './accounts.js';
 import { engineSchema, engineRows, setEngineConfig } from './engine.js';
 import { editorWorld } from './editor.js';
+import { areaToTiled } from './editor-tiled.js';
 import {
   isValidToken,
   loadSave,
@@ -993,6 +994,26 @@ const http = createServer(async (req, res) => {
     }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(editorWorld()));
+    return;
+  }
+  // Tiled .tmj export of one area: GET /editor/area/<id>.tmj?token=… (dev-gated). The cross-engine
+  // bridge — the returned map imports into Tiled/Godot/Unity/GameMaker/001.
+  const tmj = /^\/editor\/area\/([A-Za-z0-9_]+)\.tmj$/.exec((req.url ?? '').split('?')[0] ?? '');
+  if (tmj) {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    const map = areaToTiled(tmj[1]!);
+    if (!map) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: `unknown area: ${tmj[1]}` }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(map));
     return;
   }
   await serveStatic(req.url ?? '/', res);
