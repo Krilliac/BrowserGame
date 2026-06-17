@@ -8,6 +8,17 @@ versioning once it stabilizes.
 
 ### Added
 
+- **In-browser editor — slice 5: row create (clone) + delete.** The editor can now add and remove
+  content, not just edit cells. `content-edit.ts` gains `cloneRow()` (duplicate a row under a new pk —
+  copies every column so the new row is always valid, then tweak cells; auto-id tables assign their
+  own id) and `deleteRow()` (FK-guarded — refuses to remove a row another table references, e.g. a
+  mob template a spawn points at). Exposed at dev-gated **`POST /editor/clone`** / **`POST
+  /editor/delete`**, with per-row **Clone**/**Delete** buttons in the editor grid. Create = clone +
+  edit, so the editor is now full CRUD.
+- **Local `.env` auto-loading.** The server now loads a gitignored `.env` (via Node's `loadEnvFile`)
+  before reading any config, so `ENGINE_ADMIN_TOKEN` / `PORT` / `DEV_PASSWORD` can be set in a file
+  instead of the shell — `npm run dev` just picks them up.
+
 - **In-browser editor — slice 4: the visual editor page (capstone).** A self-contained, dependency-
   free dev tool at **`GET /editor`** that turns the editor APIs into a usable UI: paste your
   `ENGINE_ADMIN_TOKEN`, and it loads the whole content model, lets you **edit any whitelisted cell

@@ -81,7 +81,15 @@ import type { EngineResData, PartyMember } from '../shared/protocol.js';
 import { morningDayIndex } from './area-corruption.js';
 import { SpatialGrid } from './spatial.js';
 import { THEME_KEYS, coerceThemeValue } from '../shared/theme.js';
-import { listTables, listColumns, listRows, getRow, editContent } from './content-edit.js';
+import {
+  listTables,
+  listColumns,
+  listRows,
+  getRow,
+  editContent,
+  cloneRow,
+  deleteRow,
+} from './content-edit.js';
 
 // Load all game content from SQLite (the source of truth). Defaults to ./game.db; the file is
 // created and seeded from the built-in content on first run. Edit it with any SQLite tool.
@@ -1024,6 +1032,35 @@ const http = createServer(async (req, res) => {
     res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
     res.end(JSON.stringify(out));
     return;
+  }
+  // Editor row create (clone) + delete: POST /editor/clone {table,id,newId?} / /editor/delete
+  // {table,id} (dev-gated). Clone duplicates a row under a new pk; delete removes one (FK-guarded).
+  {
+    const path = (req.url ?? '').split('?')[0];
+    if (path === '/editor/clone' || path === '/editor/delete') {
+      const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+      if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+        res.writeHead(403, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+        return;
+      }
+      const body = (await readJsonBody(req)) as { table?: unknown; id?: unknown; newId?: unknown };
+      const table = typeof body?.table === 'string' ? body.table : '';
+      const id = body?.id === undefined || body?.id === null ? '' : String(body.id);
+      if (!table || !id) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, message: 'need {table, id}' }));
+        return;
+      }
+      const out =
+        path === '/editor/clone'
+          ? cloneRow(table, id, typeof body.newId === 'string' ? body.newId : undefined)
+          : deleteRow(table, id);
+      if (out.ok) rebroadcastContent();
+      res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(out));
+      return;
+    }
   }
   // Tiled .tmj export of one area: GET /editor/area/<id>.tmj?token=… (dev-gated). The cross-engine
   // bridge — the returned map imports into Tiled/Godot/Unity/GameMaker/001.

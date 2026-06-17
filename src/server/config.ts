@@ -24,6 +24,16 @@
 
 import { DEFAULT_TICK_RATE } from '../shared/protocol.js';
 
+// Load a local `.env` (gitignored) BEFORE reading any process.env below, so operators can set
+// ENGINE_ADMIN_TOKEN / PORT / DEV_PASSWORD etc. in a file instead of the shell. Best-effort: a no-op
+// if there is no .env or the runtime predates Node's loadEnvFile (20.6+). This is the first env read
+// in the server (config is imported before anything that uses process.env), so the file wins.
+try {
+  (process as { loadEnvFile?: (path?: string) => void }).loadEnvFile?.();
+} catch {
+  /* no .env present — fall back to the real environment */
+}
+
 /** Read a numeric env override, falling back to `def` when unset, empty, or not a number. */
 function numEnv(value: string | undefined, def: number): number {
   if (value === undefined || value === '') return def;

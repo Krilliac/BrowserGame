@@ -89,3 +89,65 @@ export function editContent(
   const note = spec.note ? ` (${spec.note})` : '';
   return { ok: true, message: `Set ${table}.${column} = ${raw} on ${id} — applied live.${note}` };
 }
+
+/**
+ * Duplicate an existing row under a new primary key — the editor's "create" primitive. Cloning copies
+ * EVERY column (so the new row always satisfies NOT-NULL/shape constraints), then the caller tweaks
+ * cells via {@link editContent}. For a text-pk table `newId` is required (and must be free); for an
+ * auto-increment-pk table omit it and the DB assigns one. Table/pk/column names come from the row
+ * itself + the trusted registry (safe to interpolate); all values are bound. Returns the new id.
+ */
+export function cloneRow(
+  table: string,
+  srcId: string,
+  newId?: string,
+): { ok: boolean; message: string; id?: string } {
+  const spec = EDITABLE_TABLES[table];
+  if (!spec) return { ok: false, message: `Unknown table: ${table}. Try /tables.` };
+  const db = getDb();
+  const src = db.prepare(`SELECT * FROM ${table} WHERE ${spec.pk} = ?`).get(srcId) as
+    | Record<string, string | number | null>
+    | undefined;
+  if (!src) return { ok: false, message: `No such ${spec.label}: ${srcId}` };
+
+  const wantId = (newId ?? '').trim();
+  if (wantId && db.prepare(`SELECT 1 FROM ${table} WHERE ${spec.pk} = ?`).get(wantId)) {
+    return { ok: false, message: `${spec.label} "${wantId}" already exists.` };
+  }
+  const cols = Object.keys(src).filter((c) => c !== spec.pk);
+  const insertCols = wantId ? [spec.pk, ...cols] : cols;
+  const values = wantId ? [wantId, ...cols.map((c) => src[c]!)] : cols.map((c) => src[c]!);
+  const placeholders = insertCols.map(() => '?').join(',');
+  try {
+    const info = db
+      .prepare(`INSERT INTO ${table} (${insertCols.join(',')}) VALUES (${placeholders})`)
+      .run(...values);
+    const id = wantId || String(info.lastInsertRowid);
+    return { ok: true, message: `Cloned ${srcId} → ${id} on ${table} — applied live.`, id };
+  } catch (e) {
+    // A text-pk table cloned with no newId hits a NOT-NULL/PK error here — report it cleanly.
+    return { ok: false, message: `Clone failed: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * Delete a row — the editor's "remove" primitive. Fails cleanly if the row is referenced by another
+ * table (SQLite FK enforcement is on), e.g. deleting a mob template a creature_spawn points at.
+ */
+export function deleteRow(table: string, id: string): { ok: boolean; message: string } {
+  const spec = EDITABLE_TABLES[table];
+  if (!spec) return { ok: false, message: `Unknown table: ${table}. Try /tables.` };
+  const db = getDb();
+  if (!db.prepare(`SELECT 1 FROM ${table} WHERE ${spec.pk} = ?`).get(id)) {
+    return { ok: false, message: `No such ${spec.label}: ${id}` };
+  }
+  try {
+    db.prepare(`DELETE FROM ${table} WHERE ${spec.pk} = ?`).run(id);
+    return { ok: true, message: `Deleted ${spec.label} ${id} from ${table} — applied live.` };
+  } catch (e) {
+    return {
+      ok: false,
+      message: `Delete failed (referenced by other content?): ${(e as Error).message}`,
+    };
+  }
+}

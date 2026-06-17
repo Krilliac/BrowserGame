@@ -118,7 +118,7 @@ export const EDITOR_HTML = `<!doctype html>
     spec.columns.forEach(function (c) { editable[c.name] = true; });
     var html = '<table><thead><tr>';
     data.columns.forEach(function (c) { html += '<th>' + esc(c) + '</th>'; });
-    html += '</tr></thead><tbody>';
+    html += '<th>actions</th></tr></thead><tbody>';
     data.rows.forEach(function (row) {
       var id = row[data.pk];
       html += '<tr>';
@@ -130,6 +130,8 @@ export const EDITOR_HTML = `<!doctype html>
           html += '<td style="color:#7d828c">' + esc(row[c]) + '</td>';
         }
       });
+      html += '<td style="white-space:nowrap"><button class="clone" data-id="' + esc(id) +
+        '">Clone</button> <button class="del" data-id="' + esc(id) + '">Delete</button></td>';
       html += '</tr>';
     });
     html += '</tbody></table>';
@@ -138,6 +140,37 @@ export const EDITOR_HTML = `<!doctype html>
     for (var i = 0; i < inputs.length; i++) {
       inputs[i].addEventListener('change', function (ev) { saveCell(name, ev.target); });
     }
+    var clones = grid.querySelectorAll('button.clone');
+    for (var j = 0; j < clones.length; j++) {
+      clones[j].addEventListener('click', function (ev) { cloneRowUI(name, ev.target.getAttribute('data-id')); });
+    }
+    var dels = grid.querySelectorAll('button.del');
+    for (var k = 0; k < dels.length; k++) {
+      dels[k].addEventListener('click', function (ev) { deleteRowUI(name, ev.target.getAttribute('data-id')); });
+    }
+  }
+
+  function postJson(url, body, onResult) {
+    fetch(url + '?token=' + tok(), {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        setStatus(res.message || (res.ok ? 'Done.' : 'Failed.'), res.ok ? 'ok' : 'err');
+        if (res.ok && onResult) onResult(res);
+      })
+      .catch(function (e) { setStatus('Failed: ' + e.message, 'err'); });
+  }
+
+  function cloneRowUI(table, id) {
+    var newId = prompt('New id for the clone of "' + id + '" (leave blank for auto-id tables):', id + '_copy');
+    if (newId === null) return;
+    postJson('/editor/clone', { table: table, id: id, newId: newId }, function () { connect(); });
+  }
+
+  function deleteRowUI(table, id) {
+    if (!confirm('Delete ' + table + ' "' + id + '"? This cannot be undone.')) return;
+    postJson('/editor/delete', { table: table, id: id }, function () { connect(); });
   }
 
   function saveCell(table, input) {
