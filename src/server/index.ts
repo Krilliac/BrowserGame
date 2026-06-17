@@ -749,6 +749,31 @@ function idForToken(token: string): number | undefined {
   return undefined;
 }
 
+/**
+ * Fully tear down a connected player: persist their save, drop party/guild/bot/social references,
+ * remove their world entity, and forget the session. Idempotent — a no-op if `id` is not a live
+ * player, so the socket `close` that follows an eviction (SEC-001) safely does nothing the second
+ * time. The save is written from the player's CURRENT live state, so an eviction never loses items.
+ */
+function disconnect(id: number): void {
+  const p = players.get(id);
+  if (!p) return;
+  // Persist the character so this guest can reload it on reconnect.
+  const save = manager.get(p.instanceId)?.world.exportPlayer(id);
+  if (save) storeSave(getDb(), p.token, save);
+  const leftName = nameOf(id);
+  // Drop out of any party (promote/disband) and tell the remaining members; go offline so friends
+  // see it, then refresh everyone who had this player on their list.
+  const affectedParty = parties.remove(id);
+  guilds.remove(p.token); // drop any pending guild invite (membership persists in the DB)
+  clearBots(id); // a disconnecting GM's bots go with them — never orphaned in the world
+  manager.remove(p.instanceId, id);
+  players.delete(id);
+  social.setOffline(p.token);
+  for (const m of affectedParty) if (m !== id) sendPartyState(m);
+  if (leftName) notifyFriendWatchers(leftName);
+}
+
 /** Send one message to the online player holding `token`, if any (guild fan-out helper). */
 function sendToToken(token: string, msg: Parameters<typeof send>[1]): void {
   const id = idForToken(token);
@@ -1471,6 +1496,19 @@ wss.on('connection', (socket) => {
             // a fresh token. The token is validated before it ever touches the DB (bound param anyway).
             const presented = isValidToken(msg.token) ? msg.token : undefined;
             const token = presented ?? newPlayerToken();
+            // SEC-001: one live session per save token. If this token is already connected, fully
+            // disconnect the prior session FIRST — synchronously, so it writes its save and removes
+            // its entity before we load the save below. Otherwise both sessions would hold the same
+            // gear/gold live (dupe), and the older socket's delayed `close` could overwrite this
+            // session's save. Last-login-wins, the MMO norm.
+            if (presented !== undefined) {
+              const existing = idForToken(presented);
+              if (existing !== undefined) {
+                const prior = players.get(existing);
+                disconnect(existing);
+                prior?.socket.close(1008, 'replaced by a newer login');
+              }
+            }
             const save = presented ? (loadSave(getDb(), presented) ?? undefined) : undefined;
             const placement = manager.join(save?.name ?? msg.name, undefined, save);
             entityId = placement.entityId;
@@ -1875,6 +1913,9 @@ wss.on('connection', (socket) => {
           case 'whisper': {
             const p = players.get(entityId);
             if (!p || typeof msg.to !== 'string' || typeof msg.text !== 'string') break;
+            // SEC-003: whispers deliver a chat line to another player — gate them on the same
+            // low-rate chat bucket as public chat so they can't be used to spam-flood a victim.
+            if (!chatBucket.tryRemove()) break;
             const text = sanitizeChat(msg.text);
             if (!text) break;
             const fromName = nameOf(entityId) ?? 'Player';
@@ -2373,23 +2414,7 @@ wss.on('connection', (socket) => {
   });
 
   socket.on('close', () => {
-    const p = players.get(entityId);
-    if (p) {
-      // Persist the character so this guest can reload it on reconnect.
-      const save = manager.get(p.instanceId)?.world.exportPlayer(entityId);
-      if (save) storeSave(getDb(), p.token, save);
-      const leftName = nameOf(entityId);
-      // Drop out of any party (promote/disband) and tell the remaining members; go offline so
-      // friends see it, then refresh everyone who had this player on their list.
-      const affectedParty = parties.remove(entityId);
-      guilds.remove(p.token); // drop any pending guild invite (membership persists in the DB)
-      clearBots(entityId); // a disconnecting GM's bots go with them — never orphaned in the world
-      manager.remove(p.instanceId, entityId);
-      players.delete(entityId);
-      social.setOffline(p.token);
-      for (const m of affectedParty) if (m !== entityId) sendPartyState(m);
-      if (leftName) notifyFriendWatchers(leftName);
-    }
+    disconnect(entityId);
   });
 });
 

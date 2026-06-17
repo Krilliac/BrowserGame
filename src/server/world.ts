@@ -5581,8 +5581,15 @@ function applyPlayerDebuff(player: { debuffs: StatusSet }, abilityId: AbilityId)
 }
 
 function sanitizeName(name: string): string {
-  const trimmed = (name ?? '').trim().slice(0, MAX_NAME_LENGTH);
-  return trimmed.length > 0 ? trimmed : 'Adventurer';
+  // Strip control/format chars (newlines, NUL, zero-width, bidi overrides) before trimming so a
+  // crafted name can't spoof System lines or scramble the /who list, chat `from`, and rosters
+  // (SEC-002). Display-only — chat is rendered via textContent client-side, so this isn't XSS.
+  const cleaned = (typeof name === 'string' ? name : '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+    .trim()
+    .slice(0, MAX_NAME_LENGTH);
+  return cleaned.length > 0 ? cleaned : 'Adventurer';
 }
 
 /**

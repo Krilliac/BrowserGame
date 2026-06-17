@@ -26,6 +26,20 @@ versioning once it stabilizes.
 
 ### Fixed
 
+- **Item/gold duplication via concurrent sessions (high).** Two sockets presenting the same save
+  token both loaded the same character, so every item/gold balance existed live on two characters —
+  drop/trade one away, let the other's disconnect write the still-intact save, and the balance
+  doubles. The `join` handler now enforces one live session per token: a returning token
+  **synchronously** tears down its prior session (writing that session's save and removing its
+  entity) *before* loading the save for the new connection, so the two never hold the same items
+  live and the old socket's delayed close can't overwrite the new save. Last-login-wins. (Found by
+  the parallel netcode review; the per-connection teardown is now a shared `disconnect()`.)
+- **Display-name spoofing (low).** `sanitizeName` now strips control, zero-width, and bidi-override
+  characters (not just trims), so a crafted name can't scramble the `/who` list, chat `from`, or
+  spoof `System` lines. (Display-only — chat already renders via `textContent`, so this was never XSS.)
+- **Whisper spam (low).** Whispers are now gated on the same low-rate chat bucket as public chat, so
+  they can't be used to flood a target with popups.
+
 - **Item-uid collision after a server restart (SEC-101, high).** The shared id counter
   (`InstanceManager.nextEntityId`) allocates both entity ids and item-instance uids and resets to 1
   each boot — but a returning player's saved gear/stash/equipment keep the uids from prior runs, so a
