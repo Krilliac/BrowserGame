@@ -39,6 +39,7 @@ import { tableToCsv } from './editor-csv.js';
 import { auditContent } from './content-audit.js';
 import { areaScene } from './editor-scene.js';
 import { moveEntity } from './editor-place.js';
+import { createEntity } from './editor-create.js';
 import { editorDebugInfo } from './editor-debug.js';
 import {
   isValidToken,
@@ -1109,6 +1110,38 @@ const http = createServer(async (req, res) => {
       return;
     }
     const out = moveEntity(table, id, b.x, b.y);
+    if (out.ok) rebroadcastContent();
+    res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
+    return;
+  }
+  // Editor create: POST /editor/create?token=… {table,areaId,x,y,kind} (dev-gated). Drops a new
+  // decor/creature_spawns/npcs row at authored coords; reload + re-broadcast so it applies live.
+  if ((req.url ?? '').split('?')[0] === '/editor/create') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+      return;
+    }
+    const b = (await readJsonBody(req)) as {
+      table?: unknown;
+      areaId?: unknown;
+      x?: unknown;
+      y?: unknown;
+      kind?: unknown;
+    };
+    const table = typeof b?.table === 'string' ? b.table : '';
+    const areaId = typeof b?.areaId === 'string' ? b.areaId : '';
+    const kind = typeof b?.kind === 'string' ? b.kind : '';
+    if (!table || !areaId || !kind || typeof b?.x !== 'number' || typeof b?.y !== 'number') {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({ ok: false, message: 'need {table, areaId, x:number, y:number, kind}' }),
+      );
+      return;
+    }
+    const out = createEntity(table, areaId, b.x, b.y, kind);
     if (out.ok) rebroadcastContent();
     res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
     res.end(JSON.stringify(out));

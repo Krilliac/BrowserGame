@@ -35,8 +35,20 @@ a forged or sensitive table name can't be read or written.
   through the same validated `content-edit.ts` path as the grid editor.
 - **Drag to move.** Dragging a marker rewrites its `x` / `y` and **persists** the new position
   (`POST /editor/place`); the content reloads and re-broadcasts to connected players.
+- **Add new entities on the canvas.** Flip the palette from **Select** to **Add** mode, choose the
+  **entity type** (decor/object, creature spawn, or NPC) and a **kind** for that type, then click the
+  canvas where you want it. The click's authored coordinates become the new row's `x` / `y`
+  (`POST /editor/create`). The content reloads and the new marker appears on its layer.
+- **Delete the selected marker.** In Select mode, pick a marker and hit **Delete selected** to remove
+  that row (`POST /editor/delete`, FK-guarded). The marker disappears and the content re-broadcasts.
 - **Place, clone, and delete** entities — full CRUD, shared with the grid editor (clone copies every
   column so the new row is always valid; delete is FK-guarded).
+- **Inspect live content stats.** The in-editor **Debug panel** shows diagnostics straight from
+  `/editor/debug.json` — loaded state and per-table counts — so you can confirm what's actually in
+  content without leaving the map.
+- **Audit the content.** The **Audit** button cross-references the data via `/editor/audit.json` and
+  lists integrity / referential issues (e.g. dangling foreign keys, orphaned rows), so you can spot
+  and fix problems before they hit the live world.
 - **Export / import the area** as a Tiled `.tmj` for round-tripping through any Tiled-aware engine
   (see [In-Browser Editor](In-Browser-Editor.md#what-you-can-do)), and **dump a table as CSV**.
 - **Play here.** Launches the live game so you can immediately test the area you're editing.
@@ -56,6 +68,7 @@ un-scales the same way, keeping export→import→export stable.)
 | `/editor/world.json`        | GET        | Area list + full content model (schema + all rows).               |
 | `/editor/scene/<areaId>.json` | GET      | One area's scene: decor/objects, spawns, NPCs, portals, spawn pt. |
 | `/editor/place`             | POST       | Place / move an entity `{table,id,x,y}` (authored coords).        |
+| `/editor/create`            | POST       | Create a `decor`/`creature_spawns`/`npcs` row `{table,areaId,x,y,kind}`. |
 | `/editor/edit`              | POST       | Single-cell edit `{table,id,column,value}`.                       |
 | `/editor/clone`             | POST       | Clone a row `{table,id,newId?}`.                                  |
 | `/editor/delete`            | POST       | Delete a row (FK-guarded).                                        |

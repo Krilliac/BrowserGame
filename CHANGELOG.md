@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **In-browser editor — slice 7: map-editor add/delete/debug.** The canvas map editor is now a full
+  editor: an **Add palette** (Select ↔ Add mode) drops a new decor / creature-spawn / NPC at the
+  clicked authored point (kind/template chosen from a dropdown) via `editor-create.ts`'s
+  `createEntity()` → dev-gated **`POST /editor/create`** (FK-validated for spawns); **Delete selected**
+  removes a marker's row (FK-guarded); an in-editor **Debug panel** shows live content stats from
+  `/editor/debug.json`; and an **Audit** button surfaces cross-reference issues from `/editor/audit.json`.
+  Built by another parallel sub-agent wave (create module + canvas UI + docs), orchestrator-wired.
+  (+8 tests.)
+
 - **In-browser editor — slice 6: visual canvas map editor.** A 2D top-down map editor at dev-gated
   **`GET /editor/map`** that loads an area's whole scene and shows every placeable as a layered,
   color-coded marker — decor/objects, creature spawns, NPCs, portals (area triggers), and the spawn

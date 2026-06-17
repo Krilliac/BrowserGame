@@ -43,6 +43,7 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   #stage { position: relative; flex: 1 1 auto; min-width: 0; background: #0d0f14; }
   #cv { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
   #cv.dragging { cursor: grabbing; }
+  #cv.adding { cursor: crosshair; }
   #legend { position: absolute; left: 10px; top: 10px; background: #1b1e27cc; border: 1px solid #2a2e3a;
     border-radius: 8px; padding: 8px 10px; font-size: 12px; }
   #legend label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
@@ -59,6 +60,27 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   table.insp td input { width: 100%; box-sizing: border-box; padding: 2px 4px; background: #232733;
     color: #d7dbe3; border: 1px solid #394052; border-radius: 4px; }
   .pkrow td { color: #e7d9b0; font-weight: 600; }
+  /* Add-palette + debug panel additions */
+  #palette { position: absolute; right: 10px; top: 10px; background: #1b1e27cc; border: 1px solid #2a2e3a;
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; display: flex; flex-direction: column; gap: 6px;
+    max-width: 220px; }
+  #palette .row { display: flex; align-items: center; gap: 6px; }
+  #palette select { flex: 1 1 auto; min-width: 0; padding: 3px 5px; }
+  #palette.addon { border-color: #6fd58a; }
+  #palette .hint { color: #7d828c; }
+  .modebtn { padding: 4px 10px; }
+  .modebtn.active { background: #2f6f44; border-color: #6fd58a; color: #eafff0; }
+  #delBtn { margin-top: 8px; width: 100%; background: #5a2f37; border-color: #7a3a44; }
+  #delBtn:hover { background: #6f3a44; }
+  details.dbg { margin-top: 16px; border-top: 1px solid #2a2e3a; padding-top: 10px; }
+  details.dbg summary { cursor: pointer; font-size: 13px; text-transform: uppercase; letter-spacing: .05em;
+    color: #9fb0c0; }
+  details.dbg .dbgbody { margin-top: 8px; }
+  details.dbg table.insp { margin-bottom: 8px; }
+  details.dbg .auditlist { font-size: 12px; margin: 6px 0 0; padding-left: 0; list-style: none; }
+  details.dbg .auditlist li { padding: 2px 0; border-bottom: 1px solid #232733; }
+  details.dbg .auditlist .sev-error { color: #e0707a; }
+  details.dbg .auditlist .sev-warn { color: #e7d9b0; }
 </style>
 </head>
 <body>
@@ -69,6 +91,7 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   <button id="connect">Connect</button>
   <select id="areaSel"><option value="">— pick an area —</option></select>
   <button id="play" title="Open the live game in a new tab">Play here</button>
+  <button id="auditBtn" title="Run a content integrity audit">Audit</button>
   <span id="status">Paste your dev token and Connect.</span>
 </header>
 <main>
@@ -81,10 +104,38 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
       <label><input type="checkbox" id="lyr_portals" checked /><span class="sw" style="background:#5fd0e0"></span>portals</label>
       <label><input type="checkbox" id="lyr_spawn" checked /><span class="sw" style="background:#6fd58a"></span>spawn-point</label>
     </div>
+    <div id="palette">
+      <div class="row">
+        <button id="modeSelect" class="modebtn active">Select</button>
+        <button id="modeAdd" class="modebtn">Add</button>
+      </div>
+      <div id="paletteFields" style="display:none">
+        <div class="row">
+          <select id="addType">
+            <option value="decor">Decor</option>
+            <option value="creature_spawns">Creature spawn</option>
+            <option value="npcs">NPC</option>
+          </select>
+        </div>
+        <div class="row">
+          <select id="addKind"></select>
+        </div>
+        <div class="hint">Click the map to place.</div>
+      </div>
+    </div>
   </div>
   <aside>
     <h2>Inspector</h2>
     <div id="inspector"><p class="hint">Click a marker to inspect &amp; edit it. Drag a marker to move it (saved on drop). Drag empty space to pan, wheel to zoom.</p></div>
+    <details class="dbg" id="dbgPanel">
+      <summary>Debug &amp; audit</summary>
+      <div class="dbgbody">
+        <div class="row" style="display:flex; gap:6px; margin-bottom:8px">
+          <button id="dbgRefresh">Refresh</button>
+        </div>
+        <div id="dbgContent"><p class="hint">Refresh to load content counts. Use Audit (top bar) to scan for broken references.</p></div>
+      </div>
+    </details>
   </aside>
 </main>
 <script>
@@ -97,9 +148,18 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   var stage = document.getElementById('stage');
   var cv = document.getElementById('cv');
   var ctx = cv.getContext('2d');
+  var modeSelectBtn = document.getElementById('modeSelect');
+  var modeAddBtn = document.getElementById('modeAdd');
+  var paletteEl = document.getElementById('palette');
+  var paletteFields = document.getElementById('paletteFields');
+  var addTypeEl = document.getElementById('addType');
+  var addKindEl = document.getElementById('addKind');
+  var dbgContentEl = document.getElementById('dbgContent');
   tokenEl.value = localStorage.getItem('ed5_token') || '';
 
   // ---- state -------------------------------------------------------------
+  var world = null;            // the loaded /editor/world.json (schema + tables.<name>.rows)
+  var addMode = false;         // false = Select (click to inspect); true = Add (click to create)
   var scene = null;            // current AreaScene
   var markers = [];            // flattened placeables: {table,pk,kind,x,y,label,props, _layer}
   var selected = null;         // selected marker (reference into markers)
@@ -128,6 +188,8 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
     fetch('/editor/world.json?token=' + tok())
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (w) {
+        world = w;
+        populateAddKinds();
         var areas = (w.tables && w.tables.areas && w.tables.areas.rows) || [];
         var opts = '<option value="">— pick an area —</option>';
         for (var i = 0; i < areas.length; i++) {
@@ -192,6 +254,62 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
         if (res.ok && onResult) onResult(res);
       })
       .catch(function (e) { setStatus('Failed: ' + e.message, 'err'); });
+  }
+
+  // ---- add palette -------------------------------------------------------
+  // A short fixed list of NPC kinds (the kinds the game's NPC system understands).
+  var NPC_KINDS = ['vendor', 'questgiver', 'healer', 'gambler', 'banker', 'recruiter', 'riftkeeper', 'stable'];
+  // A short fixed fallback list of decor kinds, used when the loaded world has no decor rows to derive from.
+  var DECOR_KINDS = ['rock', 'tree', 'bush', 'crate', 'barrel', 'torch', 'shrine', 'chest', 'pot'];
+
+  // Build the KIND <select> options for the current TYPE from the loaded world.
+  function populateAddKinds() {
+    var type = addTypeEl.value;
+    var values = [];
+    if (type === 'npcs') {
+      values = NPC_KINDS.slice();
+    } else if (type === 'creature_spawns') {
+      // Spawn a creature by its mob_template id.
+      var mobs = (world && world.tables && world.tables.mob_templates && world.tables.mob_templates.rows) || [];
+      for (var i = 0; i < mobs.length; i++) { if (mobs[i] && mobs[i].id != null) values.push(String(mobs[i].id)); }
+    } else {
+      // Decor: derive distinct kinds from the loaded decor rows, falling back to the fixed list.
+      var seen = {};
+      var rows = (world && world.tables && world.tables.decor && world.tables.decor.rows) || [];
+      for (var d = 0; d < rows.length; d++) {
+        var k = rows[d] && rows[d].kind;
+        if (k != null && k !== '' && !seen[k]) { seen[k] = true; values.push(String(k)); }
+      }
+      if (!values.length) values = DECOR_KINDS.slice();
+      else values.sort();
+    }
+    var opts = '';
+    if (!values.length) opts = '<option value="">(none available)</option>';
+    for (var v = 0; v < values.length; v++) opts += '<option value="' + esc(values[v]) + '">' + esc(values[v]) + '</option>';
+    addKindEl.innerHTML = opts;
+  }
+
+  function setMode(add) {
+    addMode = !!add;
+    if (addMode) {
+      modeAddBtn.classList.add('active'); modeSelectBtn.classList.remove('active');
+      paletteEl.classList.add('addon'); paletteFields.style.display = ''; cv.classList.add('adding');
+    } else {
+      modeSelectBtn.classList.add('active'); modeAddBtn.classList.remove('active');
+      paletteEl.classList.remove('addon'); paletteFields.style.display = 'none'; cv.classList.remove('adding');
+    }
+  }
+
+  // Create a new entity at authored coords via the fixed create contract, then reload the scene.
+  function createEntity(ax, ay) {
+    if (!scene) { setStatus('Pick an area before adding.', 'err'); return; }
+    var kind = addKindEl.value;
+    if (!kind) { setStatus('No kind selected to add.', 'err'); return; }
+    var body = {
+      table: addTypeEl.value, areaId: scene.areaId, kind: kind,
+      x: Math.round(ax * 100) / 100, y: Math.round(ay * 100) / 100
+    };
+    postJson('/editor/create', body, function () { loadScene(scene.areaId); });
   }
 
   // ---- view transform ----------------------------------------------------
@@ -341,6 +459,7 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
       html += '<p class="hint" style="margin-top:8px">This is the area spawn point — edit it via the areas table in the table editor.</p>';
     } else {
       html += '<p class="hint" style="margin-top:8px">Editing a field saves immediately via /editor/edit.</p>';
+      html += '<button id="delBtn">Delete this ' + esc(m.kind || m.table) + '</button>';
     }
     inspectorEl.innerHTML = html;
 
@@ -348,6 +467,20 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
     for (var j = 0; j < inputs.length; j++) {
       inputs[j].addEventListener('change', onInspectorEdit);
     }
+    var delBtn = document.getElementById('delBtn');
+    if (delBtn) delBtn.addEventListener('click', onDeleteSelected);
+  }
+
+  // Delete the selected marker (table + pk) via the fixed delete contract, then reload the scene.
+  function onDeleteSelected() {
+    if (!selected || selected.table == null || selected.pk == null) return;
+    var label = selected.kind || selected.table;
+    if (!window.confirm('Delete this ' + label + ' (pk ' + selected.pk + ')? This cannot be undone.')) return;
+    var areaId = scene ? scene.areaId : '';
+    postJson('/editor/delete', { table: selected.table, id: selected.pk }, function () {
+      selected = null;
+      if (areaId) loadScene(areaId); else { renderInspector(); draw(); }
+    });
   }
 
   function row(label, value, editable) {
@@ -391,6 +524,14 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   cv.addEventListener('pointerdown', function (ev) {
     if (!scene) return;
     var p = pointerPos(ev);
+    // In Add mode a click on the canvas creates a new entity at the authored point (clamped to bounds).
+    if (addMode) {
+      var a = screenToAuthored(p.x, p.y);
+      if (a.x < 0) a.x = 0; if (a.x > scene.width) a.x = scene.width;
+      if (a.y < 0) a.y = 0; if (a.y > scene.height) a.y = scene.height;
+      createEntity(a.x, a.y);
+      return;
+    }
     var hit = pickMarker(p.x, p.y);
     cv.setPointerCapture(ev.pointerId);
     if (hit) {
@@ -474,8 +615,87 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   wireLayer('lyr_portals', 'portals');
   wireLayer('lyr_spawn', 'spawn');
 
+  // ---- debug panel + audit -----------------------------------------------
+  function refreshDebug() {
+    setStatus('Loading debug info…');
+    fetch('/editor/debug.json?token=' + tok())
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) { renderDebug(d); setStatus('Debug info loaded.', 'ok'); })
+      .catch(function (e) { setStatus('Debug load failed: ' + e.message, 'err'); });
+  }
+
+  // Render the content-side debug snapshot as a compact table (counts + a few notable lists).
+  function renderDebug(d) {
+    function listShort(arr, max) {
+      arr = arr || [];
+      if (!arr.length) return '<span class="hint">none</span>';
+      var shown = arr.slice(0, max).map(function (v) { return esc(v); }).join(', ');
+      if (arr.length > max) shown += ' <span class="hint">(+' + (arr.length - max) + ' more)</span>';
+      return shown;
+    }
+    var pvp = (d.pvpAreas || []).map(function (a) { return esc(a.areaId) + ':' + esc(a.rule); });
+    var html = '<table class="insp"><tbody>';
+    html += '<tr><th>areas</th><td>' + esc(d.areas) + '</td></tr>';
+    html += '<tr><th>mob templates</th><td>' + esc(d.mobTemplates) + '</td></tr>';
+    html += '<tr><th>items</th><td>' + esc(d.items) + '</td></tr>';
+    html += '<tr><th>abilities</th><td>' + esc(d.abilities) + '</td></tr>';
+    html += '<tr><th>quests</th><td>' + esc(d.quests) + '</td></tr>';
+    html += '<tr><th>summonable</th><td>' + listShort(d.summonableCreatures, 8) + '</td></tr>';
+    html += '<tr><th>tameable</th><td>' + listShort(d.tameableCreatures, 8) + '</td></tr>';
+    html += '<tr><th>pvp areas</th><td>' + listShort(pvp, 8) + '</td></tr>';
+    html += '</tbody></table>';
+    dbgContentEl.innerHTML = html;
+  }
+
+  // Run the content audit; summarize counts in the status line and list the first few issues in the panel.
+  function runAudit() {
+    setStatus('Auditing content…');
+    fetch('/editor/audit.json?token=' + tok())
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (a) {
+        var issues = (a && a.issues) || [];
+        var errors = 0, warns = 0;
+        for (var i = 0; i < issues.length; i++) {
+          if (issues[i].severity === 'error') errors++; else warns++;
+        }
+        var msg = 'Audit: ' + errors + ' error' + (errors === 1 ? '' : 's') + ', ' +
+          warns + ' warning' + (warns === 1 ? '' : 's') + '.';
+        setStatus(msg, errors ? 'err' : 'ok');
+        renderAudit(issues);
+        // Open the debug panel so the issue list is visible.
+        var panel = document.getElementById('dbgPanel');
+        if (panel) panel.open = true;
+      })
+      .catch(function (e) { setStatus('Audit failed: ' + e.message, 'err'); });
+  }
+
+  // Append the first few audit issues to the debug panel (does not clear the counts table above it).
+  function renderAudit(issues) {
+    var base = dbgContentEl.innerHTML;
+    var html = '<p class="hint" style="margin-top:8px">Audit issues (' + issues.length + ' total):</p>';
+    if (!issues.length) {
+      html += '<p class="hint">No issues — content is clean.</p>';
+    } else {
+      html += '<ul class="auditlist">';
+      var max = issues.length < 8 ? issues.length : 8;
+      for (var i = 0; i < max; i++) {
+        var it = issues[i];
+        html += '<li><span class="sev-' + (it.severity === 'error' ? 'error' : 'warn') + '">[' +
+          esc(it.severity) + ']</span> ' + esc(it.kind) + ' — ' + esc(it.ref) + ': ' + esc(it.message) + '</li>';
+      }
+      if (issues.length > max) html += '<li class="hint">(+' + (issues.length - max) + ' more)</li>';
+      html += '</ul>';
+    }
+    dbgContentEl.innerHTML = base + html;
+  }
+
   // ---- header wiring -----------------------------------------------------
   document.getElementById('connect').addEventListener('click', connect);
+  modeSelectBtn.addEventListener('click', function () { setMode(false); });
+  modeAddBtn.addEventListener('click', function () { setMode(true); });
+  addTypeEl.addEventListener('change', populateAddKinds);
+  document.getElementById('auditBtn').addEventListener('click', runAudit);
+  document.getElementById('dbgRefresh').addEventListener('click', refreshDebug);
   areaSel.addEventListener('change', function () { loadScene(areaSel.value); });
   // "Play here": opens the live game in a new tab. True embedded play/pause (an iframe'd client wired
   // to this area, with edit<->play toggle) is a later slice — this is the first step toward it.
