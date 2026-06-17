@@ -34,6 +34,8 @@ import { editorWorld, parseEditBody } from './editor.js';
 import { areaToTiled, type TiledMap } from './editor-tiled.js';
 import { importTiled } from './editor-import.js';
 import { EDITOR_HTML } from './editor-page.js';
+import { tableToCsv } from './editor-csv.js';
+import { auditContent } from './content-audit.js';
 import {
   isValidToken,
   loadSave,
@@ -1004,6 +1006,42 @@ const http = createServer(async (req, res) => {
     }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(editorWorld()));
+    return;
+  }
+  // Editor content audit: GET /editor/audit.json?token=… — live cross-reference integrity scan so a
+  // designer editing via the editor catches broken refs immediately. Dev-gated.
+  if ((req.url ?? '').split('?')[0] === '/editor/audit.json') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(auditContent()));
+    return;
+  }
+  // Editor CSV export: GET /editor/table/<name>.csv?token=… — a table as a spreadsheet. Dev-gated;
+  // the name is registry-validated inside tableToCsv (unknown/forged → 404).
+  const csv = /^\/editor\/table\/([A-Za-z0-9_]+)\.csv$/.exec((req.url ?? '').split('?')[0] ?? '');
+  if (csv) {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    const out = tableToCsv(csv[1]!);
+    if (out === null) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: `unknown/non-editable table: ${csv[1]}` }));
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="${csv[1]}.csv"`,
+    });
+    res.end(out);
     return;
   }
   // The editor UI page itself (the shell carries no secrets; its data calls send the token).
