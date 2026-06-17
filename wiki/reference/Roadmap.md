@@ -211,9 +211,9 @@ Skipping survival (hunger/thirst/seasons) + housing as genre-drift from the Diab
       `summonable`-flagged creature (data-driven, not skeleton-specific); follow-and-fight via the
       hireling AI, cap 5, render as the source creature with an ally health bar. `summonable` column
       (migration #8), `minions.ts`, `world-summons.test.ts`.
-- [~] **Pets & mounts** — **mounts DONE** (owned persistent travel-speed boosts from a Stablemaster;
-      `mounts` table, `NpcFlags.STABLE`, `/mount` commands). Pets (tameable combat companions that
-      level/evolve) still TODO — likely a `tameable` flag + persistence/leveling on the minion system.
+- [x] **Pets & mounts** — mounts (owned travel-speed boosts; Stablemaster; `/mount`) + pets (tame a
+      weakened `tameable` beast into a persistent creature companion reusing the minion AI;
+      `mob_templates.tameable`; Tame ability; `/pet`). Pet leveling/evolution is a possible follow-up.
 - [x] **Guilds** — persistent societies (`guilds`/`guild_members` tables) via a pure `GuildRegistry`:
       create/invite/accept/leave/kick/promote/demote, leader/officer/member ranks, `/g` guild chat,
       roster with live presence. Command-driven (no client panel). Shared **guild bank still TODO**.

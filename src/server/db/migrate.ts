@@ -151,6 +151,15 @@ const MIGRATIONS: Migration[] = [
         ensureColumns(db, 'mob_templates', { summonable: 'INTEGER NOT NULL DEFAULT 0' });
     },
   },
+  {
+    version: 9,
+    name: 'tameable-creatures',
+    up(db) {
+      // Creatures gain a `tameable` flag so wild beasts can be captured as pets. Defaults to 0.
+      if (hasTable(db, 'mob_templates'))
+        ensureColumns(db, 'mob_templates', { tameable: 'INTEGER NOT NULL DEFAULT 0' });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */

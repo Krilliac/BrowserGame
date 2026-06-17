@@ -13,15 +13,25 @@ function duel(area: string): { w: ReturnType<typeof areaWorld>; a: number; v: nu
   const w = areaWorld(area);
   const a = w.spawn('Attacker');
   const v = w.spawn('Victim');
+  // High level → high power, so the (×0.35) PvP hit is unambiguously > 0 after hp is ceil-rounded
+  // in playerStats (a level-1 slash can scale below 0.5 and round-display as no change).
+  w.setLevel(a, 30);
   w.teleport(a, 1000, 1000);
   w.teleport(v, 1000, 1040); // 40px south — inside slash range (78)
   return { w, a, v };
 }
 
-/** Cast slash straight south (toward the victim) and report the victim's HP delta. */
+/**
+ * Cast slash south at the victim several times (clearing the cooldown between) and report the total
+ * HP lost. Multiple swings make the assertion robust against a single accuracy miss in
+ * `rollAbilityDamage` — where PvP is disallowed the total stays exactly 0 no matter how many swings.
+ */
 function slashSouth(w: ReturnType<typeof areaWorld>, a: number, v: number): number {
   const before = w.playerStats(v)!.hp;
-  w.cast(a, 'slash', 0, 1);
+  for (let i = 0; i < 8; i++) {
+    w.cast(a, 'slash', 0, 1);
+    w.tick(0.5); // drain the slash cooldown before the next swing
+  }
   return before - w.playerStats(v)!.hp;
 }
 

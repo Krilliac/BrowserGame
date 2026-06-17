@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Pets (beast taming).** Weaken a `tameable` wild creature below 30% HP, cast **Tame Beast**, and it
+  becomes your persistent pet — a creature companion that follows you, fights with the minion AI, is
+  saved + re-spawned across areas, and is lost if it dies (tame another). One pet at a time; it
+  doesn't count against the summon cap. Reuses the minion infrastructure (a `persistent` ally) rather
+  than a parallel system, so pets render as their source creature with a friendly health bar and are
+  damaged by monsters through the same paths. Data-driven via a `mob_templates.tameable` flag
+  (migration #9; Gloom Wolf + Gloom Boar seeded tameable) and a learnable Tame ability (Beastbinder
+  Codex tome). `/pet` shows it, `/pet dismiss` releases it. Completes the ED5 MMO Studio feature port.
+
 - **PvP zones.** Player-vs-player combat, gated per area: `safe` (no PvP — towns/leveling zones, the
   default), `contested` (only players who both `/pvp` opt in can harm each other), and `hostile`
   (free-for-all). Endgame zones (Voidmarch, Sundered Wastes, the Unmade Court) are seeded contested.

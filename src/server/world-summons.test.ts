@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { initGameDb, getContent } from './content.js';
 import { areaWorld } from './test-support.js';
-import { MAX_MINIONS_PER_OWNER, minionFromTemplate } from './minions.js';
+import { MAX_MINIONS_PER_OWNER } from './minions.js';
 
 initGameDb(':memory:');
 
@@ -47,12 +47,12 @@ describe('summon minions', () => {
     expect(minionCount(w)).toBe(MAX_MINIONS_PER_OWNER);
   });
 
-  it('only summonable-flagged creatures resolve to a minion profile (the server guard)', () => {
+  it('gates summons on the summonable flag (the server guard against raising arbitrary creatures)', () => {
     const c = getContent();
-    // A flagged creature resolves; an ordinary wild creature (wolf) does not — so a hostile client
-    // can never raise an arbitrary/boss creature even if it forged a summon target.
-    expect(minionFromTemplate(c.mobTemplate('skeleton_warrior')!, 5)).not.toBeNull();
-    expect(minionFromTemplate(c.mobTemplate('wolf')!, 5)).toBeNull();
+    // spawnMinion only raises `summonable`-flagged creatures, so a hostile client can't summon a
+    // boss/arbitrary id even if it forged a target. skeleton_warrior is summonable; wolf is not.
+    expect(c.mobTemplate('skeleton_warrior')!.summonable).toBe(true);
+    expect(c.mobTemplate('wolf')!.summonable).toBeFalsy();
   });
 
   it('minions are dismissed when their owner leaves the world', () => {

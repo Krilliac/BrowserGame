@@ -49,12 +49,11 @@ export function minionAiTemplate(p: MinionProfile): HirelingTemplate {
 
 /**
  * Resolve a summonable mob template into a minion combat profile, scaled to the summoner's level.
- * A summoned creature is a touch hardier/faster than its owner can run so it never trails, but
- * individually weaker than its wild counterpart (you field a whole pack). Returns null if the
- * template is not flagged `summonable` (so bosses / arbitrary ids can't be raised).
+ * A summoned/tamed creature is a touch hardier/faster than its owner can run so it never trails, but
+ * individually weaker than its wild counterpart (you may field several). The caller gates eligibility
+ * (the summon path checks `summonable`, the tame path checks `tameable`) — this just resolves stats.
  */
-export function minionFromTemplate(t: MobTemplate, ownerLevel: number): MinionProfile | null {
-  if (!t.summonable) return null;
+export function minionFromTemplate(t: MobTemplate, ownerLevel: number): MinionProfile {
   // A mob 'ranged' archetype (incl. spell-casters, which are 'ranged' + a `spell`) kites and fires;
   // melee/charger close and strike in melee.
   const ranged = t.behavior === 'ranged';

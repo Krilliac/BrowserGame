@@ -20,7 +20,7 @@ export type EntityKind =
 
 // AbilityId is derived from the ABILITIES table below (see the declaration), so adding a spell to
 // that one object automatically extends the id type, ABILITY_ORDER, and the content seeding.
-export type AbilityKind = 'melee' | 'projectile' | 'heal' | 'summon';
+export type AbilityKind = 'melee' | 'projectile' | 'heal' | 'summon' | 'tame';
 
 /**
  * The damage school of an ability. 'physical' is the neutral default (no mob carries physical
@@ -929,6 +929,19 @@ const ABILITY_DEFS = {
     color: '#c7b98a',
     radius: 0,
     behaviors: [{ type: 'summon', minion: 'skeleton_archer', count: 1 }],
+  },
+  // Beast taming: capture a weakened (≤30% HP) `tameable` creature in range as your pet.
+  tame: {
+    id: 'tame',
+    name: 'Tame Beast',
+    key: '0',
+    kind: 'tame',
+    damage: 0,
+    range: 140,
+    cooldownMs: 2000,
+    manaCost: 20,
+    color: '#9ad36b',
+    radius: 0,
   },
 } satisfies Record<string, Ability>;
 

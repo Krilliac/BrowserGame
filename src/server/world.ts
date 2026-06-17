@@ -250,6 +250,9 @@ const EXPLODE_RADIUS = 150;
 // PvP damage is scaled WAY down from PvE: players have far less HP than tanky mobs, so full ability
 // burst would one-shot. This keeps duels lasting a handful of exchanges instead of a single hit.
 const PVP_DAMAGE_SCALE = 0.35;
+// Taming: a tameable creature can be captured as a pet only once weakened to at or below this HP
+// fraction (the Pokémon "wound it, then catch it" loop) — weaken it below 30%, then cast Tame.
+const TAME_HP_THRESHOLD = 0.3;
 // Environmental hazard zones (biome decor): standing within a hazard's radius re-applies a short DoT
 // debuff each tick, so it chips you while you linger and lingers ~1s after you step clear. The DoT
 // runs through the normal player-debuff path (so it shows the status tint and respects god mode).
@@ -549,6 +552,8 @@ interface Player {
   mount: string | null;
   /** Opted in to PvP (the /pvp toggle). Session-only; lets a 'contested' area harm flagged players. */
   pvpFlagged: boolean;
+  /** The player's tamed pet (a creature template id), or null. Persists; re-spawned across areas. */
+  pet: { templateId: string } | null;
   dead: boolean;
   respawnAt: number;
 }
@@ -605,6 +610,8 @@ export interface PlayerSave {
   mounts?: string[];
   /** The active mount id carried across areas (absent → on foot). */
   mount?: string | null;
+  /** The tamed pet (creature template id), re-spawned at the player's side on arrival (absent → none). */
+  pet?: { templateId: string } | null;
 }
 
 interface Mob {
@@ -762,6 +769,9 @@ interface Minion {
   level: number;
   power: number;
   attackCd: number;
+  /** True for a TAMED PET: persistent (saved on the player, re-spawned across areas), excluded from
+   *  the summon cap, and clears `player.pet` when it dies. False for a transient summoned minion. */
+  persistent: boolean;
 }
 
 /**
@@ -1477,10 +1487,10 @@ export class World {
     }
   }
 
-  /** How many minions a player currently has raised (for the per-owner cap). */
+  /** How many SUMMONED minions a player controls (pets are persistent + excluded from the cap). */
   private minionCountOf(ownerId: number): number {
     let n = 0;
-    for (const m of this.minions.values()) if (m.ownerId === ownerId) n++;
+    for (const m of this.minions.values()) if (m.ownerId === ownerId && !m.persistent) n++;
     return n;
   }
 
@@ -1491,13 +1501,20 @@ export class World {
    */
   private spawnMinion(owner: Player, templateId: string): void {
     const template = getContent().mobTemplate(templateId);
-    if (!template) return;
-    const profile = minionFromTemplate(template, owner.level);
-    if (!profile) return; // not flagged summonable — bad data or a non-summonable creature id
+    if (!template?.summonable) return; // bad data or a non-summonable creature id
     if (this.minionCountOf(owner.id) >= MAX_MINIONS_PER_OWNER) {
       this.notify(owner.id, `You cannot control more than ${MAX_MINIONS_PER_OWNER} minions.`);
       return;
     }
+    this.spawnAlly(owner, minionFromTemplate(template, owner.level), false);
+  }
+
+  /**
+   * Spawn an ally combat entity (a summoned minion or a tamed pet) beside its owner. Pets are
+   * `persistent` (they don't count toward the summon cap and clearing player.pet on death). Returns
+   * the new entity's id.
+   */
+  private spawnAlly(owner: Player, profile: MinionProfile, persistent: boolean): number {
     const id = this.allocId();
     this.minions.set(id, {
       id,
@@ -1511,7 +1528,82 @@ export class World {
       level: owner.level,
       power: profile.power,
       attackCd: 0,
+      persistent,
     });
+    return id;
+  }
+
+  /**
+   * Tame a weakened wild beast into the caster's pet (the `kind:'tame'` ability). Captures the
+   * nearest `tameable` mob within range whose HP is at or below {@link TAME_HP_THRESHOLD} — weaken it
+   * first, then tame. One pet at a time. The mob is removed and re-spawned as a persistent ally.
+   */
+  private tameNearest(owner: Player, range: number): void {
+    if (owner.pet) {
+      this.notify(owner.id, 'You already have a pet — /pet dismiss to release it first.');
+      return;
+    }
+    let best: Mob | undefined;
+    let bestDist = range;
+    for (const mob of this.mobs.values()) {
+      if (mob.dead) continue;
+      const template = getContent().mobTemplate(mob.templateId);
+      if (!template?.tameable) continue;
+      if (mob.maxHp > 0 && mob.hp / mob.maxHp > TAME_HP_THRESHOLD) continue; // not weak enough
+      const d = Math.hypot(mob.x - owner.x, mob.y - owner.y);
+      if (d <= bestDist) {
+        best = mob;
+        bestDist = d;
+      }
+    }
+    if (!best) {
+      this.notify(owner.id, 'No weakened tameable beast within reach. Wound one below 30% first.');
+      return;
+    }
+    const template = getContent().mobTemplate(best.templateId)!;
+    best.dead = true; // the wild creature leaves the world, captured
+    best.respawnAt = this.now + MOB_RESPAWN_MS;
+    owner.pet = { templateId: best.templateId };
+    this.spawnAlly(owner, minionFromTemplate(template, owner.level), true);
+    this.notify(owner.id, `You tame the ${template.name}! It now fights at your side.`);
+  }
+
+  /** Re-spawn a player's saved pet beside them (on tame is direct; this is for area arrival/import). */
+  private spawnPet(owner: Player): void {
+    if (!owner.pet) return;
+    const template = getContent().mobTemplate(owner.pet.templateId);
+    if (!template) {
+      owner.pet = null;
+      return;
+    }
+    this.spawnAlly(owner, minionFromTemplate(template, owner.level), true);
+  }
+
+  /** Release the player's pet (the /pet dismiss command). Despawns the entity + clears the save. */
+  dismissPet(id: number): string {
+    const p = this.players.get(id);
+    if (!p) return 'No character.';
+    if (!p.pet) return 'You have no pet.';
+    const name = getContent().mobTemplate(p.pet.templateId)?.name ?? 'pet';
+    p.pet = null;
+    this.despawnPetOf(id);
+    return `You release your ${name}.`;
+  }
+
+  /** A player's pet status line (for /pet). */
+  petStatus(id: number): string {
+    const p = this.players.get(id);
+    if (!p) return 'No character.';
+    if (!p.pet) return 'You have no pet. Weaken a tameable beast and cast Tame.';
+    const name = getContent().mobTemplate(p.pet.templateId)?.name ?? p.pet.templateId;
+    return `Your pet: ${name}.`;
+  }
+
+  /** Remove the live persistent pet entity owned by a player (keeps player.pet for re-spawn). */
+  private despawnPetOf(ownerId: number): void {
+    for (const m of this.minions.values()) {
+      if (m.ownerId === ownerId && m.persistent) this.minions.delete(m.id);
+    }
   }
 
   /** Remove every minion owned by a player (on disconnect or area transfer — they don't follow). */
@@ -2593,6 +2685,14 @@ export class World {
     return true;
   }
 
+  /** Test seam: set ONLY a mob's current HP (clamped to its max), e.g. to stage a tame-ready beast. */
+  setMobHp(mobId: number, hp: number): boolean {
+    const mob = this.mobs.get(mobId);
+    if (!mob || mob.dead) return false;
+    mob.hp = Math.max(0, Math.min(hp, mob.maxHp));
+    return true;
+  }
+
   /** Test seam: warp a mob to an exact world position (bypass the random placement in spawnMobAt). */
   teleportMob(mobId: number, x: number, y: number): boolean {
     const mob = this.mobs.get(mobId);
@@ -2696,6 +2796,7 @@ export class World {
       mounts: new Set(),
       mount: null,
       pvpFlagged: false,
+      pet: null,
       dead: false,
       respawnAt: 0,
     });
@@ -2738,6 +2839,7 @@ export class World {
       hireling: p.hireling,
       mounts: [...p.mounts],
       mount: p.mount,
+      pet: p.pet,
     };
   }
 
@@ -2801,6 +2903,9 @@ export class World {
     // Owned mounts + the active mount ride across area crossings (a mount is permanent).
     p.mounts = new Set(save.mounts ?? []);
     p.mount = save.mount ?? null;
+    // The tamed pet follows across areas — re-spawn it at the player's side in the new instance.
+    p.pet = save.pet ?? null;
+    if (p.pet) this.spawnPet(p);
   }
 
   remove(id: number): void {
@@ -2868,6 +2973,9 @@ export class World {
       if (spec && spec.type === 'summon') {
         for (let i = 0; i < spec.count; i++) this.spawnMinion(player, spec.minion);
       }
+    } else if (ability.kind === 'tame') {
+      // Capture the nearest weakened tameable beast in range as the caster's pet.
+      this.tameNearest(player, ability.range);
     } else if (ability.kind === 'melee') {
       const halfAngle = ability.meleeHalfAngle ?? 0.6;
       for (const mob of this.mobs.values()) {
@@ -3859,13 +3967,20 @@ export class World {
     }
   }
 
-  /** Damage a minion; at zero HP it crumbles (freeing a slot in the owner's minion cap). */
+  /** Damage a minion; at zero HP it crumbles. A tamed pet's death also clears the owner's saved pet. */
   private damageMinion(m: Minion, amount: number): void {
     m.hp -= amount;
     this.events.push({ kind: 'hit', x: m.x, y: m.y, value: Math.ceil(amount) });
     if (m.hp <= 0) {
       this.events.push({ kind: 'death', x: m.x, y: m.y });
       this.minions.delete(m.id);
+      if (m.persistent) {
+        const owner = this.players.get(m.ownerId);
+        if (owner?.pet) {
+          owner.pet = null;
+          this.notify(owner.id, 'Your pet has fallen. Tame another weakened beast.');
+        }
+      }
     }
   }
 

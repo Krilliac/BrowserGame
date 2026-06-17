@@ -275,6 +275,8 @@ const SPELLBOOKS: Record<string, { name: string; color: string; teaches: string;
     teaches: 'raise_skeleton_archer',
     sell: 300,
   },
+  // Beast taming: learn to capture a weakened wild beast as a pet.
+  tome_taming: { name: 'Beastbinder Codex', color: '#9ad36b', teaches: 'tame', sell: 260 },
 };
 
 /** The town Merchant's shelf: the deterministic acquisition path (drops are the exciting one). */
@@ -1281,8 +1283,8 @@ function ensureWorldExpansion(db: Database): void {
     `INSERT OR IGNORE INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
         behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits,
-        summonable)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        summonable,tameable)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     insMob.run(
@@ -1306,6 +1308,7 @@ function ensureWorldExpansion(db: Database): void {
       MOB_SUPPORT[t.id] ?? null,
       MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
       t.summonable ? 1 : 0,
+      t.tameable ? 1 : 0,
     );
   }
 
@@ -1664,8 +1667,8 @@ function seedMobs(db: Database): void {
     `INSERT INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
         behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits,
-        summonable)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        summonable,tameable)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     mob.run(
@@ -1689,6 +1692,7 @@ function seedMobs(db: Database): void {
       MOB_SUPPORT[t.id] ?? null,
       MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
       t.summonable ? 1 : 0,
+      t.tameable ? 1 : 0,
     );
   }
   const am = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');

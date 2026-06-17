@@ -334,6 +334,18 @@ const COMMAND_LIST: Command[] = [
     run: (ctx) => ctx.reply(ctx.world.togglePvp(ctx.playerId)),
   },
   {
+    name: 'pet',
+    minLevel: AccessLevel.Player,
+    usage: '/pet [dismiss]',
+    help: 'Show your tamed pet (or release it with /pet dismiss). Tame a weakened beast to get one.',
+    run: (ctx) => {
+      const sub = (ctx.args[0] ?? '').toLowerCase();
+      if (sub === 'dismiss' || sub === 'release')
+        return ctx.reply(ctx.world.dismissPet(ctx.playerId));
+      ctx.reply(ctx.world.petStatus(ctx.playerId));
+    },
+  },
+  {
     name: 'guild',
     minLevel: AccessLevel.Player,
     usage: '/guild <create|invite|accept|decline|leave|kick|promote|demote|roster> [name]',

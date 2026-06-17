@@ -137,7 +137,8 @@ CREATE TABLE IF NOT EXISTS mob_templates (
   spell               TEXT,                    -- caster: ability id cast in place of the basic attack
   support             TEXT,                    -- support caster: self buff/heal ability id
   traits              TEXT,                    -- JSON array of personality traits (pack/craven/…)
-  summonable          INTEGER NOT NULL DEFAULT 0 -- 1 = can be raised as a friendly summoned minion
+  summonable          INTEGER NOT NULL DEFAULT 0, -- 1 = can be raised as a friendly summoned minion
+  tameable            INTEGER NOT NULL DEFAULT 0 -- 1 = can be tamed into a pet (after weakening)
 );
 
 -- Individual creature SPAWNS: one row = one placed monster (uid/guid), referencing its

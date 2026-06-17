@@ -68,6 +68,11 @@ export interface MobTemplate {
    * the summon system reads only this flag, so adding a new minion type is pure content.
    */
   summonable?: boolean;
+  /**
+   * True if a player can TAME this creature into a pet (after weakening it). Data-driven like
+   * `summonable`: flag any wild beast here (or via the `tameable` DB column) to make it catchable.
+   */
+  tameable?: boolean;
 }
 
 /**
@@ -117,6 +122,7 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     attackCooldownMs: 900,
     behavior: 'melee',
     telegraphMs: 220, // a quick lunge tell
+    tameable: true, // a gloom wolf makes a fine first pet
   },
   skeleton: {
     id: 'skeleton',
@@ -248,6 +254,7 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     behavior: 'charger',
     telegraphMs: 500,
     dashSpeed: 520,
+    tameable: true,
   },
   crypt_lord: {
     id: 'crypt_lord',

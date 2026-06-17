@@ -69,7 +69,7 @@ describe('mob template integrity', () => {
 });
 
 describe('ability + item integrity', () => {
-  const kinds = new Set(['melee', 'projectile', 'heal', 'summon']);
+  const kinds = new Set(['melee', 'projectile', 'heal', 'summon', 'tame']);
 
   it('every ability is well-formed (valid kind, non-negative numbers)', () => {
     for (const ab of c.abilityList()) {

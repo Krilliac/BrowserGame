@@ -468,6 +468,7 @@ export function loadContent(db: GameDatabase): Content {
     if (r.support !== null) template.support = r.support as AbilityId;
     if (r.traits !== null) template.traits = JSON.parse(r.traits) as MobTrait[];
     if (r.summonable) template.summonable = true;
+    if (r.tameable) template.tameable = true;
     mobTemplates.set(r.id, template);
   }
 
@@ -1096,6 +1097,7 @@ interface MobRow {
   support: string | null;
   traits: string | null;
   summonable: number | null;
+  tameable: number | null;
 }
 interface AreaMobRow {
   area_id: string;
