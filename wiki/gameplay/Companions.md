@@ -47,15 +47,26 @@ A pet follows you, fights with the same minion AI, is **saved and re-spawned acr
 against the summon cap. Pets reuse the minion infrastructure (a `persistent` ally) — they render as
 their source creature with a friendly health bar and take monster damage through the shared paths.
 
-- `/pet` — show your current pet.
+### Bonding & evolution
+
+A pet **grows with you**. Every kill it shares (any monster you get credit for while it's alive)
+earns it bond XP. At each threshold it climbs a **bond tier** that adds **+18% HP and damage** on top
+of its owner-level base stats. Reaching the top tier (**5**) is its **evolution** — a fully-bonded
+companion roughly **+90%** stronger, marked `★ EVOLVED`. A tier-up grants the HP increase (never a
+free full heal), and bond progress is **saved with the pet** (carried across areas/relogs) — but lost
+with the pet if it dies. `/pet` shows the current bond level and XP toward the next.
+
+- `/pet` — show your current pet, its bond level, and progress.
 - `/pet dismiss` (or `release`) — release it.
 
-Seeded tameable beasts: **Gloom Wolf** and **Gloom Boar**.
+Seeded tameable beasts: **Gloom Wolf** and **Gloom Boar** (plus the wider tameable beast roster).
 
 ### Key files & data
 
 - `mob_templates.tameable` flag (migration #9).
-- `src/server/world.ts` — the tame capture (`tame` ability handler), pet save/respawn, `/pet`.
+- `src/server/world.ts` — the tame capture (`tame` ability handler), pet save/respawn, `/pet`, and
+  the bond system (`awardPetXp`/`refreshPetStats`/`scaleProfileForPet`; `PET_MAX_TIER`,
+  `PET_XP_PER_TIER`, `PET_TIER_BONUS`). Bond xp/tier persist on `PlayerSave.pet`.
 
 ## Mounts
 

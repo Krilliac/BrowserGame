@@ -253,6 +253,12 @@ const PVP_DAMAGE_SCALE = 0.35;
 // Taming: a tameable creature can be captured as a pet only once weakened to at or below this HP
 // fraction (the Pokémon "wound it, then catch it" loop) — weaken it below 30%, then cast Tame.
 const TAME_HP_THRESHOLD = 0.3;
+// Pet bonding: a tamed pet earns XP from the kills its owner shares with it, climbing bond TIERS that
+// scale its HP + damage above the owner-level base profile. The top tier is the pet's EVOLUTION — a
+// final power spike + a flourish. Progress persists on the save; it is lost only if the pet dies.
+const PET_MAX_TIER = 5;
+const PET_XP_PER_TIER = 60; // pet XP (≈ summed killed-mob levels) needed per bond tier
+const PET_TIER_BONUS = 0.18; // +18% HP & power per bond tier (a fully-evolved tier-5 pet ≈ +90%)
 // Environmental hazard zones (biome decor): standing within a hazard's radius re-applies a short DoT
 // debuff each tick, so it chips you while you linger and lingers ~1s after you step clear. The DoT
 // runs through the normal player-debuff path (so it shows the status tint and respects god mode).
@@ -557,8 +563,9 @@ interface Player {
   mount: string | null;
   /** Opted in to PvP (the /pvp toggle). Session-only; lets a 'contested' area harm flagged players. */
   pvpFlagged: boolean;
-  /** The player's tamed pet (a creature template id), or null. Persists; re-spawned across areas. */
-  pet: { templateId: string } | null;
+  /** The player's tamed pet: its source template + bond progress (xp → tier; tier === PET_MAX_TIER is
+   *  evolved). Null = no pet. Persists across areas/relogs; lost only when the pet dies. */
+  pet: { templateId: string; xp: number; tier: number } | null;
   dead: boolean;
   respawnAt: number;
 }
@@ -615,8 +622,9 @@ export interface PlayerSave {
   mounts?: string[];
   /** The active mount id carried across areas (absent → on foot). */
   mount?: string | null;
-  /** The tamed pet (creature template id), re-spawned at the player's side on arrival (absent → none). */
-  pet?: { templateId: string } | null;
+  /** The tamed pet + bond progress, re-spawned at the player's side on arrival (absent → none).
+   *  xp/tier absent on pre-bonding saves — default to 0. */
+  pet?: { templateId: string; xp?: number; tier?: number } | null;
 }
 
 interface Mob {
@@ -1568,7 +1576,7 @@ export class World {
     const template = getContent().mobTemplate(best.templateId)!;
     best.dead = true; // the wild creature leaves the world, captured
     best.respawnAt = this.now + MOB_RESPAWN_MS;
-    owner.pet = { templateId: best.templateId };
+    owner.pet = { templateId: best.templateId, xp: 0, tier: 0 };
     this.spawnAlly(owner, minionFromTemplate(template, owner.level), true);
     this.notify(owner.id, `You tame the ${template.name}! It now fights at your side.`);
   }
@@ -1581,7 +1589,65 @@ export class World {
       owner.pet = null;
       return;
     }
-    this.spawnAlly(owner, minionFromTemplate(template, owner.level), true);
+    // Re-apply the earned bond-tier bonus so a returning pet keeps its grown stats.
+    const profile = this.scaleProfileForPet(
+      minionFromTemplate(template, owner.level),
+      owner.pet.tier,
+    );
+    this.spawnAlly(owner, profile, true);
+  }
+
+  /** Scale a pet's base profile by its bond tier (+PET_TIER_BONUS HP & power per tier). */
+  private scaleProfileForPet(profile: MinionProfile, tier: number): MinionProfile {
+    if (tier <= 0) return profile;
+    const mult = 1 + tier * PET_TIER_BONUS;
+    return {
+      ...profile,
+      maxHp: Math.round(profile.maxHp * mult),
+      power: Math.round(profile.power * mult),
+    };
+  }
+
+  /**
+   * Award bond XP to a player's pet for a kill it shared, climbing bond tiers. Each new tier rescales
+   * the live pet (granting only the HP increase — never a free heal). The final tier is its EVOLUTION.
+   * No-op once fully evolved. Called per credited killer that owns a pet.
+   */
+  private awardPetXp(owner: Player, mobLevel: number): void {
+    const pet = owner.pet;
+    if (!pet || pet.tier >= PET_MAX_TIER) return;
+    pet.xp += Math.max(1, mobLevel);
+    const newTier = Math.min(PET_MAX_TIER, Math.floor(pet.xp / PET_XP_PER_TIER));
+    if (newTier <= pet.tier) return;
+    pet.tier = newTier;
+    this.refreshPetStats(owner);
+    const name = getContent().mobTemplate(pet.templateId)?.name ?? 'pet';
+    this.notify(
+      owner.id,
+      newTier >= PET_MAX_TIER
+        ? `Your ${name} has EVOLVED — fully bonded and far mightier!`
+        : `Your ${name} reached bond level ${newTier}.`,
+    );
+  }
+
+  /** Recompute the live persistent pet's stats for the owner's current level + bond tier. Grants the
+   *  max-HP increase (no free full heal); preserves damage already taken. */
+  private refreshPetStats(owner: Player): void {
+    if (!owner.pet) return;
+    const template = getContent().mobTemplate(owner.pet.templateId);
+    if (!template) return;
+    const scaled = this.scaleProfileForPet(
+      minionFromTemplate(template, owner.level),
+      owner.pet.tier,
+    );
+    for (const m of this.minions.values()) {
+      if (m.ownerId !== owner.id || !m.persistent) continue;
+      m.profile = scaled;
+      const gain = Math.max(0, scaled.maxHp - m.maxHp);
+      m.maxHp = scaled.maxHp;
+      m.hp = Math.min(m.maxHp, m.hp + gain);
+      m.power = scaled.power;
+    }
   }
 
   /** Release the player's pet (the /pet dismiss command). Despawns the entity + clears the save. */
@@ -1601,7 +1667,10 @@ export class World {
     if (!p) return 'No character.';
     if (!p.pet) return 'You have no pet. Weaken a tameable beast and cast Tame.';
     const name = getContent().mobTemplate(p.pet.templateId)?.name ?? p.pet.templateId;
-    return `Your pet: ${name}.`;
+    if (p.pet.tier >= PET_MAX_TIER)
+      return `Your pet: ${name} — ★ EVOLVED (bond ${PET_MAX_TIER}, max).`;
+    const into = (p.pet.tier + 1) * PET_XP_PER_TIER;
+    return `Your pet: ${name} — bond level ${p.pet.tier} (${p.pet.xp}/${into} to next).`;
   }
 
   /** Remove the live persistent pet entity owned by a player (keeps player.pet for re-spawn). */
@@ -2914,7 +2983,10 @@ export class World {
     p.mounts = new Set(save.mounts ?? []);
     p.mount = save.mount ?? null;
     // The tamed pet follows across areas — re-spawn it at the player's side in the new instance.
-    p.pet = save.pet ?? null;
+    // Restore the pet + bond progress (xp/tier default to 0 on pre-bonding saves).
+    p.pet = save.pet
+      ? { templateId: save.pet.templateId, xp: save.pet.xp ?? 0, tier: save.pet.tier ?? 0 }
+      : null;
     if (p.pet) this.spawnPet(p);
   }
 
@@ -3912,7 +3984,10 @@ export class World {
       // source template at the new level, rescale + heal). Re-resolution keeps a buffed template live.
       if (owner.level !== m.level) {
         const template = getContent().mobTemplate(m.profile.templateId);
-        const fresh = template ? minionFromTemplate(template, owner.level) : null;
+        let fresh = template ? minionFromTemplate(template, owner.level) : null;
+        // A persistent pet also keeps its earned bond-tier bonus on top of the new owner-level base.
+        if (fresh && m.persistent && owner.pet)
+          fresh = this.scaleProfileForPet(fresh, owner.pet.tier);
         if (fresh) m.profile = fresh;
         m.level = owner.level;
         // Raise the max HP and grant only the INCREASE — never a free full heal (which a player could
@@ -4935,6 +5010,8 @@ export class World {
     p.deathlessStreak += 1; // climbs with every kill; a death snaps it back to 0
     if (p.deathlessStreak > p.bestDeathlessStreak) p.bestDeathlessStreak = p.deathlessStreak; // record
     this.recomputeStats(p);
+    // A pet at the owner's side shares in the kill, earning bond XP toward its next tier / evolution.
+    if (p.pet) this.awardPetXp(p, getContent().mobTemplate(mobTemplateId)?.level ?? 1);
     this.progressQuests(p, mobTemplateId);
     this.checkAchievements(p);
   }

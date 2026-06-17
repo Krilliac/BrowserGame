@@ -8,6 +8,12 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Pet bonding & evolution.** A tamed pet now grows with you: every kill it shares earns bond XP, and
+  at each threshold it climbs a **bond tier** (+18% HP & damage per tier on top of its owner-level
+  base). The top tier (5) is its **evolution** — roughly +90% stronger, shown as `★ EVOLVED`. A
+  tier-up grants the HP increase (no free heal), and bond progress is saved with the pet across
+  areas/relogs (lost only if the pet dies). `/pet` shows the bond level and XP to next. (+3 tests.)
+
 - **Guild bank.** A shared per-guild vault for gold + items. `/guild bank` lists the contents (with
   withdraw ids), `/guild deposit <gold|item> <amount|uid>` adds to it (any member), and
   `/guild withdraw <gold|item> <amount|bank-id>` takes from it (**officers + leader only** — anti-grief).
