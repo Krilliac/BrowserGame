@@ -44,6 +44,10 @@ export interface QuestRow {
   rewardItem: string | null;
   turnInItem?: string;
   turnInCount?: number;
+  /** Explore quests: the area id the player must discover to complete it. */
+  exploreArea?: string;
+  /** Chain quests: a prerequisite quest id that must be completed before this one unlocks. */
+  requires?: string;
 }
 
 /**

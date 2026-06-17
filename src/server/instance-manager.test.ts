@@ -82,6 +82,28 @@ describe('InstanceManager', () => {
     expect(after.loot).toEqual(before.loot);
   });
 
+  it('does not reissue a uid that a restored save already owns after a restart (SEC-101)', () => {
+    // First "run": a player earns a gear instance, then we snapshot their save.
+    const run1 = new InstanceManager('single');
+    const a = run1.join('Returner');
+    const w1 = run1.get(a.instanceId)!.world;
+    w1.giveItem(a.entityId, 'iron_sword', 1); // a rolled gear instance with a real uid
+    const save = w1.exportPlayer(a.entityId)!;
+    expect(save.gear.length).toBeGreaterThan(0);
+
+    // "Restart": a brand-new manager whose shared id counter has reset to 1. The returning player
+    // is restored from the save (keeping prior-run uids), then earns a fresh item.
+    const run2 = new InstanceManager('single');
+    const b = run2.join('Returner', undefined, save);
+    const w2 = run2.get(b.instanceId)!.world;
+    w2.giveItem(b.entityId, 'iron_sword', 1); // freshly allocated uid in the new run
+
+    // Every gear uid the player now holds must be distinct — the fresh item must not collide with
+    // the uid baked into the restored gear (which it would if the counter restarted at 1).
+    const uids = w2.exportPlayer(b.entityId)!.gear.map((g) => g.uid);
+    expect(new Set(uids).size).toBe(uids.length);
+  });
+
   it('garbage-collects an instance once it empties', () => {
     const mgr = new InstanceManager('auto');
     const p = mgr.join('Solo');

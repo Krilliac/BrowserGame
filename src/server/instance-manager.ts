@@ -64,6 +64,33 @@ export class InstanceManager {
   ) {}
 
   /**
+   * Restore a returning player, first advancing the shared id counter past every uid baked into
+   * their save (SEC-101). The counter resets to 1 each boot, but saved gear/stash/equipment keep
+   * the uids they were given in prior runs — so without this a freshly-rolled drop or vendor item
+   * could be allocated a uid that already belongs to the player's restored gear, and every
+   * uid-targeted op (equip/salvage/sell/mail/trade) resolves by `find(g => g.uid === uid)` and
+   * would hit the wrong (or an ambiguous) item. Bumping the counter guarantees new uids are unique
+   * against everything this save carries.
+   */
+  private restoreInto(
+    world: World,
+    entityId: number,
+    save: PlayerSave,
+    x: number,
+    y: number,
+  ): void {
+    let max = 0;
+    const consider = (it: { uid: number } | null | undefined): void => {
+      if (it && it.uid > max) max = it.uid;
+    };
+    for (const it of save.gear ?? []) consider(it);
+    for (const it of save.stash ?? []) consider(it);
+    for (const it of Object.values(save.equipment ?? {})) consider(it);
+    if (max >= this.nextEntityId) this.nextEntityId = max + 1;
+    world.importPlayer(entityId, save, x, y);
+  }
+
+  /**
    * Place a new player into an area (the start area by default). If a `save` is given (a returning
    * player), their persistent state is restored at the area's spawn point.
    */
@@ -72,7 +99,7 @@ export class InstanceManager {
     if (!area) throw new Error(`unknown area: ${areaId}`);
     const instance = this.pickInstance(area);
     const entityId = instance.world.spawn(name); // world uses the shared id allocator
-    if (save) instance.world.importPlayer(entityId, save, area.spawn.x, area.spawn.y);
+    if (save) this.restoreInto(instance.world, entityId, save, area.spawn.x, area.spawn.y);
     return { instanceId: instance.id, entityId, areaId: area.id };
   }
 
@@ -101,7 +128,7 @@ export class InstanceManager {
     if (!save) return null;
     const dest = this.pickInstance(target);
     from.world.remove(entityId);
-    dest.world.importPlayer(entityId, save, target.spawn.x, target.spawn.y);
+    this.restoreInto(dest.world, entityId, save, target.spawn.x, target.spawn.y);
     this.gc(from);
     return {
       entityId,
@@ -125,7 +152,7 @@ export class InstanceManager {
     if (!save) return null;
     const dest = this.spawnInstance(target, tier);
     from.world.remove(entityId);
-    dest.world.importPlayer(entityId, save, target.spawn.x, target.spawn.y);
+    this.restoreInto(dest.world, entityId, save, target.spawn.x, target.spawn.y);
     this.gc(from);
     return {
       entityId,
@@ -151,7 +178,7 @@ export class InstanceManager {
     dest.returnTo = { areaId: from.areaId, x: stats.x + 70, y: stats.y + 40 };
     dest.world.populateDen(from.areaId);
     from.world.remove(entityId);
-    dest.world.importPlayer(entityId, save, den.spawn.x, den.spawn.y);
+    this.restoreInto(dest.world, entityId, save, den.spawn.x, den.spawn.y);
     this.gc(from);
     return {
       entityId,
@@ -258,7 +285,7 @@ export class InstanceManager {
         const save = instance.world.exportPlayer(entity.id);
         instance.world.remove(entity.id);
         if (save) {
-          dest.world.importPlayer(entity.id, save, spawnAt.x, spawnAt.y);
+          this.restoreInto(dest.world, entity.id, save, spawnAt.x, spawnAt.y);
         } else {
           dest.world.spawn(entity.name, {
             id: entity.id,

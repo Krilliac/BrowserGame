@@ -8,6 +8,292 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Beastmaster achievements.** A new lifetime `petsEvolved` stat (pets brought to full evolution)
+  drives two achievements — **Beastmaster** (evolve 1) and **Packlord** (evolve 5) — closing the
+  taming → bonding → evolution loop with a reward. The stat persists on the save and ticks up the
+  instant a pet hits its final bond. (+8 tests.)
+
+- **Guild progression.** Guilds now level up from the kills their members score (member kills feed
+  guild XP via the World's new kill hook, scaled by the slain monster's level). Each `GUILD_XP_PER_LEVEL`
+  (500) is a guild level (capped at 20), announced in guild chat; the perk is a **larger guild bank**
+  (+5 item slots per level over the base 100). `/guild` shows the level + XP to next. Progress lives in
+  a new `guild_progress` table and is cleared on disband. (+6 tests.)
+
+- **Pet bonding & evolution.** A tamed pet now grows with you: every kill it shares earns bond XP, and
+  at each threshold it climbs a **bond tier** (+18% HP & damage per tier on top of its owner-level
+  base). The top tier (5) is its **evolution** — roughly +90% stronger, shown as `★ EVOLVED`. A
+  tier-up grants the HP increase (no free heal), and bond progress is saved with the pet across
+  areas/relogs (lost only if the pet dies). `/pet` shows the bond level and XP to next. The pet's
+  bond tier is surfaced in the entity snapshot (`petTier`), and the renderer draws a bond ring that
+  brightens with tier plus an evolved-star flourish over a fully-bonded pet. (+3 tests.)
+
+- **Guild bank.** A shared per-guild vault for gold + items. `/guild bank` lists the contents (with
+  withdraw ids), `/guild deposit <gold|item> <amount|uid>` adds to it (any member), and
+  `/guild withdraw <gold|item> <amount|bank-id>` takes from it (**officers + leader only** — anti-grief).
+  Deposits/withdrawals announce in guild chat. Item custody reuses the loss-safe mail primitives (a
+  full bank/bag hands the item straight back), withdrawals are server-scoped to the caller's guild
+  (no draining another guild by id), and disbanding a guild clears its bank. New `guild_bank` /
+  `guild_bank_items` tables; capped at 100 items. (+14 tests.)
+
+### Added (more)
+
+- **Godot 4 scene export.** `editor-godot.ts` `areaToGodot(id)` emits a native Godot `.tscn` for an
+  area (root `Node2D` + Decor/Spawns/Npcs/Portals groups, `Marker2D`/`Node2D` children with
+  `position` + lossless `metadata/*`), a sibling to the Tiled `.tmj` export and coordinate-compatible
+  with it. Dev-gated **`GET /editor/area/<id>.tscn`** + a "Download .tscn" button in the editor's Maps
+  panel. (+7 tests.)
+
+### Fixed
+
+- **Wallet cap (SEC-103, low).** A player's gold is now capped at `MAX_GOLD` (1e12) on every credit
+  (loot/quest/sell/mail/pickup), so a very long-lived character can't drift toward float imprecision
+  near 2^53 where the `gold < price` checks that gate every purchase would start lying. (+2 tests.)
+- **Quest `targetCount` floored at 1 (low).** A kill quest authored with `target_count <= 0` would
+  have completed on the first kill; clamped at content load. (Non-kill quests ignore it.)
+- **Item/gold duplication via concurrent sessions (high).** Two sockets presenting the same save
+  token both loaded the same character, so every item/gold balance existed live on two characters —
+  drop/trade one away, let the other's disconnect write the still-intact save, and the balance
+  doubles. The `join` handler now enforces one live session per token: a returning token
+  **synchronously** tears down its prior session (writing that session's save and removing its
+  entity) *before* loading the save for the new connection, so the two never hold the same items
+  live and the old socket's delayed close can't overwrite the new save. Last-login-wins. (Found by
+  the parallel netcode review; the per-connection teardown is now a shared `disconnect()`.)
+- **Display-name spoofing (low).** `sanitizeName` now strips control, zero-width, and bidi-override
+  characters (not just trims), so a crafted name can't scramble the `/who` list, chat `from`, or
+  spoof `System` lines. (Display-only — chat already renders via `textContent`, so this was never XSS.)
+- **Whisper spam (low).** Whispers are now gated on the same low-rate chat bucket as public chat, so
+  they can't be used to flood a target with popups.
+
+- **Item-uid collision after a server restart (SEC-101, high).** The shared id counter
+  (`InstanceManager.nextEntityId`) allocates both entity ids and item-instance uids and resets to 1
+  each boot — but a returning player's saved gear/stash/equipment keep the uids from prior runs, so a
+  freshly-rolled drop or vendor item could be issued a uid that already belonged to the player's
+  restored gear. Every uid-targeted op (equip/salvage/sell/mail/trade) resolves by
+  `find(g => g.uid === uid)`, so the duplicate made those ops act on the wrong/ambiguous item. Every
+  save-restore path now advances the counter past every uid the save carries before importing.
+  (Found by the parallel persistence/economy review; +1 regression test.)
+- **Guild-bank gold deposits are clamped per-op** to `MAX_TRADE_GOLD` (SEC-102), consistent with
+  mail/auction, so the vault total can't be driven toward unsafe-integer territory.
+
+- **Combat polish** (low-severity findings from the parallel combat-review agent):
+  - Lifesteal and the floating damage number now bill *effective* damage (clamped to the target's
+    remaining HP), so a big hit on a sliver of HP can't over-heal the attacker or show an inflated
+    overkill number. (+1 regression test.)
+  - DoT ticks on monsters no longer spew a damage number every server tick (now `silent`, matching
+    the player path) — the bursts that applied the DoT already showed theirs.
+  - Orbit projectiles (e.g. `arcane_orb`) now end when their owner *dies*, not only when the owner
+    disconnects — a corpse no longer keeps sweeping blades.
+  - A long-lived orbit's per-target re-hit map is pruned of expired entries each tick (was unbounded).
+- **Boomerang spells now actually return.** A `return`-behavior projectile (e.g. `bone_chakram`) with
+  no `pierce` was consumed by the first enemy it touched and never flew back — `resolveHit` defaulted
+  to consume-on-hit. It now passes through like pierce (per-leg `hitMobs` dedupe + the reverse-at-half-
+  ttl logic still bound its life), so it hits on the way out and the way back. (Found by a parallel
+  combat-review agent; +1 regression test.)
+
+### Added (cont.)
+
+- **In-browser editor — slice 8: play preview, full-world pack, content breadth, hardening.** A broad
+  parallel-agent wave:
+  - **Embedded play preview** — the map editor's "Play" toggle now opens the live game in an in-editor
+    drawer (run around while editing) instead of just a new tab.
+  - **Full-world content pack** — `editor-pack.ts` `exportPack()`/`importPack()` serialize the entire
+    content DB to one versioned JSON (backup / portable "load a different game"); dev-gated
+    **`GET /editor/pack.json`** (download) + **`POST /editor/pack`** (transactional restore). Export→
+    import→export is stable. The table editor now has **Backup ⤓** (download) + a **Load pack** control
+    (confirm-gated, since it overwrites the whole world).
+  - **Content breadth** — 3 new mount tiers (Fenstride Pony / Ashmane Charger / Voidwake Nightmare);
+    6 more tameable beasts + 2 more summonable undead, so pets/summons have real variety.
+  - **Security hardening** (from a parallel review): mutating editor routes are now POST-only (405
+    otherwise — CSRF defense), the Tiled import route catches transaction errors into a clean
+    `{ok:false}`, the import is capped at 5000 objects, and the table-editor's `esc()` now escapes
+    `>`/`'` too. (+9 tests.)
+
+- **In-browser editor — slice 7: map-editor add/delete/debug.** The canvas map editor is now a full
+  editor: an **Add palette** (Select ↔ Add mode) drops a new decor / creature-spawn / NPC at the
+  clicked authored point (kind/template chosen from a dropdown) via `editor-create.ts`'s
+  `createEntity()` → dev-gated **`POST /editor/create`** (FK-validated for spawns); **Delete selected**
+  removes a marker's row (FK-guarded); an in-editor **Debug panel** shows live content stats from
+  `/editor/debug.json`; and an **Audit** button surfaces cross-reference issues from `/editor/audit.json`.
+  Built by another parallel sub-agent wave (create module + canvas UI + docs), orchestrator-wired.
+  (+8 tests.)
+
+- **In-browser editor — slice 6: visual canvas map editor.** A 2D top-down map editor at dev-gated
+  **`GET /editor/map`** that loads an area's whole scene and shows every placeable as a layered,
+  color-coded marker — decor/objects, creature spawns, NPCs, portals (area triggers), and the spawn
+  point — with per-layer show/hide, pan, cursor-anchored zoom, click-to-select + inspect/edit, and
+  **drag-to-move** that persists to authored coordinates. Plus a "Play here" button (opens the live
+  game — a first step toward in-editor play; true embedded play/pause is a planned slice). Built as a
+  fan-out of parallel sub-agents on disjoint modules, integrated by the orchestrator:
+  `editor-scene.ts` (`areaScene()` — unified per-area authored-coords scene → `GET
+  /editor/scene/<id>.json`), `editor-place.ts` (`moveEntity()` — positional write over a placeable-
+  table whitelist → `POST /editor/place`), `editor-debug.ts` (`editorDebugInfo()` content snapshot →
+  `GET /editor/debug.json`), and `editor-canvas.ts` (the page). All dev-gated by `ENGINE_ADMIN_TOKEN`;
+  linked from the table editor. (+18 tests.)
+
+- **In-browser editor — slice 5: row create (clone) + delete.** The editor can now add and remove
+  content, not just edit cells. `content-edit.ts` gains `cloneRow()` (duplicate a row under a new pk —
+  copies every column so the new row is always valid, then tweak cells; auto-id tables assign their
+  own id) and `deleteRow()` (FK-guarded — refuses to remove a row another table references, e.g. a
+  mob template a spawn points at). Exposed at dev-gated **`POST /editor/clone`** / **`POST
+  /editor/delete`**, with per-row **Clone**/**Delete** buttons in the editor grid. Create = clone +
+  edit, so the editor is now full CRUD.
+- **Local `.env` auto-loading.** The server now loads a gitignored `.env` (via Node's `loadEnvFile`)
+  before reading any config, so `ENGINE_ADMIN_TOKEN` / `PORT` / `DEV_PASSWORD` can be set in a file
+  instead of the shell — `npm run dev` just picks them up.
+
+- **In-browser editor — slice 4: the visual editor page (capstone).** A self-contained, dependency-
+  free dev tool at **`GET /editor`** that turns the editor APIs into a usable UI: paste your
+  `ENGINE_ADMIN_TOKEN`, and it loads the whole content model, lets you **edit any whitelisted cell
+  live** (inline grid → `POST /editor/edit` → validated by content-edit → reloaded + re-broadcast to
+  connected players), and **export/import any area's map as Tiled `.tmj`** for the cross-engine
+  round-trip. The page shell carries no secrets; every data call sends the token, so access is gated
+  server-side exactly like the engine panel. Cell values are HTML-escaped (XSS-safe). Now a developer
+  can change the world from a browser without touching SQL or the chat console — the ED5-style editor,
+  ported. (New `editor-page.ts` + `parseEditBody` validator; `/editor` and `/editor/edit` routes.)
+
+- **In-browser editor — slice 3: Tiled `.tmj` map import (round-trip).** The reverse of the export:
+  edit an area's map in Tiled (or any engine that exports Tiled) and load it back. `editor-import.ts`'s
+  `tiledToContent()` is a pure, defensive parser of an untrusted map; `applyTiledImport()` replaces the
+  area's `decor` / `creature_spawns` / `npcs` in one transaction (coords un-scaled back to authored
+  space, so export→import→export is stable; unknown spawn templates skipped per the FK). Portals/area
+  dimensions are carried for round-trip but deliberately NOT overwritten (world-graph safety). Exposed
+  at **`POST /editor/area/<id>.tmj?token=…`** (same dev gate as the export); the host reloads +
+  re-broadcasts after. A full editor round-trip now works: GET the map → edit anywhere → POST it back.
+
+- **In-browser editor — slice 2: Tiled `.tmj` map export (first cross-engine bridge).** Export any
+  area to a [Tiled](https://www.mapeditor.org/) orthogonal map — the de-facto 2D interchange format
+  that Godot, Unity (SuperTiled2Unity), GameMaker, Defold, and 001 Game Creator all import. `editor-
+  tiled.ts`'s `areaToTiled()` is a pure transform of the data-driven content into named object layers
+  (decor / spawns / npcs / portals / meta), each object carrying its content props (kind, scale,
+  templateId, toArea, …) so the map is a faithful, re-importable snapshot — not just visuals. Served
+  at a dev-gated **`GET /editor/area/<id>.tmj?token=…`**. This is the widest single step toward "port
+  the world to another engine"; the reverse (Tiled → content import) is a later slice.
+
+- **In-browser editor — slice 1: world export API.** Groundwork for porting ED5 Studio's visual
+  editor (and, longer-term, a cross-engine in-browser game engine). The game is already fully
+  data-driven, so the foundation is serializing that content model: a new `editor.ts` produces a
+  structured, typed view of the entire editable world — `editorSchema()` (every whitelisted table +
+  its column types from the `editable.ts` registry), `editorTable()` (a table's rows, registry-gated
+  so a forged/sensitive table name can't be read), and `editorWorld()` (the full schema + all rows in
+  one dump — the source an editor UI loads and a future exporter walks toward Tiled / 001 / Unity /
+  SparkEngine). Exposed at a **dev-gated `GET /editor/world.json?token=…`** route (same
+  `ENGINE_ADMIN_TOKEN` gate as the engine panel; disabled if unset) — least-disruptive, no separate
+  process. Next slices: a visual editor UI over this, then a canvas world/map editor, then import/
+  export adapters.
+
+- **Pets (beast taming).** Weaken a `tameable` wild creature below 30% HP, cast **Tame Beast**, and it
+  becomes your persistent pet — a creature companion that follows you, fights with the minion AI, is
+  saved + re-spawned across areas, and is lost if it dies (tame another). One pet at a time; it
+  doesn't count against the summon cap. Reuses the minion infrastructure (a `persistent` ally) rather
+  than a parallel system, so pets render as their source creature with a friendly health bar and are
+  damaged by monsters through the same paths. Data-driven via a `mob_templates.tameable` flag
+  (migration #9; Gloom Wolf + Gloom Boar seeded tameable) and a learnable Tame ability (Beastbinder
+  Codex tome). `/pet` shows it, `/pet dismiss` releases it. Completes the ED5 MMO Studio feature port.
+
+- **PvP zones.** Player-vs-player combat, gated per area: `safe` (no PvP — towns/leveling zones, the
+  default), `contested` (only players who both `/pvp` opt in can harm each other), and `hostile`
+  (free-for-all). Endgame zones (Voidmarch, Sundered Wastes, the Unmade Court) are seeded contested.
+  Server-authoritative — melee cones and direct projectiles now also strike attackable players, routed
+  through one `canHarmPlayer` gate + `applyPvpDamage` (scaled to `PVP_DAMAGE_SCALE` so duels last and
+  nothing one-shots; god-mode and the dead are immune); a kill announces to both parties. Data-driven
+  via a new `area_pvp` table (no migration; absent = safe) + `AreaDef.pvp`; `/pvp` toggles your flag.
+  Spell behaviors (chain/fork/splash) and beams stay PvE-only for now. Final main slice of the ED5
+  MMO Studio feature port.
+
+- **Auction house.** A persistent player-to-player buyout market: `/ah list <itemUid> <price>` escrows
+  a bag item for sale, `/ah` browses listings, `/ah buy <id>` purchases (gold out, item in), `/ah mine`
+  / `/ah cancel <id>` manage your own. Server-authoritative and loss-safe — the item leaves the
+  seller's live bag into escrow; a buyer with a full bag is refunded and the sale aborts; proceeds are
+  paid to the (possibly offline) seller through the **mail channel**, minus a 5% house cut that acts as
+  a gold sink; cancelling mails the item back. Per-seller listing cap. New `auctions` table (no
+  migration) + persistence in `player-store.ts`. Fifth slice of the ED5 MMO Studio port — completes
+  the "Auction house + mail" item.
+
+- **Mail.** Deferred player-to-player delivery of gold + an optional gear item that waits in the
+  recipient's inbox even while they're offline: `/mail send <player> <gold> [itemUid]`, `/mail` to
+  read, `/mail take <id>` / `/mail takeall` to collect. Server-authoritative and loss-safe — the
+  attachment is pulled from the sender's live bag, refunded if a later check fails, and a full bag
+  refuses item delivery so the mail is kept; the item gets a fresh uid on collect to avoid id
+  collisions. Recipients resolve by online presence first, else the most-recent save by name; inbox
+  capped per player. New `mail` table (no migration) + persistence in `player-store.ts`; the auction
+  house (next) will deliver through this same channel. Fourth slice of the ED5 MMO Studio port.
+
+- **Guilds.** Persistent player societies that span instances: found one with `/guild create <name>`,
+  then invite / accept / leave / kick / promote / demote and chat to the whole guild with `/g <msg>`
+  (green guild channel). Three ranks (leader / officer / member) gate the actions — officers+ invite
+  and kick members, only the leader sets ranks; the leader leaving promotes the next officer (else a
+  member), and the last member out disbands the guild. Roster shows live online/area presence
+  (`/guild` or `/guild roster`). DB-persisted (`guilds` + `guild_members` tables — new, no migration)
+  via a pure, unit-tested `GuildRegistry` over an injected store, mirroring the party/friends design;
+  wired host-level through `CommandContext` hooks (no client panel needed). Third slice of the ED5
+  MMO Studio feature port.
+
+- **Mounts.** Owned, persistent travel-speed boosts (the ED5 mount system, ARPG-flavored): buy a
+  mount once from the town **Stablemaster** (Hoss) and toggle it on/off for a big move-speed
+  multiplier. Three tiers seeded (Dustback Mule +40% / War Courser +70% / Dread Destrier +100%) as a
+  recurring gold sink. Server-authoritative (folds into `playerMoveMul`, so the client predictor
+  stays in sync with no movement change); ownership + the active mount persist across area crossings.
+  New `mounts` content table (no migration — `CREATE TABLE IF NOT EXISTS`), `NpcFlags.STABLE`, and
+  `/mounts` · `/mount [id]` · `/buymount <id>` commands (E on the Stablemaster lists them). Second
+  slice of the ED5 MMO Studio feature port.
+
+- **Summoned minions (the necromancer pet line) — data-driven.** A new `kind:'summon'` ability raises
+  a friendly minion that follows you and fights nearby monsters with the hireling follow-and-fight AI,
+  persisting until slain (up to 5 per summoner). Crucially the system is **flag-driven, not skeleton-
+  specific**: a minion is raised from ANY creature whose mob template is flagged `summonable`, so
+  adding a new summon is pure content (set the flag + point a summon ability at it). Seeded with three
+  summonable skeleton creatures (Warrior / Mage / Archer) and their grimoire tomes (`raise_skeleton`,
+  `raise_skeleton_mage`, `raise_skeleton_archer`). Minions render as their source creature with a
+  green ally health bar (`EntityState.friendly`); monsters target and damage them through the same
+  paths as hirelings (unified via an `allyTargets` helper). New `mob_templates.summonable` column
+  (schema + migration #8 + editable registry); `AbilityKind` gains `'summon'` and `BehaviorSpec` a
+  `summon` variant carried in `behaviors_json` (no new ability column). First slice of the ED5 MMO
+  Studio feature port (pets/summons).
+
+- **Environmental hazard zones (poison pools / lava cracks).** Two new walkable decor kinds are DoT
+  zones: standing in a `poison_pool` (toxic bog) or `lava_crack` (forge fissure) re-applies a short
+  damage-over-time debuff each tick, so it chips you while you linger and lingers ~1s after you step
+  clear. The DoT runs through the normal player-debuff path — it shows the status tint and respects
+  god mode — and threatens players only (monsters path the biome they live in). Placed in the Marsh
+  and Writhing Hive (poison) and the Infernal Forge (lava); the renderer draws them as flat pitched
+  ground puddles (lava also casts a flicker light). Config lives in `HAZARDS` / `World.checkHazards`.
+  Completes the deferred ARPG biome-hazard gimmicks.
+
+- **Volatile elites (death-explosions).** A new champion modifier — **Volatile** — detonates when the
+  elite dies, dealing a burst (4× its normal hit) to every player within ~150px and ringing the blast
+  with the existing impact-ring FX. The blast is player-only (it never chains into the mob's own pack),
+  and lands just beyond melee reach, so a dying Volatile champion is a real "back off now" threat. New
+  `elite_modifiers.explode_dmg` column (schema + migration #7 + the `DEFAULT_ELITE_MODIFIERS` default);
+  `World.detonateMob` fires from the single mob-death funnel, so it triggers no matter how the elite
+  died (melee, spell, or DoT). From the deferred ARPG biome-hazard line.
+
+- **Chain quests.** A quest can carry a `requires` (prerequisite quest id); it stays **locked**
+  (shown in the log but un-acceptable) until that prerequisite is completed. The three Wayfinder
+  explore bounties now form an ordered chain — Chart the Sunken Pass → Brave the Ashveil → The
+  Fraying Edge — each unlocking the next leg of the road. New `quests.requires` column (schema +
+  migration #6 + editable registry); `QuestState.status` gains `'locked'` with a `requiresName` for
+  the UI ("Requires: <name>" + a dim Locked badge). Content-integrity asserts every prerequisite is
+  a real quest and never self-referential. (`World.questUnlocked` gates accept + the quest-giver
+  offer.)
+
+- **Explore/discover quest type.** A quest can now carry an `explore_area`: it completes automatically
+  the instant the player first sets foot in that area — no kill, no turn-in. Old Wren the Wayfinder
+  hands out three frontier scouting bounties (Chart the Sunken Pass, Brave the Ashveil, The Fraying
+  Edge / Voidmarch) with distance-scaled rewards. Completion hooks the existing waypoint-discovery
+  path, so it fires on area transfer (and immediately if you accept a bounty for somewhere you've
+  already been). New `quests.explore_area` column (schema + migration #5 + editable registry); the
+  quest log shows a 0/1 → 1/1 objective with a "travel there to complete" hint. Content-integrity
+  asserts every explore quest names a real area. (`World.progressExploreQuests`, `QuestState.kind`
+  gains `'explore'`.) Completes the explore-quest item on the roadmap.
+
+- **Item & gem inspect.** Hover an item/gem for a read-only stats tooltip; click/tap it for a pinned
+  inspect popup showing the full breakdown — rarity-colored name, type/slot, base stats, every affix
+  (now pretty-printed, e.g. `+8% fire damage`, `+1 chain`, `+5% penetration`), set bonus, sockets with
+  each socketed gem's effect, sell value, and a spellbook's taught ability — plus context action
+  buttons (Equip/Unequip/Salvage/Sell, gem **Socket**, vault **Withdraw**). Works across the bag strip,
+  full inventory panel, equipment slots, vault, and gem strip; the popup is the mobile/tap path. Fast
+  actions preserved: shift-click salvages, double-click equips; Esc / click-away dismisses.
+
 - **Spell-behavior engine (slice 1).** Spells now carry composable, data-driven behaviors
   (chain / pierce / fork / splash / homing / multishot / return) resolved by a pure, unit-tested
   module (`src/server/projectile-behaviors.ts`) — lightning fires one bolt that chains between

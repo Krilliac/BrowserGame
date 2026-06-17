@@ -8,6 +8,27 @@ import {
   newPlayerToken,
   removeFriend,
   storeSave,
+  createGuildRow,
+  deleteGuildRow,
+  guildName,
+  guildOf,
+  guildMembers,
+  addGuildMemberRow,
+  removeGuildMemberRow,
+  setGuildRankRow,
+  tokenForName,
+  sendMail,
+  loadMail,
+  getMail,
+  mailCount,
+  deleteMail,
+  auctionPayout,
+  createAuction,
+  loadAuctions,
+  getAuction,
+  auctionsBySeller,
+  auctionCountBySeller,
+  deleteAuction,
 } from './player-store.js';
 import type { PlayerSave } from './world.js';
 
@@ -156,5 +177,101 @@ describe('friends list persistence', () => {
   it('returns an empty list for a token with no friends', () => {
     const db = openDatabase(':memory:');
     expect(loadFriends(db, newPlayerToken())).toEqual([]);
+  });
+});
+
+describe('guild persistence', () => {
+  it('creates a guild, adds/ranks/removes members, and disbands', () => {
+    const db = openDatabase(':memory:');
+    const a = newPlayerToken();
+    const b = newPlayerToken();
+
+    const gid = createGuildRow(db, 'Ironwolves')!;
+    expect(gid).toBeGreaterThan(0);
+    expect(createGuildRow(db, 'ironwolves')).toBeNull(); // UNIQUE NOCASE — name taken
+    expect(guildName(db, gid)).toBe('Ironwolves');
+
+    addGuildMemberRow(db, gid, a, 'Alice', 'leader');
+    addGuildMemberRow(db, gid, b, 'Bob', 'member');
+    expect(guildOf(db, a)).toEqual({ guildId: gid, rank: 'leader' });
+    expect(guildMembers(db, gid).map((m) => m.name)).toEqual(['Alice', 'Bob']); // leader first
+
+    setGuildRankRow(db, b, 'officer');
+    expect(guildOf(db, b)!.rank).toBe('officer');
+
+    removeGuildMemberRow(db, b);
+    expect(guildOf(db, b)).toBeUndefined();
+
+    deleteGuildRow(db, gid);
+    expect(guildName(db, gid)).toBeUndefined();
+    expect(guildOf(db, a)).toBeUndefined(); // membership rows cascade-removed
+  });
+});
+
+describe('mail persistence', () => {
+  it('sends, lists, scopes, counts, and deletes inbox mail', () => {
+    const db = openDatabase(':memory:');
+    const a = newPlayerToken();
+    const b = newPlayerToken();
+
+    sendMail(db, a, 'Bob', 100, null);
+    sendMail(db, a, 'Cara', 0, '{"uid":7}');
+    sendMail(db, b, 'Dan', 5, null); // a different recipient's inbox
+
+    const inbox = loadMail(db, a);
+    expect(inbox).toHaveLength(2);
+    expect(inbox[0]!.senderName).toBe('Bob');
+    expect(inbox[1]!.itemJson).toBe('{"uid":7}');
+    expect(mailCount(db, a)).toBe(2);
+    expect(loadMail(db, b)).toHaveLength(1); // not leaked across recipients
+
+    const one = getMail(db, inbox[0]!.id, a)!;
+    expect(one.gold).toBe(100);
+    expect(getMail(db, inbox[0]!.id, b)).toBeUndefined(); // can't read another's mail by id
+
+    deleteMail(db, inbox[0]!.id);
+    expect(mailCount(db, a)).toBe(1);
+  });
+
+  it('resolves the most-recent token for a character name', () => {
+    const db = openDatabase(':memory:');
+    const t = newPlayerToken();
+    storeSave(db, t, sampleSave('Mailee'));
+    expect(tokenForName(db, 'mailee')).toBe(t); // case-insensitive, single match
+    expect(tokenForName(db, 'Nobody')).toBeNull();
+  });
+
+  it('refuses an AMBIGUOUS name so value cannot be diverted to a name-squatter (SEC-001)', () => {
+    const db = openDatabase(':memory:');
+    storeSave(db, newPlayerToken(), sampleSave('Twin'));
+    storeSave(db, newPlayerToken(), sampleSave('twin')); // a second save squats the same name
+    expect(tokenForName(db, 'Twin')).toBeNull(); // ambiguous → don't guess
+  });
+});
+
+describe('auction persistence', () => {
+  it('lists, browses, scopes by seller, caps count, and deletes', () => {
+    const db = openDatabase(':memory:');
+    const a = newPlayerToken();
+    const b = newPlayerToken();
+
+    const id1 = createAuction(db, a, 'Alice', '{"baseId":"iron_sword"}', 500);
+    createAuction(db, a, 'Alice', '{"baseId":"oak_shield"}', 200);
+    createAuction(db, b, 'Bob', '{"baseId":"ruby_t1"}', 999);
+
+    expect(loadAuctions(db)).toHaveLength(3); // global browse
+    expect(auctionsBySeller(db, a)).toHaveLength(2);
+    expect(auctionCountBySeller(db, a)).toBe(2);
+    expect(getAuction(db, id1)!.price).toBe(500);
+
+    deleteAuction(db, id1);
+    expect(getAuction(db, id1)).toBeUndefined();
+    expect(auctionCountBySeller(db, a)).toBe(1);
+  });
+
+  it('payout applies the house cut as a gold sink', () => {
+    expect(auctionPayout(1000)).toBe(950); // 5% cut
+    expect(auctionPayout(1)).toBe(0); // floored
+    expect(auctionPayout(0)).toBe(0);
   });
 });

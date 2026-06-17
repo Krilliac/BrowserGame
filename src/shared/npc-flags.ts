@@ -13,6 +13,7 @@ export const NpcFlags = {
   BANKER: 1 << 5,
   RECRUITER: 1 << 6,
   RIFTKEEPER: 1 << 7,
+  STABLE: 1 << 8,
 } as const;
 export type NpcFlag = (typeof NpcFlags)[keyof typeof NpcFlags];
 
@@ -26,6 +27,7 @@ export const KIND_TO_NPC_FLAG: Record<string, NpcFlag> = {
   banker: NpcFlags.BANKER,
   recruiter: NpcFlags.RECRUITER,
   riftkeeper: NpcFlags.RIFTKEEPER,
+  stable: NpcFlags.STABLE,
 };
 
 /** True if `flags` has the given {@link NpcFlags} bit set. */

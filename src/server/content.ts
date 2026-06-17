@@ -1,7 +1,7 @@
 import { config, applyConfigOverrides } from './config.js';
 import { openDatabase, type GameDatabase } from './db/database.js';
 import { rollDropTable, type DropRow, type DropTable } from './drop-table.js';
-import type { AreaDef, DecorProp, DungeonDef } from '../shared/areas.js';
+import type { AreaDef, DecorProp, DungeonDef, PvpRule } from '../shared/areas.js';
 import { DEFAULT_THEME, type AreaTheme, type WeatherKind } from '../shared/theme.js';
 import type { Ability, AbilityId, BehaviorSpec, DamageElement } from '../shared/combat.js';
 import type { ResistMap } from './combat-formulas.js';
@@ -41,6 +41,7 @@ import {
   DEFAULT_ELITE_MODIFIERS,
 } from './mobs.js';
 import { applyHirelingOverrides, type HirelingTemplate } from './hirelings.js';
+import { DEFAULT_MOUNTS, type MountDef } from './mounts.js';
 import { weatherModifiers, type WeatherModifiers } from './weather-effects.js';
 import type { StatusEffectKind } from './ability-effects.js';
 import type { StatusId } from './status-effects.js';
@@ -97,6 +98,10 @@ export interface QuestDef {
   turnInItem: string | null;
   /** Collect quests: how many of {@link turnInItem} to turn in. */
   turnInCount: number;
+  /** Explore quests: the area id the player must discover to complete (null otherwise). */
+  exploreArea: string | null;
+  /** Chain quests: a prerequisite quest id that must be completed before this one unlocks. */
+  requires: string | null;
   /** Bitmask of {@link QuestFlags} (e.g. REPEATABLE). */
   flags: number;
 }
@@ -193,6 +198,10 @@ export interface Content {
   skillTree(): SkillNode[];
   /** The hireling (mercenary) roster (overlaid onto the shared HIRELING_TEMPLATES; server-only). */
   hirelingTemplates(): HirelingTemplate[];
+  /** The mount roster (owned, persistent travel-speed boosts sold by a Stablemaster). */
+  mounts(): MountDef[];
+  /** A single mount def by id (undefined if unknown). */
+  mount(id: string): MountDef | undefined;
 }
 
 /** One on-hit status effect an ability carries (the runtime view of an ability_status_effects row). */
@@ -300,6 +309,15 @@ export function loadContent(db: GameDatabase): Content {
     decor.set(r.area_id, list);
   }
 
+  // Per-area PvP rule (only non-'safe' areas have a row; everything else defaults to safe).
+  const pvpRules = new Map<string, PvpRule>();
+  for (const r of db.prepare('SELECT area_id, rule FROM area_pvp').all() as {
+    area_id: string;
+    rule: string;
+  }[]) {
+    if (r.rule === 'contested' || r.rule === 'hostile') pvpRules.set(r.area_id, r.rule);
+  }
+
   const areas = new Map<string, AreaDef>();
   for (const a of db.prepare('SELECT * FROM areas').all() as AreaRow[]) {
     const portals = (
@@ -328,6 +346,7 @@ export function loadContent(db: GameDatabase): Content {
       portals,
       theme: themes.get(a.id) ?? DEFAULT_THEME,
       decor: decor.get(a.id) ?? [],
+      pvp: pvpRules.get(a.id) ?? 'safe',
     });
   }
 
@@ -448,6 +467,8 @@ export function loadContent(db: GameDatabase): Content {
     if (r.spell !== null) template.spell = r.spell as AbilityId;
     if (r.support !== null) template.support = r.support as AbilityId;
     if (r.traits !== null) template.traits = JSON.parse(r.traits) as MobTrait[];
+    if (r.summonable) template.summonable = true;
+    if (r.tameable) template.tameable = true;
     mobTemplates.set(r.id, template);
   }
 
@@ -493,12 +514,16 @@ export function loadContent(db: GameDatabase): Content {
     name: q.name,
     description: q.description,
     targetMob: q.target_mob,
-    targetCount: q.target_count,
+    // Floor at 1: a kill quest authored with target_count <= 0 would otherwise complete on the very
+    // first kill (`kills+1 >= 0`). Non-kill quests ignore targetCount, so this only fixes misconfigs.
+    targetCount: Math.max(1, q.target_count),
     rewardGold: q.reward_gold,
     rewardXp: q.reward_xp,
     rewardItem: q.reward_item ?? null,
     turnInItem: q.turn_in_item ?? null,
     turnInCount: q.turn_in_count ?? 0,
+    exploreArea: q.explore_area ?? null,
+    requires: q.requires ?? null,
     flags: q.flags ?? 0,
   }));
 
@@ -548,7 +573,14 @@ export function loadContent(db: GameDatabase): Content {
   // table falls back to the code defaults.
   const eliteMods = (
     db.prepare('SELECT * FROM elite_modifiers ORDER BY sort_order').all() as EliteModRow[]
-  ).map((r) => ({ id: r.id, name: r.name, hp: r.hp_mult, dmg: r.damage_mult, spd: r.speed_mult }));
+  ).map((r) => ({
+    id: r.id,
+    name: r.name,
+    hp: r.hp_mult,
+    dmg: r.damage_mult,
+    spd: r.speed_mult,
+    explodeDmg: r.explode_dmg ?? 0,
+  }));
 
   // Per-ability on-hit status effects (slow/burn/weaken). An ability with no row carries none.
   const statusEffects = new Map<string, AbilityStatusEffect[]>();
@@ -789,6 +821,15 @@ export function loadContent(db: GameDatabase): Content {
     return t;
   });
 
+  // Mount roster (owned travel-speed boosts). Empty table falls back to the code defaults.
+  const mountRows = (db.prepare('SELECT * FROM mounts').all() as MountRow[]).map((r) => ({
+    id: r.id,
+    name: r.name,
+    speedMult: r.speed_mult,
+    price: r.price,
+  }));
+  const mounts: MountDef[] = mountRows.length ? mountRows : DEFAULT_MOUNTS;
+
   return {
     area: (id) => areas.get(id),
     areas: () => [...areas.values()],
@@ -852,6 +893,8 @@ export function loadContent(db: GameDatabase): Content {
     affixNames: () => affixNames,
     skillTree: () => skillTree,
     hirelingTemplates: () => hirelingTemplates,
+    mounts: () => mounts,
+    mount: (id) => mounts.find((m) => m.id === id),
   };
 }
 
@@ -1055,6 +1098,8 @@ interface MobRow {
   spell: string | null;
   support: string | null;
   traits: string | null;
+  summonable: number | null;
+  tameable: number | null;
 }
 interface AreaMobRow {
   area_id: string;
@@ -1089,6 +1134,8 @@ interface QuestRow {
   reward_item: string | null;
   turn_in_item: string | null;
   turn_in_count: number;
+  explore_area: string | null;
+  requires: string | null;
   flags: number;
 }
 interface LootRow {
@@ -1112,6 +1159,7 @@ interface EliteModRow {
   hp_mult: number;
   damage_mult: number;
   speed_mult: number;
+  explode_dmg: number;
   sort_order: number;
 }
 interface AbilityStatusRow {
@@ -1279,4 +1327,10 @@ interface HirelingRow {
   attack_range: number;
   kite_range: number | null;
   attack_cooldown_ms: number;
+}
+interface MountRow {
+  id: string;
+  name: string;
+  speed_mult: number;
+  price: number;
 }

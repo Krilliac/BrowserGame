@@ -13,6 +13,7 @@ import {
   MOB_RESISTS,
   DEFAULT_ELITE_MODIFIERS,
 } from '../mobs.js';
+import { DEFAULT_MOUNTS } from '../mounts.js';
 import type { DamageElement } from '../../shared/combat.js';
 import { weatherModifiers } from '../weather-effects.js';
 import {
@@ -255,6 +256,27 @@ const SPELLBOOKS: Record<string, { name: string; color: string; teaches: string;
   tome_warcry: { name: 'Tome of the War Cry', color: '#ffb347', teaches: 'warcry', sell: 200 },
   tome_sprint: { name: 'Tome of Sprinting', color: '#7cf0ff', teaches: 'sprint', sell: 180 },
   tome_renew: { name: 'Tome of Renewal', color: '#9be8a0', teaches: 'renew', sell: 200 },
+  // --- Necromancy: the summon line (raise skeletal minions that fight at your side). ---
+  tome_raise_skeleton: {
+    name: 'Grimoire of Bone',
+    color: '#d8d2c0',
+    teaches: 'raise_skeleton',
+    sell: 240,
+  },
+  tome_raise_skeleton_mage: {
+    name: 'Grimoire of the Bound Dead',
+    color: '#9fd8ff',
+    teaches: 'raise_skeleton_mage',
+    sell: 320,
+  },
+  tome_raise_skeleton_archer: {
+    name: 'Grimoire of the Bone Volley',
+    color: '#c7b98a',
+    teaches: 'raise_skeleton_archer',
+    sell: 300,
+  },
+  // Beast taming: learn to capture a weakened wild beast as a pet.
+  tome_taming: { name: 'Beastbinder Codex', color: '#9ad36b', teaches: 'tame', sell: 260 },
 };
 
 /** The town Merchant's shelf: the deterministic acquisition path (drops are the exciting one). */
@@ -337,6 +359,9 @@ export function seed(db: Database): void {
   ensureDenContent(db); // the generic cellar/den interior (procedural mini-dungeon shell)
   ensureWeatherModifiers(db); // per-WeatherKind gameplay multipliers (seeded from code defaults)
   ensureEliteModifiers(db); // champion stat-modifier roster (seeded from code defaults)
+  ensureMounts(db); // mount roster (owned travel-speed boosts) seeded from code defaults
+  ensureMobFlags(db); // backfill tameable/summonable flags onto existing beast/undead templates
+  ensureAreaPvp(db); // per-area PvP rules (only non-safe areas; everything else defaults safe)
   ensureAbilityStatusEffects(db); // per-ability on-hit slow/burn/weaken (seeded from code defaults)
   ensureAbilityCastBuffs(db); // per-ability self-buff on cast (seeded from code defaults)
   ensureShrineBuffs(db); // shrine blessing pool (seeded from code defaults)
@@ -379,9 +404,62 @@ function ensureWeatherModifiers(db: Database): void {
  */
 function ensureEliteModifiers(db: Database): void {
   const ins = db.prepare(
-    'INSERT OR IGNORE INTO elite_modifiers (id,name,hp_mult,damage_mult,speed_mult,sort_order) VALUES (?,?,?,?,?,?)',
+    'INSERT OR IGNORE INTO elite_modifiers (id,name,hp_mult,damage_mult,speed_mult,explode_dmg,sort_order) VALUES (?,?,?,?,?,?,?)',
   );
-  DEFAULT_ELITE_MODIFIERS.forEach((m, i) => ins.run(m.id, m.name, m.hp, m.dmg, m.spd, i));
+  DEFAULT_ELITE_MODIFIERS.forEach((m, i) =>
+    ins.run(m.id, m.name, m.hp, m.dmg, m.spd, m.explodeDmg, i),
+  );
+}
+
+function ensureMounts(db: Database): void {
+  const ins = db.prepare(
+    'INSERT OR IGNORE INTO mounts (id,name,speed_mult,price) VALUES (?,?,?,?)',
+  );
+  for (const m of DEFAULT_MOUNTS) ins.run(m.id, m.name, m.speedMult, m.price);
+}
+
+/**
+ * Content breadth for the pet/summon systems: flag more existing templates as `tameable` (wild beasts
+ * a player can capture as a pet) or `summonable` (undead/constructs a necromancer can raise). The pet
+ * and summon systems read ONLY these flags, so adding variety is pure content — no new templates, no
+ * new wiring. Tasteful + lore-fitting: beasts (wolves/bears/hounds/boars/wargs) tame; risen dead and
+ * animated graveborn constructs raise. Bosses, casters, humanoids, and named uniques are left alone.
+ *
+ * Idempotent and edit-preserving: only promotes a flag from 0→1, so a designer who clears a flag in
+ * the DB keeps it cleared. The flags otherwise seed straight from the template (see ensureWorldExpansion
+ * / seedMobs); this backfills templates whose code default predates the wider roster.
+ */
+function ensureMobFlags(db: Database): void {
+  // Wild beasts that make believable pets — pack-hunters and bruisers across the act ladder.
+  const TAMEABLE: string[] = [
+    'frost_wolf', // an icy cousin of the gloom wolf
+    'plague_hound', // a crypt-bred hound
+    'shadowmaw_bear', // the wilderness bruiser
+    'gnarlfang_lycan', // a sprinting pack-hunter
+    'barrens_warg', // pack-hunter of the pines
+    'ash_dire_wolf', // a dune pack-hunter
+  ];
+  // Risen dead / animated graveborn — fitting raise-targets for the necromancer line.
+  const SUMMONABLE: string[] = [
+    'rot_ghoul', // shambling risen dead
+    'grave_golem', // a graveborn animated construct
+  ];
+
+  const tame = db.prepare('UPDATE mob_templates SET tameable = 1 WHERE id = ? AND tameable = 0');
+  for (const id of TAMEABLE) tame.run(id);
+  const summon = db.prepare(
+    'UPDATE mob_templates SET summonable = 1 WHERE id = ? AND summonable = 0',
+  );
+  for (const id of SUMMONABLE) summon.run(id);
+}
+
+/** Seed the PvP-enabled areas (everything else stays 'safe'). Endgame zones are opt-in contested. */
+function ensureAreaPvp(db: Database): void {
+  const ins = db.prepare('INSERT OR IGNORE INTO area_pvp (area_id,rule) VALUES (?,?)');
+  // Open-world contested PvP in the deep endgame zones (flagged-vs-flagged via /pvp).
+  ins.run('voidmarch', 'contested');
+  ins.run('sundered_wastes', 'contested');
+  ins.run('the_unmade_court', 'contested');
 }
 
 /**
@@ -831,7 +909,7 @@ function ensureActsContent(db: Database): void {
   }
 
   const insQuest = db.prepare(
-    'INSERT OR IGNORE INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item,turn_in_item,turn_in_count) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    'INSERT OR IGNORE INTO quests (id,name,description,target_mob,target_count,reward_gold,reward_xp,reward_item,turn_in_item,turn_in_count,explore_area,requires) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
   );
   for (const q of ACTS_QUESTS) {
     insQuest.run(
@@ -845,6 +923,8 @@ function ensureActsContent(db: Database): void {
       q.rewardItem ?? null,
       q.turnInItem ?? null,
       q.turnInCount ?? 0,
+      q.exploreArea ?? null,
+      q.requires ?? null,
     );
   }
 
@@ -1238,8 +1318,9 @@ function ensureWorldExpansion(db: Database): void {
   const insMob = db.prepare(
     `INSERT OR IGNORE INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
-        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits,
+        summonable,tameable)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     insMob.run(
@@ -1259,9 +1340,11 @@ function ensureWorldExpansion(db: Database): void {
       t.kiteRange ?? null,
       t.slamRadius ?? null,
       t.dashSpeed ?? null,
-      MOB_SPELLS[t.id] ?? null,
+      MOB_SPELLS[t.id] ?? t.spell ?? null,
       MOB_SUPPORT[t.id] ?? null,
       MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
+      t.summonable ? 1 : 0,
+      t.tameable ? 1 : 0,
     );
   }
 
@@ -1481,6 +1564,7 @@ function ensureSpellbookContent(db: Database): void {
   ensureNpc('town', 'Vault Keeper', 1020, 560, 40, 'banker');
   ensureNpc('town', 'Captain Aldric', 700, 620, 210, 'recruiter');
   ensureNpc('town', 'Saelis the Riftkeeper', 760, 680, 270, 'riftkeeper');
+  ensureNpc('town', 'Hoss the Stablemaster', 640, 620, 30, 'stable');
 
   // Collect/turn-in quests added after the original seed (id is the PK, so OR IGNORE dedups).
   const insQuest = db.prepare(
@@ -1618,8 +1702,9 @@ function seedMobs(db: Database): void {
   const mob = db.prepare(
     `INSERT INTO mob_templates
        (id,name,hp,level,hue,speed,aggro_range,attack_range,damage,attack_cooldown_ms,
-        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        behavior,telegraph_ms,projectile_speed,kite_range,slam_radius,dash_speed,spell,support,traits,
+        summonable,tameable)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const t of Object.values(MOB_TEMPLATES)) {
     mob.run(
@@ -1639,9 +1724,11 @@ function seedMobs(db: Database): void {
       t.kiteRange ?? null,
       t.slamRadius ?? null,
       t.dashSpeed ?? null,
-      MOB_SPELLS[t.id] ?? null,
+      MOB_SPELLS[t.id] ?? t.spell ?? null,
       MOB_SUPPORT[t.id] ?? null,
       MOB_TRAITS[t.id] ? JSON.stringify(MOB_TRAITS[t.id]) : null,
+      t.summonable ? 1 : 0,
+      t.tameable ? 1 : 0,
     );
   }
   const am = db.prepare('INSERT INTO area_mobs (area_id,template_id,count) VALUES (?,?,?)');

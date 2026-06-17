@@ -1243,6 +1243,19 @@ export class PixiRenderer {
       case 'shrine':
         this.drawShrine(c, prop.x, prop.y, prop.color ?? '#7fd0ff');
         break;
+      case 'poison_pool':
+        this.drawHazardPool(c, scale, '#5fbf3a', '#2f6e22');
+        break;
+      case 'lava_crack':
+        this.drawHazardPool(c, scale, '#ff7a1a', '#7a1f08');
+        this.decorLights.push({
+          x: ax,
+          y: ay,
+          radius: 130 * scale,
+          color: FIRE_LIGHT,
+          flicker: true,
+        });
+        break;
       case 'chest':
       case 'pot':
         // Chests + pots are authoritative ENTITIES (live opened/broken state) drawn in the
@@ -1578,6 +1591,20 @@ export class PixiRenderer {
    * and a soft COOL glow is recorded in decorLights so it blooms on the additive light overlay at
    * night, like the torch/bonfire. Purely cosmetic decor — no state.
    */
+  /**
+   * A flat ground hazard pool (poison bog / lava fissure): concentric pitched ellipses from a dark
+   * rim to a bright molten/toxic core, hugging the ground (no raised geometry). `rim`/`core` are the
+   * edge and center fill colors; lava additionally gets a flicker light from the caller.
+   */
+  private drawHazardPool(c: Container, scale: number, core: string, rim: string): void {
+    const g = new Graphics();
+    const rx = 26 * scale;
+    g.ellipse(0, 0, rx, rx * PITCH).fill({ color: hexToNum(rim), alpha: 0.85 });
+    g.ellipse(0, 0, rx * 0.72, rx * 0.72 * PITCH).fill({ color: hexToNum(core), alpha: 0.7 });
+    g.ellipse(0, -1, rx * 0.4, rx * 0.4 * PITCH).fill({ color: hexToNum(core), alpha: 0.95 });
+    c.addChild(g);
+  }
+
   private drawShrine(c: Container, wx: number, wy: number, color: string): void {
     this.propShadow(c, 16, 8);
     const stone = new Graphics();
@@ -2444,6 +2471,19 @@ export class PixiRenderer {
           .ellipse(0, 2, MOB_RADIUS + 7, (MOB_RADIUS + 7) * 0.5)
           .stroke({ width: 2, color: '#ffcf5a', alpha: 0.9 });
       }
+      // Tamed pet bond: an amber ground-ring that brightens with bond tier, plus a star over a fully
+      // evolved companion — so a grown/evolved pet reads at a glance. (PET_EVOLVED_TIER mirrors the
+      // server's PET_MAX_TIER; a drift only shifts the star by a tier, never breaks anything.)
+      if (e.petTier && e.petTier > 0) {
+        const PET_EVOLVED_TIER = 5;
+        const t = Math.min(1, e.petTier / PET_EVOLVED_TIER);
+        view.dyn
+          .ellipse(0, 2, MOB_RADIUS + 5, (MOB_RADIUS + 5) * 0.5)
+          .stroke({ width: 1.5 + t, color: '#ffd479', alpha: 0.45 + 0.45 * t });
+        if (e.petTier >= PET_EVOLVED_TIER) {
+          view.dyn.star(0, view.topY - 11, 5, 4.5, 2).fill({ color: '#ffe08a', alpha: 0.95 });
+        }
+      }
       // Your selected target (click-to-target): a bright white ground-ring, drawn larger than the
       // elite/tagged rings so the mob you're chasing + auto-attacking stands out in a pack.
       if (e.id === this.targetId) {
@@ -2461,7 +2501,8 @@ export class PixiRenderer {
       }
       view.dyn.rect(-bw / 2, view.topY - 6, bw, 4).fill({ color: '#000000', alpha: 0.6 });
       view.dyn.rect(-bw / 2, view.topY - 6, bw * frac, 4).fill({
-        color: e.kind === 'mob' ? '#cc4444' : '#4caf50',
+        // Enemy mobs are red; players, allies, and summoned (friendly) minions are green.
+        color: e.kind === 'mob' && !e.friendly ? '#cc4444' : '#4caf50',
       });
     }
     // Faux-perspective depth scale (closer to camera = bigger), combined with the champion bump.
@@ -3099,6 +3140,12 @@ export class PixiRenderer {
           .moveTo(ev.x, ev.y * PITCH)
           .lineTo(ev.x2, ev.y2 * PITCH)
           .stroke({ width: 2, color: arcColor(ev.element), alpha: 0.9 });
+      } else if (ev.kind === 'beam' && ev.x2 !== undefined && ev.y2 !== undefined) {
+        // Beam is brighter and thicker than a chain arc — it fills the full hitscan width visually.
+        this.arcGfx
+          .moveTo(ev.x, ev.y * PITCH)
+          .lineTo(ev.x2, ev.y2 * PITCH)
+          .stroke({ width: 4, color: arcColor(ev.element), alpha: 0.85 });
       }
     }
     for (let i = ti; i < this.fxTexts.length; i++) this.fxTexts[i]!.visible = false;

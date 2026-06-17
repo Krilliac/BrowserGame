@@ -28,6 +28,7 @@ import {
 } from '../shared/combat.js';
 import { config } from './config.js';
 import { aimAngle, circlesOverlap, inMeleeCone } from './combat.js';
+import { pointToSegmentDist } from './geometry.js';
 import { initialCharges, resolveHit, steerHoming, type MobLite } from './projectile-behaviors.js';
 import { applyModifiers } from './spell-modifiers.js';
 import {
@@ -81,7 +82,13 @@ import {
   stepHireling,
   type HirelingTemplate,
 } from './hirelings.js';
-import type { DungeonDef, Rect } from '../shared/areas.js';
+import {
+  MAX_MINIONS_PER_OWNER,
+  minionAiTemplate,
+  minionFromTemplate,
+  type MinionProfile,
+} from './minions.js';
+import type { DungeonDef, Rect, PvpRule } from '../shared/areas.js';
 import { NpcFlags, hasNpcFlag } from '../shared/npc-flags.js';
 import { CreatureSpawnFlags, hasSpawnFlag } from '../shared/spawn-flags.js';
 import { QuestFlags, hasQuestFlag } from '../shared/quest-flags.js';
@@ -215,7 +222,7 @@ export function goldMagnetStep(
   return stepToward(item.x, item.y, target.x, target.y, GOLD_MAGNET_SPEED * dt);
 }
 
-/** Rift gold fee per tier â€” the endgame gold sink; the risk you choose is the fee you pay. */
+/** Rift gold fee per tier — the endgame gold sink; the risk you choose is the fee you pay. */
 let RIFT_COST_PER_TIER = config.economy.riftCostPerTier;
 /** Highest rift tier a player may open: one tier unlocked per 3 levels, clamped to 1..10. */
 function maxRiftTier(level: number): number {
@@ -223,9 +230,9 @@ function maxRiftTier(level: number): number {
 }
 const INTERACT_RANGE = 70;
 // The unequipped-gear bag holds up to this many pieces; a new piece beyond the cap evicts the oldest
-// (sell or equip to keep the good stuff). The HUD only shows the newest few â€” see the client.
+// (sell or equip to keep the good stuff). The HUD only shows the newest few — see the client.
 let MAX_BAG_GEAR = config.items.maxBagGear;
-// Bank stash slots â€” far larger than the bag, so the overflow has somewhere safe to go.
+// Bank stash slots — far larger than the bag, so the overflow has somewhere safe to go.
 let STASH_CAP = config.items.stashCap;
 // Stash expansion (banker gold-sink): each purchase adds STASH_EXPAND_STEP slots above the base, up to
 // STASH_MAX_EXPANSIONS purchases. The cost escalates per purchase so a fully-expanded stash is a major
@@ -237,18 +244,41 @@ const STASH_EXPAND_COST = 1000;
 // for the cooldown before it can bless again (shared across players, Diablo-shrine style).
 const SHRINE_RADIUS = 46;
 const SHRINE_COOLDOWN_MS = 60_000;
+// Volatile elites (the `explode_dmg` modifier) detonate on death, hitting players within this radius
+// — comfortably beyond melee reach, so the blast is a real "back off as it's dying" threat.
+const EXPLODE_RADIUS = 150;
+// PvP damage is scaled WAY down from PvE: players have far less HP than tanky mobs, so full ability
+// burst would one-shot. This keeps duels lasting a handful of exchanges instead of a single hit.
+const PVP_DAMAGE_SCALE = 0.35;
+// Taming: a tameable creature can be captured as a pet only once weakened to at or below this HP
+// fraction (the Pokémon "wound it, then catch it" loop) — weaken it below 30%, then cast Tame.
+const TAME_HP_THRESHOLD = 0.3;
+// Pet bonding: a tamed pet earns XP from the kills its owner shares with it, climbing bond TIERS that
+// scale its HP + damage above the owner-level base profile. The top tier is the pet's EVOLUTION — a
+// final power spike + a flourish. Progress persists on the save; it is lost only if the pet dies.
+const PET_MAX_TIER = 5;
+const PET_XP_PER_TIER = 60; // pet XP (≈ summed killed-mob levels) needed per bond tier
+const PET_TIER_BONUS = 0.18; // +18% HP & power per bond tier (a fully-evolved tier-5 pet ≈ +90%)
+// Environmental hazard zones (biome decor): standing within a hazard's radius re-applies a short DoT
+// debuff each tick, so it chips you while you linger and lingers ~1s after you step clear. The DoT
+// runs through the normal player-debuff path (so it shows the status tint and respects god mode).
+// Hazards threaten PLAYERS only — monsters ignore them (they path the biome they live in).
+const HAZARDS: Record<string, { effect: StatusId; dps: number; ms: number; radius: number }> = {
+  poison_pool: { effect: 'poison', dps: 8, ms: 1500, radius: 44 },
+  lava_crack: { effect: 'burn', dps: 14, ms: 1200, radius: 42 },
+};
 // Chests (decor kind 'chest'): walk within this radius to pry one open once; it spills gold + gear.
 const CHEST_RADIUS = 52;
 let CHEST_GOLD_MIN = config.economy.chestGoldMin;
 let CHEST_GOLD_MAX = config.economy.chestGoldMax;
 
-// Breakable pots (decor kind 'pot'): brush against one to smash it â€” a little gold spills out,
+// Breakable pots (decor kind 'pot'): brush against one to smash it — a little gold spills out,
 // and once in a while it tops up a belt potion. The Diablo "smash everything" dopamine layer.
 const POT_RADIUS = 30;
 let POT_GOLD_MIN = config.economy.potGoldMin;
 let POT_GOLD_MAX = config.economy.potGoldMax;
 
-// Global difficulty tuning â€” the world is balanced to be DANGEROUS: monsters hit much harder,
+// Global difficulty tuning — the world is balanced to be DANGEROUS: monsters hit much harder,
 // live longer, and notice you from farther away, so ground is earned rather than strolled
 // through. Pairs with the exponential XP curve (progression.ts) for an hours-long climb.
 let MOB_DMG_TUNING = config.difficulty.mobDamage;
@@ -276,7 +306,7 @@ let DENSITY_TOPUP_PER_CALL = config.density.topupPerCall;
 const PACK_RADIUS = 220;
 
 // Quick-use potion belt: instant restore on use, a shared use-cooldown, and a carry cap. Topped up
-// by the Healer and found in chests â€” the active-survival layer on top of passive regen.
+// by the Healer and found in chests — the active-survival layer on top of passive regen.
 let POTION_CAP = config.potions.cap;
 let POTION_START = config.potions.start; // a new character starts with a few of each
 let POTION_HEAL = config.potions.heal; // HP restored by a health potion
@@ -287,6 +317,11 @@ let SKILL_POINTS_PER_LEVEL = config.progression.skillPointsPerLevel;
 // Cost (gold) to refund all allocated attribute + skill points, scaled by level so a respec stays a
 // meaningful sink for a geared character. A fresh build is cheap to undo; a level-50 one is not.
 const RESPEC_COST_PER_LEVEL = 50;
+// Wallet ceiling (SEC-103): cap a player's gold well below Number.MAX_SAFE_INTEGER (~9e15) so a
+// very long-lived character can never accumulate into float-imprecision territory, where the
+// `gold < price` checks that gate every purchase/withdraw would start lying. A trillion is far
+// beyond any legitimate balance yet leaves four orders of magnitude of headroom.
+const MAX_GOLD = 1_000_000_000_000;
 // Unique (named legendary) drop chances: the loot chase. A slim base chance on any gear drop, better
 // from a chest. Elites/bosses already drop more gear, so they roll the base chance more often.
 let UNIQUE_DROP_CHANCE = config.drops.unique;
@@ -297,7 +332,7 @@ export let ARTIFICER_REROLL_GOLD = config.economy.artificerRerollGold;
 export let ARTIFICER_UNSOCKET_GOLD = config.economy.artificerUnsocketGold;
 const DASH_MS = 300; // how long a charger's lunge lasts
 
-// Living loot meta â€” a "hunting bounty" per monster type that regenerates while it is left alone and
+// Living loot meta — a "hunting bounty" per monster type that regenerates while it is left alone and
 // is consumed on a kill, so the first kills after a lull are richer and spam-farming yields base loot.
 let BOUNTY_FULL_MS = config.bounty.fullMs; // a minute untouched = a full bounty
 let BOUNTY_MAX_CHANCE = config.bounty.maxChance; // bonus-drop chance at a full bounty
@@ -308,8 +343,8 @@ let INVASION_CORRUPT_CHANCE = config.bounty.invasionCorruptChance;
 let BOSS_CORRUPT_CHANCE = config.bounty.bossCorruptChance;
 
 // Spellbook drops: spells are loot. An independent per-kill roll (separate from gear/materials)
-// drops a random tome â€” the exciting acquisition path beside the deterministic vendor shelf.
-// Tuned to ~1â€“2 books per play-hour in level-appropriate content (PoE2 uncut-gem model).
+// drops a random tome — the exciting acquisition path beside the deterministic vendor shelf.
+// Tuned to ~1–2 books per play-hour in level-appropriate content (PoE2 uncut-gem model).
 let SPELLBOOK_DROP_NORMAL = config.drops.spellbookNormal; // 0.4% per ordinary kill (1 in 250)
 let SPELLBOOK_DROP_ELITE = config.drops.spellbookElite; // 3% per champion
 let SPELLBOOK_DROP_BOSS = config.drops.spellbookBoss; // 30% per area boss
@@ -335,6 +370,9 @@ let DAMAGE_LEVEL_CAP = config.difficulty.damageLevelCap;
 
 // How often a support-caster monster may re-cast its self-buff/heal (War Cry / Sprint / Renew).
 const MOB_SUPPORT_COOLDOWN_MS = 7000;
+
+/** Minimum milliseconds between successive orbit hits on the same mob (prevents per-tick spam). */
+const ORBIT_REHIT_MS = 350;
 
 // Vendor stock: spell prices are scaled up (a gold sink that keeps drops the exciting path), and a
 // vendor shows only a rotating WINDOW of its tomes so the shop never overflows the UI. The window
@@ -496,6 +534,8 @@ interface Player {
   kills: number;
   /** Lifetime boss-tier kills (hp >= 200; persisted) — drives the boss-slayer achievements. */
   bossKills: number;
+  /** Lifetime count of pets brought to full evolution (persisted) — drives the beastmaster line. */
+  petsEvolved: number;
   /** Distinct monster template ids this character has killed — the bestiary (persisted). */
   bestiary: Set<string>;
   /** Kills since the last death — the current deathless streak (reset to 0 on death; persisted). */
@@ -504,7 +544,7 @@ interface Player {
   bestDeathlessStreak: number;
   /** Learned spells: ability id -> rank (1..MAX_SPELL_RANK). Casting is gated on this. */
   known: Map<AbilityId, number>;
-  /** Area ids this character has visited â€” the waypoint fast-travel list. */
+  /** Area ids this character has visited — the waypoint fast-travel list. */
   discovered: Set<string>;
   input: InputState;
   lastSeq: number;
@@ -519,6 +559,15 @@ interface Player {
   debuffs: StatusSet;
   /** Mercenary contract (hired at the Recruiter). Null = none; voided when the hireling dies. */
   hireling: { type: string } | null;
+  /** Mount ids the character owns (bought from a Stablemaster — permanent). */
+  mounts: Set<string>;
+  /** The currently-active mount id (its speed multiplier folds into movement), or null = on foot. */
+  mount: string | null;
+  /** Opted in to PvP (the /pvp toggle). Session-only; lets a 'contested' area harm flagged players. */
+  pvpFlagged: boolean;
+  /** The player's tamed pet: its source template + bond progress (xp → tier; tier === PET_MAX_TIER is
+   *  evolved). Null = no pet. Persists across areas/relogs; lost only when the pet dies. */
+  pet: { templateId: string; xp: number; tier: number } | null;
   dead: boolean;
   respawnAt: number;
 }
@@ -534,19 +583,19 @@ export interface PlayerSave {
   gold: number;
   loot: [string, number][];
   gear: ItemInstance[];
-  /** Banked stash gear (absent on pre-stash saves â€” defaults to empty). */
+  /** Banked stash gear (absent on pre-stash saves — defaults to empty). */
   stash?: ItemInstance[];
   /** Stash capacity (absent on pre-expansion saves — defaults to the base cap). */
   stashCap?: number;
-  /** Potion belt counts (absent on pre-potion saves â€” defaults to the starting amount). */
+  /** Potion belt counts (absent on pre-potion saves — defaults to the starting amount). */
   potions?: { health: number; mana: number };
-  /** Allocated attributes (absent on pre-attribute saves â€” granted retroactively on load). */
+  /** Allocated attributes (absent on pre-attribute saves — granted retroactively on load). */
   attributes?: AttributeSet;
   /** Unspent attribute points (absent on old saves). */
   attrPoints?: number;
   /** Allocated skill-tree node ids (absent on pre-skill saves). */
   skills?: string[];
-  /** Unspent skill points (absent on old saves â€” granted retroactively on load). */
+  /** Unspent skill points (absent on old saves — granted retroactively on load). */
   skillPoints?: number;
   /** Equipped gear by doll slot; partial-friendly so older saves migrate cleanly. */
   equipment: Record<string, ItemInstance | null>;
@@ -559,6 +608,8 @@ export interface PlayerSave {
   kills?: number;
   /** Lifetime boss-tier kills (absent on old saves — defaults to 0). */
   bossKills?: number;
+  /** Lifetime fully-evolved pets (absent on old saves — defaults to 0). */
+  petsEvolved?: number;
   /** Distinct monster template ids killed — the bestiary (absent on old saves — defaults to empty). */
   bestiary?: string[];
   /** Current deathless streak (kills since last death; absent on old saves — defaults to 0). */
@@ -567,10 +618,17 @@ export interface PlayerSave {
   bestDeathlessStreak?: number;
   /** Learned spells (id -> rank). Absent in pre-spellbook saves; those grandfather to all spells. */
   known?: [string, number][];
-  /** Visited area ids (waypoints). Absent on old saves â€” the current area is added on load. */
+  /** Visited area ids (waypoints). Absent on old saves — the current area is added on load. */
   discovered?: string[];
   /** Mercenary contract; the hireling respawns beside the player in the destination instance. */
   hireling?: { type: string } | null;
+  /** Owned mount ids (absent on pre-mount saves → none). */
+  mounts?: string[];
+  /** The active mount id carried across areas (absent → on foot). */
+  mount?: string | null;
+  /** The tamed pet + bond progress, re-spawned at the player's side on arrival (absent → none).
+   *  xp/tier absent on pre-bonding saves — default to 0. */
+  pet?: { templateId: string; xp?: number; tier?: number } | null;
 }
 
 interface Mob {
@@ -613,9 +671,11 @@ interface Mob {
   elite: boolean;
   dmgMult: number;
   spdMult: number;
-  /** Spawned by an invasion event â€” its drops carry a slim corrupted-gear chance. */
+  /** Death-explosion multiplier from a Volatile modifier (0 = no blast on death). */
+  explodeDmg: number;
+  /** Spawned by an invasion event — its drops carry a slim corrupted-gear chance. */
   invader: boolean;
-  /** Sim time (ms) until which this mob is ALERTED (hurt, or a packmate called for help) â€”
+  /** Sim time (ms) until which this mob is ALERTED (hurt, or a packmate called for help) —
    *  alerted mobs hunt with greatly extended aggro reach instead of idling. */
   alertUntil: number;
   /** Apex-boss phase-script cursor (only set for templates in BOSS_SCRIPTS). */
@@ -638,7 +698,7 @@ interface Projectile {
   ownerLevel: number;
   /** Owner's crit chance at fire time (player projectiles); 0 for mob projectiles. */
   critChance: number;
-  /** True for an enemy (mob) projectile â€” it damages players instead of mobs. */
+  /** True for an enemy (mob) projectile — it damages players instead of mobs. */
   hostile: boolean;
   /** Effective behavior list resolved at spawn (ability behaviors; + player modifiers in Slice 2). */
   behaviors: BehaviorSpec[];
@@ -653,6 +713,10 @@ interface Projectile {
   homingTargetId?: number;
   /** `return` latch — set once the projectile has reversed. */
   returned?: boolean;
+  /** Current angle (radians) for orbit projectiles; set at spawn, advanced each tick. */
+  orbitAngle?: number;
+  /** Per-mob re-hit gate for orbit projectiles: mobId → sim-time (ms) it may be hit again. */
+  orbitHits?: Map<number, number>;
 }
 
 interface GroundItem {
@@ -674,7 +738,8 @@ type NpcKind =
   | 'artificer'
   | 'banker'
   | 'recruiter'
-  | 'riftkeeper';
+  | 'riftkeeper'
+  | 'stable';
 
 interface Npc {
   id: number;
@@ -703,6 +768,30 @@ interface Hireling {
 }
 
 /**
+ * A summoned minion (the necromancer pet line). Shares the hireling follow-and-fight AI, but a
+ * player may field several, they cost mana to raise rather than gold to hire, and they crumble when
+ * slain instead of voiding a contract. Its combat profile + render sprite come from a `summonable`
+ * mob template ({@link MinionProfile}), so any flagged creature can be summoned.
+ */
+interface Minion {
+  id: number;
+  ownerId: number;
+  /** Resolved from the source mob template at summon time (re-resolved on the owner's level-up). */
+  profile: MinionProfile;
+  x: number;
+  y: number;
+  facing: number;
+  hp: number;
+  maxHp: number;
+  level: number;
+  power: number;
+  attackCd: number;
+  /** True for a TAMED PET: persistent (saved on the player, re-spawned across areas), excluded from
+   *  the summon cap, and clears `player.pet` when it dies. False for a transient summoned minion. */
+  persistent: boolean;
+}
+
+/**
  * The authoritative simulation for ONE area instance: players, monsters, projectiles, and
  * combat. Pure of any networking/timers so it is fully testable and could run in its own
  * process (the AreaServer model). Inputs/casts come in, the world advances by a fixed dt,
@@ -725,6 +814,11 @@ export class World {
   private readonly tradeSessions = new Map<number, TradeSession>();
   // Shrines for this area, lazily built from the area's 'shrine' decor (null = not yet built).
   private shrines: { x: number; y: number; readyAt: number }[] | null = null;
+  // Hazard zones (poison pools / lava cracks), lazily built from the area's hazard decor (null = not
+  // yet built). Each carries the resolved {@link HAZARDS} config for its kind.
+  private hazardZones:
+    | { x: number; y: number; effect: StatusId; dps: number; ms: number; radius: number }[]
+    | null = null;
   // Solid colliders for this area — rects (house walls, cliffs, ridges, barriers) AND circles
   // (round terrain: mountains, boulders). Lazily built from decor (null = not yet built).
   private blockerCache: Blockers | null = null;
@@ -743,6 +837,7 @@ export class World {
   private readonly players = new Map<number, Player>();
   private readonly mobs = new Map<number, Mob>();
   private readonly hirelings = new Map<number, Hireling>();
+  private readonly minions = new Map<number, Minion>();
   private readonly projectiles = new Map<number, Projectile>();
   private readonly items = new Map<number, GroundItem>();
   private readonly npcs = new Map<number, Npc>();
@@ -778,6 +873,9 @@ export class World {
    * host-level, spanning instances); solo by default.
    */
   private partyResolver: (playerId: number) => number[] = () => [];
+  // Host hook fired once per credited player kill (playerId, killed-mob level). The host uses it to
+  // feed guild progression; default no-op keeps the World standalone + testable.
+  private killHook: (playerId: number, mobLevel: number) => void = () => {};
   private readonly areaId: string;
   /** Area-wide corruption pool, shared across every instance of the area (host-owned). */
   private readonly areaCorruption: AreaCorruption;
@@ -823,12 +921,17 @@ export class World {
     xpBonus: 0,
   };
 
-  /** The instance's seeded RNG â€” the only randomness source inside the simulation. */
+  /** The instance's seeded RNG — the only randomness source inside the simulation. */
   private readonly rand: () => number;
 
   /** Inject the host's party lookup (co-members present in this instance) for shared kill credit. */
   setPartyResolver(fn: (playerId: number) => number[]): void {
     this.partyResolver = fn;
+  }
+
+  /** Host hook: called once per credited player kill with (playerId, killed-mob level). */
+  setKillHook(fn: (playerId: number, mobLevel: number) => void): void {
+    this.killHook = fn;
   }
 
   /** Current corruption (0..1) of this world's area. */
@@ -848,7 +951,7 @@ export class World {
 
   /** Populate the area's monsters. Called once by the instance manager after construction. */
   populateMobs(areaId: string): void {
-    // Dungeons are populated procedurally (random pack, elevated elites, a boss) â€” not from the
+    // Dungeons are populated procedurally (random pack, elevated elites, a boss) — not from the
     // fixed area_mobs roster. Each instance is a fresh roll, so re-entering re-rolls the dungeon.
     const dungeon = getContent().dungeon(areaId);
     if (dungeon) {
@@ -926,14 +1029,14 @@ export class World {
 
   /**
    * Roll a procedural dungeon: a random-sized pack drawn (with replacement) from the dungeon's pool
-   * at random positions and an elevated elite chance, plus the boss once and â€” sometimes â€” a bonus
+   * at random positions and an elevated elite chance, plus the boss once and — sometimes — a bonus
    * champion mini-boss. Mirrors the Diablo "every run is different" feel.
    */
   private populateDungeon(d: DungeonDef): void {
     const content = getContent();
-    // A rift tier packs the dungeon denser and rolls champions far more often â€” risk and reward
-    // both ramp with the tier the player chose at the Riftkeeper. The flat Ã—8 matches the
-    // world-scale roster bump (the floor is 25Ã— the ground; the packs grow with it).
+    // A rift tier packs the dungeon denser and rolls champions far more often — risk and reward
+    // both ramp with the tier the player chose at the Riftkeeper. The flat ×8 matches the
+    // world-scale roster bump (the floor is 25× the ground; the packs grow with it).
     const density = 8 * (1 + 0.15 * this.tier);
     const eliteChance = Math.min(0.6, d.eliteChance + 0.03 * this.tier);
     const base = d.minMobs + Math.floor(this.rand() * (d.maxMobs - d.minMobs + 1));
@@ -954,7 +1057,7 @@ export class World {
 
   /**
    * Spawn a sudden invasion wave: `count` forced-elite monsters drawn from the area's roster, ringed
-   * around a random living player â€” a spontaneous raid. Returns false if there's no one to invade.
+   * around a random living player — a spontaneous raid. Returns false if there's no one to invade.
    */
   spawnInvasion(areaId: string, count: number): boolean {
     const content = getContent();
@@ -974,7 +1077,7 @@ export class World {
         clamp(anchor.x + Math.cos(ang) * r, 0, this.width),
         clamp(anchor.y + Math.sin(ang) * r, 0, this.height),
         true, // forced elite
-        true, // invader â†’ slim corrupted-drop chance
+        true, // invader → slim corrupted-drop chance
       );
     }
     return true;
@@ -990,7 +1093,7 @@ export class World {
   ): void {
     const id = this.allocId();
     // Elite ("champion") roll: a rare, beefed-up variant with a modifier prefix. Bosses (very high
-    // HP) never roll elite â€” they are already special. Invasions force the elite flag. Dungeons pass
+    // HP) never roll elite — they are already special. Invasions force the elite flag. Dungeons pass
     // an elevated eliteChance, so tougher champions show up far more often inside them.
     const isBoss = template.hp >= 200;
     const elite = !isBoss && (forceElite || this.rand() < eliteChance);
@@ -1042,6 +1145,7 @@ export class World {
       elite,
       dmgMult: (mod ? mod.dmg : 1) * tierDmg * this.riftEffects.mobDamageMult,
       spdMult: (mod ? mod.spd : 1) * this.riftEffects.mobSpeedMult,
+      explodeDmg: mod ? mod.explodeDmg : 0,
       invader,
       alertUntil: 0,
     });
@@ -1058,6 +1162,7 @@ export class World {
       'banker',
       'recruiter',
       'riftkeeper',
+      'stable',
     ];
     for (const npc of getContent().npcs(areaId)) {
       const id = this.allocId();
@@ -1111,6 +1216,10 @@ export class World {
         maxTier: maxRiftTier(player.level),
         costBase: RIFT_COST_PER_TIER,
       });
+    } else if (hasNpcFlag(npc.flags, NpcFlags.STABLE)) {
+      // The Stablemaster sells mounts; the buy/ride flow runs through chat commands.
+      for (const line of this.mountStatus(player.id)) this.notify(player.id, line);
+      this.notify(player.id, 'Use /buymount <id> to buy, /mount <id> to ride.');
     } else {
       this.talkToQuestGiver(player);
     }
@@ -1275,7 +1384,7 @@ export class World {
 
   /**
    * Validate and pay for opening a rift at a tier: requires Riftkeeper proximity, a tier within
-   * the player's unlocked range, and the gold fee. Returns true when paid â€” the HOST then creates
+   * the player's unlocked range, and the gold fee. Returns true when paid — the HOST then creates
    * the fresh rift instance and transfers the player (see InstanceManager.openRift).
    */
   payForRift(id: number, tier: number): boolean {
@@ -1313,7 +1422,66 @@ export class World {
     player.hireling = { type };
     this.despawnHirelingOf(player.id);
     this.spawnHireling(player);
-    this.notify(player.id, `${template.name} hired â€” they will fight at your side.`);
+    this.notify(player.id, `${template.name} hired — they will fight at your side.`);
+  }
+
+  /**
+   * Buy a mount from a Stablemaster (proximity- + gold-gated, one-time permanent purchase). Returns
+   * a status line for the chat command. Re-buying an owned mount is refused (no double-charge).
+   */
+  buyMount(id: number, mountId: string): string {
+    const player = this.players.get(id);
+    if (!player || player.dead) return 'No character.';
+    const npc = this.nearbyNpc(player);
+    if (!npc || !hasNpcFlag(npc.flags, NpcFlags.STABLE)) {
+      return 'Find a Stablemaster to buy a mount.';
+    }
+    const def = getContent().mount(mountId);
+    if (!def) return `No such mount: ${mountId}`;
+    if (player.mounts.has(mountId)) return `You already own a ${def.name}.`;
+    if (player.gold < def.price) return `You need ${def.price}g for a ${def.name}.`;
+    player.gold -= def.price;
+    player.mounts.add(mountId);
+    return `Bought a ${def.name}! Use /mount ${mountId} to ride.`;
+  }
+
+  /**
+   * Toggle a mount on/off (the speed boost folds into movement via {@link mountMul}). With no id, or
+   * the active mount's id, you dismount. You can only ride a mount you own. Returns a status line.
+   */
+  toggleMount(id: number, mountId?: string): string {
+    const player = this.players.get(id);
+    if (!player || player.dead) return 'No character.';
+    if (!mountId || player.mount === mountId) {
+      player.mount = null;
+      return 'You dismount.';
+    }
+    if (!player.mounts.has(mountId)) return `You don't own that mount (buy one at a Stablemaster).`;
+    const def = getContent().mount(mountId);
+    if (!def) return `No such mount: ${mountId}`;
+    player.mount = mountId;
+    return `You mount the ${def.name}.`;
+  }
+
+  /** Chat lines for /mounts: owned mounts (active marked) + what a Stablemaster sells. */
+  mountStatus(id: number): string[] {
+    const player = this.players.get(id);
+    if (!player) return ['No character.'];
+    const lines: string[] = [];
+    const owned = getContent()
+      .mounts()
+      .filter((m) => player.mounts.has(m.id));
+    lines.push(owned.length ? 'Your mounts:' : 'You own no mounts yet.');
+    for (const m of owned) {
+      const active = player.mount === m.id ? ' (riding)' : '';
+      lines.push(`  ${m.name} [${m.id}] +${Math.round((m.speedMult - 1) * 100)}% speed${active}`);
+    }
+    lines.push('For sale at a Stablemaster:');
+    for (const m of getContent().mounts()) {
+      if (player.mounts.has(m.id)) continue;
+      lines.push(`  ${m.name} [${m.id}] — ${m.price}g, +${Math.round((m.speedMult - 1) * 100)}%`);
+    }
+    return lines;
   }
 
   /** Spawn the player's contracted hireling beside them (on hire, import, or area arrival). */
@@ -1341,6 +1509,194 @@ export class World {
   private despawnHirelingOf(ownerId: number): void {
     for (const h of this.hirelings.values()) {
       if (h.ownerId === ownerId) this.hirelings.delete(h.id);
+    }
+  }
+
+  /** How many SUMMONED minions a player controls (pets are persistent + excluded from the cap). */
+  private minionCountOf(ownerId: number): number {
+    let n = 0;
+    for (const m of this.minions.values()) if (m.ownerId === ownerId && !m.persistent) n++;
+    return n;
+  }
+
+  /**
+   * Raise a minion from the summonable creature `templateId` beside the caster (a `kind:'summon'`
+   * cast). Refused — with a notice — when the template is missing/not flagged `summonable`, or the
+   * owner is already at the minion cap.
+   */
+  private spawnMinion(owner: Player, templateId: string): void {
+    const template = getContent().mobTemplate(templateId);
+    if (!template?.summonable) return; // bad data or a non-summonable creature id
+    if (this.minionCountOf(owner.id) >= MAX_MINIONS_PER_OWNER) {
+      this.notify(owner.id, `You cannot control more than ${MAX_MINIONS_PER_OWNER} minions.`);
+      return;
+    }
+    this.spawnAlly(owner, minionFromTemplate(template, owner.level), false);
+  }
+
+  /**
+   * Spawn an ally combat entity (a summoned minion or a tamed pet) beside its owner. Pets are
+   * `persistent` (they don't count toward the summon cap and clearing player.pet on death). Returns
+   * the new entity's id.
+   */
+  private spawnAlly(owner: Player, profile: MinionProfile, persistent: boolean): number {
+    const id = this.allocId();
+    this.minions.set(id, {
+      id,
+      ownerId: owner.id,
+      profile,
+      x: clamp(owner.x + (this.rand() * 40 - 20), 0, this.width),
+      y: clamp(owner.y + (this.rand() * 40 - 20), 0, this.height),
+      facing: 0,
+      hp: profile.maxHp,
+      maxHp: profile.maxHp,
+      level: owner.level,
+      power: profile.power,
+      attackCd: 0,
+      persistent,
+    });
+    return id;
+  }
+
+  /**
+   * Tame a weakened wild beast into the caster's pet (the `kind:'tame'` ability). Captures the
+   * nearest `tameable` mob within range whose HP is at or below {@link TAME_HP_THRESHOLD} — weaken it
+   * first, then tame. One pet at a time. The mob is removed and re-spawned as a persistent ally.
+   */
+  private tameNearest(owner: Player, range: number): void {
+    if (owner.pet) {
+      this.notify(owner.id, 'You already have a pet — /pet dismiss to release it first.');
+      return;
+    }
+    let best: Mob | undefined;
+    let bestDist = range;
+    for (const mob of this.mobs.values()) {
+      if (mob.dead) continue;
+      const template = getContent().mobTemplate(mob.templateId);
+      if (!template?.tameable) continue;
+      if (mob.maxHp <= 0 || mob.hp / mob.maxHp > TAME_HP_THRESHOLD) continue; // not weak enough
+      const d = Math.hypot(mob.x - owner.x, mob.y - owner.y);
+      if (d <= bestDist) {
+        best = mob;
+        bestDist = d;
+      }
+    }
+    if (!best) {
+      this.notify(owner.id, 'No weakened tameable beast within reach. Wound one below 30% first.');
+      return;
+    }
+    const template = getContent().mobTemplate(best.templateId)!;
+    best.dead = true; // the wild creature leaves the world, captured
+    best.respawnAt = this.now + MOB_RESPAWN_MS;
+    owner.pet = { templateId: best.templateId, xp: 0, tier: 0 };
+    this.spawnAlly(owner, minionFromTemplate(template, owner.level), true);
+    this.notify(owner.id, `You tame the ${template.name}! It now fights at your side.`);
+  }
+
+  /** Re-spawn a player's saved pet beside them (on tame is direct; this is for area arrival/import). */
+  private spawnPet(owner: Player): void {
+    if (!owner.pet) return;
+    const template = getContent().mobTemplate(owner.pet.templateId);
+    if (!template) {
+      owner.pet = null;
+      return;
+    }
+    // Re-apply the earned bond-tier bonus so a returning pet keeps its grown stats.
+    const profile = this.scaleProfileForPet(
+      minionFromTemplate(template, owner.level),
+      owner.pet.tier,
+    );
+    this.spawnAlly(owner, profile, true);
+  }
+
+  /** Scale a pet's base profile by its bond tier (+PET_TIER_BONUS HP & power per tier). */
+  private scaleProfileForPet(profile: MinionProfile, tier: number): MinionProfile {
+    if (tier <= 0) return profile;
+    const mult = 1 + tier * PET_TIER_BONUS;
+    return {
+      ...profile,
+      maxHp: Math.round(profile.maxHp * mult),
+      power: Math.round(profile.power * mult),
+    };
+  }
+
+  /**
+   * Award bond XP to a player's pet for a kill it shared, climbing bond tiers. Each new tier rescales
+   * the live pet (granting only the HP increase — never a free heal). The final tier is its EVOLUTION.
+   * No-op once fully evolved. Called per credited killer that owns a pet.
+   */
+  private awardPetXp(owner: Player, mobLevel: number): void {
+    const pet = owner.pet;
+    if (!pet || pet.tier >= PET_MAX_TIER) return;
+    pet.xp += Math.max(1, mobLevel);
+    const newTier = Math.min(PET_MAX_TIER, Math.floor(pet.xp / PET_XP_PER_TIER));
+    if (newTier <= pet.tier) return;
+    pet.tier = newTier;
+    this.refreshPetStats(owner);
+    const name = getContent().mobTemplate(pet.templateId)?.name ?? 'pet';
+    if (newTier >= PET_MAX_TIER) {
+      owner.petsEvolved += 1; // lifetime tally — drives the beastmaster achievements
+      this.notify(owner.id, `Your ${name} has EVOLVED — fully bonded and far mightier!`);
+      this.checkAchievements(owner);
+    } else {
+      this.notify(owner.id, `Your ${name} reached bond level ${newTier}.`);
+    }
+  }
+
+  /** Recompute the live persistent pet's stats for the owner's current level + bond tier. Grants the
+   *  max-HP increase (no free full heal); preserves damage already taken. */
+  private refreshPetStats(owner: Player): void {
+    if (!owner.pet) return;
+    const template = getContent().mobTemplate(owner.pet.templateId);
+    if (!template) return;
+    const scaled = this.scaleProfileForPet(
+      minionFromTemplate(template, owner.level),
+      owner.pet.tier,
+    );
+    for (const m of this.minions.values()) {
+      if (m.ownerId !== owner.id || !m.persistent) continue;
+      m.profile = scaled;
+      const gain = Math.max(0, scaled.maxHp - m.maxHp);
+      m.maxHp = scaled.maxHp;
+      m.hp = Math.min(m.maxHp, m.hp + gain);
+      m.power = scaled.power;
+    }
+  }
+
+  /** Release the player's pet (the /pet dismiss command). Despawns the entity + clears the save. */
+  dismissPet(id: number): string {
+    const p = this.players.get(id);
+    if (!p) return 'No character.';
+    if (!p.pet) return 'You have no pet.';
+    const name = getContent().mobTemplate(p.pet.templateId)?.name ?? 'pet';
+    p.pet = null;
+    this.despawnPetOf(id);
+    return `You release your ${name}.`;
+  }
+
+  /** A player's pet status line (for /pet). */
+  petStatus(id: number): string {
+    const p = this.players.get(id);
+    if (!p) return 'No character.';
+    if (!p.pet) return 'You have no pet. Weaken a tameable beast and cast Tame.';
+    const name = getContent().mobTemplate(p.pet.templateId)?.name ?? p.pet.templateId;
+    if (p.pet.tier >= PET_MAX_TIER)
+      return `Your pet: ${name} — ★ EVOLVED (bond ${PET_MAX_TIER}, max).`;
+    const into = (p.pet.tier + 1) * PET_XP_PER_TIER;
+    return `Your pet: ${name} — bond level ${p.pet.tier} (${p.pet.xp}/${into} to next).`;
+  }
+
+  /** Remove the live persistent pet entity owned by a player (keeps player.pet for re-spawn). */
+  private despawnPetOf(ownerId: number): void {
+    for (const m of this.minions.values()) {
+      if (m.ownerId === ownerId && m.persistent) this.minions.delete(m.id);
+    }
+  }
+
+  /** Remove every minion owned by a player (on disconnect or area transfer — they don't follow). */
+  private despawnMinionsOf(ownerId: number): void {
+    for (const m of this.minions.values()) {
+      if (m.ownerId === ownerId) this.minions.delete(m.id);
     }
   }
 
@@ -1404,6 +1760,43 @@ export class World {
     const [inst] = player.stash.splice(idx, 1);
     if (inst) player.gear.push(inst);
     this.pushStash(player);
+  }
+
+  /** Mail: deduct `amount` gold from a player to attach to outgoing mail. False if they can't afford it. */
+  mailTakeGold(playerId: number, amount: number): boolean {
+    const p = this.players.get(playerId);
+    if (!p || amount < 0 || p.gold < amount) return false;
+    p.gold -= amount;
+    return true;
+  }
+
+  /** Mail: pull a bag gear instance out to attach to outgoing mail (returns it, or null if absent). */
+  mailTakeGear(playerId: number, uid: number): ItemInstance | null {
+    const p = this.players.get(playerId);
+    if (!p) return null;
+    const idx = p.gear.findIndex((g) => g.uid === uid);
+    if (idx < 0) return null;
+    return p.gear.splice(idx, 1)[0] ?? null;
+  }
+
+  /**
+   * Mail: deliver collected gold + an optional gear instance into a player's bag. Gold always lands;
+   * a gear item needs a free bag slot (else the whole delivery is refused so the mail can be kept).
+   * The item is re-issued a fresh uid to avoid colliding with this instance's live uid space.
+   */
+  mailDeliver(
+    playerId: number,
+    gold: number,
+    item: ItemInstance | null,
+  ): { ok: boolean; reason?: string } {
+    const p = this.players.get(playerId);
+    if (!p) return { ok: false, reason: 'No character.' };
+    if (item && p.gear.length >= MAX_BAG_GEAR) {
+      return { ok: false, reason: 'Your bag is full — make room and collect again.' };
+    }
+    this.creditGold(p, gold);
+    if (item) this.addGear(p, { ...item, uid: this.allocId() });
+    return { ok: true };
   }
 
   /**
@@ -1561,7 +1954,7 @@ export class World {
     player.gold -= ARTIFICER_REROLL_GOLD;
     this.consumeLoot(player, 'rune_shard');
     inst.affixes = inst.rarity === 'corrupted' ? rollCorruptedAffixes() : rollAffixes(inst.rarity);
-    this.notify(player.id, 'The Artificer reforges your gear â€” new powers emerge.');
+    this.notify(player.id, 'The Artificer reforges your gear — new powers emerge.');
   }
 
   /**
@@ -1590,7 +1983,7 @@ export class World {
 
   /**
    * Artificer: fuse GEMS_PER_COMBINE held gems of one kind into a single gem of the next tier (the
-   * Diablo gem-cube). Free â€” the gems are the cost. Upgrades the first eligible stack (stable order),
+   * Diablo gem-cube). Free — the gems are the cost. Upgrades the first eligible stack (stable order),
    * so repeated clicks work through a hoard. Re-validates artificer proximity server-side.
    */
   combineGems(id: number): void {
@@ -1616,7 +2009,7 @@ export class World {
 
   /**
    * Sell the player's whole bag (materials + gear) to a vendor for gold. Requires being next to a
-   * vendor â€” the open shop panel on a client grants nothing; proximity is re-checked here.
+   * vendor — the open shop panel on a client grants nothing; proximity is re-checked here.
    */
   sell(id: number): void {
     const player = this.players.get(id);
@@ -1634,7 +2027,7 @@ export class World {
     for (const inst of player.gear) gold += gearSellValue(inst);
     player.gear = [];
     if (gold <= 0) return;
-    player.gold += gold;
+    this.creditGold(player, gold);
     this.events.push({ kind: 'coin', x: player.x, y: player.y, value: gold });
   }
 
@@ -1668,7 +2061,7 @@ export class World {
 
   /**
    * A vendor's shown stock: its basic gear always, plus a rotating window of its spell tomes (so the
-   * shop never overflows), with prices scaled up. The window advances on a sim-time bucket â€” the
+   * shop never overflows), with prices scaled up. The window advances on a sim-time bucket — the
    * spell selection rotates over the session. Used for BOTH the shop panel and the buy check, so
    * what you see is exactly what you can buy, at that price.
    */
@@ -1721,7 +2114,7 @@ export class World {
 
   /**
    * Socket a held gem into the first equipped item with an open socket. Consumes one gem from the
-   * bag. Auto-targets so it's a single tap â€” no fiddly drag/drop. Server-authoritative: the gem
+   * bag. Auto-targets so it's a single tap — no fiddly drag/drop. Server-authoritative: the gem
    * must be held and a real gem, and there must be an open socket.
    */
   socketGem(id: number, gemId: string): void {
@@ -1743,7 +2136,7 @@ export class World {
         this.notify(
           player.id,
           rw
-            ? `Runeword formed â€” ${rw.name} on your ${itemName}!`
+            ? `Runeword formed — ${rw.name} on your ${itemName}!`
             : `Socketed into your ${itemName}.`,
         );
         return;
@@ -1756,6 +2149,11 @@ export class World {
   private addGear(player: Player, inst: ItemInstance): void {
     player.gear.push(inst);
     while (player.gear.length > MAX_BAG_GEAR) player.gear.shift();
+  }
+
+  /** Credit gold to a player's wallet, capped at MAX_GOLD (SEC-103). Non-positive amounts no-op. */
+  private creditGold(player: Player, amount: number): void {
+    if (amount > 0) player.gold = Math.min(MAX_GOLD, player.gold + amount);
   }
 
   /** Remove one unit of a stackable loot item, deleting the stack when it hits zero. */
@@ -1777,33 +2175,48 @@ export class World {
         return;
       }
     }
-    const next = quests.find((q) => !player.quests.has(q.id) && !player.questsDone.has(q.id));
+    const next = quests.find(
+      (q) =>
+        !player.quests.has(q.id) && !player.questsDone.has(q.id) && this.questUnlocked(player, q),
+    );
     if (next) {
       player.quests.set(next.id, 0);
       const ask = next.turnInItem
-        ? `${next.description} (bring ${next.turnInCount} â€” turn in here)`
-        : next.description;
-      this.notify(player.id, `Quest accepted: ${next.name} â€” ${ask}`);
+        ? `${next.description} (bring ${next.turnInCount} — turn in here)`
+        : next.exploreArea
+          ? `${next.description} (travel there to complete)`
+          : next.description;
+      this.notify(player.id, `Quest accepted: ${next.name} — ${ask}`);
+      // An explore quest for an already-visited area completes the instant it is offered.
+      if (next.exploreArea) this.progressExploreQuests(player);
       return;
     }
     const active = quests.find((q) => player.quests.has(q.id));
     if (active) {
       const got = active.turnInItem
         ? (player.loot.get(active.turnInItem) ?? 0)
-        : (player.quests.get(active.id) ?? 0);
-      const need = active.turnInItem ? active.turnInCount : active.targetCount;
+        : active.exploreArea
+          ? player.discovered.has(active.exploreArea)
+            ? 1
+            : 0
+          : (player.quests.get(active.id) ?? 0);
+      const need = active.turnInItem
+        ? active.turnInCount
+        : active.exploreArea
+          ? 1
+          : active.targetCount;
       this.notify(player.id, `In progress: ${active.name} (${Math.min(got, need)}/${need})`);
     } else {
-      this.notify(player.id, 'No new quests right now â€” well done, adventurer.');
+      this.notify(player.id, 'No new quests right now — well done, adventurer.');
     }
   }
 
-  /** Grant a quest's rewards, mark it done, and notify â€” shared by kill + collect completion. */
+  /** Grant a quest's rewards, mark it done, and notify — shared by kill + collect completion. */
   private completeQuest(player: Player, quest: QuestDef): void {
     player.quests.delete(quest.id);
     // A repeatable quest is never marked permanently done, so it can be taken again.
     if (!hasQuestFlag(quest.flags, QuestFlags.REPEATABLE)) player.questsDone.add(quest.id);
-    player.gold += quest.rewardGold;
+    this.creditGold(player, quest.rewardGold);
     player.xp += quest.rewardXp;
     player.level = levelForXp(player.xp);
     this.recomputeStats(player);
@@ -2135,7 +2548,7 @@ export class World {
       else if (a.stat === 'fork') forkAdd += a.value;
       else if (a.stat === 'spellaoe') spellAoe += a.value / 100;
     }
-    // Attribute bonuses (strengthâ†’power, vitalityâ†’maxHp, dexterityâ†’crit, energyâ†’mana regen).
+    // Attribute bonuses (strength→power, vitality→maxHp, dexterity→crit, energy→mana regen).
     const attr = attributeBonuses(player.attributes);
     power += attr.power;
     bonusHp += attr.maxHp;
@@ -2229,7 +2642,7 @@ export class World {
     const n = Math.max(1, Math.min(Math.floor(qty) || 1, 10_000));
     const base = asBaseItem(def);
     if (def.kind === 'currency') {
-      p.gold += n; // gold is the wallet, not a bag stack
+      this.creditGold(p, n); // gold is the wallet, not a bag stack
     } else if (base) {
       for (let i = 0; i < n; i++) this.addGear(p, rollItemInstance(this.allocId(), base));
     } else {
@@ -2364,6 +2777,23 @@ export class World {
     return true;
   }
 
+  /** Test seam: set ONLY a mob's current HP (clamped to its max), e.g. to stage a tame-ready beast. */
+  setMobHp(mobId: number, hp: number): boolean {
+    const mob = this.mobs.get(mobId);
+    if (!mob || mob.dead) return false;
+    mob.hp = Math.max(0, Math.min(hp, mob.maxHp));
+    return true;
+  }
+
+  /** Test seam: warp a mob to an exact world position (bypass the random placement in spawnMobAt). */
+  teleportMob(mobId: number, x: number, y: number): boolean {
+    const mob = this.mobs.get(mobId);
+    if (!mob || mob.dead) return false;
+    mob.x = x;
+    mob.y = y;
+    return true;
+  }
+
   /**
    * Test seam: directly set a player's ailment-scaling stats (fraction values; e.g. 0.5 = +50%).
    * Only usable in tests — production paths go through recomputeStats / gear affixes.
@@ -2444,6 +2874,7 @@ export class World {
       earnedAchievements: new Set(),
       kills: 0,
       bossKills: 0,
+      petsEvolved: 0,
       bestiary: new Set(),
       deathlessStreak: 0,
       bestDeathlessStreak: 0,
@@ -2455,6 +2886,10 @@ export class World {
       buffs: new StatusSet(),
       debuffs: new StatusSet(),
       hireling: null,
+      mounts: new Set(),
+      mount: null,
+      pvpFlagged: false,
+      pet: null,
       dead: false,
       respawnAt: 0,
     });
@@ -2489,12 +2924,16 @@ export class World {
       earnedAchievements: [...p.earnedAchievements],
       kills: p.kills,
       bossKills: p.bossKills,
+      petsEvolved: p.petsEvolved,
       bestiary: [...p.bestiary],
       deathlessStreak: p.deathlessStreak,
       bestDeathlessStreak: p.bestDeathlessStreak,
       known: [...p.known],
       discovered: [...p.discovered],
       hireling: p.hireling,
+      mounts: [...p.mounts],
+      mount: p.mount,
+      pet: p.pet,
     };
   }
 
@@ -2540,6 +2979,7 @@ export class World {
     p.earnedAchievements = new Set(save.earnedAchievements ?? []);
     p.kills = save.kills ?? 0;
     p.bossKills = save.bossKills ?? 0;
+    p.petsEvolved = save.petsEvolved ?? 0;
     p.bestiary = new Set(save.bestiary ?? []);
     p.deathlessStreak = save.deathlessStreak ?? 0;
     // Old saves without a record default it to the current streak so the ladder isn't under-counted.
@@ -2548,17 +2988,28 @@ export class World {
     // Carry visited areas across the transfer + always mark the area we just arrived in.
     p.discovered = new Set(save.discovered ?? []);
     p.discovered.add(this.areaId);
+    this.progressExploreQuests(p); // arriving here may complete an explore quest
     this.recomputeStats(p);
     p.hp = Math.min(save.hp, p.maxHp);
     p.mana = save.mana;
     // The mercenary contract crosses with the player; the companion respawns at their side.
     p.hireling = save.hireling ?? null;
     if (p.hireling) this.spawnHireling(p);
+    // Owned mounts + the active mount ride across area crossings (a mount is permanent).
+    p.mounts = new Set(save.mounts ?? []);
+    p.mount = save.mount ?? null;
+    // The tamed pet follows across areas — re-spawn it at the player's side in the new instance.
+    // Restore the pet + bond progress (xp/tier default to 0 on pre-bonding saves).
+    p.pet = save.pet
+      ? { templateId: save.pet.templateId, xp: save.pet.xp ?? 0, tier: save.pet.tier ?? 0 }
+      : null;
+    if (p.pet) this.spawnPet(p);
   }
 
   remove(id: number): void {
     this.endTradeFor(id); // drop any active trade so the partner isn't stuck "in trade"
     this.despawnHirelingOf(id);
+    this.despawnMinionsOf(id); // summoned skeletons crumble when their master leaves
     this.players.delete(id);
   }
 
@@ -2587,7 +3038,7 @@ export class World {
     const ability = getContent().ability(abilityId);
     if (!ability) return;
     // Loot = your build: you can only cast spells you have learned (from a spellbook). A hostile
-    // client cannot cast what it never learned â€” this is validated server-side, never on the wire.
+    // client cannot cast what it never learned — this is validated server-side, never on the wire.
     const rank = player.known.get(abilityId);
     if (rank === undefined) return;
     if ((player.cooldowns.get(abilityId) ?? 0) > 0 || player.mana < ability.manaCost) return;
@@ -2614,6 +3065,15 @@ export class World {
 
     if (ability.kind === 'heal') {
       player.hp = Math.min(player.maxHp, player.hp + ability.damage * rankMult);
+    } else if (ability.kind === 'summon') {
+      // Raise minion(s) per the ability's summon behavior, up to the per-owner cap.
+      const spec = (ability.behaviors ?? []).find((b) => b.type === 'summon');
+      if (spec && spec.type === 'summon') {
+        for (let i = 0; i < spec.count; i++) this.spawnMinion(player, spec.minion);
+      }
+    } else if (ability.kind === 'tame') {
+      // Capture the nearest weakened tameable beast in range as the caster's pet.
+      this.tameNearest(player, ability.range);
     } else if (ability.kind === 'melee') {
       const halfAngle = ability.meleeHalfAngle ?? 0.6;
       for (const mob of this.mobs.values()) {
@@ -2622,7 +3082,7 @@ export class World {
           const elem = ability.element ?? 'physical';
           const power =
             (ability.damage + player.power) * rankMult * mightMult * (1 + player.elemDamage[elem]);
-          const base = rollAbilityDamage(player.level, mob.level, power);
+          const base = rollAbilityDamage(player.level, mob.level, power, this.rand);
           const crit = base > 0 && rollCrit(this.rand, player.critChance);
           const dmg = applyCrit(base, crit);
           const finalDmg = resistedDamage(
@@ -2642,9 +3102,75 @@ export class World {
           }
         }
       }
+      // PvP: the same melee cone also strikes attackable players in a PvP zone (scaled down).
+      if (this.pvpEnabled()) {
+        const elem = ability.element ?? 'physical';
+        const raw =
+          (ability.damage + player.power) * rankMult * mightMult * (1 + player.elemDamage[elem]);
+        for (const victim of this.players.values()) {
+          if (!this.canHarmPlayer(player, victim)) continue;
+          if (
+            inMeleeCone(player.x, player.y, facing, victim.x, victim.y, ability.range, halfAngle)
+          ) {
+            this.applyPvpDamage(
+              player.id,
+              victim,
+              rollAbilityDamage(player.level, victim.level, raw, this.rand),
+            );
+          }
+        }
+      }
     } else {
-      const speed = ability.projectileSpeed ?? 300;
       const behaviors = ability.behaviors ?? [];
+
+      // --- Beam (hitscan) branch ---
+      // When an ability carries `{ type: 'beam' }`, skip projectile spawning entirely and instead
+      // trace an instant line from the caster. Every mob whose edge intersects the segment takes
+      // the full deterministic hit pipeline (same math as the melee branch above).
+      const beamSpec = behaviors.find((b) => b.type === 'beam');
+      if (beamSpec && beamSpec.type === 'beam') {
+        const elem = ability.element ?? 'physical';
+        const bx = player.x + Math.cos(facing) * beamSpec.range;
+        const by = player.y + Math.sin(facing) * beamSpec.range;
+        for (const mob of this.mobs.values()) {
+          if (mob.dead) continue;
+          if (
+            pointToSegmentDist(mob.x, mob.y, player.x, player.y, bx, by) <=
+            beamSpec.width + MOB_RADIUS
+          ) {
+            const power =
+              (ability.damage + player.power) *
+              rankMult *
+              mightMult *
+              (1 + player.elemDamage[elem]);
+            const base = rollAbilityDamage(player.level, mob.level, power, this.rand);
+            const crit = base > 0 && rollCrit(this.rand, player.critChance);
+            const dmg = applyCrit(base, crit);
+            const finalDmg = resistedDamage(
+              dmg,
+              elem,
+              getContent().mobResists(mob.templateId),
+              player.penetration,
+            );
+            this.damageMob(mob, finalDmg, abilityId, player.id, crit);
+            if (finalDmg > 0) {
+              applyStatus(mob, abilityId, {
+                durMult: 1 + player.ailmentDuration,
+                magMult: 1 + player.ailmentMagnitude,
+              });
+              const kbSpec = behaviors.find((b) => b.type === 'knockback');
+              if (kbSpec && kbSpec.type === 'knockback') {
+                this.knockbackMob(mob, player.x, player.y, kbSpec.px);
+              }
+            }
+          }
+        }
+        this.events.push({ kind: 'beam', x: player.x, y: player.y, x2: bx, y2: by, element: elem });
+        // Beam replaces projectile spawning — nothing more to do for this cast.
+        return;
+      }
+
+      const speed = ability.projectileSpeed ?? 300;
       // Multishot: the ability's `multishot` behavior OR the player's multishot stat (whichever is
       // larger) fans extra projectiles around the aim. Slice 2 adds gem-driven multishot.
       const ms = behaviors.find((b) => b.type === 'multishot');
@@ -2663,6 +3189,7 @@ export class World {
         },
       );
       const charges = initialCharges(carried);
+      const hasOrbit = carried.some((b) => b.type === 'orbit');
       for (let i = 0; i < count; i++) {
         const a = facing + (i - (count - 1) / 2) * spread;
         const pid = this.allocId();
@@ -2691,6 +3218,8 @@ export class World {
           piercesLeft: charges.piercesLeft,
           forksLeft: charges.forksLeft,
           damageScale: 1,
+          // Orbit projectiles start at the fan angle so multishot spreads evenly around the ring.
+          ...(hasOrbit ? { orbitAngle: a, orbitHits: new Map<number, number>() } : {}),
         });
       }
     }
@@ -2703,6 +3232,7 @@ export class World {
     this.tickPlayers(dt);
     this.tickMobs(dt);
     this.tickHirelings(dt);
+    this.tickMinions(dt);
     this.tickProjectiles(dt);
     this.tickItems(dt);
   }
@@ -2713,7 +3243,7 @@ export class World {
   }
 
   /**
-   * A player's effective movement multiplier: weather Ã— +move affix/gem Ã— HASTE buff Ã— enemy SLOW
+   * A player's effective movement multiplier: weather × +move affix/gem × HASTE buff × enemy SLOW
    * debuff. The same value is sent in the `you` packet so the client predictor integrates exactly
    * like this, keeping movement in sync (no rubber-banding) even when slowed/hasted/move-buffed.
    */
@@ -2723,8 +3253,15 @@ export class World {
       player.moveMult *
       player.debugSpeed *
       player.buffs.moveFactor() *
-      player.debuffs.slowFactor()
+      player.debuffs.slowFactor() *
+      this.mountMul(player)
     );
+  }
+
+  /** The active mount's move-speed multiplier (1 = on foot / unknown mount). */
+  private mountMul(player: Player): number {
+    if (!player.mount) return 1;
+    return getContent().mount(player.mount)?.speedMult ?? 1;
   }
 
   /**
@@ -2742,8 +3279,8 @@ export class World {
   }
 
   /**
-   * A monster's outgoing hit damage: base Ã— elite mult Ã— area corruption, scaled by its own status
-   * effects â€” a WEAKEN debuff cuts it, a MIGHT self-buff (from a War Cry support cast) raises it.
+   * A monster's outgoing hit damage: base × elite mult × area corruption, scaled by its own status
+   * effects — a WEAKEN debuff cuts it, a MIGHT self-buff (from a War Cry support cast) raises it.
    */
   /**
    * Co-op difficulty: each additional living player in the instance makes its monsters hit
@@ -2773,7 +3310,7 @@ export class World {
       scaleDamageForLevel(template.damage, mob.level, template.level, DAMAGE_LEVEL_CAP) *
       MOB_DMG_TUNING *
       this.coopDamageScale() *
-      // Enraged brutes (trait, below 35% HP) hit half again as hard â€” finish them or back off.
+      // Enraged brutes (trait, below 35% HP) hit half again as hard — finish them or back off.
       traitDamageMult(template.traits, mob.maxHp > 0 ? mob.hp / mob.maxHp : 1) *
       mob.dmgMult *
       this.corruptionDmg() *
@@ -2813,8 +3350,8 @@ export class World {
       // Root (stun / freeze): the player cannot move from input this tick; all other per-tick
       // housekeeping above (regen, debuff tick, cooldown drain) still runs normally.
       if ((dx !== 0 || dy !== 0) && !player.debuffs.rooted()) {
-        // Full effective speed (weather Ã— affix Ã— haste Ã— slow). The client predictor receives this
-        // same multiplier in the `you` packet, so the two stay in sync â€” no rubber-banding.
+        // Full effective speed (weather × affix × haste × slow). The client predictor receives this
+        // same multiplier in the `you` packet, so the two stay in sync — no rubber-banding.
         const speed = PLAYER_SPEED * this.playerMoveMul(player);
         const nx = clamp(player.x + dx * speed * dt, 0, this.width);
         const ny = clamp(player.y + dy * speed * dt, 0, this.height);
@@ -2834,6 +3371,7 @@ export class World {
         player.facing = Math.atan2(dy, dx);
       }
       this.checkShrines(player);
+      this.checkHazards(player);
       this.checkChests(player);
       this.checkPots(player);
       this.checkDens(player);
@@ -2866,6 +3404,33 @@ export class World {
     return this.shrines;
   }
 
+  /** The area's hazard zones, built once from its hazard decor (empty for areas with none). */
+  private hazardList(): {
+    x: number;
+    y: number;
+    effect: StatusId;
+    dps: number;
+    ms: number;
+    radius: number;
+  }[] {
+    if (this.hazardZones === null) {
+      const decor = getContent().area(this.areaId)?.decor ?? [];
+      this.hazardZones = decor
+        .filter((d) => HAZARDS[d.kind])
+        .map((d) => ({ x: d.x, y: d.y, ...HAZARDS[d.kind]! }));
+    }
+    return this.hazardZones;
+  }
+
+  /** Re-apply a short DoT debuff to a player standing in any hazard zone (poison pool / lava crack). */
+  private checkHazards(player: Player): void {
+    for (const h of this.hazardList()) {
+      if (Math.hypot(player.x - h.x, player.y - h.y) <= h.radius) {
+        player.debuffs.apply(h.effect, h.ms, h.dps);
+      }
+    }
+  }
+
   /** Bless a player who steps onto a charged shrine with a random timed buff, then recharge it. */
   private checkShrines(player: Player): void {
     const shrines = this.shrineList();
@@ -2877,13 +3442,13 @@ export class World {
       const buff = pool[Math.floor(this.rand() * pool.length)]!;
       player.buffs.apply(buff.buff, buff.ms, buff.magnitude);
       s.readyAt = this.now + SHRINE_COOLDOWN_MS;
-      this.notify(player.id, `A shrine blesses you â€” ${buff.label}.`);
+      this.notify(player.id, `A shrine blesses you — ${buff.label}.`);
       return; // one blessing per tick
     }
   }
 
   /**
-   * The area's chests, built once per instance: the authored 'chest' decor PLUS a random roll â€”
+   * The area's chests, built once per instance: the authored 'chest' decor PLUS a random roll —
    * every instance hides a few extra chests at fresh spots (dens always hold at least one), so
    * exploring the same zone twice still pays.
    */
@@ -2908,7 +3473,7 @@ export class World {
   }
 
   /**
-   * Den entrances for this instance, rolled ONCE lazily â€” the Diablo cellar loop. Every house
+   * Den entrances for this instance, rolled ONCE lazily — the Diablo cellar loop. Every house
    * footprint has a 50% chance of a cellar hatch in its interior, and open country (any
    * non-dungeon area with monsters) hides 2-4 dens at random spots. Each instance re-rolls, so
    * the world never reads the same twice.
@@ -2931,7 +3496,7 @@ export class World {
           for (let i = 0; i < count; i++) {
             const x = this.randomMobX();
             const y = this.randomMobY();
-            // Never within a screen of the arrival point â€” dens are found, not tripped over.
+            // Never within a screen of the arrival point — dens are found, not tripped over.
             if (Math.hypot(x - this.spawnPoint.x, y - this.spawnPoint.y) < 500) continue;
             this.dens.push({ id: this.allocId(), x, y, name: 'Hidden Den' });
           }
@@ -3046,8 +3611,9 @@ export class World {
       y: p.y,
       alive: !p.dead,
     }));
-    // Hirelings are valid monster targets too â€” a mob fights whoever is closest, ally included.
-    for (const h of this.hirelings.values()) views.push({ id: h.id, x: h.x, y: h.y, alive: true });
+    // Allies (hirelings + summoned minions) are valid monster targets too — a mob fights whoever is
+    // closest, ally included.
+    for (const a of this.allyTargets()) views.push({ id: a.id, x: a.x, y: a.y, alive: true });
 
     // Spatial index of living mobs (positions at tick start) so the per-mob "packmates nearby"
     // check is a local neighborhood query, not an O(mobs²) scan of the whole roster — the single
@@ -3065,7 +3631,7 @@ export class World {
 
       // Status effects: DoT (burn/ignite/poison/bleed) chips HP, regen heals; slow/haste scale movement.
       const { dotDamage, regenHeal } = mob.statuses.tick(dt * 1000);
-      if (dotDamage > 0) this.damageMob(mob, dotDamage, undefined, mob.lastAttacker);
+      if (dotDamage > 0) this.damageMob(mob, dotDamage, undefined, mob.lastAttacker, false, true);
       if (mob.dead) continue;
       if (regenHeal > 0) mob.hp = Math.min(mob.maxHp, mob.hp + regenHeal);
       // Hard CC: a stunned or frozen mob cannot move, attack, or cast this tick. DoT and regen
@@ -3110,11 +3676,11 @@ export class World {
               mob.dashHit.add(player.id);
             }
           }
-          for (const ally of this.hirelings.values()) {
+          for (const ally of this.allyTargets()) {
             if (mob.dashHit.has(ally.id)) continue;
             if (circlesOverlap(mob.x, mob.y, MOB_RADIUS, ally.x, ally.y, PLAYER_RADIUS)) {
-              mob.dashHit.add(ally.id); // mark BEFORE the hit â€” a kill deletes the hireling
-              this.damageHireling(ally, this.mobOutgoing(mob, template));
+              mob.dashHit.add(ally.id); // mark BEFORE the hit — a kill deletes the ally
+              ally.damage(this.mobOutgoing(mob, template));
             }
           }
           continue;
@@ -3122,7 +3688,7 @@ export class World {
       }
 
       // Attack wind-up: a telegraphed mob is rooted, facing its locked aim. The strike lands when
-      // the wind-up elapses â€” moving out of the way during it is how a player dodges.
+      // the wind-up elapses — moving out of the way during it is how a player dodges.
       if (mob.telegraphUntil > 0) {
         mob.facing = mob.telegraphFacing;
         if (this.now >= mob.telegraphUntil) {
@@ -3320,7 +3886,7 @@ export class World {
 
   /**
    * Advance every hireling: keep pace with the owner's level, heel to their side, and fight
-   * nearby monsters. Kill credit (XP, quests, corruption relief) flows to the OWNER â€” the
+   * nearby monsters. Kill credit (XP, quests, corruption relief) flows to the OWNER — the
    * hireling is a damage partner, never a separate progression track.
    */
   private tickHirelings(dt: number): void {
@@ -3387,7 +3953,7 @@ export class World {
             });
             this.events.push({ kind: 'cast', x: h.x, y: h.y, facing: h.facing });
           } else {
-            const dmg = rollAbilityDamage(h.level, mob.level, h.power);
+            const dmg = rollAbilityDamage(h.level, mob.level, h.power, this.rand);
             this.damageMob(mob, dmg, undefined, h.ownerId);
             this.events.push({ kind: 'melee', x: h.x, y: h.y, facing: h.facing });
           }
@@ -3411,6 +3977,134 @@ export class World {
         owner.hireling = null;
         this.notify(owner.id, `Your ${h.template.name} has fallen. Hire anew at the Recruiter.`);
       }
+    }
+  }
+
+  /**
+   * Advance every minion: keep pace with the summoner's level, heel to their side, and fight nearby
+   * monsters — the same pure {@link stepHireling} brain hirelings use. Kill credit (XP, quests,
+   * corruption relief) flows to the OWNER, and a minion whose owner is gone or dead is dismissed.
+   */
+  private tickMinions(dt: number): void {
+    for (const m of this.minions.values()) {
+      const owner = this.players.get(m.ownerId);
+      if (!owner || owner.dead) {
+        // Owner gone (disconnect/transfer): drop the entity. Owner merely dead: the ally idles in
+        // place (still targetable/killable by mobs) and resumes acting when the owner respawns.
+        if (!owner) this.minions.delete(m.id);
+        continue;
+      }
+      if (m.attackCd > 0) m.attackCd -= dt * 1000;
+
+      // Track the summoner's level so a raised minion stays relevant (re-resolve its profile from the
+      // source template at the new level, rescale + heal). Re-resolution keeps a buffed template live.
+      if (owner.level !== m.level) {
+        const template = getContent().mobTemplate(m.profile.templateId);
+        let fresh = template ? minionFromTemplate(template, owner.level) : null;
+        // A persistent pet also keeps its earned bond-tier bonus on top of the new owner-level base.
+        if (fresh && m.persistent && owner.pet)
+          fresh = this.scaleProfileForPet(fresh, owner.pet.tier);
+        if (fresh) m.profile = fresh;
+        m.level = owner.level;
+        // Raise the max HP and grant only the INCREASE — never a free full heal (which a player could
+        // cheese by letting a near-dead minion's HP refill on level-up). Damage taken is preserved.
+        const gain = Math.max(0, m.profile.maxHp - m.maxHp);
+        m.maxHp = m.profile.maxHp;
+        m.hp = Math.min(m.maxHp, m.hp + gain);
+        m.power = m.profile.power;
+      }
+
+      // Catch up instantly when hopelessly left behind (a respawn / long sprint).
+      if (Math.hypot(owner.x - m.x, owner.y - m.y) > 900) {
+        m.x = clamp(owner.x + 26, 0, this.width);
+        m.y = clamp(owner.y + 10, 0, this.height);
+      }
+
+      const targets = [...this.mobs.values()]
+        .filter((mob) => !mob.dead)
+        .map((mob) => ({ id: mob.id, x: mob.x, y: mob.y, alive: true }));
+      const intent = stepHireling(
+        { x: m.x, y: m.y, template: minionAiTemplate(m.profile), attackReady: m.attackCd <= 0 },
+        owner,
+        targets,
+      );
+      if (intent.facing !== null) m.facing = intent.facing;
+
+      if (intent.attackTargetId !== null) {
+        const mob = this.mobs.get(intent.attackTargetId);
+        if (mob && !mob.dead) {
+          m.attackCd = m.profile.attackCooldownMs;
+          if (m.profile.behavior === 'ranged') {
+            const speed = 360;
+            const pid = this.allocId();
+            this.projectiles.set(pid, {
+              id: pid,
+              abilityId: (m.profile.projectileAbility ?? 'arrow') as AbilityId,
+              x: m.x,
+              y: m.y,
+              vx: Math.cos(m.facing) * speed,
+              vy: Math.sin(m.facing) * speed,
+              ttl: 1600,
+              damage: m.power,
+              radius: 8,
+              ownerId: m.ownerId, // owner gets kill credit (and their lifesteal, if any)
+              ownerLevel: m.level,
+              critChance: 0,
+              hostile: false,
+              behaviors: [],
+              hitMobs: new Set<number>(),
+              bouncesLeft: 0,
+              piercesLeft: 0,
+              forksLeft: 0,
+              damageScale: 1,
+            });
+            this.events.push({ kind: 'cast', x: m.x, y: m.y, facing: m.facing });
+          } else {
+            const dmg = rollAbilityDamage(m.level, mob.level, m.power, this.rand);
+            this.damageMob(mob, dmg, undefined, m.ownerId);
+            this.events.push({ kind: 'melee', x: m.x, y: m.y, facing: m.facing });
+          }
+        }
+      } else if (intent.vx !== 0 || intent.vy !== 0) {
+        m.x = clamp(m.x + intent.vx * dt, 0, this.width);
+        m.y = clamp(m.y + intent.vy * dt, 0, this.height);
+      }
+    }
+  }
+
+  /** Damage a minion; at zero HP it crumbles. A tamed pet's death also clears the owner's saved pet. */
+  private damageMinion(m: Minion, amount: number): void {
+    m.hp -= amount;
+    this.events.push({ kind: 'hit', x: m.x, y: m.y, value: Math.ceil(amount) });
+    if (m.hp <= 0) {
+      this.events.push({ kind: 'death', x: m.x, y: m.y });
+      this.minions.delete(m.id);
+      if (m.persistent) {
+        const owner = this.players.get(m.ownerId);
+        if (owner?.pet) {
+          owner.pet = null;
+          this.notify(owner.id, 'Your pet has fallen. Tame another weakened beast.');
+        }
+      }
+    }
+  }
+
+  /**
+   * Every friendly combat ally (hirelings + summoned minions) as a uniform target, so the monster
+   * attack paths (target selection, melee, slam, cone, dash, hostile projectiles) damage both kinds
+   * without duplicating a per-Map loop at each site. `damage` routes to the right per-kind handler.
+   */
+  private *allyTargets(): Generator<{
+    id: number;
+    x: number;
+    y: number;
+    damage: (amount: number) => void;
+  }> {
+    for (const h of this.hirelings.values()) {
+      yield { id: h.id, x: h.x, y: h.y, damage: (a) => this.damageHireling(h, a) };
+    }
+    for (const m of this.minions.values()) {
+      yield { id: m.id, x: m.x, y: m.y, damage: (a) => this.damageMinion(m, a) };
     }
   }
 
@@ -3473,9 +4167,9 @@ export class World {
           this.damagePlayer(player, this.mobOutgoing(mob, template));
         }
       }
-      for (const ally of this.hirelings.values()) {
+      for (const ally of this.allyTargets()) {
         if (Math.hypot(ally.x - mob.x, ally.y - mob.y) <= template.slamRadius + PLAYER_RADIUS) {
-          this.damageHireling(ally, this.mobOutgoing(mob, template));
+          ally.damage(this.mobOutgoing(mob, template));
         }
       }
       this.events.push({ kind: 'slam', x: mob.x, y: mob.y, radius: template.slamRadius });
@@ -3486,9 +4180,14 @@ export class World {
     if (target && !target.dead && Math.hypot(target.x - mob.x, target.y - mob.y) <= reach) {
       this.damagePlayer(target, this.mobOutgoing(mob, template));
     } else {
-      const ally = this.hirelings.get(mob.telegraphTargetId);
-      if (ally && Math.hypot(ally.x - mob.x, ally.y - mob.y) <= reach) {
-        this.damageHireling(ally, this.mobOutgoing(mob, template));
+      for (const ally of this.allyTargets()) {
+        if (
+          ally.id === mob.telegraphTargetId &&
+          Math.hypot(ally.x - mob.x, ally.y - mob.y) <= reach
+        ) {
+          ally.damage(this.mobOutgoing(mob, template));
+          break;
+        }
       }
     }
     this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
@@ -3536,7 +4235,7 @@ export class World {
           applyPlayerDebuff(player, abilityId);
         }
       }
-      for (const ally of this.hirelings.values()) {
+      for (const ally of this.allyTargets()) {
         const hit = inMeleeCone(
           mob.x,
           mob.y,
@@ -3546,7 +4245,7 @@ export class World {
           ability.range,
           halfAngle,
         );
-        if (hit) this.damageHireling(ally, dmg);
+        if (hit) ally.damage(dmg);
       }
       this.events.push({ kind: 'melee', x: mob.x, y: mob.y, facing: mob.telegraphFacing });
       return;
@@ -3624,12 +4323,27 @@ export class World {
         proj.damageScale *= ret.falloff;
       }
 
-      proj.x += proj.vx * dt;
-      proj.y += proj.vy * dt;
+      // Orbit: position is owner-relative, not velocity-driven. Non-orbit projectiles use vx/vy.
+      const orbitBehavior = proj.behaviors.find((b) => b.type === 'orbit');
+      if (orbitBehavior && orbitBehavior.type === 'orbit') {
+        const owner = this.players.get(proj.ownerId);
+        // Orbit dies with its owner: gone OR dead (a corpse shouldn't keep sweeping blades).
+        if (!owner || owner.dead) {
+          this.projectiles.delete(proj.id);
+          continue;
+        }
+        proj.orbitAngle = (proj.orbitAngle ?? 0) + orbitBehavior.angularSpeed * dt;
+        proj.x = owner.x + Math.cos(proj.orbitAngle) * orbitBehavior.radius;
+        proj.y = owner.y + Math.sin(proj.orbitAngle) * orbitBehavior.radius;
+      } else {
+        proj.x += proj.vx * dt;
+        proj.y += proj.vy * dt;
+      }
       proj.ttl -= dt * 1000;
 
-      // Walls stop shots: nobody (player, mob, or hireling) shoots through a house.
-      if (pointInAnyBlocker(proj.x, proj.y, this.blockers())) {
+      // Walls stop normal shots — but orbit projectiles circle the owner (owner-relative position)
+      // so passing through a wall tile is not meaningful; skip the blocker-delete for them.
+      if (!orbitBehavior && pointInAnyBlocker(proj.x, proj.y, this.blockers())) {
         this.projectiles.delete(proj.id);
         continue;
       }
@@ -3649,14 +4363,37 @@ export class World {
           }
         }
         if (!consumed) {
-          for (const ally of this.hirelings.values()) {
+          for (const ally of this.allyTargets()) {
             if (circlesOverlap(proj.x, proj.y, proj.radius, ally.x, ally.y, PLAYER_RADIUS)) {
-              this.damageHireling(ally, proj.damage);
+              ally.damage(proj.damage);
               consumed = true;
               break;
             }
           }
         }
+      } else if (orbitBehavior) {
+        // Orbit hit: scan ALL living mobs each tick; hit each one independently when its per-target
+        // cooldown has expired. Never consume the projectile — it lives until TTL.
+        const orbitHits = proj.orbitHits ?? new Map<number, number>();
+        // Prune expired cooldowns so the map can't grow unbounded over a long-lived orbit (an
+        // expired entry means "off cooldown", identical to being absent — safe to drop).
+        for (const [id, until] of orbitHits) if (until <= this.now) orbitHits.delete(id);
+        for (const mob of this.mobs.values()) {
+          if (mob.dead) continue;
+          if ((orbitHits.get(mob.id) ?? 0) > this.now) continue; // still on cooldown
+          if (!circlesOverlap(proj.x, proj.y, proj.radius, mob.x, mob.y, MOB_RADIUS)) continue;
+          // Hit this mob and start its re-hit cooldown.
+          orbitHits.set(mob.id, this.now + ORBIT_REHIT_MS);
+          this.applyProjectileDamage(proj, mob, proj.damageScale);
+          // Respect a co-present knockback behavior on orbit projectiles.
+          const kb = proj.behaviors.find((b) => b.type === 'knockback');
+          if (kb && kb.type === 'knockback') this.knockbackMob(mob, proj.x, proj.y, kb.px);
+        }
+        proj.orbitHits = orbitHits;
+        // consumed stays false — orbit persists until TTL.
+      } else if (this.pvpEnabled() && this.pvpProjectileHit(proj)) {
+        // PvP: a player's direct projectile struck an attackable player — consume it (no mob pass).
+        consumed = true;
       } else {
         let hit: Mob | undefined;
         for (const mob of this.mobs.values()) {
@@ -3758,7 +4495,7 @@ export class World {
 
   /** Roll + apply one projectile damage instance to a mob (crit, element resist, status), scaled. */
   private applyProjectileDamage(proj: Projectile, mob: Mob, scale: number): void {
-    const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage * scale);
+    const base = rollAbilityDamage(proj.ownerLevel, mob.level, proj.damage * scale, this.rand);
     const crit = base > 0 && rollCrit(this.rand, proj.critChance);
     const dmg = applyCrit(base, crit);
     const owner = this.players.get(proj.ownerId);
@@ -3835,6 +4572,7 @@ export class World {
     abilityId: AbilityId | undefined,
     attackerId: number,
     crit = false,
+    silent = false,
   ): void {
     // Scale by the mob's incoming-damage multiplier (shock/brittle/curse → >1; default 1 = no-op).
     amount = amount * mob.statuses.vulnFactor();
@@ -3845,8 +4583,13 @@ export class World {
       // Start the soft-enrage clock the first time a scripted boss is engaged.
       if (mob.engagedAt === undefined && BOSS_SCRIPTS[mob.templateId]) mob.engagedAt = this.now;
     }
+    const hpBefore = mob.hp;
     mob.hp -= amount;
-    // A hurt monster is ALERTED (extended aggro reach â€” it hunts rather than idles), and a
+    // Effective (non-overkill) damage: a 1000 hit on a 5-HP mob only "did" 5. Lifesteal and the
+    // floating damage number bill the effective amount, not the overkill, so a big hit on a sliver
+    // of HP can't over-heal the attacker or show an inflated number.
+    const effective = Math.min(amount, Math.max(0, hpBefore));
+    // A hurt monster is ALERTED (extended aggro reach — it hunts rather than idles), and a
     // pack hunter calls for help: same-template packmates in earshot join the alert.
     mob.alertUntil = this.now + 8000;
     if (isPackish(getContent().mobTemplate(mob.templateId)?.traits)) {
@@ -3859,17 +4602,22 @@ export class World {
     }
     // Life steal: the attacker heals for a fraction of the damage they just dealt.
     const attacker = this.players.get(attackerId);
-    if (attacker && !attacker.dead && attacker.lifesteal > 0 && amount > 0) {
-      attacker.hp = Math.min(attacker.maxHp, attacker.hp + amount * attacker.lifesteal);
+    if (attacker && !attacker.dead && attacker.lifesteal > 0 && effective > 0) {
+      attacker.hp = Math.min(attacker.maxHp, attacker.hp + effective * attacker.lifesteal);
     }
-    const hit: FxEvent = { kind: 'hit', x: mob.x, y: mob.y, value: Math.ceil(amount) };
-    if (abilityId !== undefined) hit.abilityId = abilityId;
-    if (crit) hit.crit = true;
-    this.events.push(hit);
+    // DoT ticks pass silent=true (mirrors damagePlayer) so a burning mob doesn't spew a damage
+    // number every server tick; the burst hits that caused the DoT already showed theirs.
+    if (!silent) {
+      const hit: FxEvent = { kind: 'hit', x: mob.x, y: mob.y, value: Math.ceil(effective) };
+      if (abilityId !== undefined) hit.abilityId = abilityId;
+      if (crit) hit.crit = true;
+      this.events.push(hit);
+    }
     if (mob.hp <= 0) {
       mob.dead = true;
       mob.respawnAt = this.now + MOB_RESPAWN_MS;
       this.events.push({ kind: 'death', x: mob.x, y: mob.y });
+      if (mob.explodeDmg > 0) this.detonateMob(mob);
       this.onMobKilled(mob);
     } else if (
       this.procDepth === 0 &&
@@ -3900,6 +4648,32 @@ export class World {
         if (mob.dead) break;
       }
       this.procDepth--;
+    }
+  }
+
+  /**
+   * A Volatile elite detonates on death: every living player within {@link EXPLODE_RADIUS} of the
+   * corpse takes a burst equal to the mob's normal hit times its `explodeDmg` multiplier. A 'slam'
+   * FX rings the blast (reusing the existing impact-ring renderer — no new client art). Players only:
+   * the blast never chains into other mobs, so a Volatile champion can't wipe its own pack.
+   */
+  private detonateMob(mob: Mob): void {
+    const template = getContent().mobTemplate(mob.templateId);
+    if (!template) return;
+    const blast = this.mobOutgoing(mob, template) * mob.explodeDmg;
+    if (blast <= 0) return;
+    this.events.push({
+      kind: 'slam',
+      x: mob.x,
+      y: mob.y,
+      radius: EXPLODE_RADIUS,
+      value: EXPLODE_RADIUS,
+    });
+    for (const player of this.players.values()) {
+      if (player.dead) continue;
+      if (Math.hypot(player.x - mob.x, player.y - mob.y) <= EXPLODE_RADIUS) {
+        this.damagePlayer(player, blast);
+      }
     }
   }
 
@@ -4010,7 +4784,7 @@ export class World {
     if (this.rand() < bookChance) this.dropSpellbook(mob.x, mob.y);
 
     // Gems are loot too: an independent roll (elites/bosses far likelier), tier-weighted toward
-    // chipped. A socketed gem is a small, stackable build bonus â€” the "loot = your build" layer.
+    // chipped. A socketed gem is a small, stackable build bonus — the "loot = your build" layer.
     const gemChance = isBoss ? GEM_DROP_BOSS : mob.elite ? GEM_DROP_ELITE : GEM_DROP_NORMAL;
     if (this.rand() < gemChance) this.dropGround(rollGemDrop(), 1, mob.x, mob.y);
 
@@ -4148,8 +4922,14 @@ export class World {
     if (!quest) return `No such quest: ${questId}`;
     if (player.questsDone.has(questId)) return `Already completed: ${quest.name}`;
     if (player.quests.has(questId)) return `Already on quest: ${quest.name}`;
+    if (!this.questUnlocked(player, quest)) {
+      const req = getContent().quest(quest.requires!);
+      return `Locked: complete "${req?.name ?? quest.requires}" first.`;
+    }
     player.quests.set(questId, 0);
-    return `Quest accepted: ${quest.name} â€” ${quest.description}`;
+    // An explore quest for an area the player has already visited completes the moment it is taken.
+    if (quest.exploreArea) this.progressExploreQuests(player);
+    return `Quest accepted: ${quest.name} — ${quest.description}`;
   }
 
   /** Human-readable quest log lines (available + in-progress + done). */
@@ -4159,11 +4939,21 @@ export class World {
     return getContent()
       .quests()
       .map((q) => {
-        if (player.questsDone.has(q.id)) return `âœ“ ${q.name} (done)`;
+        if (player.questsDone.has(q.id)) return `✓ ${q.name} (done)`;
         if (player.quests.has(q.id)) {
-          return `â–¸ ${q.name}: ${player.quests.get(q.id)}/${q.targetCount} â€” ${q.description}`;
+          const got = q.exploreArea
+            ? player.discovered.has(q.exploreArea)
+              ? 1
+              : 0
+            : (player.quests.get(q.id) ?? 0);
+          const need = q.exploreArea ? 1 : q.targetCount;
+          return `▸ ${q.name}: ${got}/${need} — ${q.description}`;
         }
-        return `Â· ${q.name} [${q.id}] â€” /accept ${q.id}`;
+        if (!this.questUnlocked(player, q)) {
+          const req = getContent().quest(q.requires!);
+          return `(locked) ${q.name} - requires "${req?.name ?? q.requires}"`;
+        }
+        return `· ${q.name} [${q.id}] — /accept ${q.id}`;
       });
   }
 
@@ -4176,23 +4966,38 @@ export class World {
           ? 'done'
           : player.quests.has(q.id)
             ? 'active'
-            : 'available';
+            : this.questUnlocked(player, q)
+              ? 'available'
+              : 'locked';
         const collect = !!q.turnInItem;
-        // Collect quests show how many of the item the player currently holds; kill quests show kills.
-        const progress = collect
-          ? Math.min(player.loot.get(q.turnInItem!) ?? 0, q.turnInCount)
-          : (player.quests.get(q.id) ?? 0);
+        const explore = !!q.exploreArea;
+        const kind = explore
+          ? ('explore' as const)
+          : collect
+            ? ('collect' as const)
+            : ('kill' as const);
+        // Explore quests are a single binary objective (0/1 = arrived); collect quests show how many
+        // of the item the player currently holds; kill quests show kills so far.
+        const progress = explore
+          ? player.discovered.has(q.exploreArea!)
+            ? 1
+            : 0
+          : collect
+            ? Math.min(player.loot.get(q.turnInItem!) ?? 0, q.turnInCount)
+            : (player.quests.get(q.id) ?? 0);
         return {
           id: q.id,
           name: q.name,
           description: q.description,
-          kind: collect ? ('collect' as const) : ('kill' as const),
-          targetCount: collect ? q.turnInCount : q.targetCount,
+          kind,
+          targetCount: explore ? 1 : collect ? q.turnInCount : q.targetCount,
           progress,
           status,
           rewardGold: q.rewardGold,
           rewardXp: q.rewardXp,
           rewardItem: q.rewardItem,
+          requiresName:
+            status === 'locked' ? (getContent().quest(q.requires!)?.name ?? q.requires) : null,
         };
       });
   }
@@ -4221,6 +5026,10 @@ export class World {
     p.deathlessStreak += 1; // climbs with every kill; a death snaps it back to 0
     if (p.deathlessStreak > p.bestDeathlessStreak) p.bestDeathlessStreak = p.deathlessStreak; // record
     this.recomputeStats(p);
+    const mobLevel = getContent().mobTemplate(mobTemplateId)?.level ?? 1;
+    // A pet at the owner's side shares in the kill, earning bond XP toward its next tier / evolution.
+    if (p.pet) this.awardPetXp(p, mobLevel);
+    this.killHook(playerId, mobLevel); // host hook: feeds guild progression
     this.progressQuests(p, mobTemplateId);
     this.checkAchievements(p);
   }
@@ -4236,6 +5045,7 @@ export class World {
         gold: player.gold,
         kills: player.kills,
         bossKills: player.bossKills,
+        petsEvolved: player.petsEvolved,
         bestiary: player.bestiary.size,
         deathless: player.deathlessStreak,
         quests: player.questsDone.size,
@@ -4257,6 +5067,7 @@ export class World {
       gold: p.gold,
       kills: p.kills,
       bossKills: p.bossKills,
+      petsEvolved: p.petsEvolved,
       bestiary: p.bestiary.size,
       deathless: p.deathlessStreak,
       quests: p.questsDone.size,
@@ -4283,11 +5094,32 @@ export class World {
     const content = getContent();
     for (const [questId, kills] of player.quests) {
       const quest = content.quest(questId);
-      // Only kill quests auto-progress here; collect quests are turned in at a quest-giver.
-      if (!quest || quest.turnInItem || quest.targetMob !== mobTemplateId) continue;
+      // Only kill quests auto-progress here; collect/explore quests complete via their own paths.
+      if (!quest || quest.turnInItem || quest.exploreArea || quest.targetMob !== mobTemplateId)
+        continue;
       const next = kills + 1;
       if (next >= quest.targetCount) this.completeQuest(player, quest);
       else player.quests.set(questId, next);
+    }
+  }
+
+  /** True if a quest's chain prerequisite (if any) is satisfied — i.e. it can be offered/accepted. */
+  private questUnlocked(player: Player, quest: QuestDef): boolean {
+    return !quest.requires || player.questsDone.has(quest.requires);
+  }
+
+  /**
+   * Complete any active explore quest whose target area the player has now discovered. Called when
+   * the discovered set grows (area transfer) and when a quest is accepted (so an explore quest for an
+   * already-visited area resolves at once). Iterates a copy of the keys since completion mutates the
+   * map. Idempotent: a quest already moved to questsDone is no longer in `player.quests`.
+   */
+  private progressExploreQuests(player: Player): void {
+    const content = getContent();
+    for (const questId of [...player.quests.keys()]) {
+      const quest = content.quest(questId);
+      if (!quest?.exploreArea) continue;
+      if (player.discovered.has(quest.exploreArea)) this.completeQuest(player, quest);
     }
   }
 
@@ -4314,7 +5146,7 @@ export class World {
             if (player.hp >= player.maxHp) continue;
             this.collectHealthGlobe(player);
           } else if (item.itemId === 'gold') {
-            player.gold += item.qty;
+            this.creditGold(player, item.qty);
             this.events.push({ kind: 'coin', x: item.x, y: item.y, value: item.qty });
           } else if (item.instance) {
             this.addGear(player, item.instance);
@@ -4358,6 +5190,68 @@ export class World {
     this.events.push({ kind: 'heal', x: player.x, y: player.y, value: Math.round(healed) });
   }
 
+  /** This area's PvP ruleset (defaults to 'safe' for areas without an `area_pvp` row). */
+  private pvpRule(): PvpRule {
+    return getContent().area(this.areaId)?.pvp ?? 'safe';
+  }
+
+  /** True if this area allows ANY player-vs-player damage (a cheap guard before per-player checks). */
+  private pvpEnabled(): boolean {
+    return this.pvpRule() !== 'safe';
+  }
+
+  /**
+   * Whether `attacker` may harm `victim` here: never yourself / the dead / a god-mode player; in a
+   * 'hostile' area anyone is fair game; in 'contested' BOTH must have opted in via /pvp.
+   */
+  private canHarmPlayer(attacker: Player, victim: Player): boolean {
+    if (attacker.id === victim.id || attacker.dead || victim.dead || victim.god) return false;
+    const rule = this.pvpRule();
+    if (rule === 'hostile') return true;
+    if (rule === 'contested') return attacker.pvpFlagged && victim.pvpFlagged;
+    return false;
+  }
+
+  /**
+   * Apply a PvP hit: raw ability/projectile damage scaled by {@link PVP_DAMAGE_SCALE} (so duels last),
+   * routed through {@link damagePlayer} (which honors armor/vuln/god). Announces a kill to both parties.
+   */
+  private applyPvpDamage(attackerId: number, victim: Player, raw: number): void {
+    if (raw <= 0) return;
+    const wasDead = victim.dead;
+    this.damagePlayer(victim, raw * PVP_DAMAGE_SCALE);
+    if (!wasDead && victim.dead) {
+      const killer = this.players.get(attackerId);
+      const slayer = killer?.name ?? 'someone';
+      this.notify(victim.id, `You were slain by ${slayer}.`);
+      if (killer) this.notify(killer.id, `You slew ${victim.name}!`);
+    }
+  }
+
+  /** PvP: a player-owned projectile striking the first attackable player it overlaps (true if it hit). */
+  private pvpProjectileHit(proj: Projectile): boolean {
+    const attacker = this.players.get(proj.ownerId);
+    if (!attacker) return false;
+    for (const victim of this.players.values()) {
+      if (!this.canHarmPlayer(attacker, victim)) continue;
+      if (circlesOverlap(proj.x, proj.y, proj.radius, victim.x, victim.y, PLAYER_RADIUS)) {
+        this.applyPvpDamage(proj.ownerId, victim, proj.damage * proj.damageScale);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Toggle the caster's PvP opt-in flag (the /pvp command). Returns the new state's message. */
+  togglePvp(id: number): string {
+    const p = this.players.get(id);
+    if (!p) return 'No character.';
+    p.pvpFlagged = !p.pvpFlagged;
+    return p.pvpFlagged
+      ? 'PvP enabled — you can now fight (and be fought by) other flagged players in contested zones.'
+      : 'PvP disabled — you are no longer flagged for player combat.';
+  }
+
   private damagePlayer(player: Player, amount: number, silent = false): void {
     if (player.god) return;
     // Scale by the player's incoming-damage multiplier (shock/brittle/curse → >1; default 1 = no-op).
@@ -4374,7 +5268,7 @@ export class World {
       player.deathlessStreak = 0; // a death ends the streak
       player.respawnAt = this.now + PLAYER_RESPAWN_MS;
       this.events.push({ kind: 'death', x: player.x, y: player.y });
-      // Every player's death feeds the shared area-wide corruption â€” darker and deadlier for all.
+      // Every player's death feeds the shared area-wide corruption — darker and deadlier for all.
       this.areaCorruption.addDeath(this.areaId);
     }
   }
@@ -4394,7 +5288,7 @@ export class World {
     const template = getContent().mobTemplate(mob.templateId)!;
     mob.dead = false;
     mob.hp = template.hp;
-    // Re-randomize the respawn position (and update its home) so the world doesn't feel static â€”
+    // Re-randomize the respawn position (and update its home) so the world doesn't feel static —
     // cleared ground refills somewhere new rather than the exact same spots every time.
     mob.x = this.randomMobX();
     mob.y = this.randomMobY();
@@ -4459,6 +5353,28 @@ export class World {
       if (hTint) e.tint = hTint;
       out.push(e);
     }
+    // Summoned minions render as their SOURCE creature (kind 'mob' picks the sprite by name) but
+    // carry `friendly: true` so the client draws a green ally health bar instead of the enemy red.
+    for (const m of this.minions.values()) {
+      const e: EntityState = {
+        id: m.id,
+        x: m.x,
+        y: m.y,
+        name: m.profile.name,
+        hue: 40,
+        kind: 'mob',
+        facing: m.facing,
+        hp: Math.ceil(m.hp),
+        maxHp: m.maxHp,
+        level: m.level,
+        friendly: true,
+      };
+      // Tamed pets carry their bond tier so the client can mark a bonded/evolved companion.
+      if (m.persistent) e.petTier = this.players.get(m.ownerId)?.pet?.tier ?? 0;
+      const mTint = getContent().spriteTint(`mob:${m.profile.templateId}`);
+      if (mTint) e.tint = mTint;
+      out.push(e);
+    }
     for (const m of this.mobs.values()) {
       if (m.dead) continue;
       // Build the full status bitfield for the mob: loop every STATUS_BITS entry (skip enrage —
@@ -4484,7 +5400,7 @@ export class World {
       if (flags > 0) mob.flags = flags;
       if (m.elite) mob.elite = true;
       if (m.taggers.size > 0) mob.tagged = true; // claimed/engaged — others can still pile in
-      // SQL sprite color override ('mob:<templateId>') â€” one sprite source, many variations.
+      // SQL sprite color override ('mob:<templateId>') — one sprite source, many variations.
       const mobTint = getContent().spriteTint(`mob:${m.templateId}`);
       if (mobTint) mob.tint = mobTint;
       out.push(mob);
@@ -4568,7 +5484,7 @@ export class World {
       });
     }
     for (const pot of this.potList()) {
-      if (pot.broken) continue; // a smashed pot is gone â€” it simply leaves the snapshot
+      if (pot.broken) continue; // a smashed pot is gone — it simply leaves the snapshot
       out.push({
         id: pot.id,
         x: pot.x,
@@ -4637,7 +5553,7 @@ export class World {
         x: number;
         y: number;
         ackSeq: number;
-        /** Effective move multiplier â€” the client predictor integrates with this to stay in sync. */
+        /** Effective move multiplier — the client predictor integrates with this to stay in sync. */
         moveMul: number;
         kills: number;
         bossKills: number;
@@ -4718,7 +5634,7 @@ export class World {
     return this.players.size;
   }
 
-  /** All player ids in this instance (including dead/respawning) â€” for snapshot + chat routing. */
+  /** All player ids in this instance (including dead/respawning) — for snapshot + chat routing. */
   playerIds(): number[] {
     return [...this.players.keys()];
   }
@@ -4737,12 +5653,13 @@ function rollAbilityDamage(
   attackerLevel: number,
   defenderLevel: number,
   baseDamage: number,
+  rng: () => number = Math.random,
 ): number {
   const atk = attackRoll(attackerLevel, 8); // small inherent accuracy so early hits mostly land
   const def = defenceRoll(defenderLevel);
-  if (!rolledHit(atk, def)) return 0;
+  if (!rolledHit(atk, def, rng)) return 0;
   const half = Math.ceil(baseDamage * 0.5);
-  return half + rollDamage(baseDamage - half);
+  return half + rollDamage(baseDamage - half, rng);
 }
 
 /**
@@ -4773,13 +5690,20 @@ function applyPlayerDebuff(player: { debuffs: StatusSet }, abilityId: AbilityId)
 }
 
 function sanitizeName(name: string): string {
-  const trimmed = (name ?? '').trim().slice(0, MAX_NAME_LENGTH);
-  return trimmed.length > 0 ? trimmed : 'Adventurer';
+  // Strip control/format chars (newlines, NUL, zero-width, bidi overrides) before trimming so a
+  // crafted name can't spoof System lines or scramble the /who list, chat `from`, and rosters
+  // (SEC-002). Display-only — chat is rendered via textContent client-side, so this isn't XSS.
+  const cleaned = (typeof name === 'string' ? name : '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
+    .trim()
+    .slice(0, MAX_NAME_LENGTH);
+  return cleaned.length > 0 ? cleaned : 'Adventurer';
 }
 
 /**
  * Rebuild a player's learned-spells map from a save. A pre-spellbook save (no `known`) grandfathers
- * in **every ability the content defines** at rank 1 â€” nobody loses a button they had before the
+ * in **every ability the content defines** at rank 1 — nobody loses a button they had before the
  * spellbook system. A modern save is filtered to abilities that still exist, with ranks clamped.
  */
 function restoreKnown(saved: [string, number][] | undefined): Map<AbilityId, number> {

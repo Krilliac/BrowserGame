@@ -78,8 +78,10 @@
       thresholds, protocol-fuzzing chaos client. `npm run stress` / `npm run chaos`.
 - [ ] **Deferred from the ARPG research** (`wiki/research/arpg-design-research.md`): collect/turn-in
       & named-elite quest *types*; gambler / healer / crafter (Artificer) NPCs + gold sinks;
-      area-scoped quest offers; hard portal gates (boss-kill / quest-key); waypoints; biome hazard
-      gimmicks (poison pools, lava cracks, death-explosions); vendor stock rotation + sealed-tome gamble.
+      area-scoped quest offers; hard portal gates (boss-kill / quest-key); waypoints; **biome hazard
+      gimmicks DONE** (poison pools + lava cracks = DoT decor zones via `HAZARDS`/`World.checkHazards`;
+      death-explosions via the Volatile elite modifier `elite_modifiers.explode_dmg`); vendor stock
+      rotation + sealed-tome gamble.
 - [x] **Parties** — host-level grouping (invite/accept/leave, leader promotion), shared XP + quest
       credit for co-members in the same instance, roster UI (P). `party.ts` + tests.
 - [x] **Friends + whispers** — persistent friends list with live presence, social panel (F),
@@ -99,8 +101,11 @@
 - [x] **Endgame rifts** — the Riftkeeper (Saelis) opens a fresh private rift at a chosen tier
       (level-gated, gold fee); tier scales mob level/HP/damage/density/champions. Cross-act
       roster, Voidmaw Devourer boss, exit portal home. `world-rifts.test.ts`.
-- [ ] **Enchanting NPC (Artificer)** — reroll/add affixes for gold + materials; gem unsocketing.
-- [ ] **Explore/discover quest type**; chain quests.
+- [x] **Enchanting NPC (Artificer)** — Coalhand rerolls a bag item's affixes (gold + rune shard),
+      pops gems out of equipped gear, and fuses 3 gems into the next tier. (Shipped; see CHANGELOG.)
+- [x] **Explore/discover quest type** — quests carry an `explore_area` and auto-complete on first
+      arrival (hooks the waypoint-discovery path). Old Wren hands out frontier scouting bounties.
+      `quests.explore_area` (migration #5); `QuestState.kind` gains `'explore'`. Chain quests: TODO.
 - [ ] Banking; guilds/trade.
 - [ ] Hand-authored Tiled maps; LPC equipment layers on the hero.
 - [ ] Composite LPC clothing/equipment layers for a richer hero; re-source CC0 combat SFX.
@@ -195,6 +200,29 @@ renderers. Prioritized, codebase-mapped takeaways (full detail + sources in the 
 **Assets** — CC0 first (Kenney, OpenGameArt, DCSS) for terrain/props/monsters/UI; LPC
 (CC-BY-SA 3.0) for characters with attribution + an `ASSETS/CREDITS.md` manifest. Never ship
 Jagex IP. (rendering research)
+
+## ED5 MMO Studio feature port (native reimplementation)
+
+Reimplementing the feature gaps of **ED5 MMO Studio** (a commercial isometric-MMO engine on a near-
+identical stack) natively — its publicly-documented feature list, never its paid closed source.
+Skipping survival (hunger/thirst/seasons) + housing as genre-drift from the Diablo-ARPG identity.
+
+- [x] **Summons (necromancer pet line)** — `kind:'summon'` abilities raise minions from any
+      `summonable`-flagged creature (data-driven, not skeleton-specific); follow-and-fight via the
+      hireling AI, cap 5, render as the source creature with an ally health bar. `summonable` column
+      (migration #8), `minions.ts`, `world-summons.test.ts`.
+- [x] **Pets & mounts** — mounts (owned travel-speed boosts; Stablemaster; `/mount`) + pets (tame a
+      weakened `tameable` beast into a persistent creature companion reusing the minion AI;
+      `mob_templates.tameable`; Tame ability; `/pet`). Pet leveling/evolution is a possible follow-up.
+- [x] **Guilds** — persistent societies (`guilds`/`guild_members` tables) via a pure `GuildRegistry`:
+      create/invite/accept/leave/kick/promote/demote, leader/officer/member ranks, `/g` guild chat,
+      roster with live presence. Command-driven (no client panel). Shared **guild bank still TODO**.
+- [x] **Auction house + mail** — mail (deferred gold/item delivery; `mail` table; `/mail`) + the
+      auction house (persistent buyout market; `auctions` table; `/ah`; escrow + 5% gold-sink cut;
+      proceeds/cancellations delivered via the mail channel). Both loss-safe + offline-safe.
+- [x] **PvP zones** — per-area rules (safe / contested / hostile) in the `area_pvp` table; `/pvp`
+      opt-in flag; melee + direct projectiles harm attackable players via `canHarmPlayer` +
+      `applyPvpDamage` (scaled). Endgame zones seeded contested. (Behaviors/beams stay PvE for now.)
 
 ## Later (systems — reimplement from the SparkGameMMO blueprint)
 

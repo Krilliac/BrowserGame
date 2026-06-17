@@ -69,7 +69,7 @@ describe('mob template integrity', () => {
 });
 
 describe('ability + item integrity', () => {
-  const kinds = new Set(['melee', 'projectile', 'heal']);
+  const kinds = new Set(['melee', 'projectile', 'heal', 'summon', 'tame']);
 
   it('every ability is well-formed (valid kind, non-negative numbers)', () => {
     for (const ab of c.abilityList()) {
@@ -78,6 +78,13 @@ describe('ability + item integrity', () => {
       expect(ab.damage, `${ab.id} damage`).toBeGreaterThanOrEqual(0);
       expect(ab.manaCost, `${ab.id} manaCost`).toBeGreaterThanOrEqual(0);
       expect(ab.range, `${ab.id} range`).toBeGreaterThanOrEqual(0);
+      // A summon ability must name a real, summonable-flagged creature to raise.
+      const summon = (ab.behaviors ?? []).find((b) => b.type === 'summon');
+      if (summon && summon.type === 'summon') {
+        const t = c.mobTemplate(summon.minion);
+        expect(t, `${ab.id} summons ${summon.minion}`).toBeDefined();
+        expect(t!.summonable, `${summon.minion} is summonable`).toBe(true);
+      }
     }
   });
 
@@ -301,6 +308,15 @@ describe('quest integrity', () => {
       if (q.turnInItem !== null) {
         expect(c.item(q.turnInItem), `${q.id} turn-in item ${q.turnInItem}`).toBeDefined();
         expect(q.turnInCount, `${q.id} turnInCount`).toBeGreaterThan(0);
+      }
+      // An explore quest must name a REAL area to discover.
+      if (q.exploreArea !== null) {
+        expect(c.area(q.exploreArea), `${q.id} explore area ${q.exploreArea}`).toBeDefined();
+      }
+      // A chain quest must require a REAL quest (and never itself, which would deadlock it).
+      if (q.requires !== null) {
+        expect(c.quest(q.requires), `${q.id} requires ${q.requires}`).toBeDefined();
+        expect(q.requires, `${q.id} cannot require itself`).not.toBe(q.id);
       }
       // A reward item (e.g. a spellbook) must be a real item.
       if (q.rewardItem !== null) {

@@ -346,6 +346,30 @@ export function affixLabel(a: Affix): string {
       return `-${a.value} hp`;
     case 'fragile':
       return `+${a.value}% dmg taken`;
+    case 'chain':
+      return `+${a.value} chain`;
+    case 'pierce':
+      return `+${a.value} pierce`;
+    case 'fork':
+      return `+${a.value} fork`;
+    case 'spellaoe':
+      return `+${a.value}% area`;
+    case 'firedmg':
+      return `+${a.value}% fire damage`;
+    case 'colddmg':
+      return `+${a.value}% cold damage`;
+    case 'lightningdmg':
+      return `+${a.value}% lightning damage`;
+    case 'poisondmg':
+      return `+${a.value}% poison damage`;
+    case 'physdmg':
+      return `+${a.value}% physical damage`;
+    case 'penetration':
+      return `+${a.value}% penetration`;
+    case 'ailmentdur':
+      return `+${a.value}% ailment duration`;
+    case 'ailmentmag':
+      return `+${a.value}% ailment effect`;
     default:
       return `+${a.value} ${a.stat}`;
   }

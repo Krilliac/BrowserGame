@@ -13,6 +13,7 @@ const VALID_METRICS: ReadonlySet<AchievementMetric> = new Set<AchievementMetric>
   'gold',
   'kills',
   'bossKills',
+  'petsEvolved',
   'bestiary',
   'deathless',
   'quests',
@@ -76,6 +77,15 @@ describe('isEarned', () => {
     expect(isEarned(apprentice, {})).toBe(false);
     const collector = achievementById('gold_collector')!;
     expect(isEarned(collector, { level: 50 })).toBe(false);
+  });
+
+  it('earns the beastmaster (petsEvolved) tiers at their thresholds', () => {
+    const beastmaster = achievementById('pets_beastmaster')!;
+    const packlord = achievementById('pets_packlord')!;
+    expect(isEarned(beastmaster, { petsEvolved: 1 })).toBe(true);
+    expect(isEarned(beastmaster, { petsEvolved: 0 })).toBe(false);
+    expect(isEarned(packlord, { petsEvolved: 4 })).toBe(false);
+    expect(isEarned(packlord, { petsEvolved: 5 })).toBe(true);
   });
 });
 

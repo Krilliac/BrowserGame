@@ -42,6 +42,15 @@ import {
 import { drawSkillTree, type SkillTreeButton } from './skilltree-panel.js';
 import { installErrorTrap, getLatestError } from './error-trap.js';
 import { clampPanelRect } from './ui-guard.js';
+import {
+  buildItemTooltip,
+  buildGemTooltip,
+  drawTooltip,
+  type TooltipResolvers,
+  type InspectContext,
+  type TooltipAction,
+} from './item-tooltip.js';
+import { GEMS } from '../shared/gems.js';
 import { MOB_RADIUS, type AbilityId } from '../shared/combat.js';
 import type { EntityState, InputState } from '../shared/protocol.js';
 import { STATUS_BITS } from '../shared/status-bits.js';
@@ -324,6 +333,17 @@ const MAX_BAG_GEAR = 30;
 let inventoryOpen = false;
 let inventoryButtons: InventoryButton[] = [];
 
+// Pinned item/gem inspect popup — opened by a plain click on any item slot. Stays until the player
+// clicks the same slot again (toggle-close), clicks another slot (switch), clicks an action button,
+// or presses Escape. When pinned, the hover tooltip is suppressed and this popup is drawn instead.
+let pinnedInspect:
+  | { kind: 'item'; uid: number; ctx: InspectContext; anchorX: number; anchorY: number }
+  | { kind: 'gem'; id: string; anchorX: number; anchorY: number }
+  | null = null;
+// Stores the last-click time and uid for each bag slot, used to detect a double-click fast-equip.
+const dblClickTrack: Map<number, number> = new Map();
+const DBL_CLICK_MS = 350; // two clicks on the same uid within this window = fast-equip
+
 let entities: EntityState[] = [];
 let self: EntityState | undefined;
 
@@ -376,6 +396,10 @@ window.addEventListener(
 
 window.addEventListener('keydown', (e) => {
   if (uiCaptured()) return;
+  if (e.key === 'Escape' && pinnedInspect) {
+    pinnedInspect = null;
+    return;
+  }
   if (e.key === 'Escape' && net.shop) {
     net.shop = null; // close the shop
     return;
@@ -474,9 +498,30 @@ function nearbyNpc(): EntityState | undefined {
 
 window.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
-  // Registered hit regions (gamble/hire/rift panels) take the press with real down+up-inside
-  // click semantics; the legacy if-chain below migrates panel-by-panel.
+  // Registered hit regions (gamble/hire/rift panels + pinned inspect action buttons) take the press
+  // with real down+up-inside click semantics; the legacy if-chain below migrates panel-by-panel.
   if (hitRegions.down(e.clientX, e.clientY)) return;
+  // If a popup is open and the click is outside it (and outside an item slot), dismiss it.
+  // Item-slot branches below handle toggling/switching when the click lands on a slot.
+  if (pinnedInspect && pinnedInspectRect && !inRect(e.clientX, e.clientY, pinnedInspectRect)) {
+    // Only check item-slot areas; if the click is on a slot, let the slot branch handle toggle/switch.
+    const onBagSlot = bagRects.some((b) => inRect(e.clientX, e.clientY, b));
+    const onCharSlot = charSlotRects.some((c) => inRect(e.clientX, e.clientY, c));
+    const onGemSlot = socketRects.some((g) => inRect(e.clientX, e.clientY, g));
+    const onInventorySlot = inventoryButtons.some(
+      (b) => b.action === 'equip' && b.uid !== undefined && inRect(e.clientX, e.clientY, b),
+    );
+    const onStashSlot = stashButtons.some(
+      (b) =>
+        (b.action === 'deposit' || b.action === 'withdraw') &&
+        b.uid !== undefined &&
+        inRect(e.clientX, e.clientY, b),
+    );
+    if (!onBagSlot && !onCharSlot && !onGemSlot && !onInventorySlot && !onStashSlot) {
+      pinnedInspect = null;
+      // Don't return — let the click also do its normal action (e.g. worldClick, panel click).
+    }
+  }
   // An open shop captures clicks (buy / sell / close) and never falls through to a cast.
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
@@ -488,7 +533,8 @@ window.addEventListener('pointerdown', (e) => {
   if (partyOpen && handlePartyClick(e.clientX, e.clientY)) return;
   if (socialOpen && handleSocialClick(e.clientX, e.clientY)) return;
   if (waypointOpen && handleWaypointClick(e.clientX, e.clientY)) return;
-  // Clicks on the open character panel unequip a slot and never fall through to a cast.
+  // Clicks on the open character panel: attr-point allocation and respec stay direct; slot clicks
+  // now open the pinned inspect popup (showing Unequip button) rather than immediately unequipping.
   if (charOpen && charPanelRect && inRect(e.clientX, e.clientY, charPanelRect)) {
     const ab = attrButtonRects.find((b) => inRect(e.clientX, e.clientY, b));
     if (ab) {
@@ -506,7 +552,29 @@ window.addEventListener('pointerdown', (e) => {
       return;
     }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
-    if (cs) net.sendUnequip(cs.slot);
+    if (cs) {
+      const inst = net.you.equipment[cs.slot] ?? null;
+      if (inst) {
+        // Toggle: clicking the same equipped item closes the popup; different item switches it.
+        if (
+          pinnedInspect?.kind === 'item' &&
+          pinnedInspect.uid === inst.uid &&
+          pinnedInspect.ctx === 'equipped'
+        ) {
+          pinnedInspect = null;
+        } else {
+          pinnedInspect = {
+            kind: 'item',
+            uid: inst.uid,
+            ctx: 'equipped',
+            anchorX: e.clientX,
+            anchorY: e.clientY,
+          };
+        }
+      } else {
+        pinnedInspect = null; // clicked an empty slot — close any open popup
+      }
+    }
     return;
   }
   const book = learnRects.find((b) => inRect(e.clientX, e.clientY, b));
@@ -514,16 +582,50 @@ window.addEventListener('pointerdown', (e) => {
     net.sendLearn(book.itemId);
     return;
   }
+  // Gem strip: plain click pins the gem inspect popup; it shows no action buttons (gem-strip ctx).
   const gem = socketRects.find((g) => inRect(e.clientX, e.clientY, g));
   if (gem) {
-    net.sendSocketGem(gem.itemId);
+    if (pinnedInspect?.kind === 'gem' && pinnedInspect.id === gem.itemId) {
+      pinnedInspect = null; // toggle-close
+    } else {
+      pinnedInspect = { kind: 'gem', id: gem.itemId, anchorX: e.clientX, anchorY: e.clientY };
+    }
     return;
   }
+  // Bag strip: shift-click = salvage (unchanged); double-click = fast-equip; plain click = pin popup.
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    // Shift-click salvages the item into crafting materials; a plain click/tap equips it.
-    if (e.shiftKey) net.sendSalvage(bag.uid);
-    else net.sendEquip(bag.uid);
+    if (e.shiftKey) {
+      net.sendSalvage(bag.uid);
+      pinnedInspect = null; // clear popup when an item is salvaged directly
+      return;
+    }
+    const now = performance.now();
+    const lastClick = dblClickTrack.get(bag.uid) ?? 0;
+    if (now - lastClick <= DBL_CLICK_MS) {
+      // Double-click: fast-equip and close the popup (if it was open for this item).
+      dblClickTrack.delete(bag.uid);
+      net.sendEquip(bag.uid);
+      pinnedInspect = null;
+    } else {
+      // Single click: record the time; toggle the pinned inspect popup.
+      dblClickTrack.set(bag.uid, now);
+      if (
+        pinnedInspect?.kind === 'item' &&
+        pinnedInspect.uid === bag.uid &&
+        pinnedInspect.ctx === 'bag'
+      ) {
+        pinnedInspect = null; // toggle-close same item
+      } else {
+        pinnedInspect = {
+          kind: 'item',
+          uid: bag.uid,
+          ctx: 'bag',
+          anchorX: e.clientX,
+          anchorY: e.clientY,
+        };
+      }
+    }
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
@@ -533,6 +635,8 @@ window.addEventListener('pointerdown', (e) => {
       castAbility(slot.ability);
     }
   } else if (e.target === gameCanvas) {
+    // A click on the world canvas that didn't hit any item slot — dismiss the pinned popup.
+    pinnedInspect = null;
     worldClick(e.clientX, e.clientY);
   }
 });
@@ -610,10 +714,25 @@ function handleWaypointClick(x: number, y: number): boolean {
 function handleInventoryClick(x: number, y: number): boolean {
   const btn = inventoryButtons.find((b) => inRect(x, y, b));
   if (!btn) return false;
-  if (btn.action === 'close') inventoryOpen = false;
-  else if (btn.action === 'equip' && btn.uid !== undefined) net.sendEquip(btn.uid);
-  else if (btn.action === 'sort') net.sendChat('/sort');
-  else if (btn.action === 'salvageJunk') net.sendChat('/salvageall');
+  if (btn.action === 'close') {
+    inventoryOpen = false;
+    pinnedInspect = null;
+  } else if (btn.action === 'equip' && btn.uid !== undefined) {
+    // Plain tap on a bag item in the inventory panel pins the inspect popup (same as the bag strip).
+    if (
+      pinnedInspect?.kind === 'item' &&
+      pinnedInspect.uid === btn.uid &&
+      pinnedInspect.ctx === 'bag'
+    ) {
+      pinnedInspect = null; // toggle-close
+    } else {
+      pinnedInspect = { kind: 'item', uid: btn.uid, ctx: 'bag', anchorX: x, anchorY: y };
+    }
+  } else if (btn.action === 'sort') {
+    net.sendChat('/sort');
+  } else if (btn.action === 'salvageJunk') {
+    net.sendChat('/salvageall');
+  }
   return true;
 }
 
@@ -642,10 +761,34 @@ function handleSkillTreeClick(x: number, y: number): boolean {
 function handleStashClick(x: number, y: number): boolean {
   const btn = stashButtons.find((b) => inRect(x, y, b));
   if (!btn) return false;
-  if (btn.action === 'close') net.stash = null;
-  else if (btn.action === 'deposit' && btn.uid !== undefined) net.sendStashDeposit(btn.uid);
-  else if (btn.action === 'withdraw' && btn.uid !== undefined) net.sendStashWithdraw(btn.uid);
-  else if (btn.action === 'expand') net.sendChat('/expandstash');
+  if (btn.action === 'close') {
+    net.stash = null;
+    pinnedInspect = null;
+  } else if (btn.action === 'deposit' && btn.uid !== undefined) {
+    // Deposit (bag item) — open inspect popup with bag ctx so [Equip][Salvage] appear.
+    if (
+      pinnedInspect?.kind === 'item' &&
+      pinnedInspect.uid === btn.uid &&
+      pinnedInspect.ctx === 'bag'
+    ) {
+      pinnedInspect = null; // toggle-close
+    } else {
+      pinnedInspect = { kind: 'item', uid: btn.uid, ctx: 'bag', anchorX: x, anchorY: y };
+    }
+  } else if (btn.action === 'withdraw' && btn.uid !== undefined) {
+    // Withdraw (vault item) — open inspect popup with vault ctx so [Equip] appears.
+    if (
+      pinnedInspect?.kind === 'item' &&
+      pinnedInspect.uid === btn.uid &&
+      pinnedInspect.ctx === 'vault'
+    ) {
+      pinnedInspect = null; // toggle-close
+    } else {
+      pinnedInspect = { kind: 'item', uid: btn.uid, ctx: 'vault', anchorX: x, anchorY: y };
+    }
+  } else if (btn.action === 'expand') {
+    net.sendChat('/expandstash');
+  }
   return true;
 }
 
@@ -777,6 +920,24 @@ if (import.meta.env.DEV) {
 gameCanvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse') return;
   if (hitRegions.down(e.clientX, e.clientY)) return;
+  // Touch equivalent of the mouse dismiss-on-outside check.
+  if (pinnedInspect && pinnedInspectRect && !inRect(e.clientX, e.clientY, pinnedInspectRect)) {
+    const onBagSlot = bagRects.some((b) => inRect(e.clientX, e.clientY, b));
+    const onCharSlot = charSlotRects.some((c) => inRect(e.clientX, e.clientY, c));
+    const onGemSlot = socketRects.some((g) => inRect(e.clientX, e.clientY, g));
+    const onInventorySlot = inventoryButtons.some(
+      (b) => b.action === 'equip' && b.uid !== undefined && inRect(e.clientX, e.clientY, b),
+    );
+    const onStashSlot = stashButtons.some(
+      (b) =>
+        (b.action === 'deposit' || b.action === 'withdraw') &&
+        b.uid !== undefined &&
+        inRect(e.clientX, e.clientY, b),
+    );
+    if (!onBagSlot && !onCharSlot && !onGemSlot && !onInventorySlot && !onStashSlot) {
+      pinnedInspect = null;
+    }
+  }
   if (net.shop && handleShopClick(e.clientX, e.clientY)) return;
   if (net.artificer && handleArtificerClick(e.clientX, e.clientY)) return;
   if (net.stash && handleStashClick(e.clientX, e.clientY)) return;
@@ -803,7 +964,28 @@ gameCanvas.addEventListener('pointerdown', (e) => {
       return;
     }
     const cs = charSlotRects.find((c) => inRect(e.clientX, e.clientY, c));
-    if (cs) net.sendUnequip(cs.slot);
+    if (cs) {
+      const inst = net.you.equipment[cs.slot] ?? null;
+      if (inst) {
+        if (
+          pinnedInspect?.kind === 'item' &&
+          pinnedInspect.uid === inst.uid &&
+          pinnedInspect.ctx === 'equipped'
+        ) {
+          pinnedInspect = null;
+        } else {
+          pinnedInspect = {
+            kind: 'item',
+            uid: inst.uid,
+            ctx: 'equipped',
+            anchorX: e.clientX,
+            anchorY: e.clientY,
+          };
+        }
+      } else {
+        pinnedInspect = null;
+      }
+    }
     return;
   }
   const book = learnRects.find((b) => inRect(e.clientX, e.clientY, b));
@@ -811,16 +993,48 @@ gameCanvas.addEventListener('pointerdown', (e) => {
     net.sendLearn(book.itemId);
     return;
   }
+  // Gem strip: plain tap pins the gem inspect popup.
   const gem = socketRects.find((g) => inRect(e.clientX, e.clientY, g));
   if (gem) {
-    net.sendSocketGem(gem.itemId);
+    if (pinnedInspect?.kind === 'gem' && pinnedInspect.id === gem.itemId) {
+      pinnedInspect = null;
+    } else {
+      pinnedInspect = { kind: 'gem', id: gem.itemId, anchorX: e.clientX, anchorY: e.clientY };
+    }
     return;
   }
+  // Bag strip: double-tap = fast-equip; plain tap = pin popup.
   const bag = bagRects.find((b) => inRect(e.clientX, e.clientY, b));
   if (bag) {
-    // Shift-click salvages the item into crafting materials; a plain click/tap equips it.
-    if (e.shiftKey) net.sendSalvage(bag.uid);
-    else net.sendEquip(bag.uid);
+    if (e.shiftKey) {
+      net.sendSalvage(bag.uid);
+      pinnedInspect = null;
+      return;
+    }
+    const now = performance.now();
+    const lastTap = dblClickTrack.get(bag.uid) ?? 0;
+    if (now - lastTap <= DBL_CLICK_MS) {
+      dblClickTrack.delete(bag.uid);
+      net.sendEquip(bag.uid);
+      pinnedInspect = null;
+    } else {
+      dblClickTrack.set(bag.uid, now);
+      if (
+        pinnedInspect?.kind === 'item' &&
+        pinnedInspect.uid === bag.uid &&
+        pinnedInspect.ctx === 'bag'
+      ) {
+        pinnedInspect = null;
+      } else {
+        pinnedInspect = {
+          kind: 'item',
+          uid: bag.uid,
+          ctx: 'bag',
+          anchorX: e.clientX,
+          anchorY: e.clientY,
+        };
+      }
+    }
     return;
   }
   const slot = slotRects.find((s) => inRect(e.clientX, e.clientY, s));
@@ -1134,9 +1348,11 @@ function syncChatLog(): void {
         ? '#d6a8ff'
         : line.channel === 'party'
           ? '#7fc4ff'
-          : line.channel === 'system'
-            ? '#e7c869'
-            : '';
+          : line.channel === 'guild'
+            ? '#6fd58a'
+            : line.channel === 'system'
+              ? '#e7c869'
+              : '';
     const who = document.createElement('span');
     who.className = 'chat-who';
     who.textContent = `${line.from}: `;
@@ -1359,6 +1575,12 @@ function frame(): void {
   if (!net.connected) drawReconnect();
   drawErrorBadge();
   drawOverlays();
+
+  // Pinned inspect popup with action buttons. Drawn after hitRegions.begin() so its buttons can
+  // register as hit regions in the active session. Drawn LAST so it appears on top of everything.
+  if (pinnedInspect) {
+    drawPinnedInspect(hudCanvas.width, hudCanvas.height);
+  }
 
   const area = net.content.area(net.areaId);
   statusEl.textContent = net.connected ? `online as ${name}` : 'reconnecting…';
@@ -1701,8 +1923,9 @@ function drawQuestTracker(): void {
 function drawQuestPanel(): void {
   questAcceptRects.length = 0;
   const quests = net.you.quests ?? [];
-  // Order: active first, then available, then done — the player's eye goes to live objectives.
-  const rank = (s: string): number => (s === 'active' ? 0 : s === 'available' ? 1 : 2);
+  // Order: active first, then available, then locked (future chain steps), then done.
+  const rank = (s: string): number =>
+    s === 'active' ? 0 : s === 'available' ? 1 : s === 'locked' ? 2 : 3;
   const sorted = [...quests].sort((a, b) => rank(a.status) - rank(b.status));
 
   const pw = 420;
@@ -1743,6 +1966,7 @@ function drawQuestPanel(): void {
   const statusColor: Record<string, string> = {
     active: '#f2c14e',
     available: '#9fb0c0',
+    locked: '#6a6f7a',
     done: '#6b9a5a',
   };
   sorted.forEach((q, i) => {
@@ -1750,15 +1974,26 @@ function drawQuestPanel(): void {
     hud.textAlign = 'left';
     hud.fillStyle = statusColor[q.status] ?? '#d7dbe3';
     hud.font = 'bold 13px system-ui, sans-serif';
-    const tag = q.status === 'done' ? '✓ ' : q.status === 'active' ? '▸ ' : '· ';
+    const tag =
+      q.status === 'done'
+        ? '✓ '
+        : q.status === 'active'
+          ? '▸ '
+          : q.status === 'locked'
+            ? '🔒 '
+            : '· ';
     hud.fillText(fitText(tag + q.name, pw - 120), px + 14, ry + 14);
 
     hud.fillStyle = '#9aa3b2';
     hud.font = '10px system-ui, sans-serif';
     const desc =
-      q.kind === 'collect' && q.status === 'active'
-        ? `${q.description}  (turn in at a quest-giver)`
-        : q.description;
+      q.status === 'locked' && q.requiresName
+        ? `Requires: ${q.requiresName}`
+        : q.status === 'active' && q.kind === 'collect'
+          ? `${q.description}  (turn in at a quest-giver)`
+          : q.status === 'active' && q.kind === 'explore'
+            ? `${q.description}  (travel there to complete)`
+            : q.description;
     hud.fillText(fitText(desc, pw - 28), px + 14, ry + 30);
 
     // Reward line.
@@ -1801,6 +2036,19 @@ function drawQuestPanel(): void {
       hud.font = 'bold 11px system-ui, sans-serif';
       hud.textAlign = 'center';
       hud.fillText('Accept', rect.x + rect.w / 2, rect.y + 15);
+    } else if (q.status === 'locked') {
+      // No accept button — a dim "Locked" tag signals the chain prerequisite isn't met yet.
+      const bw = 78;
+      const bx = px + pw - bw - 14;
+      hud.fillStyle = 'rgba(40,42,48,0.6)';
+      hud.fillRect(bx, ry + 14, bw, 22);
+      hud.strokeStyle = 'rgba(120,124,132,0.5)';
+      hud.lineWidth = 1;
+      hud.strokeRect(bx, ry + 14, bw, 22);
+      hud.fillStyle = '#8a8f99';
+      hud.font = 'bold 11px system-ui, sans-serif';
+      hud.textAlign = 'center';
+      hud.fillText('Locked', bx + bw / 2, ry + 29);
     }
 
     if (i < sorted.length - 1) {
@@ -2086,6 +2334,8 @@ function drawHud(): void {
   const w = hudCanvas.width;
   const h = hudCanvas.height;
   hud.clearRect(0, 0, w, h);
+  // Reset the pinned popup bounds each frame — rebuilt by drawPinnedInspect if it runs.
+  pinnedInspectRect = null;
   drawHitFlash(w, h);
   drawLowHpVignette(w, h);
   drawTargetFrame();
@@ -2307,6 +2557,13 @@ function drawHud(): void {
     const secs = Math.max(0, net.you.respawnIn / 1000).toFixed(1);
     hud.fillText(`You died — respawning in ${secs}s`, w / 2, h / 2);
   }
+
+  // Hover tooltip — rendered last so it sits on top of every other HUD element.
+  // When pinnedInspect is set, drawPinnedInspect() is called from frame() instead (after
+  // hitRegions.begin()) so the action-button hit regions are registered in the active session.
+  if (!pinnedInspect) {
+    drawHoverTooltip(w, h);
+  }
 }
 
 const ACHIEVEMENT_PREFIX = 'Achievement unlocked:';
@@ -2463,6 +2720,340 @@ function instStatSegments(inst: ItemInstance): { text: string; debuff: boolean; 
   const set = ITEM_SETS.find((s) => s.pieces.includes(inst.baseId));
   if (set) segs.push({ text: `◆ ${set.name}`, debuff: false, color: '#9be09b' });
   return segs;
+}
+
+/**
+ * Build the TooltipResolvers object wired to live runtime data. Called once per frame (or lazily)
+ * by the hover-tooltip code — cheap because all the referenced objects are module-level references.
+ */
+function tooltipResolvers(): TooltipResolvers {
+  return {
+    itemInfo: (id) => {
+      const info = net.content.item(id);
+      if (!info) return undefined;
+      return {
+        name: info.name,
+        kind: info.kind,
+        slot: info.slot ?? null,
+        sellValue: info.sellValue ?? 0,
+        teaches: info.teaches ?? null,
+      };
+    },
+    abilityName: (id) => net.content.ability(id)?.name,
+    gemName: (id) => net.content.item(id)?.name ?? GEMS[id]?.name ?? id,
+    gemColor: (id) => net.content.item(id)?.color ?? GEMS[id]?.color ?? '#d6a8ff',
+    gemEffect: (id) => {
+      const g = GEMS[id];
+      if (!g) return undefined;
+      let s = affixLabel({ stat: g.stat, value: g.value });
+      if (g.mult !== undefined && g.mult !== 1)
+        s += ` · ${Math.round((g.mult - 1) * 100)}% spell dmg`;
+      if (g.grantsHoming) s += ' · grants homing';
+      return s;
+    },
+  };
+}
+
+/**
+ * Execute an action from the pinned inspect popup. Guards each action by its availability context
+ * so we never call a net function whose preconditions aren't met. Clears the popup after any action.
+ */
+function runTooltipAction(a: TooltipAction): void {
+  switch (a.action) {
+    case 'equip':
+      if (a.uid !== undefined) net.sendEquip(a.uid);
+      break;
+    case 'unequip': {
+      // sendUnequip needs the slot name, not the uid — find which slot holds this item.
+      if (a.uid !== undefined) {
+        const slot = Object.entries(net.you.equipment).find(([, inst]) => inst?.uid === a.uid)?.[0];
+        if (slot) net.sendUnequip(slot);
+      }
+      break;
+    }
+    case 'salvage':
+      if (a.uid !== undefined) net.sendSalvage(a.uid);
+      break;
+    case 'sell':
+      // "Sell" only makes sense while a shop is open (and it sells ALL bag items, not one item).
+      // Only wire it when the shop is actually up; otherwise the button shouldn't have been shown.
+      if (net.shop) net.sendSell();
+      break;
+    case 'unsocket':
+      // Unsocket requires the artificer to be open and is slot-indexed rather than uid-indexed.
+      // The TooltipModel doesn't currently emit index for unsocket actions from inspect-context, so
+      // we omit this path rather than guess — artificer panel has its own dedicated unsocket buttons.
+      break;
+    case 'socket':
+      // Socket the currently-pinned gem into the player's equipped gear (server validates fit).
+      if (pinnedInspect?.kind === 'gem') net.sendSocketGem(pinnedInspect.id);
+      break;
+    case 'withdraw':
+      // Withdraw a vault item to the bag (server validates bag space + ownership).
+      if (a.uid !== undefined) net.sendStashWithdraw(a.uid);
+      break;
+  }
+  pinnedInspect = null;
+}
+
+/**
+ * Draw the pinned item/gem inspect popup with its action buttons, registered as hit regions so they
+ * receive proper down+up click semantics. Called from drawHud() instead of drawHoverTooltip() when
+ * pinnedInspect is non-null. Clears pinnedInspect when the item no longer exists (was consumed).
+ *
+ * Buttons are registered AFTER other panels, so they sit on top in the hit-region stack.
+ */
+function drawPinnedInspect(w: number, h: number): void {
+  if (!pinnedInspect) return;
+  const resolvers = tooltipResolvers();
+  const view = { w, h };
+
+  if (pinnedInspect.kind === 'gem') {
+    const gemId = pinnedInspect.id;
+    const model = buildGemTooltip(gemId, resolvers);
+    // Anchor near where the user clicked, offset so the popup doesn't obscure the slot.
+    const ax = Math.min(pinnedInspect.anchorX + 16, w - 240);
+    const ay = Math.min(pinnedInspect.anchorY + 12, h - 200);
+    const rect = drawTooltip(hud, model, ax, ay, view);
+
+    // Draw action buttons below the tooltip box (same layout as the item branch).
+    const BTN_H = 22;
+    const BTN_PAD = 8;
+    const BTN_GAP = 6;
+    const BTN_FONT = 'bold 11px system-ui, sans-serif';
+
+    hud.font = BTN_FONT;
+    const btnWidths = model.actions.map((a) => hud.measureText(a.label).width + BTN_PAD * 2);
+    const totalBtnsW = btnWidths.reduce((s, bw) => s + bw + BTN_GAP, -BTN_GAP);
+
+    let bx = rect.x;
+    const by = rect.y + rect.h + 4;
+
+    for (let i = 0; i < model.actions.length; i++) {
+      const action = model.actions[i]!;
+      const bw = btnWidths[i]!;
+      const btnRect = { x: bx, y: by, w: bw, h: BTN_H };
+
+      hud.fillStyle = 'rgba(8,9,13,0.94)';
+      hud.fillRect(btnRect.x, btnRect.y, btnRect.w, btnRect.h);
+      hud.strokeStyle = '#c9a24b';
+      hud.lineWidth = 1;
+      hud.strokeRect(btnRect.x, btnRect.y, btnRect.w, btnRect.h);
+      hud.fillStyle = '#e7d9b0';
+      hud.font = BTN_FONT;
+      hud.textAlign = 'center';
+      hud.fillText(action.label, btnRect.x + btnRect.w / 2, btnRect.y + BTN_H - 7);
+
+      const capturedAction: TooltipAction = action;
+      hitRegions.add({
+        x: btnRect.x,
+        y: btnRect.y,
+        w: btnRect.w,
+        h: btnRect.h,
+        onClick: () => runTooltipAction(capturedAction),
+      });
+
+      bx += bw + BTN_GAP;
+    }
+
+    hud.textAlign = 'left';
+
+    pinnedInspectRect = {
+      x: rect.x,
+      y: rect.y,
+      w: Math.max(rect.w, totalBtnsW),
+      h: rect.h + (model.actions.length > 0 ? 4 + BTN_H : 0),
+    };
+    return;
+  }
+
+  // Item inspect.
+  const uid = pinnedInspect.uid;
+  const ctx = pinnedInspect.ctx;
+
+  // Resolve the item from whatever bag/stash/equipment context it lives in.
+  let inst: ItemInstance | undefined;
+  if (ctx === 'equipped') {
+    inst = Object.values(net.you.equipment).find((i): i is ItemInstance => !!i && i.uid === uid);
+  } else if (ctx === 'vault') {
+    inst = net.stash?.items.find((i) => i.uid === uid);
+  } else {
+    // 'bag' — covers HUD strip, inventory panel, and stash deposit buttons.
+    inst = net.you.gear.find((i) => i.uid === uid);
+  }
+
+  if (!inst) {
+    // Item no longer exists (was equipped, salvaged, or moved) — auto-dismiss.
+    pinnedInspect = null;
+    return;
+  }
+
+  const baseName = net.content.item(inst.baseId)?.name ?? inst.baseId;
+  const model = buildItemTooltip(inst, baseName, resolvers, ctx);
+
+  // Filter actions by what's actually available right now.
+  // - 'sell' only shown when a shop is open (and even then it sells all bag gear, not just this item)
+  // - 'unsocket' is omitted (artificer panel has its own dedicated flow)
+  // - 'vault' context: buildItemTooltip emits a 'withdraw' action → runTooltipAction calls sendStashWithdraw
+  const availableActions: TooltipAction[] = model.actions.filter((a) => {
+    if (a.action === 'sell') return !!net.shop;
+    if (a.action === 'unsocket') return false; // handled by the artificer panel instead
+    return true;
+  });
+
+  const ax = Math.min(pinnedInspect.anchorX + 16, w - 240);
+  const ay = Math.min(pinnedInspect.anchorY + 12, h - 200);
+  const rect = drawTooltip(hud, model, ax, ay, view);
+
+  // Draw action buttons below the tooltip box.
+  const BTN_H = 22;
+  const BTN_PAD = 8;
+  const BTN_GAP = 6;
+  const BTN_FONT = 'bold 11px system-ui, sans-serif';
+
+  hud.font = BTN_FONT;
+  // Measure button widths first so we can lay them out left-to-right.
+  const btnWidths = availableActions.map((a) => hud.measureText(a.label).width + BTN_PAD * 2);
+  const totalBtnsW = btnWidths.reduce((s, bw) => s + bw + BTN_GAP, -BTN_GAP);
+
+  // Start from left edge of the tooltip box, anchored to rect.x.
+  let bx = rect.x;
+  const by = rect.y + rect.h + 4;
+
+  for (let i = 0; i < availableActions.length; i++) {
+    const action = availableActions[i]!;
+    const bw = btnWidths[i]!;
+    const btnRect = { x: bx, y: by, w: bw, h: BTN_H };
+
+    // Draw button.
+    hud.fillStyle = 'rgba(8,9,13,0.94)';
+    hud.fillRect(btnRect.x, btnRect.y, btnRect.w, btnRect.h);
+    hud.strokeStyle = '#c9a24b';
+    hud.lineWidth = 1;
+    hud.strokeRect(btnRect.x, btnRect.y, btnRect.w, btnRect.h);
+    hud.fillStyle = '#e7d9b0';
+    hud.font = BTN_FONT;
+    hud.textAlign = 'center';
+    hud.fillText(action.label, btnRect.x + btnRect.w / 2, btnRect.y + BTN_H - 7);
+
+    // Register as a hit region — captured closures must copy loop vars.
+    const capturedAction: TooltipAction = action;
+    hitRegions.add({
+      x: btnRect.x,
+      y: btnRect.y,
+      w: btnRect.w,
+      h: btnRect.h,
+      onClick: () => runTooltipAction(capturedAction),
+    });
+
+    bx += bw + BTN_GAP;
+  }
+
+  hud.textAlign = 'left';
+
+  // Compute the full popup + buttons bounding rect for dismiss-on-outside-click tracking.
+  // We store it on a module-level variable so the pointerdown handler can check it.
+  pinnedInspectRect = {
+    x: rect.x,
+    y: rect.y,
+    w: Math.max(rect.w, totalBtnsW),
+    h: rect.h + (availableActions.length > 0 ? 4 + BTN_H : 0),
+  };
+}
+
+/** Bounding rect of the currently-drawn pinned popup (including its buttons), or null. Refreshed
+ *  every frame in drawPinnedInspect(). Used by the pointerdown handler to detect outside-clicks. */
+let pinnedInspectRect: { x: number; y: number; w: number; h: number } | null = null;
+
+/**
+ * Draw a hover tooltip for the item or gem under the cursor. Placed at the end of drawHud() so
+ * it renders on top of all other panels. Returns without drawing when nothing is under the cursor.
+ */
+function drawHoverTooltip(w: number, h: number): void {
+  const resolvers = tooltipResolvers();
+
+  // Helper: resolve a gear uid to an ItemInstance (bag or stash).
+  const bagByUid = (uid: number): ItemInstance | undefined =>
+    net.you.gear.find((g) => g.uid === uid);
+  const stashByUid = (uid: number): ItemInstance | undefined =>
+    net.stash?.items.find((g) => g.uid === uid);
+
+  // Check hit-rects in order: bag strip → char slots → gem strip → inventory panel → stash panel.
+  // First match wins.
+
+  // 1. HUD bag strip (the newest-N sidebar items).
+  for (const rect of bagRects) {
+    if (!inRect(mouseX, mouseY, rect)) continue;
+    const inst = bagByUid(rect.uid);
+    if (!inst) return;
+    const model = buildItemTooltip(
+      inst,
+      net.content.item(inst.baseId)?.name ?? inst.baseId,
+      resolvers,
+      'none',
+    );
+    drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+    return;
+  }
+
+  // 2. Character-panel equipment slots.
+  for (const rect of charSlotRects) {
+    if (!inRect(mouseX, mouseY, rect)) continue;
+    const inst = net.you.equipment[rect.slot] ?? null;
+    if (!inst) return;
+    const model = buildItemTooltip(
+      inst,
+      net.content.item(inst.baseId)?.name ?? inst.baseId,
+      resolvers,
+      'none',
+    );
+    drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+    return;
+  }
+
+  // 3. Gem strip (socketable gems in the bag listed on the HUD sidebar).
+  for (const rect of socketRects) {
+    if (!inRect(mouseX, mouseY, rect)) continue;
+    const model = buildGemTooltip(rect.itemId, resolvers);
+    drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+    return;
+  }
+
+  // 4. Inventory panel (full bag grid, only when open).
+  if (inventoryOpen) {
+    for (const btn of inventoryButtons) {
+      if (btn.action !== 'equip' || btn.uid === undefined) continue;
+      if (!inRect(mouseX, mouseY, btn)) continue;
+      const inst = bagByUid(btn.uid);
+      if (!inst) return;
+      const model = buildItemTooltip(
+        inst,
+        net.content.item(inst.baseId)?.name ?? inst.baseId,
+        resolvers,
+        'none',
+      );
+      drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+      return;
+    }
+  }
+
+  // 5. Vault / stash panel (only when open).
+  if (net.stash) {
+    for (const btn of stashButtons) {
+      if (btn.uid === undefined) continue;
+      if (!inRect(mouseX, mouseY, btn)) continue;
+      const inst = btn.action === 'deposit' ? bagByUid(btn.uid) : stashByUid(btn.uid);
+      if (!inst) return;
+      const model = buildItemTooltip(
+        inst,
+        net.content.item(inst.baseId)?.name ?? inst.baseId,
+        resolvers,
+        'none',
+      );
+      drawTooltip(hud, model, mouseX + 16, mouseY + 12, { w, h });
+      return;
+    }
+  }
 }
 
 /**

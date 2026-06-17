@@ -142,6 +142,8 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       attack_range: { type: 'real', min: 0, max: 1000 },
       damage: { type: 'real', min: 0, max: 99999 },
       attack_cooldown_ms: { type: 'int', min: 0, max: 60000 },
+      summonable: { type: 'int', min: 0, max: 1 },
+      tameable: { type: 'int', min: 0, max: 1 },
     },
   },
 
@@ -158,6 +160,8 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       reward_item: { type: 'text', nullable: true },
       turn_in_item: { type: 'text', nullable: true },
       turn_in_count: { type: 'int', min: 0, max: 100000 },
+      explore_area: { type: 'text', nullable: true },
+      requires: { type: 'text', nullable: true },
     },
   },
 
@@ -772,6 +776,17 @@ export const EDITABLE_TABLES: Record<string, TableSpec> = {
       attack_range: { type: 'real', min: 0, max: 2000 },
       kite_range: { type: 'real', min: 0, max: 2000, nullable: true },
       attack_cooldown_ms: { type: 'int', min: 0, max: 60000 },
+    },
+  },
+
+  mounts: {
+    pk: 'id',
+    label: 'mount',
+    note: 'travel-speed boost; applies when next mounted',
+    columns: {
+      name: { type: 'text' },
+      speed_mult: { type: 'real', min: 1, max: 5 },
+      price: { type: 'int', min: 0, max: 100000000 },
     },
   },
 };

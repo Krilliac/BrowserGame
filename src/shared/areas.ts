@@ -50,6 +50,13 @@ export interface Portal {
   label: string;
 }
 
+/**
+ * PvP ruleset for an area: 'safe' (no player-vs-player — towns/leveling zones, the default),
+ * 'contested' (only players who have both opted in via /pvp can harm each other), or 'hostile'
+ * (open free-for-all — anyone can be attacked). Loaded from the `area_pvp` table (absent = safe).
+ */
+export type PvpRule = 'safe' | 'contested' | 'hostile';
+
 export interface AreaDef {
   id: string;
   name: string;
@@ -64,6 +71,8 @@ export interface AreaDef {
   theme?: AreaTheme;
   /** Static set-dressing props, loaded from the `decor` DB table (empty when the area has none). */
   decor?: DecorProp[];
+  /** PvP ruleset (default 'safe'); server-authoritative gate on whether abilities can harm players. */
+  pvp?: PvpRule;
 }
 
 export const START_AREA = 'town';

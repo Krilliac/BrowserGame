@@ -113,6 +113,53 @@ const MIGRATIONS: Migration[] = [
         });
     },
   },
+  {
+    version: 5,
+    name: 'explore-quest-type',
+    up(db) {
+      // Explore/discover quests complete on visiting a target area. Add the nullable column to old
+      // DBs; existing kill/collect quests leave it NULL and behave identically to before.
+      if (hasTable(db, 'quests')) ensureColumns(db, 'quests', { explore_area: 'TEXT' });
+    },
+  },
+  {
+    version: 6,
+    name: 'chain-quest-prereq',
+    up(db) {
+      // Chain quests gain a `requires` prerequisite quest id. Nullable: existing quests have no
+      // prerequisite and stay immediately available, exactly as before.
+      if (hasTable(db, 'quests')) ensureColumns(db, 'quests', { requires: 'TEXT' });
+    },
+  },
+  {
+    version: 7,
+    name: 'elite-death-explosion',
+    up(db) {
+      // Elite modifiers gain a death-explosion multiplier (the Volatile affix). Defaults to 0 so
+      // every existing modifier keeps behaving exactly as before (no blast).
+      if (hasTable(db, 'elite_modifiers'))
+        ensureColumns(db, 'elite_modifiers', { explode_dmg: 'REAL NOT NULL DEFAULT 0' });
+    },
+  },
+  {
+    version: 8,
+    name: 'summonable-creatures',
+    up(db) {
+      // Creatures gain a `summonable` flag so any of them can be raised as a friendly minion by a
+      // summon ability. Defaults to 0 — existing creatures are not summonable unless flagged.
+      if (hasTable(db, 'mob_templates'))
+        ensureColumns(db, 'mob_templates', { summonable: 'INTEGER NOT NULL DEFAULT 0' });
+    },
+  },
+  {
+    version: 9,
+    name: 'tameable-creatures',
+    up(db) {
+      // Creatures gain a `tameable` flag so wild beasts can be captured as pets. Defaults to 0.
+      if (hasTable(db, 'mob_templates'))
+        ensureColumns(db, 'mob_templates', { tameable: 'INTEGER NOT NULL DEFAULT 0' });
+    },
+  },
 ];
 
 /** The newest migration version this build knows about (0 if there are none). */

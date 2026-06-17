@@ -1,4 +1,4 @@
-import { createServer, type ServerResponse } from 'node:http';
+import { createServer, type ServerResponse, type IncomingMessage } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +30,19 @@ import { initGameDb, getDb, getContent, reloadContent, type Content } from './co
 import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess, AccessLevel } from './accounts.js';
 import { engineSchema, engineRows, setEngineConfig } from './engine.js';
+import { editorWorld, parseEditBody } from './editor.js';
+import { areaToTiled, type TiledMap } from './editor-tiled.js';
+import { areaToGodot } from './editor-godot.js';
+import { importTiled } from './editor-import.js';
+import { EDITOR_HTML } from './editor-page.js';
+import { EDITOR_CANVAS_HTML } from './editor-canvas.js';
+import { tableToCsv } from './editor-csv.js';
+import { auditContent } from './content-audit.js';
+import { areaScene } from './editor-scene.js';
+import { moveEntity } from './editor-place.js';
+import { createEntity } from './editor-create.js';
+import { exportPack, importPackToDb } from './editor-pack.js';
+import { editorDebugInfo } from './editor-debug.js';
 import {
   isValidToken,
   loadSave,
@@ -38,11 +51,46 @@ import {
   loadFriends,
   addFriend as dbAddFriend,
   removeFriend as dbRemoveFriend,
+  createGuildRow,
+  deleteGuildRow,
+  guildName,
+  guildOf,
+  guildMembers,
+  addGuildMemberRow,
+  removeGuildMemberRow,
+  setGuildRankRow,
+  tokenForName,
+  sendMail,
+  loadMail,
+  getMail,
+  mailCount,
+  deleteMail,
+  auctionPayout,
+  MAX_AUCTIONS_PER_SELLER,
+  createAuction,
+  loadAuctions,
+  getAuction,
+  auctionsBySeller,
+  auctionCountBySeller,
+  deleteAuction,
 } from './player-store.js';
+import { instanceName, type ItemInstance } from '../shared/items.js';
 import { recordScore, formatLadder, isLeaderboardMetric } from './leaderboard.js';
 import { activeEvents, totalXpBonus, totalGoldBonus, msUntilNextChange } from './game-events.js';
 import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
+import { GuildRegistry, type GuildStore, type GuildRank } from './guild.js';
+import {
+  bankGold,
+  bankItemsWithIds,
+  depositGold,
+  withdrawGold,
+  addBankItem,
+  takeBankItem,
+  canWithdraw,
+  clearBank,
+} from './guild-bank.js';
+import { addGuildXp, guildLevelProgress, clearGuildProgress } from './guild-progress.js';
 import {
   ARTIFICER_REROLL_GOLD,
   ARTIFICER_UNSOCKET_GOLD,
@@ -53,7 +101,15 @@ import type { EngineResData, PartyMember } from '../shared/protocol.js';
 import { morningDayIndex } from './area-corruption.js';
 import { SpatialGrid } from './spatial.js';
 import { THEME_KEYS, coerceThemeValue } from '../shared/theme.js';
-import { listTables, listColumns, listRows, getRow, editContent } from './content-edit.js';
+import {
+  listTables,
+  listColumns,
+  listRows,
+  getRow,
+  editContent,
+  cloneRow,
+  deleteRow,
+} from './content-edit.js';
 
 // Load all game content from SQLite (the source of truth). Defaults to ./game.db; the file is
 // created and seeded from the built-in content on first run. Edit it with any SQLite tool.
@@ -167,6 +223,24 @@ const friendStore: FriendStore = {
   remove: (token, name) => dbRemoveFriend(getDb(), token, name),
 };
 const social = new SocialRegistry(friendStore);
+
+// Guilds: persistent societies (roster + ranks + guild chat), DB-backed via the GuildStore.
+const guildStore: GuildStore = {
+  create: (name) => createGuildRow(getDb(), name),
+  delete: (guildId) => deleteGuildRow(getDb(), guildId),
+  name: (guildId) => guildName(getDb(), guildId),
+  guildOf: (token) => guildOf(getDb(), token),
+  members: (guildId) =>
+    guildMembers(getDb(), guildId).map((m) => ({
+      token: m.token,
+      name: m.name,
+      rank: m.rank as GuildRank,
+    })),
+  add: (guildId, token, name, rank) => addGuildMemberRow(getDb(), guildId, token, name, rank),
+  remove: (token) => removeGuildMemberRow(getDb(), token),
+  setRank: (token, rank) => setGuildRankRow(getDb(), token, rank),
+};
+const guilds = new GuildRegistry(guildStore);
 
 // AI bot players — real World player entities with no socket, driven each tick by a pure brain.
 // Spawned via the GM `/bot` command so the world feels alive (and to test co-op solo).
@@ -495,7 +569,10 @@ function driveBots(): void {
           },
           abilities: Object.keys(stats.known).flatMap((aid) => {
             const a = getContent().ability(aid as AbilityId);
-            if (!a) return [];
+            // Bots only reason about direct-attack/heal spells; summon (and any future) kinds are
+            // skipped so the BotAbilityView union stays the combat subset the brain understands.
+            if (!a || (a.kind !== 'melee' && a.kind !== 'projectile' && a.kind !== 'heal'))
+              return [];
             return [
               {
                 id: aid,
@@ -673,6 +750,208 @@ function idForToken(token: string): number | undefined {
   return undefined;
 }
 
+/**
+ * Fully tear down a connected player: persist their save, drop party/guild/bot/social references,
+ * remove their world entity, and forget the session. Idempotent — a no-op if `id` is not a live
+ * player, so the socket `close` that follows an eviction (SEC-001) safely does nothing the second
+ * time. The save is written from the player's CURRENT live state, so an eviction never loses items.
+ */
+function disconnect(id: number): void {
+  const p = players.get(id);
+  if (!p) return;
+  // Persist the character so this guest can reload it on reconnect.
+  const save = manager.get(p.instanceId)?.world.exportPlayer(id);
+  if (save) storeSave(getDb(), p.token, save);
+  const leftName = nameOf(id);
+  // Drop out of any party (promote/disband) and tell the remaining members; go offline so friends
+  // see it, then refresh everyone who had this player on their list.
+  const affectedParty = parties.remove(id);
+  guilds.remove(p.token); // drop any pending guild invite (membership persists in the DB)
+  clearBots(id); // a disconnecting GM's bots go with them — never orphaned in the world
+  manager.remove(p.instanceId, id);
+  players.delete(id);
+  social.setOffline(p.token);
+  for (const m of affectedParty) if (m !== id) sendPartyState(m);
+  if (leftName) notifyFriendWatchers(leftName);
+}
+
+/** Send one message to the online player holding `token`, if any (guild fan-out helper). */
+function sendToToken(token: string, msg: Parameters<typeof send>[1]): void {
+  const id = idForToken(token);
+  const conn = id !== undefined ? players.get(id) : undefined;
+  if (conn) send(conn.socket, msg);
+}
+
+/** Broadcast a guild chat line to every ONLINE member of the guild that `token` belongs to. */
+function guildBroadcast(token: string, from: string, text: string): void {
+  for (const memberToken of guilds.memberTokens(token)) {
+    sendToToken(memberToken, { t: 'chat', from, text, channel: 'guild' });
+  }
+}
+
+/** Award guild XP for a player's kill (World kill hook → guild progression). Announces a level-up to
+ *  the guild. No-op for the guildless. */
+function awardGuildXp(playerId: number, mobLevel: number): void {
+  const p = players.get(playerId);
+  if (!p) return;
+  const m = guilds.membership(p.token);
+  if (!m) return;
+  const { before, after } = addGuildXp(m.guildId, Math.max(1, mobLevel));
+  if (after > before) {
+    guildBroadcast(p.token, 'System', `Your guild reached level ${after}!`);
+  }
+}
+
+/** Resolve a guild member's token by display name within `byToken`'s guild (works for offline members). */
+function guildMemberTokenByName(byToken: string, name: string): string | undefined {
+  const lower = name.trim().toLowerCase();
+  return guilds.roster(byToken)?.members.find((m) => m.name.toLowerCase() === lower)?.token;
+}
+
+/** Largest inbox per recipient (anti-spam / anti-hoard). */
+const MAX_MAIL = 30;
+/** Upper clamp on a single mail/auction gold value — defensive bound (the wallet is the real gate). */
+const MAX_TRADE_GOLD = 1_000_000_000;
+
+/**
+ * Send mail: take the gold (+ optional bag item by uid) from the sender's live World, resolve the
+ * recipient's persistent token (online presence first, else the most-recent save by name), and
+ * queue an inbox row. Refunds anything already taken if a later check fails, so no gold/item is lost.
+ */
+function mailSend(
+  world: World,
+  senderId: number,
+  senderToken: string,
+  senderName: string,
+  toName: string,
+  gold: number,
+  uid?: number,
+): string {
+  const amount = Math.min(MAX_TRADE_GOLD, Math.max(0, Math.floor(gold) || 0));
+  const toToken = social.findOnline(toName)?.token ?? tokenForName(getDb(), toName);
+  if (!toToken) return 'No such player (they must have played here).';
+  if (toToken === senderToken) return 'You cannot mail yourself.';
+  if (amount === 0 && uid === undefined) return 'Attach some gold or an item.';
+  if (mailCount(getDb(), toToken) >= MAX_MAIL) return 'Their mailbox is full.';
+
+  // Take the item first (it can fail cleanly before any gold moves), then the gold.
+  const item = uid !== undefined ? world.mailTakeGear(senderId, uid) : null;
+  if (uid !== undefined && !item) return 'No such item in your bag.';
+  if (amount > 0 && !world.mailTakeGold(senderId, amount)) {
+    if (item) world.mailDeliver(senderId, 0, item); // give the item back — nothing lost
+    return `You don't have ${amount}g.`;
+  }
+  sendMail(getDb(), toToken, senderName, amount, item ? JSON.stringify(item) : null);
+  sendToToken(toToken, {
+    t: 'chat',
+    from: 'System',
+    text: `You have new mail from ${senderName} — /mail to read it.`,
+    channel: 'system',
+  });
+  return `Mail sent to ${toName}.`;
+}
+
+/** Collect one piece of mail into the collector's live World bag (deletes it on success). */
+function mailTake(collectorId: number, token: string, world: World, id: number): string {
+  const m = getMail(getDb(), id, token);
+  if (!m) return 'No such mail.';
+  let item: ItemInstance | null = null;
+  if (m.itemJson) {
+    try {
+      item = JSON.parse(m.itemJson) as ItemInstance;
+    } catch {
+      item = null; // corrupt payload — drop the item but still release the gold + clear the row
+    }
+  }
+  const r = world.mailDeliver(collectorId, m.gold, item);
+  if (!r.ok) return r.reason ?? 'Could not collect.';
+  deleteMail(getDb(), id);
+  const got: string[] = [];
+  if (m.gold > 0) got.push(`${m.gold}g`);
+  if (item) got.push('an item');
+  return `Collected ${got.join(' + ') || 'mail'}.`;
+}
+
+/** A short, readable name for an item held in an auction listing (e.g. "Rare Iron Sword"). */
+function describeAuctionItem(itemJson: string): string {
+  try {
+    const inst = JSON.parse(itemJson) as ItemInstance;
+    return instanceName(inst, getContent().item(inst.baseId)?.name ?? inst.baseId);
+  } catch {
+    return 'an item';
+  }
+}
+
+/** List a bag gear instance on the auction house (escrow it out of the seller's live bag). */
+function auctionList(
+  world: World,
+  sellerId: number,
+  sellerToken: string,
+  sellerName: string,
+  uid: number,
+  price: number,
+): string {
+  const amount = Math.min(MAX_TRADE_GOLD, Math.floor(price) || 0);
+  if (amount <= 0) return 'Set a buyout price above 0.';
+  if (auctionCountBySeller(getDb(), sellerToken) >= MAX_AUCTIONS_PER_SELLER) {
+    return `You already have ${MAX_AUCTIONS_PER_SELLER} listings.`;
+  }
+  const item = world.mailTakeGear(sellerId, uid);
+  if (!item) return 'No such item in your bag.';
+  const id = createAuction(getDb(), sellerToken, sellerName, JSON.stringify(item), amount);
+  return `Listed ${describeAuctionItem(JSON.stringify(item))} for ${amount}g (#${id}).`;
+}
+
+/** Buy a listing: pay gold, receive the item, mail the seller the proceeds (minus the house cut). */
+function auctionBuy(world: World, buyerId: number, buyerToken: string, id: number): string {
+  const a = getAuction(getDb(), id);
+  if (!a) return 'No such listing (it may have sold).';
+  if (a.sellerToken === buyerToken) return 'That is your own listing — use /ah cancel.';
+  let item: ItemInstance | null = null;
+  try {
+    item = JSON.parse(a.itemJson) as ItemInstance;
+  } catch {
+    item = null;
+  }
+  if (!item) {
+    deleteAuction(getDb(), id); // corrupt listing — clear it
+    return 'That listing is invalid.';
+  }
+  if (!world.mailTakeGold(buyerId, a.price)) return `You need ${a.price}g.`;
+  const delivered = world.mailDeliver(buyerId, 0, item);
+  if (!delivered.ok) {
+    world.mailDeliver(buyerId, a.price, null); // refund — nothing lost
+    return delivered.reason ?? 'Your bag is full.';
+  }
+  const payout = auctionPayout(a.price);
+  sendMail(
+    getDb(),
+    a.sellerToken,
+    'Auction House',
+    payout,
+    null,
+    `Sold: ${describeAuctionItem(a.itemJson)}`,
+  );
+  deleteAuction(getDb(), id);
+  sendToToken(a.sellerToken, {
+    t: 'chat',
+    from: 'System',
+    text: `Your auction sold for ${a.price}g (${payout}g after fees) — collect it with /mail.`,
+    channel: 'system',
+  });
+  return `Bought ${describeAuctionItem(a.itemJson)} for ${a.price}g.`;
+}
+
+/** Cancel your own listing: the escrowed item is mailed back to you. */
+function auctionCancel(token: string, id: number): string {
+  const a = getAuction(getDb(), id);
+  if (!a) return 'No such listing.';
+  if (a.sellerToken !== token) return 'That is not your listing.';
+  sendMail(getDb(), token, 'Auction House', 0, a.itemJson, 'Listing cancelled');
+  deleteAuction(getDb(), id);
+  return 'Listing cancelled — the item is mailed back to you.';
+}
+
 /** Build the roster entry for one party member (members are always connected — see disconnect). */
 function partyMemberInfo(memberId: number): PartyMember | null {
   const conn = players.get(memberId);
@@ -770,8 +1049,342 @@ const http = createServer(async (req, res) => {
     );
     return;
   }
+  // Editor mutating routes are POST-only (SEC-001: reject GET/other verbs so a token-in-URL can't
+  // drive a write via a plain navigation/img — defense-in-depth even on localhost). The .tmj route
+  // is dual GET(export)/POST(import) and self-branches on method, so it's excluded here.
+  {
+    const ep = (req.url ?? '').split('?')[0];
+    const POST_ONLY = new Set([
+      '/editor/edit',
+      '/editor/clone',
+      '/editor/delete',
+      '/editor/place',
+      '/editor/create',
+      '/editor/pack',
+    ]);
+    if (POST_ONLY.has(ep ?? '') && req.method !== 'POST') {
+      res.writeHead(405, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'method not allowed (POST only)' }));
+      return;
+    }
+  }
+  // Full-world content pack: GET /editor/pack.json (download a backup / portable copy of the whole
+  // game) + POST /editor/pack (restore/load a pack — transactional). Both dev-gated.
+  if ((req.url ?? '').split('?')[0] === '/editor/pack.json') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'content-disposition': 'attachment; filename="world-pack.json"',
+    });
+    res.end(JSON.stringify(exportPack()));
+    return;
+  }
+  if ((req.url ?? '').split('?')[0] === '/editor/pack') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+      return;
+    }
+    const out = importPackToDb(await readJsonBody(req));
+    if (out.ok) rebroadcastContent();
+    res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
+    return;
+  }
+  // Editor world export (slice 1 of the in-browser editor): the full data-driven content model as
+  // JSON — the source an editor UI loads and an exporter walks toward other engines. Dev-gated by the
+  // ENGINE_ADMIN_TOKEN (same gate as the engine panel) so it never leaks on a normal player path; if
+  // the token is unset the route is disabled entirely.
+  if ((req.url ?? '').split('?')[0] === '/editor/world.json') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(editorWorld()));
+    return;
+  }
+  // Editor content audit: GET /editor/audit.json?token=… — live cross-reference integrity scan so a
+  // designer editing via the editor catches broken refs immediately. Dev-gated.
+  if ((req.url ?? '').split('?')[0] === '/editor/audit.json') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(auditContent()));
+    return;
+  }
+  // Editor CSV export: GET /editor/table/<name>.csv?token=… — a table as a spreadsheet. Dev-gated;
+  // the name is registry-validated inside tableToCsv (unknown/forged → 404).
+  const csv = /^\/editor\/table\/([A-Za-z0-9_]+)\.csv$/.exec((req.url ?? '').split('?')[0] ?? '');
+  if (csv) {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    const out = tableToCsv(csv[1]!);
+    if (out === null) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: `unknown/non-editable table: ${csv[1]}` }));
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="${csv[1]}.csv"`,
+    });
+    res.end(out);
+    return;
+  }
+  // The editor UI pages (shells carry no secrets; their data calls send the token).
+  if ((req.url ?? '').split('?')[0] === '/editor') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(EDITOR_HTML);
+    return;
+  }
+  // The canvas map editor — loads an area's scene + lets you drag placeables.
+  if ((req.url ?? '').split('?')[0] === '/editor/map') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(EDITOR_CANVAS_HTML);
+    return;
+  }
+  // Editor scene (GET /editor/scene/<id>.json) + debug (GET /editor/debug.json), dev-gated reads.
+  const scene = /^\/editor\/scene\/([A-Za-z0-9_]+)\.json$/.exec(
+    (req.url ?? '').split('?')[0] ?? '',
+  );
+  if (scene || (req.url ?? '').split('?')[0] === '/editor/debug.json') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    if (scene) {
+      const data = areaScene(scene[1]!);
+      if (!data) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: `unknown area: ${scene[1]}` }));
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(data));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(editorDebugInfo()));
+    return;
+  }
+  // Editor positional move: POST /editor/place?token=… {table,id,x,y} (dev-gated). The canvas calls
+  // this on drag-drop; content reloads + re-broadcasts so the new placement applies to fresh instances.
+  if ((req.url ?? '').split('?')[0] === '/editor/place') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+      return;
+    }
+    const b = (await readJsonBody(req)) as {
+      table?: unknown;
+      id?: unknown;
+      x?: unknown;
+      y?: unknown;
+    };
+    const table = typeof b?.table === 'string' ? b.table : '';
+    const id = b?.id === undefined || b?.id === null ? '' : String(b.id);
+    if (!table || !id || typeof b?.x !== 'number' || typeof b?.y !== 'number') {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'need {table, id, x:number, y:number}' }));
+      return;
+    }
+    const out = moveEntity(table, id, b.x, b.y);
+    if (out.ok) rebroadcastContent();
+    res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
+    return;
+  }
+  // Editor create: POST /editor/create?token=… {table,areaId,x,y,kind} (dev-gated). Drops a new
+  // decor/creature_spawns/npcs row at authored coords; reload + re-broadcast so it applies live.
+  if ((req.url ?? '').split('?')[0] === '/editor/create') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+      return;
+    }
+    const b = (await readJsonBody(req)) as {
+      table?: unknown;
+      areaId?: unknown;
+      x?: unknown;
+      y?: unknown;
+      kind?: unknown;
+    };
+    const table = typeof b?.table === 'string' ? b.table : '';
+    const areaId = typeof b?.areaId === 'string' ? b.areaId : '';
+    const kind = typeof b?.kind === 'string' ? b.kind : '';
+    if (!table || !areaId || !kind || typeof b?.x !== 'number' || typeof b?.y !== 'number') {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({ ok: false, message: 'need {table, areaId, x:number, y:number, kind}' }),
+      );
+      return;
+    }
+    const out = createEntity(table, areaId, b.x, b.y, kind);
+    if (out.ok) rebroadcastContent();
+    res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
+    return;
+  }
+  // Editor cell edit: POST /editor/edit?token=… {table,id,column,value} (dev-gated). Validated +
+  // clamped by content-edit; reloads + re-broadcasts so the change applies live.
+  if ((req.url ?? '').split('?')[0] === '/editor/edit') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+      return;
+    }
+    const req2 = parseEditBody(await readJsonBody(req));
+    if (!req2) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'bad edit body' }));
+      return;
+    }
+    const out = editContent(req2.table, req2.id, req2.column, req2.value);
+    if (out.ok) rebroadcastContent();
+    res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
+    return;
+  }
+  // Editor row create (clone) + delete: POST /editor/clone {table,id,newId?} / /editor/delete
+  // {table,id} (dev-gated). Clone duplicates a row under a new pk; delete removes one (FK-guarded).
+  {
+    const path = (req.url ?? '').split('?')[0];
+    if (path === '/editor/clone' || path === '/editor/delete') {
+      const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+      if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+        res.writeHead(403, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+        return;
+      }
+      const body = (await readJsonBody(req)) as { table?: unknown; id?: unknown; newId?: unknown };
+      const table = typeof body?.table === 'string' ? body.table : '';
+      const id = body?.id === undefined || body?.id === null ? '' : String(body.id);
+      if (!table || !id) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, message: 'need {table, id}' }));
+        return;
+      }
+      const out =
+        path === '/editor/clone'
+          ? cloneRow(table, id, typeof body.newId === 'string' ? body.newId : undefined)
+          : deleteRow(table, id);
+      if (out.ok) rebroadcastContent();
+      res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(out));
+      return;
+    }
+  }
+  // Tiled .tmj export of one area: GET /editor/area/<id>.tmj?token=… (dev-gated). The cross-engine
+  // bridge — the returned map imports into Tiled/Godot/Unity/GameMaker/001.
+  const tmj = /^\/editor\/area\/([A-Za-z0-9_]+)\.tmj$/.exec((req.url ?? '').split('?')[0] ?? '');
+  if (tmj) {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    // POST = import a Tiled map back into the area's content (decor/spawns/npcs); GET = export.
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req);
+      if (!body) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'bad or oversized JSON body' }));
+        return;
+      }
+      // SEC-003: a bad map can throw inside the import transaction (FK/constraint); catch it so the
+      // route returns a friendly {ok:false} like the sibling editor routes (the txn rolls back).
+      let result: { ok: boolean; message: string };
+      try {
+        result = importTiled(body as TiledMap);
+      } catch (e) {
+        result = { ok: false, message: `Import failed: ${(e as Error).message}` };
+      }
+      if (result.ok) rebroadcastContent(); // reload + re-skin connected clients
+      res.writeHead(result.ok ? 200 : 400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    const map = areaToTiled(tmj[1]!);
+    if (!map) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: `unknown area: ${tmj[1]}` }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(map));
+    return;
+  }
+  // Godot 4 .tscn export of one area: GET /editor/area/<id>.tscn?token=… (dev-gated). A native-engine
+  // sibling to the .tmj route — open the scene directly in Godot.
+  const tscn = /^\/editor\/area\/([A-Za-z0-9_]+)\.tscn$/.exec((req.url ?? '').split('?')[0] ?? '');
+  if (tscn) {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    const scene = areaToGodot(tscn[1]!);
+    if (scene === null) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: `unknown area: ${tscn[1]}` }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end(scene);
+    return;
+  }
   await serveStatic(req.url ?? '/', res);
 });
+
+/** Read a JSON request body (capped), or null on parse error / oversize. For the editor import POST. */
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const MAX = 8 * 1024 * 1024; // 8 MB — generous for a map, bounded against a memory-flood
+  return new Promise((resolve) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > MAX) {
+        resolve(null);
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {
+        resolve(null);
+      }
+    });
+    req.on('error', () => resolve(null));
+  });
+}
 
 async function serveStatic(url: string, res: ServerResponse): Promise<void> {
   // Decide "is this the site root?" from the RAW url, before normalize() — on Windows
@@ -897,6 +1510,19 @@ wss.on('connection', (socket) => {
             // a fresh token. The token is validated before it ever touches the DB (bound param anyway).
             const presented = isValidToken(msg.token) ? msg.token : undefined;
             const token = presented ?? newPlayerToken();
+            // SEC-001: one live session per save token. If this token is already connected, fully
+            // disconnect the prior session FIRST — synchronously, so it writes its save and removes
+            // its entity before we load the save below. Otherwise both sessions would hold the same
+            // gear/gold live (dupe), and the older socket's delayed `close` could overwrite this
+            // session's save. Last-login-wins, the MMO norm.
+            if (presented !== undefined) {
+              const existing = idForToken(presented);
+              if (existing !== undefined) {
+                const prior = players.get(existing);
+                disconnect(existing);
+                prior?.socket.close(1008, 'replaced by a newer login');
+              }
+            }
             const save = presented ? (loadSave(getDb(), presented) ?? undefined) : undefined;
             const placement = manager.join(save?.name ?? msg.name, undefined, save);
             entityId = placement.entityId;
@@ -1301,6 +1927,9 @@ wss.on('connection', (socket) => {
           case 'whisper': {
             const p = players.get(entityId);
             if (!p || typeof msg.to !== 'string' || typeof msg.text !== 'string') break;
+            // SEC-003: whispers deliver a chat line to another player — gate them on the same
+            // low-rate chat bucket as public chat so they can't be used to spam-flood a victim.
+            if (!chatBucket.tryRemove()) break;
             const text = sanitizeChat(msg.text);
             if (!text) break;
             const fromName = nameOf(entityId) ?? 'Player';
@@ -1415,6 +2044,230 @@ wss.on('connection', (socket) => {
                     return rs
                       .map((r) => `${r.id} — ${fmt(r.inputs)} → ${fmt(r.outputs)}`)
                       .join('\n');
+                  },
+                  guildCreate: (gname) => {
+                    const r = guilds.create(p.token, gname, from);
+                    return r.ok
+                      ? `Guild "${gname.trim()}" founded — you are its leader.`
+                      : r.reason;
+                  },
+                  guildInvite: (tname) => {
+                    const target = social.findOnline(tname);
+                    if (!target) return 'That player must be online to be invited.';
+                    const r = guilds.invite(p.token, target.token);
+                    if (!r.ok) return r.reason;
+                    sendToToken(target.token, {
+                      t: 'chat',
+                      from: 'System',
+                      text: `${from} invited you to "${guilds.guildNameOf(p.token) ?? 'a guild'}" — /guild accept to join.`,
+                      channel: 'guild',
+                    });
+                    return `Invited ${target.name} to the guild.`;
+                  },
+                  guildAccept: () => {
+                    const r = guilds.accept(p.token, from);
+                    if (!r.ok) return r.reason;
+                    guildBroadcast(p.token, 'System', `${from} has joined the guild.`);
+                    return `You joined "${r.guildName}".`;
+                  },
+                  guildDecline: () => {
+                    guilds.decline(p.token);
+                    return 'Guild invite declined.';
+                  },
+                  guildLeave: () => {
+                    const gname = guilds.guildNameOf(p.token);
+                    const before = guilds.membership(p.token);
+                    const r = guilds.leave(p.token);
+                    if (!r.ok) return r.reason ?? 'You are not in a guild.';
+                    // Disband empties the guild — drop its bank + progression so a recycled guildId
+                    // can't inherit them.
+                    if (before && r.note === 'Your guild is disbanded.') {
+                      clearBank(before.guildId);
+                      clearGuildProgress(before.guildId);
+                    }
+                    for (const tok of r.affected) {
+                      if (tok === p.token) continue;
+                      sendToToken(tok, {
+                        t: 'chat',
+                        from: 'System',
+                        text: `${from} has left the guild.${r.note ? ` ${r.note}` : ''}`,
+                        channel: 'guild',
+                      });
+                    }
+                    return `You left "${gname ?? 'the guild'}".${r.note ? ` ${r.note}` : ''}`;
+                  },
+                  guildKick: (tname) => {
+                    const tok = guildMemberTokenByName(p.token, tname);
+                    if (!tok) return 'They are not in your guild.';
+                    const r = guilds.kick(p.token, tok);
+                    if (!r.ok) return r.reason;
+                    sendToToken(tok, {
+                      t: 'chat',
+                      from: 'System',
+                      text: 'You have been removed from the guild.',
+                      channel: 'guild',
+                    });
+                    return `Removed ${tname} from the guild.`;
+                  },
+                  guildRank: (tname, rank) => {
+                    const tok = guildMemberTokenByName(p.token, tname);
+                    if (!tok) return 'They are not in your guild.';
+                    const r = guilds.setRank(p.token, tok, rank);
+                    if (!r.ok) return r.reason;
+                    sendToToken(tok, {
+                      t: 'chat',
+                      from: 'System',
+                      text: `You are now a guild ${rank}.`,
+                      channel: 'guild',
+                    });
+                    return `${tname} is now a ${rank}.`;
+                  },
+                  guildRoster: () => {
+                    const r = guilds.roster(p.token);
+                    if (!r) return ['You are not in a guild. Found one with /guild create <name>.'];
+                    const mem = guilds.membership(p.token);
+                    const prog = mem ? guildLevelProgress(mem.guildId) : null;
+                    const lvl =
+                      prog && prog.span > 0
+                        ? ` — level ${prog.level} (${prog.into}/${prog.span} XP)`
+                        : prog
+                          ? ` — level ${prog.level} (max)`
+                          : '';
+                    const lines = [`${r.name}${lvl} — ${r.members.length} member(s):`];
+                    for (const m of r.members) {
+                      const on = social.findOnline(m.name);
+                      const where = on ? `online (${on.areaId})` : 'offline';
+                      lines.push(`  [${m.rank}] ${m.name} — ${where}`);
+                    }
+                    return lines;
+                  },
+                  guildSay: (text) => {
+                    if (!guilds.guildNameOf(p.token)) return 'You are not in a guild.';
+                    guildBroadcast(p.token, from, text);
+                    return '';
+                  },
+                  guildBankView: () => {
+                    const m = guilds.membership(p.token);
+                    if (!m) return ['You are not in a guild.'];
+                    const lines = [`Guild bank — ${bankGold(m.guildId)}g:`];
+                    const items = bankItemsWithIds(m.guildId);
+                    if (items.length === 0) lines.push('  (no items stored)');
+                    for (const it of items) {
+                      lines.push(
+                        `  #${it.id} ${describeAuctionItem(JSON.stringify(it.item))} — /guild withdraw item ${it.id}`,
+                      );
+                    }
+                    return lines;
+                  },
+                  guildBankDeposit: (kind, amount) => {
+                    const m = guilds.membership(p.token);
+                    if (!m) return 'You are not in a guild.';
+                    if (kind === 'gold') {
+                      if (amount <= 0) return 'Deposit how much gold?';
+                      // Clamp per-op like mail/auction (SEC-102) so the vault total can't be driven
+                      // toward unsafe-integer territory over time.
+                      if (amount > MAX_TRADE_GOLD)
+                        return `You can deposit at most ${MAX_TRADE_GOLD}g at once.`;
+                      if (!world.mailTakeGold(entityId, amount))
+                        return `You don't have ${amount}g.`;
+                      depositGold(m.guildId, amount);
+                      guildBroadcast(p.token, 'System', `${from} deposited ${amount}g.`);
+                      return `Deposited ${amount}g into the guild bank.`;
+                    }
+                    // item: amount = the item's uid in the player's bag
+                    const item = world.mailTakeGear(entityId, amount);
+                    if (!item) return 'You have no item with that uid.';
+                    if (!addBankItem(m.guildId, item)) {
+                      world.mailDeliver(entityId, 0, item); // bank full — hand it straight back
+                      return 'The guild bank is full (100 items).';
+                    }
+                    guildBroadcast(p.token, 'System', `${from} deposited an item.`);
+                    return `Deposited ${describeAuctionItem(JSON.stringify(item))}.`;
+                  },
+                  guildBankWithdraw: (kind, amount) => {
+                    const m = guilds.membership(p.token);
+                    if (!m) return 'You are not in a guild.';
+                    if (!canWithdraw(m.rank)) {
+                      return 'Only officers and the guild leader can withdraw from the bank.';
+                    }
+                    if (kind === 'gold') {
+                      if (amount <= 0) return 'Withdraw how much gold?';
+                      if (!withdrawGold(m.guildId, amount)) {
+                        return 'The guild bank does not have that much gold.';
+                      }
+                      world.mailDeliver(entityId, amount, null); // gold always lands
+                      guildBroadcast(p.token, 'System', `${from} withdrew ${amount}g.`);
+                      return `Withdrew ${amount}g.`;
+                    }
+                    // item: amount = the bank row id (from /guild bank)
+                    const item = takeBankItem(m.guildId, amount);
+                    if (!item) return 'No item with that id in the guild bank.';
+                    const r = world.mailDeliver(entityId, 0, item);
+                    if (!r.ok) {
+                      addBankItem(m.guildId, item); // bag full — return it to the bank
+                      return 'Your bag is full.';
+                    }
+                    guildBroadcast(p.token, 'System', `${from} withdrew an item.`);
+                    return `Withdrew ${describeAuctionItem(JSON.stringify(item))}.`;
+                  },
+                  mailSend: (toName, gold, uid) =>
+                    mailSend(world, entityId, p.token, from, toName, gold, uid),
+                  mailList: () => {
+                    const inbox = loadMail(getDb(), p.token);
+                    if (inbox.length === 0) return ['Your mailbox is empty.'];
+                    return [
+                      `Mailbox (${inbox.length}):`,
+                      ...inbox.map((m) => {
+                        const parts: string[] = [];
+                        if (m.gold > 0) parts.push(`${m.gold}g`);
+                        if (m.itemJson) parts.push('an item');
+                        return `  #${m.id} from ${m.senderName}: ${parts.join(' + ') || '(empty)'} — /mail take ${m.id}`;
+                      }),
+                    ];
+                  },
+                  mailTake: (id) => mailTake(entityId, p.token, world, id),
+                  mailTakeAll: () => {
+                    const inbox = loadMail(getDb(), p.token);
+                    if (inbox.length === 0) return 'Your mailbox is empty.';
+                    let taken = 0;
+                    for (const m of inbox) {
+                      const r = mailTake(entityId, p.token, world, m.id);
+                      if (r.startsWith('Collected')) taken++;
+                      else break; // stop on the first failure (e.g. bag full) so nothing is lost
+                    }
+                    return taken > 0
+                      ? `Collected ${taken} mail.`
+                      : 'Could not collect (bag full?).';
+                  },
+                  auctionList: (uid, price) =>
+                    auctionList(world, entityId, p.token, from, uid, price),
+                  auctionBuy: (id) => auctionBuy(world, entityId, p.token, id),
+                  auctionCancel: (id) => auctionCancel(p.token, id),
+                  auctionBrowse: () => {
+                    const rows = loadAuctions(getDb());
+                    if (rows.length === 0) return ['The auction house is empty.'];
+                    const shown = rows.slice(0, 25);
+                    const lines = [`Auction house (${rows.length} listing(s)):`];
+                    for (const a of shown) {
+                      lines.push(
+                        `  #${a.id} ${describeAuctionItem(a.itemJson)} — ${a.price}g (${a.sellerName})`,
+                      );
+                    }
+                    if (rows.length > shown.length) {
+                      lines.push(`  …and ${rows.length - shown.length} more.`);
+                    }
+                    return lines;
+                  },
+                  auctionMine: () => {
+                    const rows = auctionsBySeller(getDb(), p.token);
+                    if (rows.length === 0) return ['You have no active listings.'];
+                    return [
+                      'Your listings:',
+                      ...rows.map(
+                        (a) =>
+                          `  #${a.id} ${describeAuctionItem(a.itemJson)} — ${a.price}g — /ah cancel ${a.id}`,
+                      ),
+                    ];
                   },
                 });
               } catch (err) {
@@ -1587,22 +2440,7 @@ wss.on('connection', (socket) => {
   });
 
   socket.on('close', () => {
-    const p = players.get(entityId);
-    if (p) {
-      // Persist the character so this guest can reload it on reconnect.
-      const save = manager.get(p.instanceId)?.world.exportPlayer(entityId);
-      if (save) storeSave(getDb(), p.token, save);
-      const leftName = nameOf(entityId);
-      // Drop out of any party (promote/disband) and tell the remaining members; go offline so
-      // friends see it, then refresh everyone who had this player on their list.
-      const affectedParty = parties.remove(entityId);
-      clearBots(entityId); // a disconnecting GM's bots go with them — never orphaned in the world
-      manager.remove(p.instanceId, entityId);
-      players.delete(entityId);
-      social.setOffline(p.token);
-      for (const m of affectedParty) if (m !== entityId) sendPartyState(m);
-      if (leftName) notifyFriendWatchers(leftName);
-    }
+    disconnect(entityId);
   });
 });
 
@@ -1729,6 +2567,7 @@ setInterval(() => {
           world.setPartyResolver((id) =>
             parties.coMembers(id).filter((m) => players.get(m)?.instanceId === instance.id),
           );
+          world.setKillHook(awardGuildXp); // member kills feed their guild's progression
           resolverInstances.add(instance.id);
         }
         const all = world.snapshot();

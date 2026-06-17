@@ -44,6 +44,34 @@ export interface CommandContext {
   events: () => string;
   /** Render the crafting recipes (id — name: inputs → outputs) for /recipes. */
   recipes: () => string;
+  // Guilds (host-level: persistent societies span instances). Each returns a player-facing line.
+  guildCreate: (name: string) => string;
+  guildInvite: (name: string) => string;
+  guildAccept: () => string;
+  guildDecline: () => string;
+  guildLeave: () => string;
+  guildKick: (name: string) => string;
+  guildRank: (name: string, rank: 'officer' | 'member') => string;
+  guildRoster: () => string[];
+  /** Broadcast a guild-chat line to online members; returns '' on success, else an error line. */
+  guildSay: (text: string) => string;
+  /** Guild bank: shared gold + item vault. View returns lines (gold + items w/ withdraw ids). */
+  guildBankView: () => string[];
+  /** Deposit into the guild bank: kind 'gold' (amount) or 'item' (amount = bag slot index). */
+  guildBankDeposit: (kind: 'gold' | 'item', amount: number) => string;
+  /** Withdraw from the guild bank (officers+): kind 'gold' (amount) or 'item' (amount = row id). */
+  guildBankWithdraw: (kind: 'gold' | 'item', amount: number) => string;
+  // Mail (host-level: deferred gold/item delivery, persists for offline recipients).
+  mailSend: (toName: string, gold: number, uid?: number) => string;
+  mailList: () => string[];
+  mailTake: (id: number) => string;
+  mailTakeAll: () => string;
+  // Auction house (host-level: persistent buyout market; delivers via the mail channel).
+  auctionList: (uid: number, price: number) => string;
+  auctionBuy: (id: number) => string;
+  auctionCancel: (id: number) => string;
+  auctionBrowse: () => string[];
+  auctionMine: () => string[];
 }
 
 interface Command {
@@ -273,6 +301,176 @@ const COMMAND_LIST: Command[] = [
       const questId = ctx.args[0];
       if (!questId) return ctx.reply('Usage: /accept <questId>');
       ctx.reply(ctx.world.acceptQuest(ctx.playerId, questId));
+    },
+  },
+  {
+    name: 'mounts',
+    minLevel: AccessLevel.Player,
+    usage: '/mounts',
+    help: 'List your mounts and what a Stablemaster sells.',
+    run: (ctx) => {
+      for (const line of ctx.world.mountStatus(ctx.playerId)) ctx.reply(line);
+    },
+  },
+  {
+    name: 'mount',
+    minLevel: AccessLevel.Player,
+    usage: '/mount [mountId]',
+    help: 'Ride a mount you own (no id = dismount). See /mounts.',
+    run: (ctx) => {
+      ctx.reply(ctx.world.toggleMount(ctx.playerId, ctx.args[0]));
+    },
+  },
+  {
+    name: 'buymount',
+    minLevel: AccessLevel.Player,
+    usage: '/buymount <mountId>',
+    help: 'Buy a mount (stand near a Stablemaster). See /mounts.',
+    run: (ctx) => {
+      const id = ctx.args[0];
+      if (!id) return ctx.reply('Usage: /buymount <mountId>');
+      ctx.reply(ctx.world.buyMount(ctx.playerId, id));
+    },
+  },
+  {
+    name: 'pvp',
+    minLevel: AccessLevel.Player,
+    usage: '/pvp',
+    help: 'Toggle your PvP flag (lets you fight other flagged players in contested zones).',
+    run: (ctx) => ctx.reply(ctx.world.togglePvp(ctx.playerId)),
+  },
+  {
+    name: 'pet',
+    minLevel: AccessLevel.Player,
+    usage: '/pet [dismiss]',
+    help: 'Show your tamed pet (or release it with /pet dismiss). Tame a weakened beast to get one.',
+    run: (ctx) => {
+      const sub = (ctx.args[0] ?? '').toLowerCase();
+      if (sub === 'dismiss' || sub === 'release')
+        return ctx.reply(ctx.world.dismissPet(ctx.playerId));
+      ctx.reply(ctx.world.petStatus(ctx.playerId));
+    },
+  },
+  {
+    name: 'guild',
+    minLevel: AccessLevel.Player,
+    usage:
+      '/guild <create|invite|accept|decline|leave|kick|promote|demote|roster|bank|deposit|withdraw> [args]',
+    help: 'Manage your guild. /guild with no args shows the roster; /guild bank shows the vault.',
+    run: (ctx) => {
+      const sub = (ctx.args[0] ?? 'roster').toLowerCase();
+      const rest = ctx.args.slice(1).join(' ').trim();
+      switch (sub) {
+        case 'create':
+          return ctx.reply(rest ? ctx.guildCreate(rest) : 'Usage: /guild create <name>');
+        case 'invite':
+          return ctx.reply(rest ? ctx.guildInvite(rest) : 'Usage: /guild invite <player>');
+        case 'accept':
+          return ctx.reply(ctx.guildAccept());
+        case 'decline':
+          return ctx.reply(ctx.guildDecline());
+        case 'leave':
+          return ctx.reply(ctx.guildLeave());
+        case 'kick':
+          return ctx.reply(rest ? ctx.guildKick(rest) : 'Usage: /guild kick <player>');
+        case 'promote':
+          return ctx.reply(
+            rest ? ctx.guildRank(rest, 'officer') : 'Usage: /guild promote <player>',
+          );
+        case 'demote':
+          return ctx.reply(rest ? ctx.guildRank(rest, 'member') : 'Usage: /guild demote <player>');
+        case 'bank':
+          for (const line of ctx.guildBankView()) ctx.reply(line);
+          return;
+        case 'deposit':
+        case 'withdraw': {
+          const kind = (ctx.args[1] ?? '').toLowerCase();
+          const amount = Math.floor(Number(ctx.args[2]));
+          if ((kind !== 'gold' && kind !== 'item') || !Number.isFinite(amount)) {
+            return ctx.reply(
+              `Usage: /guild ${sub} <gold|item> <amount${sub === 'withdraw' ? '|bank-id' : '|item-uid'}>`,
+            );
+          }
+          return ctx.reply(
+            sub === 'deposit'
+              ? ctx.guildBankDeposit(kind, amount)
+              : ctx.guildBankWithdraw(kind, amount),
+          );
+        }
+        case 'roster':
+        case 'info':
+          for (const line of ctx.guildRoster()) ctx.reply(line);
+          return;
+        default:
+          return ctx.reply('Unknown subcommand. Try /guild roster, bank, deposit, create, invite.');
+      }
+    },
+  },
+  {
+    name: 'g',
+    minLevel: AccessLevel.Player,
+    usage: '/g <message>',
+    help: 'Send a message to your guild chat.',
+    run: (ctx) => {
+      const text = ctx.args.join(' ').trim();
+      if (!text) return ctx.reply('Usage: /g <message>');
+      const err = ctx.guildSay(text);
+      if (err) ctx.reply(err);
+    },
+  },
+  {
+    name: 'mail',
+    minLevel: AccessLevel.Player,
+    usage: '/mail [send <player> <gold> [itemUid] | take <id> | takeall]',
+    help: 'Read your mailbox; send gold/items; collect mail. No args = read.',
+    run: (ctx) => {
+      const sub = (ctx.args[0] ?? 'list').toLowerCase();
+      if (sub === 'send') {
+        const to = ctx.args[1];
+        const gold = int(ctx.args, 2, 0);
+        const uid = ctx.args[3] !== undefined ? int(ctx.args, 3, -1) : undefined;
+        if (!to) return ctx.reply('Usage: /mail send <player> <gold> [itemUid]');
+        return ctx.reply(ctx.mailSend(to, gold, uid !== undefined && uid >= 0 ? uid : undefined));
+      }
+      if (sub === 'take') {
+        const id = int(ctx.args, 1, -1);
+        if (id < 0) return ctx.reply('Usage: /mail take <id>');
+        return ctx.reply(ctx.mailTake(id));
+      }
+      if (sub === 'takeall') return ctx.reply(ctx.mailTakeAll());
+      for (const line of ctx.mailList()) ctx.reply(line);
+      return;
+    },
+  },
+  {
+    name: 'ah',
+    minLevel: AccessLevel.Player,
+    usage: '/ah [list <itemUid> <price> | buy <id> | cancel <id> | mine]',
+    help: 'Auction house: browse, list a bag item for sale, buy, or cancel. No args = browse.',
+    run: (ctx) => {
+      const sub = (ctx.args[0] ?? 'browse').toLowerCase();
+      if (sub === 'list' || sub === 'sell') {
+        const uid = int(ctx.args, 1, -1);
+        const price = int(ctx.args, 2, 0);
+        if (uid < 0 || price <= 0) return ctx.reply('Usage: /ah list <itemUid> <price>');
+        return ctx.reply(ctx.auctionList(uid, price));
+      }
+      if (sub === 'buy') {
+        const id = int(ctx.args, 1, -1);
+        if (id < 0) return ctx.reply('Usage: /ah buy <id>');
+        return ctx.reply(ctx.auctionBuy(id));
+      }
+      if (sub === 'cancel') {
+        const id = int(ctx.args, 1, -1);
+        if (id < 0) return ctx.reply('Usage: /ah cancel <id>');
+        return ctx.reply(ctx.auctionCancel(id));
+      }
+      if (sub === 'mine') {
+        for (const line of ctx.auctionMine()) ctx.reply(line);
+        return;
+      }
+      for (const line of ctx.auctionBrowse()) ctx.reply(line);
+      return;
     },
   },
 

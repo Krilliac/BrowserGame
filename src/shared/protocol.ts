@@ -21,16 +21,22 @@ export interface QuestState {
   id: string;
   name: string;
   description: string;
-  /** 'kill' = slay N mobs (auto-progress); 'collect' = turn N items in to a quest-giver. */
-  kind: 'kill' | 'collect';
+  /**
+   * 'kill' = slay N mobs (auto-progress); 'collect' = turn N items in to a quest-giver;
+   * 'explore' = discover a target area (auto-completes on arrival, targetCount 1).
+   */
+  kind: 'kill' | 'collect' | 'explore';
   targetCount: number;
   /** Kills so far, or items currently held toward a collect quest (0 for available/done). */
   progress: number;
-  status: 'available' | 'active' | 'done';
+  /** 'locked' = a chain prerequisite quest is not yet complete (shown but not acceptable). */
+  status: 'available' | 'active' | 'done' | 'locked';
   /** Reward summary for the log (gold/xp + optional item name). */
   rewardGold: number;
   rewardXp: number;
   rewardItem: string | null;
+  /** Chain quests: the name of the prerequisite quest, shown when this one is 'locked' (else null). */
+  requiresName: string | null;
 }
 
 /** Item display/stat info sent to the client (mirrors the server's content DB items). */
@@ -80,7 +86,7 @@ export interface FriendInfo {
 }
 
 /** Chat channel a message belongs to, so the client can color/route it. */
-export type ChatChannel = 'say' | 'system' | 'party' | 'whisper';
+export type ChatChannel = 'say' | 'system' | 'party' | 'whisper' | 'guild';
 
 /** Simulation tick rate in Hz. Overridable via the TICK_RATE env var on the server. */
 export const DEFAULT_TICK_RATE = 20;
@@ -143,6 +149,12 @@ export interface EntityState {
   look?: number;
   /** Mobs only: true for an elite/champion (the client draws a marker + scales it up). */
   elite?: boolean;
+  /** Mobs only: true for a SUMMONED ally (a friendly minion) — the client draws a green ally
+   *  health bar instead of the enemy red, and skips hostile-only cues. */
+  friendly?: boolean;
+  /** Tamed pets only: the pet's bond tier (0..max). The client marks a bonded pet (and draws an
+   *  "evolved" flourish at the top tier). Absent for summoned minions and enemies. */
+  petTier?: number;
   /** Mobs only: true once a player has damaged it — the client marks it as claimed/engaged
    *  (you still earn full shared credit for piling onto someone else's fight). */
   tagged?: boolean;

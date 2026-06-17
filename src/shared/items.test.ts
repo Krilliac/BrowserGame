@@ -189,6 +189,21 @@ describe('affixes', () => {
     expect(affixLabel({ stat: 'vigor', value: 3 })).toBe('+3 hp/sec');
   });
 
+  it('labels element/penetration/ailment/behavior affixes with pretty strings', () => {
+    expect(affixLabel({ stat: 'chain', value: 1 })).toBe('+1 chain');
+    expect(affixLabel({ stat: 'pierce', value: 1 })).toBe('+1 pierce');
+    expect(affixLabel({ stat: 'fork', value: 1 })).toBe('+1 fork');
+    expect(affixLabel({ stat: 'spellaoe', value: 12 })).toBe('+12% area');
+    expect(affixLabel({ stat: 'firedmg', value: 8 })).toBe('+8% fire damage');
+    expect(affixLabel({ stat: 'colddmg', value: 8 })).toBe('+8% cold damage');
+    expect(affixLabel({ stat: 'lightningdmg', value: 8 })).toBe('+8% lightning damage');
+    expect(affixLabel({ stat: 'poisondmg', value: 8 })).toBe('+8% poison damage');
+    expect(affixLabel({ stat: 'physdmg', value: 8 })).toBe('+8% physical damage');
+    expect(affixLabel({ stat: 'penetration', value: 5 })).toBe('+5% penetration');
+    expect(affixLabel({ stat: 'ailmentdur', value: 10 })).toBe('+10% ailment duration');
+    expect(affixLabel({ stat: 'ailmentmag', value: 8 })).toBe('+8% ailment effect');
+  });
+
   it('keeps multishot bounded regardless of rarity (never mult-scaled)', () => {
     // Force the first affix pick to be multishot (rng=0 selects pool index 0... 'power').
     // Scan a roll until a multishot turns up and assert its value is small.

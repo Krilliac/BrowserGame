@@ -18,6 +18,12 @@
 - [Wire Protocol](architecture/Protocol.md)
 - [Authoritative Simulation](architecture/Simulation.md)
 
+### Gameplay
+
+- [Companions (Minions, Pets & Mounts)](gameplay/Companions.md)
+- [Social & Economy (Guilds, Mail & Auction House)](gameplay/Social-Economy.md)
+- [PvP Zones](gameplay/PvP-Zones.md)
+
 ### Security
 
 - [Threat Model](security/Threat-Model.md)
@@ -27,6 +33,8 @@
 
 - [Dev Environment](tooling/Dev-Environment.md)
 - [Automation & CI](tooling/Automation.md)
+- [In-Browser Editor](tooling/In-Browser-Editor.md)
+- [Canvas Map Editor](tooling/Map-Editor.md)
 
 ### Research
 

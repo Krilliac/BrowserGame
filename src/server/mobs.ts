@@ -62,6 +62,17 @@ export interface MobTemplate {
   support?: AbilityId;
   /** Personality traits that vary how it fights (loaded from the DB; see {@link MobTrait}). */
   traits?: MobTrait[];
+  /**
+   * True if this creature can be raised as a friendly summoned minion by a `kind:'summon'` ability.
+   * Data-driven: flag ANY creature here (or via the `summonable` DB column) to make it summonable —
+   * the summon system reads only this flag, so adding a new minion type is pure content.
+   */
+  summonable?: boolean;
+  /**
+   * True if a player can TAME this creature into a pet (after weakening it). Data-driven like
+   * `summonable`: flag any wild beast here (or via the `tameable` DB column) to make it catchable.
+   */
+  tameable?: boolean;
 }
 
 /**
@@ -79,13 +90,22 @@ export interface EliteModifier {
   dmg: number;
   /** Movement-speed multiplier. */
   spd: number;
+  /**
+   * Death-explosion multiplier (0 = none): on death the champion detonates for this multiple of its
+   * normal hit, damaging nearby players. The "Volatile" affix — back off as it's dying.
+   */
+  explodeDmg: number;
 }
 
-/** Default champion variants: fast harasser, hard hitter, damage sponge. Seeds `elite_modifiers`. */
+/**
+ * Default champion variants: fast harasser, hard hitter, damage sponge, and a Volatile bomb that
+ * blasts on death. Seeds `elite_modifiers`.
+ */
 export const DEFAULT_ELITE_MODIFIERS: EliteModifier[] = [
-  { id: 'swift', name: 'Swift', hp: 2.0, dmg: 1.3, spd: 1.6 },
-  { id: 'brutal', name: 'Brutal', hp: 2.4, dmg: 1.9, spd: 1.0 },
-  { id: 'vigorous', name: 'Vigorous', hp: 3.4, dmg: 1.4, spd: 1.0 },
+  { id: 'swift', name: 'Swift', hp: 2.0, dmg: 1.3, spd: 1.6, explodeDmg: 0 },
+  { id: 'brutal', name: 'Brutal', hp: 2.4, dmg: 1.9, spd: 1.0, explodeDmg: 0 },
+  { id: 'vigorous', name: 'Vigorous', hp: 3.4, dmg: 1.4, spd: 1.0, explodeDmg: 0 },
+  { id: 'volatile', name: 'Volatile', hp: 2.2, dmg: 1.2, spd: 1.1, explodeDmg: 4.0 },
 ];
 
 export const MOB_TEMPLATES: Record<string, MobTemplate> = {
@@ -102,6 +122,7 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     attackCooldownMs: 900,
     behavior: 'melee',
     telegraphMs: 220, // a quick lunge tell
+    tameable: true, // a gloom wolf makes a fine first pet
   },
   skeleton: {
     id: 'skeleton',
@@ -116,6 +137,59 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     attackCooldownMs: 1100,
     behavior: 'melee',
     telegraphMs: 360,
+  },
+  // --- Summonable skeleton minions (the necromancer pet line). Flagged `summonable`, NOT placed in
+  //     any area roster, so they exist only as raise-targets — not wild enemies. Any other creature
+  //     can be made a summon the same way: just set `summonable: true`. ---
+  skeleton_warrior: {
+    id: 'skeleton_warrior',
+    name: 'Skeleton Warrior',
+    hp: 70,
+    level: 5,
+    hue: 210,
+    speed: 200,
+    aggroRange: 320,
+    attackRange: 44,
+    damage: 12,
+    attackCooldownMs: 1000,
+    behavior: 'melee',
+    telegraphMs: 0,
+    summonable: true,
+  },
+  skeleton_mage: {
+    id: 'skeleton_mage',
+    name: 'Skeletal Mage',
+    hp: 48,
+    level: 5,
+    hue: 200,
+    speed: 185,
+    aggroRange: 360,
+    attackRange: 240,
+    damage: 14,
+    attackCooldownMs: 1700,
+    behavior: 'ranged',
+    telegraphMs: 0,
+    projectileSpeed: 320,
+    kiteRange: 130,
+    spell: 'frost', // a cold bolt — visually distinct from the archer's arrow
+    summonable: true,
+  },
+  skeleton_archer: {
+    id: 'skeleton_archer',
+    name: 'Skeletal Archer',
+    hp: 52,
+    level: 5,
+    hue: 205,
+    speed: 195,
+    aggroRange: 360,
+    attackRange: 250,
+    damage: 11,
+    attackCooldownMs: 1300,
+    behavior: 'ranged',
+    telegraphMs: 0,
+    projectileSpeed: 360,
+    kiteRange: 110,
+    summonable: true,
   },
   bat: {
     id: 'bat',
@@ -180,6 +254,7 @@ export const MOB_TEMPLATES: Record<string, MobTemplate> = {
     behavior: 'charger',
     telegraphMs: 500,
     dashSpeed: 520,
+    tameable: true,
   },
   crypt_lord: {
     id: 'crypt_lord',

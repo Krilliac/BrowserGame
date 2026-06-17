@@ -136,7 +136,9 @@ CREATE TABLE IF NOT EXISTS mob_templates (
   dash_speed          REAL,
   spell               TEXT,                    -- caster: ability id cast in place of the basic attack
   support             TEXT,                    -- support caster: self buff/heal ability id
-  traits              TEXT                     -- JSON array of personality traits (pack/craven/…)
+  traits              TEXT,                    -- JSON array of personality traits (pack/craven/…)
+  summonable          INTEGER NOT NULL DEFAULT 0, -- 1 = can be raised as a friendly summoned minion
+  tameable            INTEGER NOT NULL DEFAULT 0 -- 1 = can be tamed into a pet (after weakening)
 );
 
 -- Individual creature SPAWNS: one row = one placed monster (uid/guid), referencing its
@@ -471,11 +473,13 @@ CREATE TABLE IF NOT EXISTS elite_modifiers (
   hp_mult     REAL NOT NULL,           -- max-HP multiplier
   damage_mult REAL NOT NULL,           -- outgoing-damage multiplier
   speed_mult  REAL NOT NULL,           -- movement-speed multiplier
+  explode_dmg REAL NOT NULL DEFAULT 0, -- death-explosion multiple of a normal hit (0 = no blast)
   sort_order  INTEGER NOT NULL DEFAULT 0
 );
 
--- A quest is either a KILL quest (target_mob + target_count, auto-progresses on kills) or a
--- COLLECT quest (turn_in_item + turn_in_count, completed by turning items in to a quest-giver).
+-- A quest is a KILL quest (target_mob + target_count, auto-progresses on kills), a COLLECT quest
+-- (turn_in_item + turn_in_count, completed by turning items in to a quest-giver), or an EXPLORE
+-- quest (explore_area, completed automatically the moment the player discovers that area).
 CREATE TABLE IF NOT EXISTS quests (
   id            TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
@@ -487,7 +491,51 @@ CREATE TABLE IF NOT EXISTS quests (
   reward_item   TEXT,                          -- optional item granted on completion (e.g. a tome)
   turn_in_item  TEXT,                          -- collect quests: the item id to turn in
   turn_in_count INTEGER NOT NULL DEFAULT 0,    -- collect quests: how many to turn in
+  explore_area  TEXT,                          -- explore quests: the area id to discover
+  requires      TEXT,                          -- chain quests: prerequisite quest id (must be done first)
   flags         INTEGER NOT NULL DEFAULT 0     -- bitmask (QuestFlags): REPEATABLE, …
+);
+
+-- Area PvP rules: only rows for non-'safe' areas; any area absent here is safe (no player-vs-player).
+-- A new table (no migration). Drives whether player abilities can damage other players in that area.
+CREATE TABLE IF NOT EXISTS area_pvp (
+  area_id TEXT PRIMARY KEY,
+  rule    TEXT NOT NULL              -- 'contested' (flagged-vs-flagged) | 'hostile' (free-for-all)
+);
+
+-- Mail: deferred player-to-player delivery of gold + an optional gear instance. Rows wait in the
+-- recipient's inbox (by owner token) until collected; collecting deletes the row. New table (no
+-- migration). Also the delivery channel for auction-house proceeds/purchases.
+CREATE TABLE IF NOT EXISTS mail (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  recipient_token TEXT NOT NULL,
+  sender_name     TEXT NOT NULL,
+  gold            INTEGER NOT NULL DEFAULT 0,
+  item_json       TEXT,                       -- a serialized ItemInstance, or NULL for gold-only mail
+  subject         TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_mail_recipient ON mail (recipient_token);
+
+-- Auctions: a player-to-player buyout market. Each row is one listing — a gear instance held in
+-- escrow (its owner removed it from their bag) plus a buyout price. Buying delivers the item to the
+-- buyer and the proceeds (minus the house cut) to the seller via the mail channel; the row is then
+-- deleted. New table (no migration).
+CREATE TABLE IF NOT EXISTS auctions (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  seller_token TEXT NOT NULL,
+  seller_name  TEXT NOT NULL,
+  item_json    TEXT NOT NULL,                 -- the serialized ItemInstance held in escrow
+  price        INTEGER NOT NULL               -- buyout price in gold
+);
+CREATE INDEX IF NOT EXISTS idx_auctions_seller ON auctions (seller_token);
+
+-- Mounts: owned, persistent travel-speed boosts bought from a Stablemaster. A new table (no
+-- migration needed — CREATE TABLE IF NOT EXISTS runs on every open).
+CREATE TABLE IF NOT EXISTS mounts (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  speed_mult  REAL NOT NULL,            -- move-speed multiplier while mounted (1.6 = +60%)
+  price       INTEGER NOT NULL          -- gold for the one-time permanent purchase
 );
 
 -- Accounts: username -> access level (Player 0 .. Developer 4), with a salted password hash.
@@ -517,6 +565,43 @@ CREATE TABLE IF NOT EXISTS friends (
   owner_token TEXT NOT NULL,
   friend_name TEXT NOT NULL,
   PRIMARY KEY (owner_token, friend_name)
+);
+
+-- Guilds: persistent player societies (roster + ranks + guild chat). A guild is one row; membership
+-- is one row per player in guild_members (PK = owner_token, so a player is in at most one guild).
+-- Presence (online/area/level) is resolved at runtime; these tables are just the durable roster.
+CREATE TABLE IF NOT EXISTS guilds (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  name  TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+CREATE TABLE IF NOT EXISTS guild_members (
+  owner_token TEXT PRIMARY KEY,                 -- one guild per player
+  guild_id    INTEGER NOT NULL,
+  name        TEXT NOT NULL,                    -- display name (refreshed on join)
+  rank        TEXT NOT NULL DEFAULT 'member'    -- 'leader' | 'officer' | 'member'
+);
+CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members (guild_id);
+
+-- Guild bank: a shared gold + item vault per guild (one gold row per guild; many item rows). Members
+-- deposit; only officers/leader withdraw (anti-grief — policy lives in guild-bank.ts). Item rows hold
+-- a serialized ItemInstance as JSON; the host moves custody between a player's bag and these rows.
+-- New tables (no migration — CREATE TABLE IF NOT EXISTS runs on every open).
+CREATE TABLE IF NOT EXISTS guild_bank (
+  guild_id INTEGER PRIMARY KEY,
+  gold     INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS guild_bank_items (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id  INTEGER NOT NULL,
+  item_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_guild_bank_items_guild ON guild_bank_items (guild_id);
+
+-- Guild progression: lifetime XP from member kills → guild level (perks: a larger guild bank). One
+-- row per guild; level is derived from xp in guild-progress.ts. New table (no migration).
+CREATE TABLE IF NOT EXISTS guild_progress (
+  guild_id INTEGER PRIMARY KEY,
+  xp       INTEGER NOT NULL DEFAULT 0
 );
 
 -- Game events: timed recurring liveops (TrinityCore GameEventMgr, cut down). Each row is a schedule

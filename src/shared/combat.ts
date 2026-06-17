@@ -20,7 +20,7 @@ export type EntityKind =
 
 // AbilityId is derived from the ABILITIES table below (see the declaration), so adding a spell to
 // that one object automatically extends the id type, ABILITY_ORDER, and the content seeding.
-export type AbilityKind = 'melee' | 'projectile' | 'heal';
+export type AbilityKind = 'melee' | 'projectile' | 'heal' | 'summon' | 'tame';
 
 /**
  * The damage school of an ability. 'physical' is the neutral default (no mob carries physical
@@ -44,7 +44,31 @@ export type BehaviorSpec =
   | { type: 'multishot'; count: number; spreadRad: number }
   | { type: 'return'; falloff: number }
   /** Push the primary hit target `px` pixels directly away from the projectile impact point. */
-  | { type: 'knockback'; px: number };
+  | { type: 'knockback'; px: number }
+  /**
+   * Caster-attached orbiting blade. The projectile ignores vx/vy and instead circles its owner
+   * at `radius` pixels, rotating by `angularSpeed` rad/s each tick. It persists for its full TTL,
+   * hitting each mob independently on a per-target re-hit cooldown (ORBIT_REHIT_MS) so a sweeping
+   * ring damages multiple enemies without consuming itself.
+   */
+  | { type: 'orbit'; radius: number; angularSpeed: number }
+  /**
+   * Instant hitscan beam. Instead of spawning a projectile, the server traces a line segment from
+   * the caster and applies the full deterministic hit pipeline to every living mob whose edge
+   * (`pointToSegmentDist ≤ width + MOB_RADIUS`) overlaps the segment. Replaces the projectile-spawn
+   * when present on a `kind:'projectile'` ability.
+   */
+  | {
+      type: 'beam';
+      range: number;
+      width: number; /* half-width: hit if dist-to-centerline ≤ width + MOB_RADIUS */
+    }
+  /**
+   * Summon a minion. Carried on a `kind:'summon'` ability; the server raises `count` minions of the
+   * named template (e.g. 'skeleton_warrior') beside the caster, up to the per-owner minion cap. The
+   * Diablo-necromancer pet line — skeletons that follow you and fight, persisting until slain.
+   */
+  | { type: 'summon'; minion: string; count: number };
 
 export interface Ability {
   id: string;
@@ -448,6 +472,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 300,
     projectileTtlMs: 1700,
     radius: 14,
+    behaviors: [{ type: 'orbit', radius: 48, angularSpeed: 3.2 }],
   },
   radiant_smite: {
     id: 'radiant_smite',
@@ -833,7 +858,8 @@ const ABILITY_DEFS = {
     radius: 10,
     behaviors: [{ type: 'pierce', count: 2, falloff: 0.9 }],
   },
-  // Starfall: a shard of falling sky — big, bright, and worth the wait.
+  // Starfall: a bolt of pure starfire that pierces the sky and burns everything in its path.
+  // Uses the beam behavior: an instant hitscan line rather than a travelling projectile.
   starfall: {
     id: 'starfall',
     name: 'Starfall',
@@ -847,6 +873,7 @@ const ABILITY_DEFS = {
     projectileSpeed: 340,
     projectileTtlMs: 1700,
     radius: 16,
+    behaviors: [{ type: 'beam', range: 360, width: 18 }],
   },
   // Maelstrom Orb: the endgame chase nuke — a huge, slow vortex with the biggest hit in the book.
   maelstrom_orb: {
@@ -862,6 +889,59 @@ const ABILITY_DEFS = {
     projectileSpeed: 260,
     projectileTtlMs: 1900,
     radius: 20,
+  },
+  // --- Necromancy: summon skeletal minions that follow you and fight (the Diablo pet line). ---
+  raise_skeleton: {
+    id: 'raise_skeleton',
+    name: 'Raise Skeleton',
+    key: '7',
+    kind: 'summon',
+    damage: 0,
+    range: 0,
+    cooldownMs: 1200,
+    manaCost: 14,
+    color: '#d8d2c0',
+    radius: 0,
+    behaviors: [{ type: 'summon', minion: 'skeleton_warrior', count: 1 }],
+  },
+  raise_skeleton_mage: {
+    id: 'raise_skeleton_mage',
+    name: 'Raise Skeletal Mage',
+    key: '8',
+    kind: 'summon',
+    damage: 0,
+    range: 0,
+    cooldownMs: 1600,
+    manaCost: 18,
+    color: '#9fd8ff',
+    radius: 0,
+    behaviors: [{ type: 'summon', minion: 'skeleton_mage', count: 1 }],
+  },
+  raise_skeleton_archer: {
+    id: 'raise_skeleton_archer',
+    name: 'Raise Skeletal Archer',
+    key: '9',
+    kind: 'summon',
+    damage: 0,
+    range: 0,
+    cooldownMs: 1400,
+    manaCost: 16,
+    color: '#c7b98a',
+    radius: 0,
+    behaviors: [{ type: 'summon', minion: 'skeleton_archer', count: 1 }],
+  },
+  // Beast taming: capture a weakened (≤30% HP) `tameable` creature in range as your pet.
+  tame: {
+    id: 'tame',
+    name: 'Tame Beast',
+    key: '0',
+    kind: 'tame',
+    damage: 0,
+    range: 140,
+    cooldownMs: 2000,
+    manaCost: 20,
+    color: '#9ad36b',
+    radius: 0,
   },
 } satisfies Record<string, Ability>;
 
@@ -920,7 +1000,8 @@ export interface FxEvent {
     | 'levelup'
     | 'telegraph'
     | 'slam'
-    | 'arc';
+    | 'arc'
+    | 'beam';
   x: number;
   y: number;
   /** Facing/direction in radians (melee arcs, cast flashes, telegraph aim). */
@@ -936,9 +1017,9 @@ export interface FxEvent {
   /** 'pickup' only: rarity of a picked-up gear instance, so the sparkle matches its color. */
   rarity?: string;
   abilityId?: AbilityId;
-  /** `arc` only: the far endpoint of a chain link (the source is x,y). */
+  /** `arc`/`beam` only: the far endpoint of the line (the source is x,y). */
   x2?: number;
   y2?: number;
-  /** `arc` only: element tint for the arc color. */
+  /** `arc`/`beam` only: element tint for the line color. */
   element?: DamageElement;
 }
