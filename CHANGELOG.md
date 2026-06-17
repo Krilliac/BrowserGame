@@ -8,6 +8,15 @@ versioning once it stabilizes.
 
 ### Added
 
+- **In-browser editor — slice 3: Tiled `.tmj` map import (round-trip).** The reverse of the export:
+  edit an area's map in Tiled (or any engine that exports Tiled) and load it back. `editor-import.ts`'s
+  `tiledToContent()` is a pure, defensive parser of an untrusted map; `applyTiledImport()` replaces the
+  area's `decor` / `creature_spawns` / `npcs` in one transaction (coords un-scaled back to authored
+  space, so export→import→export is stable; unknown spawn templates skipped per the FK). Portals/area
+  dimensions are carried for round-trip but deliberately NOT overwritten (world-graph safety). Exposed
+  at **`POST /editor/area/<id>.tmj?token=…`** (same dev gate as the export); the host reloads +
+  re-broadcasts after. A full editor round-trip now works: GET the map → edit anywhere → POST it back.
+
 - **In-browser editor — slice 2: Tiled `.tmj` map export (first cross-engine bridge).** Export any
   area to a [Tiled](https://www.mapeditor.org/) orthogonal map — the de-facto 2D interchange format
   that Godot, Unity (SuperTiled2Unity), GameMaker, Defold, and 001 Game Creator all import. `editor-

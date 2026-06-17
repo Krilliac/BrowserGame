@@ -1,4 +1,4 @@
-import { createServer, type ServerResponse } from 'node:http';
+import { createServer, type ServerResponse, type IncomingMessage } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +31,8 @@ import { isCommand, runCommand } from './commands.js';
 import { verifyLogin, setAccess, AccessLevel } from './accounts.js';
 import { engineSchema, engineRows, setEngineConfig } from './engine.js';
 import { editorWorld } from './editor.js';
-import { areaToTiled } from './editor-tiled.js';
+import { areaToTiled, type TiledMap } from './editor-tiled.js';
+import { importTiled } from './editor-import.js';
 import {
   isValidToken,
   loadSave,
@@ -1006,6 +1007,20 @@ const http = createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
       return;
     }
+    // POST = import a Tiled map back into the area's content (decor/spawns/npcs); GET = export.
+    if (req.method === 'POST') {
+      const body = await readJsonBody(req);
+      if (!body) {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'bad or oversized JSON body' }));
+        return;
+      }
+      const result = importTiled(body as TiledMap);
+      if (result.ok) rebroadcastContent(); // reload + re-skin connected clients
+      res.writeHead(result.ok ? 200 : 400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(result));
+      return;
+    }
     const map = areaToTiled(tmj[1]!);
     if (!map) {
       res.writeHead(404, { 'content-type': 'application/json' });
@@ -1018,6 +1033,32 @@ const http = createServer(async (req, res) => {
   }
   await serveStatic(req.url ?? '/', res);
 });
+
+/** Read a JSON request body (capped), or null on parse error / oversize. For the editor import POST. */
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const MAX = 8 * 1024 * 1024; // 8 MB — generous for a map, bounded against a memory-flood
+  return new Promise((resolve) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > MAX) {
+        resolve(null);
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {
+        resolve(null);
+      }
+    });
+    req.on('error', () => resolve(null));
+  });
+}
 
 async function serveStatic(url: string, res: ServerResponse): Promise<void> {
   // Decide "is this the site root?" from the RAW url, before normalize() — on Windows
