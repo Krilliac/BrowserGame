@@ -16,8 +16,25 @@ versioning once it stabilizes.
   (no draining another guild by id), and disbanding a guild clears its bank. New `guild_bank` /
   `guild_bank_items` tables; capped at 100 items. (+14 tests.)
 
+### Added (more)
+
+- **Godot 4 scene export.** `editor-godot.ts` `areaToGodot(id)` emits a native Godot `.tscn` for an
+  area (root `Node2D` + Decor/Spawns/Npcs/Portals groups, `Marker2D`/`Node2D` children with
+  `position` + lossless `metadata/*`), a sibling to the Tiled `.tmj` export and coordinate-compatible
+  with it. Dev-gated **`GET /editor/area/<id>.tscn`** + a "Download .tscn" button in the editor's Maps
+  panel. (+7 tests.)
+
 ### Fixed
 
+- **Combat polish** (low-severity findings from the parallel combat-review agent):
+  - Lifesteal and the floating damage number now bill *effective* damage (clamped to the target's
+    remaining HP), so a big hit on a sliver of HP can't over-heal the attacker or show an inflated
+    overkill number. (+1 regression test.)
+  - DoT ticks on monsters no longer spew a damage number every server tick (now `silent`, matching
+    the player path) — the bursts that applied the DoT already showed theirs.
+  - Orbit projectiles (e.g. `arcane_orb`) now end when their owner *dies*, not only when the owner
+    disconnects — a corpse no longer keeps sweeping blades.
+  - A long-lived orbit's per-target re-hit map is pruned of expired entries each tick (was unbounded).
 - **Boomerang spells now actually return.** A `return`-behavior projectile (e.g. `bone_chakram`) with
   no `pierce` was consumed by the first enemy it touched and never flew back — `resolveHit` defaulted
   to consume-on-hit. It now passes through like pierce (per-leg `hitMobs` dedupe + the reverse-at-half-

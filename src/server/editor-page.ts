@@ -63,6 +63,7 @@ export const EDITOR_HTML = `<!doctype html>
     <div class="row2">
       <select id="areaSel"><option value="">— pick an area —</option></select>
       <button id="export">Download .tmj</button>
+      <button id="exportGodot" title="Export this area as a Godot 4 .tscn scene">Download .tscn</button>
       <input id="file" type="file" accept=".tmj,.json" />
       <button id="import">Import .tmj</button>
     </div>
@@ -199,6 +200,11 @@ export const EDITOR_HTML = `<!doctype html>
     window.open('/editor/area/' + encodeURIComponent(areaSel.value) + '.tmj?token=' + tok(), '_blank');
   }
 
+  function exportGodot() {
+    if (!areaSel.value) { setStatus('Pick an area first.', 'err'); return; }
+    window.open('/editor/area/' + encodeURIComponent(areaSel.value) + '.tscn?token=' + tok(), '_blank');
+  }
+
   function importMap() {
     var f = document.getElementById('file').files[0];
     if (!areaSel.value || !f) { setStatus('Pick an area and a .tmj file.', 'err'); return; }
@@ -242,6 +248,7 @@ export const EDITOR_HTML = `<!doctype html>
   document.getElementById('connect').addEventListener('click', connect);
   tableSel.addEventListener('change', function () { renderTable(tableSel.value); });
   document.getElementById('export').addEventListener('click', exportMap);
+  document.getElementById('exportGodot').addEventListener('click', exportGodot);
   document.getElementById('import').addEventListener('click', importMap);
   document.getElementById('backup').addEventListener('click', backupPack);
   document.getElementById('loadPack').addEventListener('click', loadPack);

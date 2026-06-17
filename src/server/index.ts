@@ -32,6 +32,7 @@ import { verifyLogin, setAccess, AccessLevel } from './accounts.js';
 import { engineSchema, engineRows, setEngineConfig } from './engine.js';
 import { editorWorld, parseEditBody } from './editor.js';
 import { areaToTiled, type TiledMap } from './editor-tiled.js';
+import { areaToGodot } from './editor-godot.js';
 import { importTiled } from './editor-import.js';
 import { EDITOR_HTML } from './editor-page.js';
 import { EDITOR_CANVAS_HTML } from './editor-canvas.js';
@@ -1295,6 +1296,26 @@ const http = createServer(async (req, res) => {
     }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(map));
+    return;
+  }
+  // Godot 4 .tscn export of one area: GET /editor/area/<id>.tscn?token=… (dev-gated). A native-engine
+  // sibling to the .tmj route — open the scene directly in Godot.
+  const tscn = /^\/editor\/area\/([A-Za-z0-9_]+)\.tscn$/.exec((req.url ?? '').split('?')[0] ?? '');
+  if (tscn) {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    const scene = areaToGodot(tscn[1]!);
+    if (scene === null) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: `unknown area: ${tscn[1]}` }));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end(scene);
     return;
   }
   await serveStatic(req.url ?? '/', res);

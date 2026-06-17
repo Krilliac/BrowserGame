@@ -43,6 +43,10 @@ HTML-escaped (XSS-safe), and table/column names come only from the trusted `db/e
   un-scaled back to authored space so export→import→export is stable. Unknown spawn templates are
   skipped (FK safety); portals and area dimensions are carried for round-trip but deliberately **not**
   overwritten (world-graph safety). The host reloads and re-broadcasts after.
+- **Export an area as a Godot 4 `.tscn`** — a native-engine sibling to the Tiled export, opened
+  directly in Godot. Root `Node2D` with `Decor`/`Spawns`/`Npcs`/`Portals` group nodes; each entity is
+  a `Marker2D`/`Node2D` carrying a `position` plus lossless `metadata/*` (template id, npc name,
+  portal target, …). Coordinate-compatible with the `.tmj` export.
 
 ## Routes (all dev-gated by `ENGINE_ADMIN_TOKEN`)
 
@@ -54,12 +58,14 @@ HTML-escaped (XSS-safe), and table/column names come only from the trusted `db/e
 | `/editor/clone`                | POST       | Clone a row `{table,id,newId?}`.                   |
 | `/editor/delete`               | POST       | Delete a row (FK-guarded).                          |
 | `/editor/area/<id>.tmj`        | GET / POST | Export / import an area's map as Tiled `.tmj`.     |
+| `/editor/area/<id>.tscn`       | GET        | Export an area as a Godot 4 `.tscn` scene.         |
 
 ## Key files
 
 - `src/server/editor.ts` — the read-only, pure data-model API (`editorSchema`, `editorTable`,
   `editorWorld`, `parseEditBody`) over the `db/editable.ts` registry.
 - `src/server/editor-tiled.ts` — `areaToTiled()`: pure transform of content into a Tiled map.
+- `src/server/editor-godot.ts` — `areaToGodot()`: pure transform of content into a Godot `.tscn`.
 - `src/server/editor-import.ts` — `tiledToContent()` / `applyTiledImport()`: defensive parser of an
   untrusted map, applied in one transaction.
 - `src/server/editor-page.ts` — `EDITOR_HTML`: the self-contained editor UI.

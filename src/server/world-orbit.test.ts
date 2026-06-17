@@ -151,4 +151,23 @@ describe('orbit spell behavior', () => {
     expect(hitTicks).toBeGreaterThan(0); // mob is on-path, must take at least one hit
     expect(hitTicks).toBeLessThan(10); // cooldown caps it well below the tick count
   });
+
+  it('a killing blow bills only effective (non-overkill) damage in the FX number', () => {
+    const { w, pid } = setup();
+    w.spawnMobAt(pid, 'bat');
+    const mobId = w.snapshot().find((e) => e.kind === 'mob')!.id;
+    expect(w.teleportMob(mobId, 1048, 1000)).toBe(true);
+    expect(w.setMobHp(mobId, 1)).toBe(true); // 1 HP — any orb hit overkills it
+    w.drainEvents(); // clear setup/spawn events
+    w.cast(pid, 'arcane_orb', 1, 0);
+
+    let lastHitValue: number | undefined;
+    for (let t = 0; t < 20; t++) {
+      w.tick(0.05);
+      for (const fx of w.drainEvents()) if (fx.kind === 'hit') lastHitValue = fx.value;
+    }
+    // The orb's raw damage is several points, but the mob only had 1 HP — the floating number is the
+    // effective damage (1), not the inflated overkill amount. Regression for the overkill-clamp fix.
+    expect(lastHitValue).toBe(1);
+  });
 });

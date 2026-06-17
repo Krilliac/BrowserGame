@@ -3533,7 +3533,7 @@ export class World {
 
       // Status effects: DoT (burn/ignite/poison/bleed) chips HP, regen heals; slow/haste scale movement.
       const { dotDamage, regenHeal } = mob.statuses.tick(dt * 1000);
-      if (dotDamage > 0) this.damageMob(mob, dotDamage, undefined, mob.lastAttacker);
+      if (dotDamage > 0) this.damageMob(mob, dotDamage, undefined, mob.lastAttacker, false, true);
       if (mob.dead) continue;
       if (regenHeal > 0) mob.hp = Math.min(mob.maxHp, mob.hp + regenHeal);
       // Hard CC: a stunned or frozen mob cannot move, attack, or cast this tick. DoT and regen
@@ -4226,7 +4226,8 @@ export class World {
       const orbitBehavior = proj.behaviors.find((b) => b.type === 'orbit');
       if (orbitBehavior && orbitBehavior.type === 'orbit') {
         const owner = this.players.get(proj.ownerId);
-        if (!owner) {
+        // Orbit dies with its owner: gone OR dead (a corpse shouldn't keep sweeping blades).
+        if (!owner || owner.dead) {
           this.projectiles.delete(proj.id);
           continue;
         }
@@ -4273,6 +4274,9 @@ export class World {
         // Orbit hit: scan ALL living mobs each tick; hit each one independently when its per-target
         // cooldown has expired. Never consume the projectile — it lives until TTL.
         const orbitHits = proj.orbitHits ?? new Map<number, number>();
+        // Prune expired cooldowns so the map can't grow unbounded over a long-lived orbit (an
+        // expired entry means "off cooldown", identical to being absent — safe to drop).
+        for (const [id, until] of orbitHits) if (until <= this.now) orbitHits.delete(id);
         for (const mob of this.mobs.values()) {
           if (mob.dead) continue;
           if ((orbitHits.get(mob.id) ?? 0) > this.now) continue; // still on cooldown
@@ -4467,6 +4471,7 @@ export class World {
     abilityId: AbilityId | undefined,
     attackerId: number,
     crit = false,
+    silent = false,
   ): void {
     // Scale by the mob's incoming-damage multiplier (shock/brittle/curse → >1; default 1 = no-op).
     amount = amount * mob.statuses.vulnFactor();
@@ -4477,7 +4482,12 @@ export class World {
       // Start the soft-enrage clock the first time a scripted boss is engaged.
       if (mob.engagedAt === undefined && BOSS_SCRIPTS[mob.templateId]) mob.engagedAt = this.now;
     }
+    const hpBefore = mob.hp;
     mob.hp -= amount;
+    // Effective (non-overkill) damage: a 1000 hit on a 5-HP mob only "did" 5. Lifesteal and the
+    // floating damage number bill the effective amount, not the overkill, so a big hit on a sliver
+    // of HP can't over-heal the attacker or show an inflated number.
+    const effective = Math.min(amount, Math.max(0, hpBefore));
     // A hurt monster is ALERTED (extended aggro reach — it hunts rather than idles), and a
     // pack hunter calls for help: same-template packmates in earshot join the alert.
     mob.alertUntil = this.now + 8000;
@@ -4491,13 +4501,17 @@ export class World {
     }
     // Life steal: the attacker heals for a fraction of the damage they just dealt.
     const attacker = this.players.get(attackerId);
-    if (attacker && !attacker.dead && attacker.lifesteal > 0 && amount > 0) {
-      attacker.hp = Math.min(attacker.maxHp, attacker.hp + amount * attacker.lifesteal);
+    if (attacker && !attacker.dead && attacker.lifesteal > 0 && effective > 0) {
+      attacker.hp = Math.min(attacker.maxHp, attacker.hp + effective * attacker.lifesteal);
     }
-    const hit: FxEvent = { kind: 'hit', x: mob.x, y: mob.y, value: Math.ceil(amount) };
-    if (abilityId !== undefined) hit.abilityId = abilityId;
-    if (crit) hit.crit = true;
-    this.events.push(hit);
+    // DoT ticks pass silent=true (mirrors damagePlayer) so a burning mob doesn't spew a damage
+    // number every server tick; the burst hits that caused the DoT already showed theirs.
+    if (!silent) {
+      const hit: FxEvent = { kind: 'hit', x: mob.x, y: mob.y, value: Math.ceil(effective) };
+      if (abilityId !== undefined) hit.abilityId = abilityId;
+      if (crit) hit.crit = true;
+      this.events.push(hit);
+    }
     if (mob.hp <= 0) {
       mob.dead = true;
       mob.respawnAt = this.now + MOB_RESPAWN_MS;
