@@ -55,6 +55,12 @@ export interface CommandContext {
   guildRoster: () => string[];
   /** Broadcast a guild-chat line to online members; returns '' on success, else an error line. */
   guildSay: (text: string) => string;
+  /** Guild bank: shared gold + item vault. View returns lines (gold + items w/ withdraw ids). */
+  guildBankView: () => string[];
+  /** Deposit into the guild bank: kind 'gold' (amount) or 'item' (amount = bag slot index). */
+  guildBankDeposit: (kind: 'gold' | 'item', amount: number) => string;
+  /** Withdraw from the guild bank (officers+): kind 'gold' (amount) or 'item' (amount = row id). */
+  guildBankWithdraw: (kind: 'gold' | 'item', amount: number) => string;
   // Mail (host-level: deferred gold/item delivery, persists for offline recipients).
   mailSend: (toName: string, gold: number, uid?: number) => string;
   mailList: () => string[];
@@ -348,8 +354,9 @@ const COMMAND_LIST: Command[] = [
   {
     name: 'guild',
     minLevel: AccessLevel.Player,
-    usage: '/guild <create|invite|accept|decline|leave|kick|promote|demote|roster> [name]',
-    help: 'Manage your guild. /guild with no args shows the roster.',
+    usage:
+      '/guild <create|invite|accept|decline|leave|kick|promote|demote|roster|bank|deposit|withdraw> [args]',
+    help: 'Manage your guild. /guild with no args shows the roster; /guild bank shows the vault.',
     run: (ctx) => {
       const sub = (ctx.args[0] ?? 'roster').toLowerCase();
       const rest = ctx.args.slice(1).join(' ').trim();
@@ -372,12 +379,30 @@ const COMMAND_LIST: Command[] = [
           );
         case 'demote':
           return ctx.reply(rest ? ctx.guildRank(rest, 'member') : 'Usage: /guild demote <player>');
+        case 'bank':
+          for (const line of ctx.guildBankView()) ctx.reply(line);
+          return;
+        case 'deposit':
+        case 'withdraw': {
+          const kind = (ctx.args[1] ?? '').toLowerCase();
+          const amount = Math.floor(Number(ctx.args[2]));
+          if ((kind !== 'gold' && kind !== 'item') || !Number.isFinite(amount)) {
+            return ctx.reply(
+              `Usage: /guild ${sub} <gold|item> <amount${sub === 'withdraw' ? '|bank-id' : '|item-uid'}>`,
+            );
+          }
+          return ctx.reply(
+            sub === 'deposit'
+              ? ctx.guildBankDeposit(kind, amount)
+              : ctx.guildBankWithdraw(kind, amount),
+          );
+        }
         case 'roster':
         case 'info':
           for (const line of ctx.guildRoster()) ctx.reply(line);
           return;
         default:
-          return ctx.reply('Unknown subcommand. Try /guild roster, create, invite, accept, leave.');
+          return ctx.reply('Unknown subcommand. Try /guild roster, bank, deposit, create, invite.');
       }
     },
   },

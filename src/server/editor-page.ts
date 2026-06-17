@@ -44,6 +44,7 @@ export const EDITOR_HTML = `<!doctype html>
 <header>
   <h1>World Editor</h1>
   <a href="/editor/map" style="color:#7fc4ff;text-decoration:none">Map editor →</a>
+  <button id="backup" title="Download the whole content DB as one versioned JSON pack">Backup ⤓</button>
   <input id="token" type="password" placeholder="ENGINE_ADMIN_TOKEN" size="28" />
   <button id="connect">Connect</button>
   <span id="status">Paste your dev token and Connect.</span>
@@ -66,6 +67,14 @@ export const EDITOR_HTML = `<!doctype html>
       <button id="import">Import .tmj</button>
     </div>
     <p style="color:#7d828c;margin:8px 0 0">Export an area, edit it in Tiled / Godot / Unity / GameMaker, then import it back.</p>
+  </section>
+  <section class="panel">
+    <h2>Content pack (full backup / restore)</h2>
+    <div class="row2">
+      <input id="packFile" type="file" accept=".json" />
+      <button id="loadPack">Load</button>
+    </div>
+    <p style="color:#e0707a;margin:8px 0 0">Loading a pack replaces ALL content — it overwrites the whole world. Use Backup ⤓ first.</p>
   </section>
 </main>
 <script>
@@ -206,10 +215,36 @@ export const EDITOR_HTML = `<!doctype html>
       .catch(function (e) { setStatus('Import failed: ' + e.message, 'err'); });
   }
 
+  function backupPack() {
+    if (!tokenEl.value.trim()) { setStatus('Paste your dev token first.', 'err'); return; }
+    window.open('/editor/pack.json?token=' + tok(), '_blank');
+    setStatus('Downloading content pack…', 'ok');
+  }
+
+  function loadPack() {
+    var f = document.getElementById('packFile').files[0];
+    if (!tokenEl.value.trim()) { setStatus('Paste your dev token first.', 'err'); return; }
+    if (!f) { setStatus('Pick a pack .json file first.', 'err'); return; }
+    if (!confirm('Replace ALL content with this pack? This overwrites the world.')) return;
+    setStatus('Loading pack…');
+    f.text().then(function (text) {
+      return fetch('/editor/pack?token=' + tok(), {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: text,
+      });
+    }).then(function (r) { return r.json(); })
+      .then(function (res) {
+        setStatus(res.message || (res.ok ? 'Pack loaded.' : 'Load failed.'), res.ok ? 'ok' : 'err');
+        if (res.ok) connect(); // refresh the loaded world
+      })
+      .catch(function (e) { setStatus('Load failed: ' + e.message, 'err'); });
+  }
+
   document.getElementById('connect').addEventListener('click', connect);
   tableSel.addEventListener('change', function () { renderTable(tableSel.value); });
   document.getElementById('export').addEventListener('click', exportMap);
   document.getElementById('import').addEventListener('click', importMap);
+  document.getElementById('backup').addEventListener('click', backupPack);
+  document.getElementById('loadPack').addEventListener('click', loadPack);
   if (tokenEl.value) connect();
 })();
 </script>

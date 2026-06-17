@@ -80,6 +80,16 @@ import { PartyRegistry } from './party.js';
 import { SocialRegistry, type FriendStore } from './social.js';
 import { GuildRegistry, type GuildStore, type GuildRank } from './guild.js';
 import {
+  bankGold,
+  bankItemsWithIds,
+  depositGold,
+  withdrawGold,
+  addBankItem,
+  takeBankItem,
+  canWithdraw,
+  clearBank,
+} from './guild-bank.js';
+import {
   ARTIFICER_REROLL_GOLD,
   ARTIFICER_UNSOCKET_GOLD,
   applyRuntimeConfig,
@@ -1990,8 +2000,11 @@ wss.on('connection', (socket) => {
                   },
                   guildLeave: () => {
                     const gname = guilds.guildNameOf(p.token);
+                    const before = guilds.membership(p.token);
                     const r = guilds.leave(p.token);
                     if (!r.ok) return r.reason ?? 'You are not in a guild.';
+                    // Disband empties the guild — drop its bank so a recycled guildId can't inherit it.
+                    if (before && r.note === 'Your guild is disbanded.') clearBank(before.guildId);
                     for (const tok of r.affected) {
                       if (tok === p.token) continue;
                       sendToToken(tok, {
@@ -2044,6 +2057,66 @@ wss.on('connection', (socket) => {
                     if (!guilds.guildNameOf(p.token)) return 'You are not in a guild.';
                     guildBroadcast(p.token, from, text);
                     return '';
+                  },
+                  guildBankView: () => {
+                    const m = guilds.membership(p.token);
+                    if (!m) return ['You are not in a guild.'];
+                    const lines = [`Guild bank — ${bankGold(m.guildId)}g:`];
+                    const items = bankItemsWithIds(m.guildId);
+                    if (items.length === 0) lines.push('  (no items stored)');
+                    for (const it of items) {
+                      lines.push(
+                        `  #${it.id} ${describeAuctionItem(JSON.stringify(it.item))} — /guild withdraw item ${it.id}`,
+                      );
+                    }
+                    return lines;
+                  },
+                  guildBankDeposit: (kind, amount) => {
+                    const m = guilds.membership(p.token);
+                    if (!m) return 'You are not in a guild.';
+                    if (kind === 'gold') {
+                      if (amount <= 0) return 'Deposit how much gold?';
+                      if (!world.mailTakeGold(entityId, amount))
+                        return `You don't have ${amount}g.`;
+                      depositGold(m.guildId, amount);
+                      guildBroadcast(p.token, 'System', `${from} deposited ${amount}g.`);
+                      return `Deposited ${amount}g into the guild bank.`;
+                    }
+                    // item: amount = the item's uid in the player's bag
+                    const item = world.mailTakeGear(entityId, amount);
+                    if (!item) return 'You have no item with that uid.';
+                    if (!addBankItem(m.guildId, item)) {
+                      world.mailDeliver(entityId, 0, item); // bank full — hand it straight back
+                      return 'The guild bank is full (100 items).';
+                    }
+                    guildBroadcast(p.token, 'System', `${from} deposited an item.`);
+                    return `Deposited ${describeAuctionItem(JSON.stringify(item))}.`;
+                  },
+                  guildBankWithdraw: (kind, amount) => {
+                    const m = guilds.membership(p.token);
+                    if (!m) return 'You are not in a guild.';
+                    if (!canWithdraw(m.rank)) {
+                      return 'Only officers and the guild leader can withdraw from the bank.';
+                    }
+                    if (kind === 'gold') {
+                      if (amount <= 0) return 'Withdraw how much gold?';
+                      if (!withdrawGold(m.guildId, amount)) {
+                        return 'The guild bank does not have that much gold.';
+                      }
+                      world.mailDeliver(entityId, amount, null); // gold always lands
+                      guildBroadcast(p.token, 'System', `${from} withdrew ${amount}g.`);
+                      return `Withdrew ${amount}g.`;
+                    }
+                    // item: amount = the bank row id (from /guild bank)
+                    const item = takeBankItem(m.guildId, amount);
+                    if (!item) return 'No item with that id in the guild bank.';
+                    const r = world.mailDeliver(entityId, 0, item);
+                    if (!r.ok) {
+                      addBankItem(m.guildId, item); // bag full — return it to the bank
+                      return 'Your bag is full.';
+                    }
+                    guildBroadcast(p.token, 'System', `${from} withdrew an item.`);
+                    return `Withdrew ${describeAuctionItem(JSON.stringify(item))}.`;
                   },
                   mailSend: (toName, gold, uid) =>
                     mailSend(world, entityId, p.token, from, toName, gold, uid),

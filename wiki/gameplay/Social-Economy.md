@@ -24,12 +24,29 @@ member) is promoted to leader.
 - `/guild` or `/guild roster` — show the roster with live online/area presence.
 - `/g <message>` — guild chat (green channel).
 
+#### Guild bank
+
+A shared per-guild vault for gold and items — a reason to bank loot together.
+
+- `/guild bank` — list the vault: its gold and each stored item with a withdraw id.
+- `/guild deposit gold <amount>` / `/guild deposit item <item-uid>` — add to the vault (**any member**).
+- `/guild withdraw gold <amount>` / `/guild withdraw item <bank-id>` — take from the vault
+  (**officers + the leader only** — anti-grief; members can fill it but not drain it).
+- Deposits and withdrawals post a line in guild chat (transparency).
+- Capped at `MAX_BANK_ITEMS` (**100**) items. Item custody reuses the loss-safe mail primitives —
+  a full bank or a full bag hands the item straight back, nothing is destroyed. Withdrawals are
+  server-scoped to the caller's guild (you can't pull another guild's item by guessing an id).
+  Disbanding a guild clears its bank.
+
 ### Key files & data
 
 - `src/server/guild.ts` — the pure, unit-tested `GuildRegistry` over an injected `GuildStore`,
   dealing in opaque persistent owner tokens + display names (mirrors `party.ts` / `social.ts`).
+- `src/server/guild-bank.ts` — the unit-tested bank store + rank policy (`canWithdraw`), backed by
+  the `guild_bank` / `guild_bank_items` tables.
 - `guilds` + `guild_members` tables (new, no migration). Persistence + chat fan-out are wired
-  host-level through `CommandContext` hooks in `src/server/index.ts` (no client panel needed).
+  host-level through `CommandContext` hooks in `src/server/index.ts` (no client panel needed) — the
+  bank hooks combine the registry's rank with the `World` gold/item custody and the bank store.
 
 ## Mail
 

@@ -8,6 +8,24 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Guild bank.** A shared per-guild vault for gold + items. `/guild bank` lists the contents (with
+  withdraw ids), `/guild deposit <gold|item> <amount|uid>` adds to it (any member), and
+  `/guild withdraw <gold|item> <amount|bank-id>` takes from it (**officers + leader only** — anti-grief).
+  Deposits/withdrawals announce in guild chat. Item custody reuses the loss-safe mail primitives (a
+  full bank/bag hands the item straight back), withdrawals are server-scoped to the caller's guild
+  (no draining another guild by id), and disbanding a guild clears its bank. New `guild_bank` /
+  `guild_bank_items` tables; capped at 100 items. (+14 tests.)
+
+### Fixed
+
+- **Boomerang spells now actually return.** A `return`-behavior projectile (e.g. `bone_chakram`) with
+  no `pierce` was consumed by the first enemy it touched and never flew back — `resolveHit` defaulted
+  to consume-on-hit. It now passes through like pierce (per-leg `hitMobs` dedupe + the reverse-at-half-
+  ttl logic still bound its life), so it hits on the way out and the way back. (Found by a parallel
+  combat-review agent; +1 regression test.)
+
+### Added (cont.)
+
 - **In-browser editor — slice 8: play preview, full-world pack, content breadth, hardening.** A broad
   parallel-agent wave:
   - **Embedded play preview** — the map editor's "Play" toggle now opens the live game in an in-editor
@@ -15,7 +33,8 @@ versioning once it stabilizes.
   - **Full-world content pack** — `editor-pack.ts` `exportPack()`/`importPack()` serialize the entire
     content DB to one versioned JSON (backup / portable "load a different game"); dev-gated
     **`GET /editor/pack.json`** (download) + **`POST /editor/pack`** (transactional restore). Export→
-    import→export is stable.
+    import→export is stable. The table editor now has **Backup ⤓** (download) + a **Load pack** control
+    (confirm-gated, since it overwrites the whole world).
   - **Content breadth** — 3 new mount tiers (Fenstride Pony / Ashmane Charger / Voidwake Nightmare);
     6 more tameable beasts + 2 more summonable undead, so pets/summons have real variety.
   - **Security hardening** (from a parallel review): mutating editor routes are now POST-only (405

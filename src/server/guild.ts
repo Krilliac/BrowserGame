@@ -179,6 +179,13 @@ export class GuildRegistry {
     return mine ? this.store.name(mine.guildId) : undefined;
   }
 
+  /** The caller's guild id + rank, or undefined if guildless (for guild-bank gating). */
+  membership(token: string): { guildId: number; rank: GuildRank } | undefined {
+    const mine = this.store.guildOf(token);
+    if (!mine) return undefined;
+    return { guildId: mine.guildId, rank: mine.rank as GuildRank };
+  }
+
   /** Drop any pending invite for a disconnecting player (membership persists in the store). */
   remove(token: string): void {
     this.invites.delete(token);

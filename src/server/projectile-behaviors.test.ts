@@ -58,6 +58,19 @@ describe('resolveHit', () => {
     expect(out.charges.piercesLeft).toBe(0);
   });
 
+  it('does not consume a boomerang (return) projectile on hit, so it can fly back', () => {
+    const behaviors: BehaviorSpec[] = [{ type: 'return', falloff: 0.8 }];
+    const out = resolveHit({
+      ...base,
+      behaviors,
+      charges: initialCharges(behaviors),
+      candidates: [],
+    });
+    // Regression: a chakram with only `return` was consumed on the first mob and never returned.
+    expect(out.consume).toBe(false);
+    expect(out.pierce).toBe(true);
+  });
+
   it('chains to the nearest un-hit mob in range, redirects velocity, applies falloff', () => {
     const behaviors: BehaviorSpec[] = [{ type: 'chain', count: 2, range: 100, falloff: 0.7 }];
     const out = resolveHit({

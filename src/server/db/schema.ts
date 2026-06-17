@@ -582,6 +582,21 @@ CREATE TABLE IF NOT EXISTS guild_members (
 );
 CREATE INDEX IF NOT EXISTS idx_guild_members_guild ON guild_members (guild_id);
 
+-- Guild bank: a shared gold + item vault per guild (one gold row per guild; many item rows). Members
+-- deposit; only officers/leader withdraw (anti-grief — policy lives in guild-bank.ts). Item rows hold
+-- a serialized ItemInstance as JSON; the host moves custody between a player's bag and these rows.
+-- New tables (no migration — CREATE TABLE IF NOT EXISTS runs on every open).
+CREATE TABLE IF NOT EXISTS guild_bank (
+  guild_id INTEGER PRIMARY KEY,
+  gold     INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS guild_bank_items (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  guild_id  INTEGER NOT NULL,
+  item_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_guild_bank_items_guild ON guild_bank_items (guild_id);
+
 -- Game events: timed recurring liveops (TrinityCore GameEventMgr, cut down). Each row is a schedule
 -- (recurs every period_min, active for length_min) with an optional XP bonus + announce line. The
 -- schedule math is pure (game-events.ts); the host applies the active XP bonus + announces on start.

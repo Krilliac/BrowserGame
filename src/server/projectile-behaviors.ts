@@ -150,6 +150,15 @@ export function resolveHit(input: HitInput): HitOutput {
     return out;
   }
 
+  // A boomerang (`return`) projectile must survive enemy contact so it can fly out, reverse, and hit
+  // again on the way back — otherwise it dies on the first mob and never returns. Treat it like
+  // pierce (pass through; per-leg hitMobs dedupe stops re-hits; the World's reverse-at-ttl/2 + ttl
+  // expiry end its life). The caller clears hitMobs on reversal so it can re-hit on the return leg.
+  if (find(input.behaviors, 'return')) {
+    out.pierce = true;
+    out.consume = false;
+  }
+
   return out;
 }
 
