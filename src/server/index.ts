@@ -34,8 +34,12 @@ import { editorWorld, parseEditBody } from './editor.js';
 import { areaToTiled, type TiledMap } from './editor-tiled.js';
 import { importTiled } from './editor-import.js';
 import { EDITOR_HTML } from './editor-page.js';
+import { EDITOR_CANVAS_HTML } from './editor-canvas.js';
 import { tableToCsv } from './editor-csv.js';
 import { auditContent } from './content-audit.js';
+import { areaScene } from './editor-scene.js';
+import { moveEntity } from './editor-place.js';
+import { editorDebugInfo } from './editor-debug.js';
 import {
   isValidToken,
   loadSave,
@@ -1044,10 +1048,70 @@ const http = createServer(async (req, res) => {
     res.end(out);
     return;
   }
-  // The editor UI page itself (the shell carries no secrets; its data calls send the token).
+  // The editor UI pages (shells carry no secrets; their data calls send the token).
   if ((req.url ?? '').split('?')[0] === '/editor') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(EDITOR_HTML);
+    return;
+  }
+  // The canvas map editor — loads an area's scene + lets you drag placeables.
+  if ((req.url ?? '').split('?')[0] === '/editor/map') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(EDITOR_CANVAS_HTML);
+    return;
+  }
+  // Editor scene (GET /editor/scene/<id>.json) + debug (GET /editor/debug.json), dev-gated reads.
+  const scene = /^\/editor\/scene\/([A-Za-z0-9_]+)\.json$/.exec(
+    (req.url ?? '').split('?')[0] ?? '',
+  );
+  if (scene || (req.url ?? '').split('?')[0] === '/editor/debug.json') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    if (scene) {
+      const data = areaScene(scene[1]!);
+      if (!data) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: `unknown area: ${scene[1]}` }));
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(data));
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(editorDebugInfo()));
+    return;
+  }
+  // Editor positional move: POST /editor/place?token=… {table,id,x,y} (dev-gated). The canvas calls
+  // this on drag-drop; content reloads + re-broadcasts so the new placement applies to fresh instances.
+  if ((req.url ?? '').split('?')[0] === '/editor/place') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+      return;
+    }
+    const b = (await readJsonBody(req)) as {
+      table?: unknown;
+      id?: unknown;
+      x?: unknown;
+      y?: unknown;
+    };
+    const table = typeof b?.table === 'string' ? b.table : '';
+    const id = b?.id === undefined || b?.id === null ? '' : String(b.id);
+    if (!table || !id || typeof b?.x !== 'number' || typeof b?.y !== 'number') {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'need {table, id, x:number, y:number}' }));
+      return;
+    }
+    const out = moveEntity(table, id, b.x, b.y);
+    if (out.ok) rebroadcastContent();
+    res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
     return;
   }
   // Editor cell edit: POST /editor/edit?token=… {table,id,column,value} (dev-gated). Validated +

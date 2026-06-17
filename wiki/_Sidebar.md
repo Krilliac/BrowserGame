@@ -34,6 +34,7 @@
 - [Dev Environment](tooling/Dev-Environment.md)
 - [Automation & CI](tooling/Automation.md)
 - [In-Browser Editor](tooling/In-Browser-Editor.md)
+- [Canvas Map Editor](tooling/Map-Editor.md)
 
 ### Research
 

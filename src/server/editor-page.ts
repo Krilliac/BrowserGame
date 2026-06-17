@@ -43,6 +43,7 @@ export const EDITOR_HTML = `<!doctype html>
 <body>
 <header>
   <h1>World Editor</h1>
+  <a href="/editor/map" style="color:#7fc4ff;text-decoration:none">Map editor →</a>
   <input id="token" type="password" placeholder="ENGINE_ADMIN_TOKEN" size="28" />
   <button id="connect">Connect</button>
   <span id="status">Paste your dev token and Connect.</span>

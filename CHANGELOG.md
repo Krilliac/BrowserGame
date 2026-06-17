@@ -8,6 +8,19 @@ versioning once it stabilizes.
 
 ### Added
 
+- **In-browser editor — slice 6: visual canvas map editor.** A 2D top-down map editor at dev-gated
+  **`GET /editor/map`** that loads an area's whole scene and shows every placeable as a layered,
+  color-coded marker — decor/objects, creature spawns, NPCs, portals (area triggers), and the spawn
+  point — with per-layer show/hide, pan, cursor-anchored zoom, click-to-select + inspect/edit, and
+  **drag-to-move** that persists to authored coordinates. Plus a "Play here" button (opens the live
+  game — a first step toward in-editor play; true embedded play/pause is a planned slice). Built as a
+  fan-out of parallel sub-agents on disjoint modules, integrated by the orchestrator:
+  `editor-scene.ts` (`areaScene()` — unified per-area authored-coords scene → `GET
+  /editor/scene/<id>.json`), `editor-place.ts` (`moveEntity()` — positional write over a placeable-
+  table whitelist → `POST /editor/place`), `editor-debug.ts` (`editorDebugInfo()` content snapshot →
+  `GET /editor/debug.json`), and `editor-canvas.ts` (the page). All dev-gated by `ENGINE_ADMIN_TOKEN`;
+  linked from the table editor. (+18 tests.)
+
 - **In-browser editor — slice 5: row create (clone) + delete.** The editor can now add and remove
   content, not just edit cells. `content-edit.ts` gains `cloneRow()` (duplicate a row under a new pk —
   copies every column so the new row is always valid, then tweak cells; auto-id tables assign their

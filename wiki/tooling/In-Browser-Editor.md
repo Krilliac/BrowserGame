@@ -68,6 +68,7 @@ HTML-escaped (XSS-safe), and table/column names come only from the trusted `db/e
 
 ## See also
 
+- [Canvas Map Editor](Map-Editor.md) — the spatial, drag-to-move map view over the same data + gate.
 - [Privileged Engine Mode](../security/Privileged-Engine-Mode.md)
 - [Content Database (SQLite)](../architecture/Content-Database.md)
 - [Content Engine (DB as source of truth)](../architecture/Content-Engine.md)
