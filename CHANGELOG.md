@@ -8,6 +8,21 @@ versioning once it stabilizes.
 
 ### Added
 
+- **In-browser editor — slice 8: play preview, full-world pack, content breadth, hardening.** A broad
+  parallel-agent wave:
+  - **Embedded play preview** — the map editor's "Play" toggle now opens the live game in an in-editor
+    drawer (run around while editing) instead of just a new tab.
+  - **Full-world content pack** — `editor-pack.ts` `exportPack()`/`importPack()` serialize the entire
+    content DB to one versioned JSON (backup / portable "load a different game"); dev-gated
+    **`GET /editor/pack.json`** (download) + **`POST /editor/pack`** (transactional restore). Export→
+    import→export is stable.
+  - **Content breadth** — 3 new mount tiers (Fenstride Pony / Ashmane Charger / Voidwake Nightmare);
+    6 more tameable beasts + 2 more summonable undead, so pets/summons have real variety.
+  - **Security hardening** (from a parallel review): mutating editor routes are now POST-only (405
+    otherwise — CSRF defense), the Tiled import route catches transaction errors into a clean
+    `{ok:false}`, the import is capped at 5000 objects, and the table-editor's `esc()` now escapes
+    `>`/`'` too. (+9 tests.)
+
 - **In-browser editor — slice 7: map-editor add/delete/debug.** The canvas map editor is now a full
   editor: an **Add palette** (Select ↔ Add mode) drops a new decor / creature-spawn / NPC at the
   clicked authored point (kind/template chosen from a dropdown) via `editor-create.ts`'s

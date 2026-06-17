@@ -13,8 +13,10 @@
  * script avoids backticks and ${} so it nests cleanly inside this TS template literal, and uses plain
  * ES5-ish functions (no optional chaining) to stay robust.
  *
- * NOTE: the "Play here" button just opens the live game in a new tab as a first step toward in-editor
- * play. True embedded play/pause (an iframe'd client wired to the edited area) is a later slice.
+ * NOTE: the "Play" toggle embeds the live game client in an <iframe src="/"> docked as a bottom
+ * drawer beside the map, so a dev can run around in the live game without leaving the editor. A
+ * fallback "open in new tab" link is kept for when an iframe is undesirable. True play/pause/stop of
+ * a local sim wired to the edited area (vs. just embedding the shared live client) is a later slice.
  */
 export const EDITOR_CANVAS_HTML = `<!doctype html>
 <html lang="en">
@@ -81,6 +83,20 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   details.dbg .auditlist li { padding: 2px 0; border-bottom: 1px solid #232733; }
   details.dbg .auditlist .sev-error { color: #e0707a; }
   details.dbg .auditlist .sev-warn { color: #e7d9b0; }
+  /* Embedded play preview: a bottom drawer docked under the map, hidden until toggled. */
+  #stage { display: flex; flex-direction: column; }
+  /* Canvas + preview drawer stack vertically; the canvas flexes to fill the space the drawer leaves.
+     width/height:auto overrides the base 100% so flex-basis governs the canvas box. */
+  #stage > #cv { flex: 1 1 auto; min-height: 0; width: auto; height: auto; }
+  #preview { flex: 0 0 40%; min-height: 0; display: none; flex-direction: column;
+    border-top: 2px solid #2f6f44; background: #0d0f14; }
+  #preview.on { display: flex; }
+  #preview .pvbar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: #1b1e27;
+    border-bottom: 1px solid #2a2e3a; flex: 0 0 auto; }
+  #preview .pvbar .pvnote { color: #7d828c; font-size: 12px; flex: 1 1 auto; }
+  #preview .pvbar a { color: #9fb0c0; font-size: 12px; }
+  #preview iframe { flex: 1 1 auto; width: 100%; height: 100%; border: 0; min-height: 0; background: #0d0f14; }
+  #play.active { background: #2f6f44; border-color: #6fd58a; color: #eafff0; }
 </style>
 </head>
 <body>
@@ -90,7 +106,7 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   <input id="token" type="password" placeholder="ENGINE_ADMIN_TOKEN" size="24" />
   <button id="connect">Connect</button>
   <select id="areaSel"><option value="">— pick an area —</option></select>
-  <button id="play" title="Open the live game in a new tab">Play here</button>
+  <button id="play" title="Toggle an embedded live-game preview">Play</button>
   <button id="auditBtn" title="Run a content integrity audit">Audit</button>
   <span id="status">Paste your dev token and Connect.</span>
 </header>
@@ -122,6 +138,15 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
         </div>
         <div class="hint">Click the map to place.</div>
       </div>
+    </div>
+    <div id="preview">
+      <div class="pvbar">
+        <span class="pvnote" id="pvnote"></span>
+        <a id="pvNewTab" href="#">open in new tab &#8599;</a>
+      </div>
+      <!-- The live game client is served at the site root ("/") by Vite in dev / the node server in
+           prod, so the iframe just points there. The iframe is created on first toggle (lazy) so the
+           editor does not boot a game session until the dev actually wants one. -->
     </div>
   </div>
   <aside>
@@ -155,6 +180,10 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   var addTypeEl = document.getElementById('addType');
   var addKindEl = document.getElementById('addKind');
   var dbgContentEl = document.getElementById('dbgContent');
+  var playBtn = document.getElementById('play');
+  var previewEl = document.getElementById('preview');
+  var pvNoteEl = document.getElementById('pvnote');
+  var pvNewTabEl = document.getElementById('pvNewTab');
   tokenEl.value = localStorage.getItem('ed5_token') || '';
 
   // ---- state -------------------------------------------------------------
@@ -314,8 +343,10 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
 
   // ---- view transform ----------------------------------------------------
   function resizeCanvas() {
-    // Match the backing store to the displayed CSS size for crisp drawing.
-    var w = stage.clientWidth, h = stage.clientHeight;
+    // Match the backing store to the canvas's own displayed CSS box for crisp drawing. We measure the
+    // canvas (not #stage) because #stage may also contain the play-preview drawer, which takes part of
+    // the stage's height; the canvas flexes to fill whatever is left.
+    var w = cv.clientWidth, h = cv.clientHeight;
     if (w < 1) w = 1; if (h < 1) h = 1;
     cv.width = w; cv.height = h;
   }
@@ -697,9 +728,47 @@ export const EDITOR_CANVAS_HTML = `<!doctype html>
   document.getElementById('auditBtn').addEventListener('click', runAudit);
   document.getElementById('dbgRefresh').addEventListener('click', refreshDebug);
   areaSel.addEventListener('change', function () { loadScene(areaSel.value); });
-  // "Play here": opens the live game in a new tab. True embedded play/pause (an iframe'd client wired
-  // to this area, with edit<->play toggle) is a later slice — this is the first step toward it.
-  document.getElementById('play').addEventListener('click', function () { window.open('/', '_blank'); });
+  // ---- embedded play preview --------------------------------------------
+  // "Play" toggles a bottom drawer that embeds the live game client (served at "/") in an iframe, so a
+  // dev can run around in the live game beside the map. The iframe is created lazily on first open so
+  // no game session boots until wanted; on close we leave it in place (a closed drawer is just hidden).
+  // FUTURE SLICE: true play/pause/stop of a LOCAL sim wired to the area being edited (vs. embedding the
+  // shared live client) — including spinning the edited area into a throwaway instance — is not done
+  // here. Today the iframe is the same live game everyone else plays; structural edits show up only on
+  // newly created instances, so a reload is needed to see them.
+  var previewBuilt = false;
+  function ensurePreviewIframe() {
+    if (previewBuilt) return;
+    var note = 'Live game — edits you make in the map apply to newly created instances; ' +
+      'reload the game to see structural changes.';
+    pvNoteEl.textContent = note; // textContent, not innerHTML — no markup, safe by construction.
+    var frame = document.createElement('iframe');
+    frame.id = 'pvFrame';
+    frame.setAttribute('src', '/');
+    frame.setAttribute('title', 'Live game preview');
+    // Allow the embedded client to be interactive (pointer/keyboard) and use audio/fullscreen.
+    frame.setAttribute('allow', 'autoplay; fullscreen; gamepad');
+    previewEl.appendChild(frame);
+    previewBuilt = true;
+  }
+  function togglePreview() {
+    var on = !previewEl.classList.contains('on');
+    if (on) {
+      ensurePreviewIframe();
+      previewEl.classList.add('on');
+      playBtn.classList.add('active');
+    } else {
+      previewEl.classList.remove('on');
+      playBtn.classList.remove('active');
+    }
+    // The map canvas shares vertical space with the drawer, so re-fit its backing store either way.
+    resizeCanvas();
+    if (scene) view.scale = view.fit * view.zoom;
+    draw();
+  }
+  playBtn.addEventListener('click', togglePreview);
+  // Fallback for when an embedded iframe is undesirable: open the live game in a new tab.
+  pvNewTabEl.addEventListener('click', function (ev) { ev.preventDefault(); window.open('/', '_blank'); });
 
   window.addEventListener('resize', function () {
     if (scene) {

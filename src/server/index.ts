@@ -40,6 +40,7 @@ import { auditContent } from './content-audit.js';
 import { areaScene } from './editor-scene.js';
 import { moveEntity } from './editor-place.js';
 import { createEntity } from './editor-create.js';
+import { exportPack, importPackToDb } from './editor-pack.js';
 import { editorDebugInfo } from './editor-debug.js';
 import {
   isValidToken,
@@ -998,6 +999,54 @@ const http = createServer(async (req, res) => {
     );
     return;
   }
+  // Editor mutating routes are POST-only (SEC-001: reject GET/other verbs so a token-in-URL can't
+  // drive a write via a plain navigation/img — defense-in-depth even on localhost). The .tmj route
+  // is dual GET(export)/POST(import) and self-branches on method, so it's excluded here.
+  {
+    const ep = (req.url ?? '').split('?')[0];
+    const POST_ONLY = new Set([
+      '/editor/edit',
+      '/editor/clone',
+      '/editor/delete',
+      '/editor/place',
+      '/editor/create',
+      '/editor/pack',
+    ]);
+    if (POST_ONLY.has(ep ?? '') && req.method !== 'POST') {
+      res.writeHead(405, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'method not allowed (POST only)' }));
+      return;
+    }
+  }
+  // Full-world content pack: GET /editor/pack.json (download a backup / portable copy of the whole
+  // game) + POST /editor/pack (restore/load a pack — transactional). Both dev-gated.
+  if ((req.url ?? '').split('?')[0] === '/editor/pack.json') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden: set ENGINE_ADMIN_TOKEN and pass ?token=' }));
+      return;
+    }
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'content-disposition': 'attachment; filename="world-pack.json"',
+    });
+    res.end(JSON.stringify(exportPack()));
+    return;
+  }
+  if ((req.url ?? '').split('?')[0] === '/editor/pack') {
+    const token = new URL(req.url ?? '', 'http://localhost').searchParams.get('token') ?? '';
+    if (ENGINE_ADMIN_TOKEN === '' || token !== ENGINE_ADMIN_TOKEN) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, message: 'forbidden: set ENGINE_ADMIN_TOKEN' }));
+      return;
+    }
+    const out = importPackToDb(await readJsonBody(req));
+    if (out.ok) rebroadcastContent();
+    res.writeHead(out.ok ? 200 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(out));
+    return;
+  }
   // Editor world export (slice 1 of the in-browser editor): the full data-driven content model as
   // JSON — the source an editor UI loads and an exporter walks toward other engines. Dev-gated by the
   // ENGINE_ADMIN_TOKEN (same gate as the engine panel) so it never leaks on a normal player path; if
@@ -1215,7 +1264,14 @@ const http = createServer(async (req, res) => {
         res.end(JSON.stringify({ error: 'bad or oversized JSON body' }));
         return;
       }
-      const result = importTiled(body as TiledMap);
+      // SEC-003: a bad map can throw inside the import transaction (FK/constraint); catch it so the
+      // route returns a friendly {ok:false} like the sibling editor routes (the txn rolls back).
+      let result: { ok: boolean; message: string };
+      try {
+        result = importTiled(body as TiledMap);
+      } catch (e) {
+        result = { ok: false, message: `Import failed: ${(e as Error).message}` };
+      }
       if (result.ok) rebroadcastContent(); // reload + re-skin connected clients
       res.writeHead(result.ok ? 200 : 400, { 'content-type': 'application/json' });
       res.end(JSON.stringify(result));

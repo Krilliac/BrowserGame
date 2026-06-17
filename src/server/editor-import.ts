@@ -126,6 +126,14 @@ export function applyTiledImport(
   if (!parsed) return { ok: false, message: 'Not a valid Tiled map (missing areaId).' };
   const { areaId } = parsed;
 
+  // SEC-004: bound the total placeables an import can write, so a crafted 8MB map can't balloon one
+  // area into tens of thousands of rows (a full content reload + re-broadcast runs after).
+  const MAX_PLACEABLES = 5000;
+  const total = parsed.decor.length + parsed.spawns.length + parsed.npcs.length;
+  if (total > MAX_PLACEABLES) {
+    return { ok: false, message: `Too many objects (${total} > ${MAX_PLACEABLES}).` };
+  }
+
   const knownTemplate = db.prepare('SELECT 1 FROM mob_templates WHERE id = ?');
   const validSpawns = parsed.spawns.filter((s) => knownTemplate.get(s.templateId));
 

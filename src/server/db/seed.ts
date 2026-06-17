@@ -360,6 +360,7 @@ export function seed(db: Database): void {
   ensureWeatherModifiers(db); // per-WeatherKind gameplay multipliers (seeded from code defaults)
   ensureEliteModifiers(db); // champion stat-modifier roster (seeded from code defaults)
   ensureMounts(db); // mount roster (owned travel-speed boosts) seeded from code defaults
+  ensureMobFlags(db); // backfill tameable/summonable flags onto existing beast/undead templates
   ensureAreaPvp(db); // per-area PvP rules (only non-safe areas; everything else defaults safe)
   ensureAbilityStatusEffects(db); // per-ability on-hit slow/burn/weaken (seeded from code defaults)
   ensureAbilityCastBuffs(db); // per-ability self-buff on cast (seeded from code defaults)
@@ -415,6 +416,41 @@ function ensureMounts(db: Database): void {
     'INSERT OR IGNORE INTO mounts (id,name,speed_mult,price) VALUES (?,?,?,?)',
   );
   for (const m of DEFAULT_MOUNTS) ins.run(m.id, m.name, m.speedMult, m.price);
+}
+
+/**
+ * Content breadth for the pet/summon systems: flag more existing templates as `tameable` (wild beasts
+ * a player can capture as a pet) or `summonable` (undead/constructs a necromancer can raise). The pet
+ * and summon systems read ONLY these flags, so adding variety is pure content — no new templates, no
+ * new wiring. Tasteful + lore-fitting: beasts (wolves/bears/hounds/boars/wargs) tame; risen dead and
+ * animated graveborn constructs raise. Bosses, casters, humanoids, and named uniques are left alone.
+ *
+ * Idempotent and edit-preserving: only promotes a flag from 0→1, so a designer who clears a flag in
+ * the DB keeps it cleared. The flags otherwise seed straight from the template (see ensureWorldExpansion
+ * / seedMobs); this backfills templates whose code default predates the wider roster.
+ */
+function ensureMobFlags(db: Database): void {
+  // Wild beasts that make believable pets — pack-hunters and bruisers across the act ladder.
+  const TAMEABLE: string[] = [
+    'frost_wolf', // an icy cousin of the gloom wolf
+    'plague_hound', // a crypt-bred hound
+    'shadowmaw_bear', // the wilderness bruiser
+    'gnarlfang_lycan', // a sprinting pack-hunter
+    'barrens_warg', // pack-hunter of the pines
+    'ash_dire_wolf', // a dune pack-hunter
+  ];
+  // Risen dead / animated graveborn — fitting raise-targets for the necromancer line.
+  const SUMMONABLE: string[] = [
+    'rot_ghoul', // shambling risen dead
+    'grave_golem', // a graveborn animated construct
+  ];
+
+  const tame = db.prepare('UPDATE mob_templates SET tameable = 1 WHERE id = ? AND tameable = 0');
+  for (const id of TAMEABLE) tame.run(id);
+  const summon = db.prepare(
+    'UPDATE mob_templates SET summonable = 1 WHERE id = ? AND summonable = 0',
+  );
+  for (const id of SUMMONABLE) summon.run(id);
 }
 
 /** Seed the PvP-enabled areas (everything else stays 'safe'). Endgame zones are opt-in contested. */
