@@ -8,6 +8,11 @@ versioning once it stabilizes.
 
 ### Added
 
+- **Beastmaster achievements.** A new lifetime `petsEvolved` stat (pets brought to full evolution)
+  drives two achievements — **Beastmaster** (evolve 1) and **Packlord** (evolve 5) — closing the
+  taming → bonding → evolution loop with a reward. The stat persists on the save and ticks up the
+  instant a pet hits its final bond. (+8 tests.)
+
 - **Guild progression.** Guilds now level up from the kills their members score (member kills feed
   guild XP via the World's new kill hook, scaled by the slain monster's level). Each `GUILD_XP_PER_LEVEL`
   (500) is a guild level (capped at 20), announced in guild chat; the perk is a **larger guild bank**

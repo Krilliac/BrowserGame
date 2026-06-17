@@ -534,6 +534,8 @@ interface Player {
   kills: number;
   /** Lifetime boss-tier kills (hp >= 200; persisted) — drives the boss-slayer achievements. */
   bossKills: number;
+  /** Lifetime count of pets brought to full evolution (persisted) — drives the beastmaster line. */
+  petsEvolved: number;
   /** Distinct monster template ids this character has killed — the bestiary (persisted). */
   bestiary: Set<string>;
   /** Kills since the last death — the current deathless streak (reset to 0 on death; persisted). */
@@ -606,6 +608,8 @@ export interface PlayerSave {
   kills?: number;
   /** Lifetime boss-tier kills (absent on old saves — defaults to 0). */
   bossKills?: number;
+  /** Lifetime fully-evolved pets (absent on old saves — defaults to 0). */
+  petsEvolved?: number;
   /** Distinct monster template ids killed — the bestiary (absent on old saves — defaults to empty). */
   bestiary?: string[];
   /** Current deathless streak (kills since last death; absent on old saves — defaults to 0). */
@@ -1630,12 +1634,13 @@ export class World {
     pet.tier = newTier;
     this.refreshPetStats(owner);
     const name = getContent().mobTemplate(pet.templateId)?.name ?? 'pet';
-    this.notify(
-      owner.id,
-      newTier >= PET_MAX_TIER
-        ? `Your ${name} has EVOLVED — fully bonded and far mightier!`
-        : `Your ${name} reached bond level ${newTier}.`,
-    );
+    if (newTier >= PET_MAX_TIER) {
+      owner.petsEvolved += 1; // lifetime tally — drives the beastmaster achievements
+      this.notify(owner.id, `Your ${name} has EVOLVED — fully bonded and far mightier!`);
+      this.checkAchievements(owner);
+    } else {
+      this.notify(owner.id, `Your ${name} reached bond level ${newTier}.`);
+    }
   }
 
   /** Recompute the live persistent pet's stats for the owner's current level + bond tier. Grants the
@@ -2869,6 +2874,7 @@ export class World {
       earnedAchievements: new Set(),
       kills: 0,
       bossKills: 0,
+      petsEvolved: 0,
       bestiary: new Set(),
       deathlessStreak: 0,
       bestDeathlessStreak: 0,
@@ -2918,6 +2924,7 @@ export class World {
       earnedAchievements: [...p.earnedAchievements],
       kills: p.kills,
       bossKills: p.bossKills,
+      petsEvolved: p.petsEvolved,
       bestiary: [...p.bestiary],
       deathlessStreak: p.deathlessStreak,
       bestDeathlessStreak: p.bestDeathlessStreak,
@@ -2972,6 +2979,7 @@ export class World {
     p.earnedAchievements = new Set(save.earnedAchievements ?? []);
     p.kills = save.kills ?? 0;
     p.bossKills = save.bossKills ?? 0;
+    p.petsEvolved = save.petsEvolved ?? 0;
     p.bestiary = new Set(save.bestiary ?? []);
     p.deathlessStreak = save.deathlessStreak ?? 0;
     // Old saves without a record default it to the current streak so the ladder isn't under-counted.
@@ -5037,6 +5045,7 @@ export class World {
         gold: player.gold,
         kills: player.kills,
         bossKills: player.bossKills,
+        petsEvolved: player.petsEvolved,
         bestiary: player.bestiary.size,
         deathless: player.deathlessStreak,
         quests: player.questsDone.size,
@@ -5058,6 +5067,7 @@ export class World {
       gold: p.gold,
       kills: p.kills,
       bossKills: p.bossKills,
+      petsEvolved: p.petsEvolved,
       bestiary: p.bestiary.size,
       deathless: p.deathlessStreak,
       quests: p.questsDone.size,

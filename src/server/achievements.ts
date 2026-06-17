@@ -17,6 +17,7 @@ export type AchievementMetric =
   | 'gold'
   | 'kills'
   | 'bossKills'
+  | 'petsEvolved'
   | 'bestiary'
   | 'deathless'
   | 'quests';
@@ -167,6 +168,21 @@ export const DEFAULT_ACHIEVEMENTS: readonly AchievementDef[] = [
     desc: 'Slay 30 different kinds of monster.',
     metric: 'bestiary',
     threshold: 30,
+  },
+  // Beastmaster tiers — pets brought to full evolution (bond their tamed companions to the max).
+  {
+    id: 'pets_beastmaster',
+    name: 'Beastmaster',
+    desc: 'Evolve a tamed pet to its final bond.',
+    metric: 'petsEvolved',
+    threshold: 1,
+  },
+  {
+    id: 'pets_packlord',
+    name: 'Packlord',
+    desc: 'Evolve 5 pets to their final bond.',
+    metric: 'petsEvolved',
+    threshold: 5,
   },
   // Quest tiers — non-repeatable quests completed (the world's story/bounty board).
   {

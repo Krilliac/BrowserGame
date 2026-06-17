@@ -88,4 +88,41 @@ describe('pets — bonding levels & evolution', () => {
     // The evolved tier is surfaced in the snapshot so the client draws the evolved flourish.
     expect(b.snapshot().find((e) => e.kind === 'mob' && e.friendly)!.petTier).toBe(5);
   });
+
+  it('evolving a pet tallies petsEvolved and unlocks the Beastmaster achievement', () => {
+    // Borrow a valid save, then put its pet one kill short of evolution (avoids grinding 300 kills).
+    const seed = tamed();
+    const save = seed.w.exportPlayer(seed.id)!;
+    save.pet = { templateId: 'wolf', xp: 5 * 60 - 1, tier: 4 }; // 299 xp, tier 4 — on the brink
+
+    const area = getContent().area('wilderness')!;
+    const w = new World(
+      area.width,
+      area.height,
+      area.spawn,
+      undefined,
+      'wilderness',
+      undefined,
+      0,
+      1,
+    );
+    const id = w.spawn('Evolver');
+    const me = w.playerStats(id)!;
+    w.importPlayer(id, save, me.x, me.y);
+    expect(w.exportPlayer(id)!.petsEvolved ?? 0).toBe(0);
+
+    // One shared kill tips the pet from tier 4 to tier 5 (evolution).
+    w.spawnMobAt(id, 'bat');
+    const bat = w.snapshot().find((e) => e.kind === 'mob' && !e.friendly)!;
+    w.teleportMob(bat.id, w.playerStats(id)!.x, w.playerStats(id)!.y);
+    w.setMobHp(bat.id, 1);
+    for (let t = 0; t < 160; t++) w.tick(0.05);
+
+    const after = w.exportPlayer(id)!;
+    expect(after.pet!.tier).toBe(5);
+    expect(after.petsEvolved).toBe(1);
+    expect(
+      w.achievementStatus(id).some((l) => l.includes('Beastmaster') && l.startsWith('✓')),
+    ).toBe(true);
+  });
 });
